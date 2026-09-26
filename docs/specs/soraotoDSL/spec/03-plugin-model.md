@@ -1870,6 +1870,198 @@ Factory preset list may add display metadata dynamically, but factory preset IDs
 
 ---
 
+## 24.11 Plugin Interface Source (`soraoto.interface`)
+
+A WASM Plugin MAY contain at most one custom section named:
+
+```text
+soraoto.interface
+```
+
+Its payload is normalized UTF-8 soraotoDSL Plugin Interface Source. It is authoring/inspection
+metadata and MUST NOT be read from the realtime audio thread.
+
+The mandatory `soraoto.plugin.v1` custom section remains the runtime discovery descriptor and
+contains Deterministic-CBOR(`PluginDescriptorV1`). `soraoto.interface` does not change Plugin ABI
+major/minor negotiation and never replaces `soraoto.plugin.v1`.
+
+When both sections exist, a conforming build/validation tool MUST compile the interface source and
+verify semantic equivalence for every overlapping `PluginDescriptorV1` field. Mismatch is a Plugin
+validation error. Runtime Hosts MAY ignore `soraoto.interface` after validation.
+
+Canonical authoring flow:
+
+```text
+interface.soraoto
+    -> interface parser/type checker
+    -> PluginDescriptorV1
+    -> soraoto.plugin.v1
+    -> embed normalized interface source as soraoto.interface
+```
+
+### 24.11.1 Source normalization
+
+Before embedding:
+
+```text
+UTF-8
+no BOM
+Unicode NFC
+LF line endings
+final LF required
+```
+
+The custom-section payload is exactly the normalized bytes with no NUL terminator.
+
+### 24.11.2 Restricted interface language
+
+The interface source is declarative and MUST NOT contain Project/timeline execution constructs.
+
+Permitted declarations include:
+
+```text
+plugin interface
+enum
+struct
+type alias
+resource type
+parameter
+audio bus
+event bus
+factory preset metadata
+unit/program metadata
+```
+
+Forbidden constructs include:
+
+```text
+project
+track
+notes
+drums
+lyrics
+pattern
+macro
+fn bodies
+component invocation
+filesystem/network I/O
+runtime evaluation
+random
+```
+
+A conforming parser rejects executable constructs rather than silently ignoring them.
+
+### 24.11.3 Plugin interface declaration
+
+Canonical form:
+
+```text
+plugin interface Name {
+    abi: "1.0"
+    id: "reverse.dns.plugin-id"
+    name: "Display Name"
+    version: "1.2.3"
+    kind: instrument
+
+    audio {
+        output main: AudioStereo
+    }
+
+    events {
+        input notes: "soraoto-note-v1"
+    }
+
+    parameter cutoff: Hz {
+        id: 10
+        default: 2.5khz
+        range: 20hz..20khz
+        scale: logarithmic
+        automation: sample_accurate
+        modulation: audio
+        smoothing: 3ms
+    }
+}
+```
+
+The declaration is compile-time metadata only.
+
+### 24.11.4 Parameter declarations
+
+```text
+parameter <semantic-path>: <Type> {
+    id: UInt32
+    default: <typed value>
+    range: <typed min>..<typed max>?
+    scale: linear | logarithmic
+    automation: none | sample_accurate
+    modulation: none | control | audio
+    smoothing: Time?
+    read_only: Bool?
+    hidden: Bool?
+    function: String?
+}
+```
+
+Rules:
+
+- `semantic-path` maps to stable `ParameterDescriptor.path`.
+- `id` is the Plugin-local ABI lookup key and is not persistent Project identity.
+- `default` and `range` use normal soraotoDSL type/unit checking.
+- `automation: sample_accurate` permits `SoraotoParameterPointV1` changes at sample offsets.
+- `modulation: audio` is independent of automation and permits audio-rate modulation.
+- `smoothing` is optional Plugin-side dezippering metadata and MUST NOT override explicit
+  sample-accurate points.
+- Int/Bool/Enum parameters MUST NOT declare audio-rate modulation.
+- Interface `automation` lowers to `ParameterDescriptor.automation`.
+- Interface `modulation` lowers to `ParameterDescriptor.modulation`.
+
+### 24.11.5 Interface types
+
+The restricted language reuses soraotoDSL scalar/unit types and may expose resource handles:
+
+```text
+Int Float Bool String Norm
+Hz Db Time Bpm Semitone Cent Pan Width
+Enum<T>
+WavetableRef SampleRef MultisampleRef ImpulseResponseRef BlobRef
+```
+
+Resource values are resolved before realtime processing. The realtime path carries numeric IDs,
+numeric values, or pre-resolved handles; realtime path/string lookup is forbidden.
+
+### 24.11.6 Compiler binding
+
+A compiler MAY inspect `soraoto.interface` for diagnostics, completion, and documentation, but final
+runtime compatibility MUST be checked against `soraoto.plugin.v1`.
+
+Before Resolved Project IR/realtime binding, semantic parameter paths are resolved to numeric
+`parameter_id` values. Realtime processing MUST NOT perform string lookup.
+
+### 24.11.7 Validation
+
+If `soraoto.interface` is present, the Plugin binary validator checks:
+
+```text
+section count <= 1
+valid UTF-8
+normalized source form
+restricted grammar only
+unique parameter IDs
+unique parameter paths
+typed defaults/ranges
+valid Enum defaults
+no audio-rate modulation on discrete parameter types
+semantic equivalence with overlapping soraoto.plugin.v1 fields
+```
+
+The section MAY be stripped for production only when equivalent `soraoto.plugin.v1` runtime
+metadata remains. Source-inspection tooling SHOULD preserve it.
+
+### 24.11.8 Realtime ABI boundary
+
+This section adds no realtime struct, export, import, event kind, or binary parameter
+representation. Plugin ABI remains 1.0.
+
 # 25. Audio bus / channel layout
 
 ## 25.1 AudioBusDescriptor

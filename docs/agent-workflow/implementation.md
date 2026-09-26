@@ -14,7 +14,7 @@ Before editing:
 ## Implementation rules
 
 - Implement only the approved scope and keep the diff focused.
-- For public DSL or ABI behavior, update the owning split normative module and the generated `soraotoDSL-full.md` snapshot; update affected conformance tests.
+- For public DSL or ABI behavior, update the owning split normative module and affected conformance tests. The split modules are the only normative source; do not generate a full snapshot.
 - For internal or implementation-only changes, do not change normative behavior to match a bug. Update tests for changed behavior and relevant regressions.
 - Keep generated artifacts intentional. Do not commit build products from `build/wasm/` or `web-player/dist/` unless the approved scope specifically requires them.
 - If a new material requirement or architecture decision appears, stop and return to requirements/design.
@@ -25,7 +25,7 @@ Select the checks that cover the changed area and the Issue's acceptance criteri
 
 | Change | Verification |
 |---|---|
-| Normative specification | Follow the `Maintenance` section of `docs/specs/soraotoDSL/soraotoDSL.md`. It names `tools/validate-spec.py` and `tools/build-full.py`, but neither script is present in this checkout. Confirm the scripts are available before relying on them; otherwise report validation/generation as `NOT RUN` and resolve the missing tooling before claiming the spec change is complete. |
+| Normative specification | Update the owning split module and relevant conformance coverage; check internal Markdown links and paths. Run a repository spec validator only if it exists in the checkout. No full snapshot generation is required. |
 | Web Player behavior | From `web-player/`, run `rtk npm test`. Use `rtk npm run build` when the change affects the production build. |
 | WASM/plugin behavior | From the repository root, configure with `rtk cmake -S wasm -B build/wasm -DCMAKE_TOOLCHAIN_FILE="$PWD/wasm/cmake/wasm32-clang.cmake"`, build with `rtk cmake --build build/wasm`, and run `rtk ctest --test-dir build/wasm --output-on-failure`. |
 | Documentation-only change | Check links, paths, commands, and scope in the diff. Do not run an unrelated build or test suite. |

@@ -13,7 +13,8 @@ compile-time Component・realtime/offline WASM Plugin を同一Project IRへ統�
 ## Source of truth
 
 通常の編集・参照ではこのrootと `spec/*.md` を使用する。
-`soraotoDSL-full.md` は `tools/build-full.py` で分割仕様から生成する全文snapshot。
+このrootと `spec/*.md` が完全なauthoritative normative sourceであり、意味論の編集は
+担当するsplit moduleへ行う。統合snapshotは管理しない。
 
 Semantic ownershipは§60.0に従う。
 同じ型signature/schema/意味論を複数のnormative章で再定義しない。
@@ -24,7 +25,7 @@ Semantic ownershipは§60.0に従う。
 |---|---|---|
 | `spec/01-language.md` | Core DSL / Harmony / Fragment / Pattern / Macro / grammar | §4–19, §55, §62 |
 | `spec/02-component.md` | JS/WASM compile-time Component | §20–21 |
-| `spec/03-plugin-model.md` | Plugin package / descriptor / control / parameter / lifecycle | §22–28 |
+| `spec/03-plugin-model.md` | Plugin package / descriptor / control / parameter / lifecycle / Plugin Interface Source (`soraoto.interface`) | §22–28 |
 | `spec/04-realtime-abi.md` | realtime ABI / vocal events / Deterministic CBOR | §29, §61 |
 | `spec/05-plugin-services.md` | state / adapters / compatibility / consistency registry | §30–31, §49–50, §59–60 |
 | `spec/06-project-audio.md` | Project / routing / automation / rendering / DSP | §32–34, §41–48, §51–54, §64–65 |
@@ -35,12 +36,8 @@ Semantic ownershipは§60.0に従う。
 
 ## Maintenance
 
-```text
-python tools/validate-spec.py
-python tools/build-full.py
-```
-
-validatorが失敗する状態はnormative specとしてcommitしない。
+関連するconformance sectionと内部Markdown link/pathを確認する。repository内にspec validatorが
+存在する場合のみ実行する。不存在のtoolをあるものとして前提にせず、統合snapshotも生成しない。
 
 ## Normative priority
 
