@@ -11,6 +11,8 @@ Before editing:
 3. For a new source branch, use `codex/issue-<number>-<short-description>`; keep documentation-only work similarly scoped. Do not reset, clean, or overwrite unrelated work.
 4. Move the Issue from `phase:ready` to `phase:implementation`.
 
+For contract-driven work, implement only the approved design and preserve explicitly fixed identities, compatibility boundaries, and artifact restrictions. Reconfirm required external inputs before dependent work; report dependent acceptance checks as `BLOCKED` while an input is unavailable.
+
 ## Implementation rules
 
 - Implement only the approved scope and keep the diff focused.

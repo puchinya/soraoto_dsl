@@ -130,7 +130,7 @@ def parse_interface(path):
     params.sort(key=lambda p:p['id'])
     return src,{
         'abi_major':1,'abi_minor':0,'id':root_text('id'),'vendor':root_text('vendor','soraotoDSL'),
-        'name':root_text('name','SuperSynth v8'),'version':root_text('version','8.0.0'),'kinds':kinds,
+        'name':root_text('name','SuperSynth v9'),'version':root_text('version','9.0.0'),'kinds':kinds,
         'parameters':params,
     }
 
@@ -299,6 +299,6 @@ def build():
     write_if_changed(GEN/'super-synth_descriptor.h',h)
     write_if_changed(GEN/'super-synth_descriptor.cbor',db)
     write_if_changed(GEN/'super-synth_interface.soraoto',interface_src)
-    print('super-synth-v8',len(model['parameters']),len(presets),'descriptor generated')
+    print('super-synth-v9',len(model['parameters']),len(presets),'descriptor generated')
 
 if __name__=='__main__':build()

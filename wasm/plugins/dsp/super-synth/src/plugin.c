@@ -3,7 +3,7 @@
 #endif
 
 /*
- * SuperSynth v8 reference DSP for soraotoDSL.
+ * SuperSynth v9 reference DSP for soraotoDSL.
  * Freestanding WebAssembly build, no libc/libm, no allocation in process().
  *
  * Design goals:
@@ -697,7 +697,10 @@ static float grand_strings_step(Voice* q,float hammer,float rate,float* bridge_o
 
     /* Equal-impedance hammer junction.  Incoming energy crosses to the opposite
        segment; contact force launches waves in both directions. */
-    float inj=hammer*(.0105f+.0105f*(1.0f-key))*imp[st]/(.78f+.22f*(float)count);
+    /* The old launch scale left the modeled string roughly 20 dB below the
+       recorded reference after the shared output stage. Calibrate wave energy
+       at the hammer junction so the bridge and string paths retain headroom. */
+    float inj=hammer*(.032f+.032f*(1.0f-key))*imp[st]/(.78f+.22f*(float)count);
     float out_a=softclip((in_b+inj)*1.0004f);
     float out_b=softclip((in_a+inj)*1.0004f);
 
@@ -1308,11 +1311,14 @@ static void render_voice_step(Voice* q,float lfo1,float lfo2,float rate,float* l
       vel_noise += bass_hammer*.30f*mid_vel*mid_vel*mid_vel;
       float bass_noise=1.0f+bass_hammer*(2.2f+3.0f*mid_vel);
       float felt_noise=(white-q->physical_aux)*g_params[P_PIANO_HAMMER_NOISE]*hard*(.004f+.030f*hard)*compression*(.10f+.90f*vel_noise)*bass_noise;
-      float vcurve=vel*(1.30f-.30f*vel);
+      /* Keep the softest SFZ layers audible across the short upper-string
+         round trips while retaining a monotonic velocity response. */
+      float vcurve=.72f+.28f*vel;
       float micro_gate=t<.40f?(1.0f-t/.40f):0.0f;
       float micro_hp=white-q->physical_aux;
       q->res2+=.18f*(micro_hp-q->res2);
-      float micro=q->res2*g_params[P_PIANO_HAMMER_NOISE]*hard*vel_noise*micro_gate*25.0f*bass_noise;
+      /* Contact noise follows hammer travel so it cannot excite the string before the strike. */
+      float micro=q->res2*g_params[P_PIANO_HAMMER_NOISE]*hard*vel_noise*micro_gate*clampf(hammer_path,0.0f,1.0f)*25.0f*bass_noise;
       float force=(felt_force+felt_noise+micro)*(.075f+.925f*vcurve);
       float bridge=0.0f,string=grand_strings_step(q,force,rate,&bridge);
 
@@ -1321,14 +1327,16 @@ static void render_voice_step(Voice* q,float lfo1,float lfo2,float rate,float* l
          piano is heard predominantly through the bridge and soundboard. */
       float wb,wm,wt;grand_zone_weights(key,&wb,&wm,&wt);
       float voice_amp=(.32f+.68f*vel)*q->expr_volume*q->amp_env*g_params[1];
-      float board_gain=voice_amp*(.42f+.34f*g_params[P_PIANO_SYMPATHETIC]);
+      float high_register=clampf((q->glide_pitch-60.0f)/36.0f,0.0f,1.0f);
+      float board_gain=voice_amp*(.42f+.34f*g_params[P_PIANO_SYMPATHETIC])*
+        lerpf(1.0f,2.2f,key)*lerpf(1.0f,4.0f,high_register);
       /* A microphone hears soundboard velocity, while the string/bridge junction
          state is closer to displacement/force.  A bounded first difference is
          therefore part of the physical bridge-radiation transfer; it restores
          the upper partials without adding a post-synthesis EQ. */
       float bridge_delta=bridge-q->grand_bridge_radiation_prev;
       q->grand_bridge_radiation_prev=bridge;
-      float bridge_diff_gain=(16.0f-8.0f*key)+12.0f*vel2;
+      float bridge_diff_gain=(5.0f-2.0f*key)+2.0f*vel2-3.0f*key*vel3;
       float bridge_radiated=bridge+bridge_delta*bridge_diff_gain;
       g_grand_board_drive[0]+=bridge_radiated*board_gain*wb;
       g_grand_board_drive[1]+=bridge_radiated*board_gain*wm;
@@ -1344,8 +1352,8 @@ static void render_voice_step(Voice* q,float lfo1,float lfo2,float rate,float* l
          leave bass radiation to the bridge/soundboard. */
       float key_air=clampf((key-.16f)/.55f,0.0f,1.0f);
       float bass_air=clampf((48.0f-q->glide_pitch)/15.0f,0.0f,1.0f);
-      float direct_string=lerpf(.004f+.218f*key_air*key_air,.012f+.210f*key_air*key_air,bass_air);
-      float direct_bridge=lerpf(.007f+.036f*key_air,.020f+.028f*key_air,bass_air);
+      float direct_string=lerpf(.001f+.020f*key_air*key_air,.004f+.020f*key_air*key_air,bass_air);
+      float direct_bridge=lerpf(.003f+.018f*key_air,.012f+.015f*key_air,bass_air);
       m=(string*direct_string+bridge*direct_bridge+impact)*2.75f;
       side=(key-.5f)*g_params[P_PIANO_STEREO_WIDTH]*.52f;
     }else if(engine==3){
@@ -1403,7 +1411,7 @@ static void render_voice_step(Voice* q,float lfo1,float lfo2,float rate,float* l
   }
   /* Piano velocity is already encoded in hammer energy.  Keep a modest
      keyboard-loudness curve here instead of multiplying velocity twice. */
-  float velocity_gain=(engine==2||engine==9)?(0.35f+0.65f*q->velocity):q->velocity;
+  float velocity_gain=engine==9?(0.70f+0.30f*q->velocity):(engine==2?(0.35f+0.65f*q->velocity):q->velocity);
   float amp=velocity_gain*q->expr_volume*q->amp_env*g_params[1]*clampf(1.0f+mod.amplitude*.72f,0.0f,1.72f);
   float out_l=xL*amp,out_r=xR*amp;
   if(q->steal_fade>0.0f){
