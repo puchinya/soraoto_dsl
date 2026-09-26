@@ -3,7 +3,7 @@
 > This document records current evidence. It is non-normative; the product specification and approved design define requirements and decisions.
 
 **Owning Issue:** [#7](https://github.com/puchinya/soraoto_dsl/issues/7) — SuperSynth V9 Salamander Calibration and Full-Range Delivery  
-**Issue phase:** `phase:implementation`  
+**Issue phase:** `phase:review`  
 **Updated:** 2026-09-26
 
 ## Progress
@@ -11,7 +11,7 @@
 | Work item | Status | Evidence / limitation |
 |---|---|---|
 | Implementation contract and approval | PASS | Exact contract copy and source SHA-256 `a5aa3439b4ec25a41e1cae6ff1819bbb49ab631fc2a41f0f6fc32da5f0be72db`; user approved the design on 2026-09-26 |
-| Owning Issue and phase | PASS | Issue #7 owns the work; implementation is complete and the Issue will move to `phase:review` with the pull request |
+| Owning Issue and phase | PASS | Issue #7 is at `phase:review` with open [PR #8](https://github.com/puchinya/soraoto_dsl/pull/8) |
 | Official Salamander reference | PASS | FreePats V3 SFZ+FLAC archive; 741,757,374 bytes; archive SHA-256 `b7760e168494cf095344e217b0af013fc449ad033abbbdf1c65211cf11dc038b` |
 | Source matrix and samples | PASS | 30 pitch centers × 16 exact SFZ layers = 480 direct cells; all 641 referenced FLAC files are present and decode as 48 kHz / 24-bit |
 | Private Drive provisioning | PASS | Drive for Desktop mirror contains the archive and four provenance/quickstart sidecars; local archive hash matches the verified source |
@@ -20,7 +20,7 @@
 | Repository and Web Player verification | PASS | WASM build and all 27 CTest cases pass; Web Player tests pass 39/39 and deployment build succeeds |
 | Native browser/audio interaction | NOT RUN | Automated tests establish render and integration properties, not actual device playback or browser listening |
 | Independent Drive cloud archive hash readback | NOT AVAILABLE | The Drive download connector limit is 268,435,456 bytes, below the 741,757,374-byte archive; local DriveFS hash and Drive listing/upload state were verified |
-| Commit, push, pull request, Issue review phase | IN PROGRESS | Local verification is complete; final delivery transitions are pending |
+| Commit, push, pull request, Issue review phase | PASS | Commit `a2aa30c` is pushed to `codex/issue-7-supersynth-v9`; [PR #8](https://github.com/puchinya/soraoto_dsl/pull/8) is open and Issue #7 is `phase:review` |
 
 ## Verification
 
