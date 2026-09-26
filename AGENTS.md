@@ -1,5 +1,7 @@
 # Repository Agent Workflow
 
+This is the shared repository entry point for AI agents, including Codex and Claude Code. `CLAUDE.md` is only the Claude Code router and must defer to this file for shared rules.
+
 Use `rtk` before shell commands. Use `rtk gh` for GitHub operations and `rtk git` for local Git operations.
 
 ## Task routing
@@ -19,6 +21,8 @@ Determine the current phase from the Issue label and PR state. Keep exactly one 
 A supplied implementation contract is a handoff, not a workflow bypass. Associate it with the owning Issue, preserve its exact contents under `.agent-state/issues/<number>/` when it must survive a context or machine change, and resolve any conflict against the approved Issue and normative specification before implementation.
 
 ## Repository authority
+
+Start documentation lookup at [`docs/README.md`](docs/README.md), then the relevant category README, then only the document or specification sections needed for the task.
 
 - [`docs/specs/soraotoDSL/soraotoDSL.md`](docs/specs/soraotoDSL/soraotoDSL.md) and its `spec/*.md` modules are the normative DSL source. Edit the root or owning module. [`soraotoDSL-full.md`](docs/specs/soraotoDSL/soraotoDSL-full.md) is a generated snapshot; do not edit it directly.
 - `docs/specs/soraotoDSL/spec/09-conformance.md` defines conformance expectations. The `Maintenance` section of the specification documents `tools/validate-spec.py` and `tools/build-full.py`.
