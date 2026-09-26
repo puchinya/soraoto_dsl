@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>soraotoDSL Browser Load Stress</title>
+<style>
+body{font:14px system-ui,sans-serif;margin:20px;background:#111;color:#eee} iframe{width:100%;height:420px;border:1px solid #555;background:#fff} pre{white-space:pre-wrap;background:#181818;padding:12px;border-radius:8px}.ok{color:#7ee787}.bad{color:#ff7b72}
+</style>
+<h1>soraotoDSL Browser Load Stress</h1>
+<p>Runs repeated Load → Play → Stop cycles against the real WebPlayer AudioContext/AudioWorklet graph.</p>
+<pre id="result">Starting…</pre>
+<iframe id="player" src="../index.html"></iframe>
+<script>
+(async()=>{
+  const out=document.getElementById('result'),frame=document.getElementById('player');
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const wait=async(fn,ms,label)=>{const end=performance.now()+ms;while(performance.now()<end){try{if(fn())return;}catch{}await sleep(50);}throw new Error(`timeout: ${label}`);};
+  const fail=e=>{const result={ok:false,error:String(e?.stack||e)};window.__soraotoStressResult=result;out.className='bad';out.textContent=JSON.stringify(result,null,2);};
+  try{
+    await new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(new Error('iframe load timeout')),15000);frame.addEventListener('load',()=>{clearTimeout(t);resolve();},{once:true});});
+    const w=frame.contentWindow,d=w.document;
+    await wait(()=>d.querySelectorAll('#sampleSelect option').length>5&&!d.getElementById('playBtn').disabled,15000,'catalog/runtime');
+    const select=d.getElementById('sampleSelect'),load=d.getElementById('loadSampleBtn'),play=d.getElementById('playBtn'),stop=d.getElementById('stopBtn'),status=d.getElementById('status'),transport=d.getElementById('transportState');
+    const ids=['techno-midnight-grid','jpop-blue-hour-signal','anime-starforge-opening','jazz-blue-lantern'];
+    const rows=[];
+    for(let i=0;i<20;i++){
+      const song=ids[i%ids.length];select.value=song;if(select.value!==song)throw new Error(`song unavailable: ${song}`);
+      load.click();
+      await wait(()=>!load.disabled&&/^Loaded ·/.test(status.textContent),15000,`load ${i+1}`);
+      if(status.classList.contains('error'))throw new Error(`load ${i+1}: ${status.textContent}`);
+      await wait(()=>w.SoraotoPluginHost?.stats?.().liveNodeCount===0,5000,`pre-play dispose ${i+1}`);
+      play.click();
+      await wait(()=>transport.textContent==='Playing'||status.classList.contains('error'),20000,`play ${i+1}`);
+      if(status.classList.contains('error'))throw new Error(`play ${i+1}: ${status.textContent}`);
+      const liveDuring=w.SoraotoPluginHost.stats().liveNodeCount;if(liveDuring<=0)throw new Error(`cycle ${i+1}: no live plugins while playing`);
+      await sleep(180);stop.click();
+      await wait(()=>transport.textContent==='Stopped',5000,`stop ${i+1}`);
+      await wait(()=>w.SoraotoPluginHost.stats().liveNodeCount===0,5000,`post-stop dispose ${i+1}`);
+      rows.push({cycle:i+1,song,liveDuring,liveAfter:w.SoraotoPluginHost.stats().liveNodeCount,heap:w.performance?.memory?.usedJSHeapSize??null});
+    }
+    // One final Load forces releaseProjectAudioContext() for the last stopped context.
+    select.value=ids[0];load.click();
+    await wait(()=>!load.disabled&&/^Loaded ·/.test(status.textContent),15000,'final load');
+    await wait(()=>w.SoraotoPluginHost.stats().liveNodeCount===0,5000,'final plugin dispose');
+    const heaps=rows.map(x=>x.heap).filter(Number.isFinite),warm=heaps.slice(Math.min(4,heaps.length));
+    const result={ok:true,cycles:rows.length,pluginStats:w.SoraotoPluginHost.stats(),heapGrowthAfterWarmup:warm.length?warm.at(-1)-Math.min(...warm):null,rows};
+    window.__soraotoStressResult=result;out.className='ok';out.textContent=JSON.stringify(result,null,2);
+  }catch(e){fail(e);}
+})();
+</script>

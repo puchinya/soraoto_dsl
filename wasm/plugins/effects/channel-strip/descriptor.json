@@ -1,0 +1,1263 @@
+{
+  "abi_major": 1,
+  "abi_minor": 0,
+  "id": "soraoto.channel-strip",
+  "vendor": "soraotoDSL",
+  "name": "Soraoto Channel Strip",
+  "version": "1.0.0",
+  "categories": [],
+  "tags": [],
+  "homepage": null,
+  "kinds": [
+    "effect"
+  ],
+  "max_instances": 64,
+  "compatible_plugin_ids": [],
+  "required_wasm_features": [],
+  "required_host_features": [],
+  "optional_host_features": [],
+  "process_context_requirements": [],
+  "supports_f64": false,
+  "supports_in_place": false,
+  "deterministic_dsp": true,
+  "distributable": false,
+  "process_modes": [
+    "realtime",
+    "offline"
+  ],
+  "io_modes": [
+    "advanced",
+    "offline"
+  ],
+  "units": [
+    {
+      "id": 0,
+      "parent_id": null,
+      "name": "Root",
+      "program_list_id": 1,
+      "supports_unit_data": false
+    }
+  ],
+  "audio_buses": [
+    {
+      "id": 1,
+      "name": "Main In",
+      "unit_id": 0,
+      "direction": "input",
+      "role": "main",
+      "sample_semantics": "audio",
+      "default_active": true,
+      "required": true,
+      "supported_layouts": [
+        {
+          "kind": "speakers",
+          "channels": [
+            "L",
+            "R"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Main Out",
+      "unit_id": 0,
+      "direction": "output",
+      "role": "main",
+      "sample_semantics": "audio",
+      "default_active": true,
+      "required": true,
+      "supported_layouts": [
+        {
+          "kind": "speakers",
+          "channels": [
+            "L",
+            "R"
+          ]
+        }
+      ]
+    }
+  ],
+  "event_buses": [],
+  "routing_hints": [],
+  "parameters": [
+    {
+      "id": 1,
+      "path": "hpf_freq",
+      "name": "Hpf Freq",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "hz",
+      "default": 80.0,
+      "min": 20.0,
+      "max": 1000.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 2,
+      "path": "low_freq",
+      "name": "Low Freq",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "hz",
+      "default": 180.0,
+      "min": 50.0,
+      "max": 600.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 3,
+      "path": "low_gain",
+      "name": "Low Gain",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "db",
+      "default": 0.0,
+      "min": -12.0,
+      "max": 12.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 4,
+      "path": "low_q",
+      "name": "Low Q",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "none",
+      "default": 0.8,
+      "min": 0.2,
+      "max": 4.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 5,
+      "path": "mid_freq",
+      "name": "Mid Freq",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "hz",
+      "default": 1200.0,
+      "min": 150.0,
+      "max": 8000.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 6,
+      "path": "mid_gain",
+      "name": "Mid Gain",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "db",
+      "default": 0.0,
+      "min": -18.0,
+      "max": 18.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 7,
+      "path": "mid_q",
+      "name": "Mid Q",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "none",
+      "default": 1.0,
+      "min": 0.2,
+      "max": 8.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 8,
+      "path": "high_freq",
+      "name": "High Freq",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "hz",
+      "default": 7200.0,
+      "min": 1500.0,
+      "max": 18000.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 9,
+      "path": "high_gain",
+      "name": "High Gain",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "db",
+      "default": 0.0,
+      "min": -12.0,
+      "max": 12.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 10,
+      "path": "high_q",
+      "name": "High Q",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "none",
+      "default": 0.8,
+      "min": 0.2,
+      "max": 4.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 11,
+      "path": "lpf_freq",
+      "name": "Lpf Freq",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "hz",
+      "default": 18000.0,
+      "min": 4000.0,
+      "max": 20000.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 12,
+      "path": "comp_threshold",
+      "name": "Comp Threshold",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "db",
+      "default": -18.0,
+      "min": -60.0,
+      "max": 0.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 13,
+      "path": "comp_ratio",
+      "name": "Comp Ratio",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "none",
+      "default": 2.0,
+      "min": 1.0,
+      "max": 20.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 14,
+      "path": "comp_attack",
+      "name": "Comp Attack",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "seconds",
+      "default": 0.012,
+      "min": 0.0005,
+      "max": 0.2,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 15,
+      "path": "comp_release",
+      "name": "Comp Release",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "seconds",
+      "default": 0.16,
+      "min": 0.01,
+      "max": 2.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 16,
+      "path": "makeup_gain",
+      "name": "Makeup Gain",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "db",
+      "default": 0.0,
+      "min": -12.0,
+      "max": 12.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 17,
+      "path": "width",
+      "name": "Width",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "width",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 2.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 18,
+      "path": "balance",
+      "name": "Balance",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "none",
+      "default": 0.0,
+      "min": -1.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 19,
+      "path": "mix",
+      "name": "Mix",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "norm",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    }
+  ],
+  "controllers": [],
+  "note_expressions": [],
+  "articulations": [],
+  "key_switches": [],
+  "physical_ui_mappings": [],
+  "orchestral_articulations": [],
+  "controller_mappings": [],
+  "remote_representations": [],
+  "data_exchange_queues": [],
+  "parameter_aliases": [],
+  "factory_presets": [
+    {
+      "id": 3587619670,
+      "meta": {
+        "name": "bass",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 3048614426,
+      "meta": {
+        "name": "drums",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 2217444604,
+      "meta": {
+        "name": "guitar",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 3636901440,
+      "meta": {
+        "name": "keys",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 4054122924,
+      "meta": {
+        "name": "lead",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 1032580000,
+      "meta": {
+        "name": "mix_bus",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 242238714,
+      "meta": {
+        "name": "pad",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    }
+  ],
+  "program_lists": [
+    {
+      "id": 1,
+      "unit_id": 0,
+      "name": "Soraoto Channel Strip Factory",
+      "supports_program_data": false,
+      "mutable_program_names": false,
+      "programs": [
+        {
+          "id": 3587619670,
+          "name": "bass",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Channel Strip",
+            "soraoto.engine": "soraoto.channel-strip",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 3048614426,
+          "name": "drums",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Channel Strip",
+            "soraoto.engine": "soraoto.channel-strip",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 2217444604,
+          "name": "guitar",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Channel Strip",
+            "soraoto.engine": "soraoto.channel-strip",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 3636901440,
+          "name": "keys",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Channel Strip",
+            "soraoto.engine": "soraoto.channel-strip",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 4054122924,
+          "name": "lead",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Channel Strip",
+            "soraoto.engine": "soraoto.channel-strip",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 1032580000,
+          "name": "mix_bus",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Channel Strip",
+            "soraoto.engine": "soraoto.channel-strip",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 242238714,
+          "name": "pad",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Channel Strip",
+            "soraoto.engine": "soraoto.channel-strip",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        }
+      ]
+    }
+  ],
+  "state": {
+    "schema_id": "soraoto.channel-strip.state",
+    "schema_version": 1,
+    "max_snapshot_bytes": 84
+  },
+  "prefetch_support": "never",
+  "prefetch_support_current": null,
+  "max_event_output_per_block": 0,
+  "max_host_requests_per_block": 0,
+  "max_asset_requests_per_block": 0,
+  "max_data_exchange_packets_per_block": 0,
+  "x-net.daradara.soraotodsl-browser": {
+    "parameters": {
+      "hpf_freq": {
+        "id": 1,
+        "type": "float",
+        "unit": "hz",
+        "min": 20.0,
+        "max": 1000.0,
+        "default": 80.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "low_freq": {
+        "id": 2,
+        "type": "float",
+        "unit": "hz",
+        "min": 50.0,
+        "max": 600.0,
+        "default": 180.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "low_gain": {
+        "id": 3,
+        "type": "float",
+        "unit": "db",
+        "min": -12.0,
+        "max": 12.0,
+        "default": 0.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "low_q": {
+        "id": 4,
+        "type": "float",
+        "unit": "none",
+        "min": 0.2,
+        "max": 4.0,
+        "default": 0.8,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "mid_freq": {
+        "id": 5,
+        "type": "float",
+        "unit": "hz",
+        "min": 150.0,
+        "max": 8000.0,
+        "default": 1200.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "mid_gain": {
+        "id": 6,
+        "type": "float",
+        "unit": "db",
+        "min": -18.0,
+        "max": 18.0,
+        "default": 0.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "mid_q": {
+        "id": 7,
+        "type": "float",
+        "unit": "none",
+        "min": 0.2,
+        "max": 8.0,
+        "default": 1.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "high_freq": {
+        "id": 8,
+        "type": "float",
+        "unit": "hz",
+        "min": 1500.0,
+        "max": 18000.0,
+        "default": 7200.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "high_gain": {
+        "id": 9,
+        "type": "float",
+        "unit": "db",
+        "min": -12.0,
+        "max": 12.0,
+        "default": 0.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "high_q": {
+        "id": 10,
+        "type": "float",
+        "unit": "none",
+        "min": 0.2,
+        "max": 4.0,
+        "default": 0.8,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "lpf_freq": {
+        "id": 11,
+        "type": "float",
+        "unit": "hz",
+        "min": 4000.0,
+        "max": 20000.0,
+        "default": 18000.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "comp_threshold": {
+        "id": 12,
+        "type": "float",
+        "unit": "db",
+        "min": -60.0,
+        "max": 0.0,
+        "default": -18.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "comp_ratio": {
+        "id": 13,
+        "type": "float",
+        "unit": "none",
+        "min": 1.0,
+        "max": 20.0,
+        "default": 2.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "comp_attack": {
+        "id": 14,
+        "type": "float",
+        "unit": "seconds",
+        "min": 0.0005,
+        "max": 0.2,
+        "default": 0.012,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "comp_release": {
+        "id": 15,
+        "type": "float",
+        "unit": "seconds",
+        "min": 0.01,
+        "max": 2.0,
+        "default": 0.16,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "makeup_gain": {
+        "id": 16,
+        "type": "float",
+        "unit": "db",
+        "min": -12.0,
+        "max": 12.0,
+        "default": 0.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "width": {
+        "id": 17,
+        "type": "float",
+        "unit": "width",
+        "min": 0.0,
+        "max": 2.0,
+        "default": 1.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "balance": {
+        "id": 18,
+        "type": "float",
+        "unit": "none",
+        "min": -1.0,
+        "max": 1.0,
+        "default": 0.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "mix": {
+        "id": 19,
+        "type": "float",
+        "unit": "norm",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 1.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      }
+    },
+    "presets": {
+      "lead": {
+        "hpf_freq": 110,
+        "low_gain": -1.5,
+        "mid_freq": 1800,
+        "mid_gain": 1.8,
+        "mid_q": 1.0,
+        "high_freq": 7600,
+        "high_gain": 1.4,
+        "comp_threshold": -20,
+        "comp_ratio": 2.2,
+        "comp_attack": 0.01,
+        "comp_release": 0.12,
+        "makeup_gain": 0.8,
+        "width": 1.08
+      },
+      "bass": {
+        "hpf_freq": 32,
+        "low_freq": 110,
+        "low_gain": 1.2,
+        "mid_freq": 680,
+        "mid_gain": -1.5,
+        "mid_q": 1.1,
+        "high_gain": -2.0,
+        "lpf_freq": 10500,
+        "comp_threshold": -22,
+        "comp_ratio": 3.2,
+        "comp_attack": 0.018,
+        "comp_release": 0.18,
+        "makeup_gain": 1.0,
+        "width": 0.72
+      },
+      "guitar": {
+        "hpf_freq": 95,
+        "low_gain": -1.0,
+        "mid_freq": 2400,
+        "mid_gain": 1.2,
+        "mid_q": 1.25,
+        "high_freq": 7800,
+        "high_gain": 1.0,
+        "comp_threshold": -21,
+        "comp_ratio": 2.4,
+        "comp_attack": 0.008,
+        "comp_release": 0.14,
+        "width": 1.28
+      },
+      "keys": {
+        "hpf_freq": 70,
+        "low_gain": -0.8,
+        "mid_freq": 950,
+        "mid_gain": -0.7,
+        "mid_q": 1.0,
+        "high_freq": 6800,
+        "high_gain": 1.1,
+        "comp_threshold": -20,
+        "comp_ratio": 2.0,
+        "comp_attack": 0.014,
+        "comp_release": 0.18,
+        "width": 1.18
+      },
+      "pad": {
+        "hpf_freq": 140,
+        "low_gain": -1.8,
+        "mid_freq": 1500,
+        "mid_gain": -1.0,
+        "high_freq": 8200,
+        "high_gain": 0.7,
+        "comp_threshold": -16,
+        "comp_ratio": 1.6,
+        "comp_attack": 0.035,
+        "comp_release": 0.32,
+        "width": 1.55
+      },
+      "drums": {
+        "hpf_freq": 28,
+        "low_freq": 95,
+        "low_gain": 1.0,
+        "mid_freq": 420,
+        "mid_gain": -1.1,
+        "mid_q": 1.2,
+        "high_freq": 7200,
+        "high_gain": 1.4,
+        "comp_threshold": -18,
+        "comp_ratio": 3.0,
+        "comp_attack": 0.012,
+        "comp_release": 0.09,
+        "makeup_gain": 0.6,
+        "width": 1.12
+      },
+      "mix_bus": {
+        "hpf_freq": 24,
+        "low_gain": 0.0,
+        "mid_gain": 0.0,
+        "high_gain": 0.0,
+        "comp_threshold": -12,
+        "comp_ratio": 1.5,
+        "comp_attack": 0.025,
+        "comp_release": 0.22,
+        "makeup_gain": 0.0,
+        "width": 1.0
+      }
+    }
+  }
+}

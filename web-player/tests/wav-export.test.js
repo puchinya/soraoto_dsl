@@ -1,0 +1,4 @@
+const fs=require('fs');const path=require('path');const R=path.resolve(__dirname,'..');global.window=global;global.URL={createObjectURL(){return''},revokeObjectURL(){}};global.document={createElement(){return{click(){},remove(){}}},body:{appendChild(){}}};
+eval(fs.readFileSync(path.join(R,'src/js/wav-export.js'),'utf8'));
+const chans=[new Float32Array([0,.5,-.5,1]),new Float32Array([0,-.5,.5,-1])];const fake={numberOfChannels:2,length:4,sampleRate:48000,getChannelData(i){return chans[i]}};
+for(const bits of [16,24]){const b=SoraotoWav.encode(fake,bits,false);if(Buffer.from(b.slice(0,4)).toString()!=='RIFF')throw new Error('bad RIFF');if(Buffer.from(b.slice(8,12)).toString()!=='WAVE')throw new Error('bad WAVE');const expected=44+4*2*(bits/8);if(b.length!==expected)throw new Error(`bad ${bits}-bit size ${b.length}`);console.log('PASS wav',bits,b.length);}

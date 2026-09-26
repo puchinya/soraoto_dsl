@@ -1,0 +1,181 @@
+{
+  "version": 2,
+  "songs": [
+    {
+      "id": "jpop-blue-hour-signal",
+      "title": "Blue Hour Signal",
+      "category": "J-POP",
+      "style": "2026 contemporary J-POP · electronic band pop · original",
+      "tempo": 148,
+      "file": "jpop-blue-hour-signal.soraoto"
+    },
+    {
+      "id": "jpop-zero-gravity-heart",
+      "title": "Zero Gravity Heart",
+      "category": "J-POP",
+      "style": "2026 high-speed electro J-POP · original",
+      "tempo": 176,
+      "file": "jpop-zero-gravity-heart.soraoto"
+    },
+    {
+      "id": "jpop-paper-moon-drive",
+      "title": "Paper Moon Drive",
+      "category": "J-POP",
+      "style": "2026 neo-city pop / dance-pop · original",
+      "tempo": 126,
+      "file": "jpop-paper-moon-drive.soraoto"
+    },
+    {
+      "id": "jpop-after-rain-5pm",
+      "title": "After Rain, 5 PM",
+      "category": "J-POP",
+      "style": "2026 bittersweet R&B-pop ballad · original",
+      "tempo": 96,
+      "file": "jpop-after-rain-5pm.soraoto"
+    },
+    {
+      "id": "anime-starforge-opening",
+      "title": "Starforge Opening",
+      "category": "Anime",
+      "style": "Anime opening · high-energy rock / synth · original",
+      "tempo": 184,
+      "file": "anime-starforge-opening.soraoto"
+    },
+    {
+      "id": "anime-soft-comet-ending",
+      "title": "Soft Comet Ending",
+      "category": "Anime",
+      "style": "Anime ending · piano / strings pop · original",
+      "tempo": 84,
+      "file": "anime-soft-comet-ending.soraoto"
+    },
+    {
+      "id": "anime-skybound-promise",
+      "title": "Skybound Promise",
+      "category": "Anime",
+      "style": "Anime opening · orchestral pop / uplifting · original",
+      "tempo": 166,
+      "file": "anime-skybound-promise.soraoto"
+    },
+    {
+      "id": "anime-last-scene-spark",
+      "title": "Last Scene Spark",
+      "category": "Anime",
+      "style": "Anime dramatic insert song · pop-rock · original",
+      "tempo": 156,
+      "file": "anime-last-scene-spark.soraoto"
+    },
+    {
+      "id": "game-crimson-phase",
+      "title": "Crimson Phase",
+      "category": "Game Battle",
+      "style": "Game battle · orchestral hybrid / boss phase · original",
+      "tempo": 168,
+      "file": "game-crimson-phase.soraoto"
+    },
+    {
+      "id": "game-break-the-core",
+      "title": "Break the Core",
+      "category": "Game Battle",
+      "style": "Game battle · industrial synth-rock · original",
+      "tempo": 150,
+      "file": "game-break-the-core.soraoto"
+    },
+    {
+      "id": "field-wind-over-lumeria",
+      "title": "Wind over Lumeria",
+      "category": "Game Field",
+      "style": "Game field · pastoral exploration · original",
+      "tempo": 92,
+      "file": "field-wind-over-lumeria.soraoto"
+    },
+    {
+      "id": "field-ruins-under-glass",
+      "title": "Ruins under Glass",
+      "category": "Game Field",
+      "style": "Game field · mysterious ambient ruins · original",
+      "tempo": 78,
+      "file": "field-ruins-under-glass.soraoto"
+    },
+    {
+      "id": "techno-midnight-grid",
+      "title": "Midnight Grid",
+      "category": "Techno",
+      "style": "Melodic techno · original",
+      "tempo": 132,
+      "file": "techno-midnight-grid.soraoto"
+    },
+    {
+      "id": "techno-vector-pulse",
+      "title": "Vector Pulse",
+      "category": "Techno",
+      "style": "Peak-time techno · original",
+      "tempo": 138,
+      "file": "techno-vector-pulse.soraoto"
+    },
+    {
+      "id": "techno-chrome-rain",
+      "title": "Chrome Rain",
+      "category": "Techno",
+      "style": "Deep techno / minimal · original",
+      "tempo": 124,
+      "file": "techno-chrome-rain.soraoto"
+    },
+    {
+      "id": "techno-neon-relay",
+      "title": "Neon Relay",
+      "category": "Techno",
+      "style": "Trance-techno crossover · original",
+      "tempo": 145,
+      "file": "techno-neon-relay.soraoto"
+    },
+    {
+      "id": "jazz-blue-lantern",
+      "title": "Blue Lantern",
+      "category": "Jazz",
+      "style": "Modern swing quartet · original",
+      "tempo": 124,
+      "file": "jazz-blue-lantern.soraoto"
+    },
+    {
+      "id": "jazz-minor-steps-cafe",
+      "title": "Minor Steps Café",
+      "category": "Jazz",
+      "style": "Minor jazz / late-night combo · original",
+      "tempo": 108,
+      "file": "jazz-minor-steps-cafe.soraoto"
+    },
+    {
+      "id": "chopin-prelude-op28-no4",
+      "title": "Chopin — Prelude in E minor, Op. 28 No. 4",
+      "category": "Chopin",
+      "style": "Frédéric Chopin · complete original piano work · full-score playback",
+      "tempo": 72,
+      "file": "chopin-prelude-op28-no4.soraoto"
+    },
+    {
+      "id": "chopin-prelude-op28-no7",
+      "title": "Chopin — Prelude in A major, Op. 28 No. 7",
+      "category": "Chopin",
+      "style": "Frédéric Chopin · complete original piano work · full-score playback",
+      "tempo": 110,
+      "file": "chopin-prelude-op28-no7.soraoto"
+    },
+    {
+      "id": "chopin-prelude-op28-no20",
+      "title": "Chopin — Prelude in C minor, Op. 28 No. 20",
+      "category": "Chopin",
+      "style": "Frédéric Chopin · complete original piano work · full-score playback",
+      "tempo": 52,
+      "file": "chopin-prelude-op28-no20.soraoto"
+    },
+    {
+      "id": "chopin-waltz-a-minor-b150",
+      "title": "Chopin — Waltz in A minor, B. 150",
+      "category": "Chopin",
+      "style": "Frédéric Chopin · complete original piano work · full-score playback",
+      "tempo": 132,
+      "file": "chopin-waltz-a-minor-b150.soraoto"
+    }
+  ]
+}

@@ -1,0 +1,507 @@
+import component Sidechain from "std:components/sidechain"
+import component StereoDelay from "std:components/stereo-delay"
+import plugin SuperSynth from "../wasm/plugins/dsp/super-synth/plugin.wasm"
+
+project {
+  version: 1
+  title: "Vector Pulse"
+  tempo: 138bpm
+  meter: 4/4
+  key: C.minor
+
+  structure {
+    Intro { bars: 8 }
+    A { bars: 8 }
+    Hook { bars: 8 }
+    Break { bars: 8 }
+    Final { bars: 8 }
+  }
+
+  chords Harmony {
+    Intro {
+      Cm,
+      Ab,
+      Eb,
+      Bb,
+      Cm,
+      Ab,
+      Eb,
+      Bb,
+    }
+    A {
+      Cm,
+      Ab,
+      Eb,
+      Bb,
+      Cm,
+      Ab,
+      Eb,
+      Bb,
+    }
+    Hook {
+      Ab,
+      Bb,
+      Cm,
+      G7,
+      Ab,
+      Bb,
+      Cm,
+      G7,
+    }
+    Break {
+      Cm,
+      Ab,
+      Eb,
+      G7,
+      Cm,
+      Ab,
+      Eb,
+      G7,
+    }
+    Final {
+      Ab,
+      Bb,
+      Cm,
+      G7,
+      Ab,
+      Bb,
+      Cm,
+      G7,
+    }
+  }
+
+  track Lead {
+    instrument {
+      SuperSynth {
+        preset: pulse_lead
+      }
+    }
+    gain: -10db
+    Intro {
+      notes {
+        @16:
+        !mp:
+        c4 ~ _ d#4 ~ ~ _ _ g4 ~ ~ _ _ _ _ _ ,
+        _ _ d#4 ~ _ g#4 ~ _ c5 ~ ~ ~ _ _ _ _ ,
+        a#4 ~ ~ _ _ d5 ~ _ _ g4 ~ _ _ _ _ _ ,
+        _ d4 ~ _ f4 ~ _ d4 ~ ~ _ _ _ _ _ _ ,
+        g4 ~ _ f4 ~ ~ _ _ c5 ~ ~ _ _ _ _ _ ,
+        _ _ f4 ~ _ a#4 ~ _ d#4 ~ ~ ~ _ _ _ _ ,
+        a#4 ~ ~ _ _ d#4 ~ _ _ a#3 ~ _ _ _ _ _ ,
+        _ d#4 ~ _ a#3 ~ _ d4 ~ ~ _ _ _ _ _ _ ,
+      }
+    }
+    A {
+      notes {
+        @16:
+        !mp:
+        c4 ~ _ d#4 ~ ~ _ _ c4 ~ ~ _ _ d#4 ~ _ ,
+        _ _ d#4 ~ _ g#4 ~ _ d#4 ~ ~ ~ _ _ g#4 ~ ,
+        d#5 ~ ~ _ _ d5 ~ _ _ g4 ~ _ a#4 ~ ~ ~ ,
+        _ d4 ~ _ a#3 ~ _ f4 ~ ~ _ _ a#4 ~ ~ _ ,
+        g4 ~ _ f4 ~ ~ _ _ c5 ~ ~ _ _ d#5 ~ _ ,
+        _ _ f4 ~ _ a#4 ~ _ g#4 ~ ~ ~ _ _ d#4 ~ ,
+        d#5 ~ ~ _ _ d#5 ~ _ _ c5 ~ _ g4 ~ ~ ~ ,
+        _ d#4 ~ _ a#3 ~ _ d#4 ~ ~ _ _ a#4 ~ ~ _ ,
+      }
+    }
+    Hook {
+      notes {
+        @16:
+        !f:
+        g#5 ~ _ d5 ~ ~ _ _ g#5 ~ ~ _ _ c5 ~ _ ,
+        _ _ d#6 ~ _ g#5 ~ _ d5 ~ ~ ~ _ _ f5 ~ ,
+        c6 ~ ~ _ _ d5 ~ _ _ g5 ~ _ g5 ~ ~ ~ ,
+        _ d6 ~ _ f5 ~ _ e5 ~ ~ _ _ g5 ~ ~ _ ,
+        g#5 ~ _ d5 ~ ~ _ _ g#5 ~ ~ _ _ d#5 ~ _ ,
+        _ _ f5 ~ _ a#5 ~ _ d5 ~ ~ ~ _ _ a#4 ~ ,
+        c6 ~ ~ _ _ d#5 ~ _ _ c5 ~ _ d#5 ~ ~ ~ ,
+        _ d#5 ~ _ g4 ~ _ c#5 ~ ~ _ _ g5 ~ ~ _ ,
+      }
+    }
+    Break {
+      notes {
+        @16:
+        !mp:
+        c4 ~ _ d#4 ~ ~ _ _ g4 ~ ~ _ _ _ _ _ ,
+        _ _ d#4 ~ _ g#4 ~ _ d#4 ~ ~ ~ _ _ _ _ ,
+        a#4 ~ ~ _ _ d5 ~ _ _ a#4 ~ _ _ _ _ _ ,
+        _ d4 ~ _ g4 ~ _ f4 ~ ~ _ _ _ _ _ _ ,
+        g4 ~ _ f4 ~ ~ _ _ c5 ~ ~ _ _ _ _ _ ,
+        _ _ f4 ~ _ a#4 ~ _ d#4 ~ ~ ~ _ _ _ _ ,
+        d#4 ~ ~ _ _ d#4 ~ _ _ d#4 ~ _ _ _ _ _ ,
+        _ d#4 ~ _ b3 ~ _ d4 ~ ~ _ _ _ _ _ _ ,
+      }
+    }
+    Final {
+      notes {
+        @16:
+        !ff:
+        c6 ~ _ d5 ~ ~ _ _ g#5 ~ ~ _ _ d5 ~ g#5 ,
+        _ _ d#6 ~ _ g#5 ~ _ d5 ~ ~ ~ _ _ g5 f5 ,
+        c6 ~ ~ _ _ d5 ~ _ _ g5 ~ _ g5 ~ ~ d#6 ,
+        _ d6 ~ _ g5 ~ _ f#5 ~ ~ _ _ b5 ~ ~ d5 ,
+        g#5 ~ _ g5 ~ ~ _ _ c6 ~ ~ _ _ d#5 ~ c5 ,
+        _ _ f6 ~ _ a#5 ~ _ f5 ~ ~ ~ _ _ c5 f5 ,
+        d#6 ~ ~ _ _ d#6 ~ _ _ c6 ~ _ g5 ~ ~ c6 ,
+        _ d#6 ~ _ b5 ~ _ e5 ~ ~ _ _ g5 ~ ~ d5 ,
+      }
+    }
+  
+    effects {
+      ChannelStrip {
+        preset: lead
+      }
+    }
+}
+
+  track Counter {
+    instrument {
+      SuperSynth {
+        preset: glass_pluck
+      }
+    }
+    gain: -17db
+    pan: 0.22
+    Intro {
+      notes {
+        @16:
+        !mp:
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ d#6 ~ _ _ _ _ _ _ g#5 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ d6 ~ _ _ _ _ _ _ f6 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ g#5 ~ _ _ _ _ _ _ c6 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ f6 ~ _ _ _ _ _ _ a#5 ~ _ ,
+      }
+    }
+    A {
+      notes {
+        @16:
+        !mp:
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ c6 ~ _ _ _ _ _ _ d#6 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ a#5 ~ _ _ _ _ _ _ d6 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ d#6 ~ _ _ _ _ _ _ g#5 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ d6 ~ _ _ _ _ _ _ f6 ~ _ ,
+      }
+    }
+    Hook {
+      notes {
+        @16:
+        !f:
+        _ _ _ d#6 ~ _ _ _ _ _ g#6 ~ _ _ c6 ~ ,
+        _ _ _ a#5 ~ _ _ _ _ _ d6 ~ _ _ f6 ~ ,
+        _ _ _ d#6 ~ _ _ _ _ _ g6 ~ _ _ c6 ~ ,
+        _ _ _ g6 ~ _ _ _ _ _ b5 ~ _ _ d6 ~ ,
+        _ _ _ g#6 ~ _ _ _ _ _ c6 ~ _ _ d#6 ~ ,
+        _ _ _ d6 ~ _ _ _ _ _ f6 ~ _ _ a#5 ~ ,
+        _ _ _ g6 ~ _ _ _ _ _ c6 ~ _ _ d#6 ~ ,
+        _ _ _ g6 ~ _ _ _ _ _ b5 ~ _ _ d6 ~ ,
+      }
+    }
+    Break {
+      notes {
+        @16:
+        !mp:
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ d#6 ~ _ _ _ _ _ _ g#5 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ g6 ~ _ _ _ _ _ _ b5 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ g#5 ~ _ _ _ _ _ _ c6 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ g6 ~ _ _ _ _ _ _ b5 ~ _ ,
+      }
+    }
+    Final {
+      notes {
+        @16:
+        !ff:
+        _ _ _ g#6 ~ _ _ _ _ _ c6 ~ _ _ d#6 ~ ,
+        _ _ _ d6 ~ _ _ _ _ _ f6 ~ _ _ a#5 ~ ,
+        _ _ _ g6 ~ _ _ _ _ _ c6 ~ _ _ d#6 ~ ,
+        _ _ _ g6 ~ _ _ _ _ _ b5 ~ _ _ d6 ~ ,
+        _ _ _ c6 ~ _ _ _ _ _ d#6 ~ _ _ g#6 ~ ,
+        _ _ _ f6 ~ _ _ _ _ _ a#5 ~ _ _ d6 ~ ,
+        _ _ _ c6 ~ _ _ _ _ _ d#6 ~ _ _ g6 ~ ,
+        _ _ _ g6 ~ _ _ _ _ _ b5 ~ _ _ d6 ~ ,
+      }
+    }
+  
+    effects {
+      ChannelStrip {
+        preset: lead
+      }
+    }
+}
+
+  track Bass {
+    instrument {
+      SuperSynth {
+        preset: acid_bass
+      }
+    }
+    gain: -10db
+    Harmony |> BassRoot(octave: 2, mode: chord_bass)
+    effects {
+      ChannelStrip {
+        preset: bass
+      }
+      Sidechain {
+        source: Kick
+        amount: -4db
+        attack: 5ms
+        release: 110ms
+      }
+    }
+  }
+
+  track Pad {
+    instrument {
+      SuperSynth {
+        preset: dark_pad
+        filter_cutoff: 3.0khz
+      }
+    }
+    gain: -17db
+    Harmony |> PadVoicing(range: c4..c6, voice_leading: smooth, voices: 4)
+    stereo {
+      width: 1.5
+      balance: 0
+    }
+  
+    effects {
+      ChannelStrip {
+        preset: pad
+      }
+    }
+}
+
+  track Kick {
+
+    instrument: drums_edm
+    gain: -8db
+    drums {
+    Intro {
+      @16:
+      Kick "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+    }
+    A {
+      @16:
+      Kick "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+    }
+    Hook {
+      @16:
+      Kick "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+    }
+    Break {
+      @16:
+      Kick "x.......x.......x.......x.......x.......x.......x.......x.......................................x.......x.......x.......x......."
+    }
+    Final {
+      @16:
+      Kick "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+    }
+
+    humanize {
+      timing: 1ms
+      velocity: 0.018
+      seed: 2122
+    }
+  }
+  
+    effects {
+      ChannelStrip {
+        preset: drums
+      }
+    }
+}
+
+  track Drums {
+
+    instrument: drums_edm
+    gain: -11db
+    drums {
+    Intro {
+      @16:
+      Kick "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+      Snare "....X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X..."
+      Hat "..x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x."
+      OpenHat "..............x...............x...............x...............x...............x...............x...............x...............x."
+    }
+    A {
+      @16:
+      Kick "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+      Snare "....X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X..."
+      Hat "..x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x."
+      OpenHat "..............x...............x...............x...............x...............x...............x...............x...............x."
+    }
+    Hook {
+      @16:
+      Kick "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+      Snare "....X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X..."
+      Clap "....x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x..."
+      Hat "..x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x."
+      OpenHat "......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x."
+      Crash "X..............................................................................................................................."
+    }
+    Break {
+      @16:
+      Kick "x.......x.......x.......x.......x.......x.......x.......x.......................................x.......x.......x.......x......."
+      Snare "........................................................................................................X.X.X.X.........XXXXXXXX"
+      Hat "..x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      OpenHat "..............x...............x...............x...............x...............x...............x...............x...............x."
+    }
+    Final {
+      @16:
+      Kick "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+      Snare "....X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X..."
+      Clap "....x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x..."
+      Hat "..x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x."
+      OpenHat "......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x."
+      Crash "X..............................................................................................................................."
+    }
+
+    humanize {
+      timing: 2ms
+      velocity: 0.025
+      seed: 1122
+    }
+  }
+  
+    effects {
+      ChannelStrip {
+        preset: drums
+      }
+    }
+}
+
+  bus Delay {
+    StereoDelay {
+      time: 1/8d
+      feedback: 0.24
+      mix: 1.0
+      mode: ping_pong
+    }
+    gain: -4db
+  }
+  bus Space {
+    Reverb {
+      preset: ambience
+      mix: 1.0
+    }
+    gain: -5db
+  }
+
+
+  routing {
+    Lead -> Master
+    Counter -> Master
+    Bass -> Master
+    Pad -> Master
+    Kick -> Master
+    Drums -> Master
+    Lead -> Delay { gain: -16db mode: post_fader }
+    Counter -> Delay { gain: -19db mode: post_fader }
+    Delay -> Master
+  
+    Lead -> Space { gain: -19db mode: post_fader }
+    Counter -> Space { gain: -17db mode: post_fader }
+    Pad -> Space { gain: -17db mode: post_fader }
+    Drums -> Space { gain: -24db mode: post_fader }
+    Space -> Master
+  }
+  // PRO_ARRANGEMENT_AUTOMATION_BEGIN
+  automation Lead.gain {
+    Intro: -11.8db
+    A: -11.0db
+    Hook: -9.5db
+    Break: -12.2db
+    Final: -9.1db
+  }
+
+  automation Counter.gain {
+    Intro: -20.2db
+    A: -19.4db
+    Hook: -16.7db
+    Break: -20.6db
+    Final: -16.3db
+  }
+
+  automation Bass.gain {
+    Intro: -11.7db
+    A: -10.9db
+    Hook: -9.4db
+    Break: -12.7db
+    Final: -9.0db
+  }
+
+  automation Pad.gain {
+    Intro: -18.9db
+    A: -18.1db
+    Hook: -16.6db
+    Break: -18.5db
+    Final: -16.2db
+  }
+  // PRO_ARRANGEMENT_AUTOMATION_END
+
+
+
+
+  // PRIORITY_A_AUTOMATION_BEGIN
+
+  automation Lead.instrument.filter_cutoff {
+    Intro: 4200hz
+    A: 5600hz
+    Hook: 9000hz
+    Break: 3800hz
+    Final: 10200hz
+  }
+
+  automation Lead.stereo.width {
+    Intro: 0.82
+    A: 0.96
+    Hook: 1.22
+    Break: 0.78
+    Final: 1.30
+  }
+
+  automation Lead.send.Space {
+    Intro: -23db
+    A: -21db
+    Hook: -17db
+    Break: -24db
+    Final: -16db
+  }
+
+  automation Lead.effects.ChannelStrip.mid_gain {
+    Intro: 0.0
+    A: 0.4
+    Hook: 1.2
+    Break: -0.6
+    Final: 1.5
+  }
+
+  // PRIORITY_A_AUTOMATION_END
+
+  master {
+    effects {
+      Compressor {
+        threshold: -14db
+        ratio: 2
+        attack: 10ms
+        release: 120ms
+      }
+      Limiter {
+        ceiling: -1db
+      }
+    }
+    gain: -1db
+  }
+}

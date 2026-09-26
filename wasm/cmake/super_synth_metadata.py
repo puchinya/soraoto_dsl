@@ -1,0 +1,304 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+import math, re, struct
+from pathlib import Path
+import json
+
+DSP=Path(__file__).resolve().parents[1]
+PLUGIN=DSP/'plugins'/'dsp'/'super-synth'; SRC=PLUGIN/'src'; SHARED=DSP/'shared'; GEN=SHARED/'generated'
+ABI=0x00010000
+
+# Presets are stored directly in the current SuperSynth parameter model; no legacy runtime translation is required.
+PRESETS=json.loads((PLUGIN/'presets.json').read_text(encoding='utf-8'))
+
+def cbor_head(major,n):
+    if n<24:return bytes([(major<<5)|n])
+    if n<=0xff:return bytes([(major<<5)|24,n])
+    if n<=0xffff:return bytes([(major<<5)|25])+struct.pack('>H',n)
+    if n<=0xffffffff:return bytes([(major<<5)|26])+struct.pack('>I',n)
+    return bytes([(major<<5)|27])+struct.pack('>Q',n)
+
+def cbor(v):
+    if v is None:return b'\xf6'
+    if v is False:return b'\xf4'
+    if v is True:return b'\xf5'
+    if isinstance(v,int):return cbor_head(0,v) if v>=0 else cbor_head(1,-1-v)
+    if isinstance(v,float):
+        if not math.isfinite(v):raise ValueError('non-finite')
+        if v==0:v=0.0
+        return b'\xfb'+struct.pack('>d',v)
+    if isinstance(v,(bytes,bytearray)):
+        b=bytes(v);return cbor_head(2,len(b))+b
+    if isinstance(v,str):
+        b=v.encode();return cbor_head(3,len(b))+b
+    if isinstance(v,(list,tuple)):return cbor_head(4,len(v))+b''.join(cbor(x) for x in v)
+    if isinstance(v,dict):
+        items=sorted(((str(k).encode(),str(k),x) for k,x in v.items()),key=lambda z:z[0])
+        return cbor_head(5,len(items))+b''.join(cbor(k)+cbor(x) for _,k,x in items)
+    raise TypeError(type(v))
+
+def uleb(n):
+    out=bytearray()
+    while True:
+        b=n&0x7f;n>>=7
+        if n:out.append(b|0x80)
+        else:out.append(b);return bytes(out)
+
+def append_custom(wasm,name,payload):
+    nb=name.encode();body=uleb(len(nb))+nb+payload
+    return wasm+b'\x00'+uleb(len(body))+body
+
+def write_if_changed(path,data):
+    raw=data.encode('utf-8') if isinstance(data,str) else data
+    if not path.exists() or path.read_bytes()!=raw:path.write_bytes(raw)
+
+def blocks(src, keyword):
+    # yields (header, body) for keyword ... { ... }
+    pos=0
+    pat=re.compile(r'\b'+re.escape(keyword)+r'\b')
+    while True:
+        m=pat.search(src,pos)
+        if not m:break
+        op=src.find('{',m.end())
+        if op<0:break
+        d=1;i=op+1
+        while i<len(src) and d:
+            d += (src[i]=='{')-(src[i]=='}'); i+=1
+        if d:raise ValueError('unbalanced interface source')
+        yield src[m.start():op].strip(),src[op+1:i-1]
+        pos=i
+
+def parse_scalar(tok, typ, enums):
+    s=tok.strip().rstrip(',')
+    if typ=='Bool': return s=='true'
+    if typ.startswith('Enum<'):
+        en=typ[5:-1]; vals=enums[en]; return vals.index(s)
+    mult=1.0
+    for suf,m in [('khz',1000.0),('hz',1.0),('ms',0.001),('s',1.0)]:
+        if s.lower().endswith(suf):
+            s=s[:-len(suf)];mult=m;break
+    v=float(s)
+    if typ=='Int':return int(round(v*mult))
+    return v*mult
+
+def parse_interface(path):
+    src=path.read_text(encoding='utf-8')
+    enums={m.group(1):m.group(2).split() for m in re.finditer(r'\benum\s+(\w+)\s*\{([^}]*)\}',src)}
+    params=[]
+    pre=src.split('parameter ',1)[0]
+    def root_text(k,default=None):
+        m=re.search(r'\b'+re.escape(k)+r'\s*:\s*"([^"]*)"',pre);return m.group(1) if m else default
+    kind_m=re.search(r'\bkind\s*:\s*([A-Za-z_][\w-]*)',pre)
+    if not kind_m: raise ValueError('plugin interface kind is required')
+    kinds=[kind_m.group(1)]
+    mq_m=re.search(r'\bcontrol_modulation_max_quantum\s*:\s*(\d+)',pre)
+    control_max_quantum=int(mq_m.group(1)) if mq_m else 64
+    if control_max_quantum < 1: raise ValueError('control_modulation_max_quantum must be >= 1')
+    for head,body in blocks(src,'parameter'):
+        m=re.match(r'parameter\s+([A-Za-z_][\w.]*)\s*:\s*([^\s{]+)',head)
+        if not m:continue
+        name,typ=m.group(1),m.group(2)
+        def prop(pattern,default=None):
+            mm=re.search(pattern,body);return mm.group(1) if mm else default
+        pid=int(prop(r'\bid\s*:\s*(\d+)'))
+        default_tok=prop(r'\bdefault\s*:\s*([^\s}]+)')
+        rr=re.search(r'\brange\s*:\s*([^\s}]+)\.\.([^\s}]+)',body)
+        enum_vals=enums.get(typ[5:-1],[]) if typ.startswith('Enum<') else None
+        default=parse_scalar(default_tok,typ,enums)
+        lo=hi=None
+        if rr:lo=parse_scalar(rr.group(1),typ,enums);hi=parse_scalar(rr.group(2),typ,enums)
+        elif typ=='Bool': pass
+        elif enum_vals is not None: lo=0;hi=len(enum_vals)-1
+        unit={'Norm':'norm','Hz':'hz','Db':'db','Time':'seconds','Semitone':'semitone','Cent':'cent','Pan':'pan','Width':'width'}.get(typ,'none')
+        ptype='enum' if typ.startswith('Enum<') else {'Bool':'bool','Int':'int','String':'string'}.get(typ,'float')
+        scale_s=prop(r'\bscale\s*:\s*([A-Za-z_]+)','linear')
+        scale={'kind':'log' if scale_s=='logarithmic' else 'linear'}
+        automation=prop(r'\bautomation\s*:\s*([A-Za-z_]+)','none')
+        mod=prop(r'\bmodulation\s*:\s*([A-Za-z_]+)','none')
+        modulation={'kind':mod}
+        if mod=='control':modulation['max_quantum_samples']=control_max_quantum
+        if ptype in ('bool','int','enum'):modulation={'kind':'none'}
+        params.append({
+            'id':pid,'path':name,'name':name.replace('_',' ').title(),'unit_id':0,
+            'type':ptype,'unit':unit,'default':default,'min':lo,'max':hi,
+            'enum_values':enum_vals,'scale':scale,
+            'interpolation':'step' if ptype in ('bool','int','enum','string') else 'linear',
+            'automation':automation,'modulation':modulation,
+            'read_only':False,'hidden':False,'meter':False,'bypass':False,'program_selector':False,
+            'wrap_around':False,'list':ptype in ('bool','int','enum'),'function':None,'display_precision':None,
+        })
+    params.sort(key=lambda p:p['id'])
+    return src,{
+        'abi_major':1,'abi_minor':0,'id':root_text('id'),'vendor':root_text('vendor','soraotoDSL'),
+        'name':root_text('name','SuperSynth v8'),'version':root_text('version','8.0.0'),'kinds':kinds,
+        'parameters':params,
+    }
+
+def preset_map(p):
+    out={}
+    if p.get('category') is not None: out['category']=p.get('category')
+    if p.get('description') is not None: out['description']=p.get('description')
+    def setv(k,v):
+        if v is not None: out[k]=v
+    setv('master_gain',p.get('master'));setv('filter_cutoff',p.get('cutoff'));setv('filter_resonance',p.get('resonance'))
+    setv('amp_attack',p.get('attack'));setv('amp_decay',p.get('decay'));setv('amp_sustain',p.get('sustain'));setv('amp_release',p.get('release'))
+    setv('unison_detune',p.get('detune'));setv('unison_voices',min(8,int(p.get('unison',3))))
+    setv('stereo_spread',p.get('spread'));setv('filter_env_amount',p.get('filter_env'));setv('lfo1_rate',p.get('lfo_rate'));setv('lfo1_pitch',p.get('lfo_pitch'))
+    setv('portamento',p.get('portamento'));setv('noise_level',p.get('noise_mix'));setv('osc_a_level',p.get('osc1_mix'))
+    blevel=p.get('osc2_mix'); trim=p.get('osc2_level_trim',1.0)
+    if blevel is not None:setv('osc_b_level',max(0,min(1,float(blevel)*float(trim))))
+    setv('osc_b_semitones',p.get('osc2_semitones'));setv('ring_mix',p.get('ring_mod'));setv('fm_amount',p.get('fm_amount'));setv('pulse_width',p.get('pulse_width'))
+    setv('filter_drive',p.get('filter_drive'));setv('saturation',p.get('drive'));setv('phase_random',p.get('phase_random'));setv('pan',p.get('output_pan'))
+    setv('lfo2_rate',p.get('lfo2_rate'))
+    if 'lfo1_cutoff' in p:setv('lfo1_cutoff',max(-1,min(1,float(p['lfo1_cutoff'])/2)))
+    if 'lfo2_cutoff' in p:setv('lfo2_position',max(-1,min(1,float(p['lfo2_cutoff'])/2)))
+    if 'velocity_filter' in p:setv('velocity_to_filter',max(0,min(1,float(p['velocity_filter'])/2)))
+    if 'aftertouch_filter' in p:setv('pressure_to_filter',max(0,min(1,float(p['aftertouch_filter'])/2)))
+    if 'timbre_filter' in p:setv('timbre_to_position',max(0,min(1,float(p['timbre_filter'])/2)))
+    if 'keytrack' in p:setv('keytrack',max(0,min(1,float(p['keytrack']))))
+    fm={0:'lowpass',1:'bandpass',2:'highpass'}
+    if 'filter_type' in p:
+        raw=p['filter_type']
+        if isinstance(raw,str):
+            setv('filter_mode', raw if raw in ('lowpass','bandpass','highpass') else 'lowpass')
+        else:
+            setv('filter_mode',fm.get(int(raw),'lowpass'))
+    wave={'sine':0.0,'triangle':1/7,'saw':2/7,'square':3/7,'pulse':3.5/7}
+    if 'waveform' in p:setv('osc_a_position',wave.get(str(p['waveform']),2/7))
+    if 'osc2_waveform' in p:setv('osc_b_position',wave.get(str(p['osc2_waveform']),1/7))
+    if 'pwm_depth' in p:setv('osc_a_warp',max(0,min(1,float(p['pwm_depth'])*0.5)))
+    for old,new in [('filter_attack','filter_attack'),('filter_decay','filter_decay'),('filter_sustain','filter_sustain'),('filter_release','filter_release')]:
+        if old in p and float(p[old])>=0:setv(new,p[old])
+    return out
+
+def note_exprs():
+    def num(i,name,unit,default,lo,hi,bip=False,absolute=False):
+        return {'id':i,'name':name,'short_name':None,'unit_id':0,'value':{'kind':'numeric','unit':unit,'default':float(default),'min':float(lo),'max':float(hi),'step_count':0,'display_precision':None,'flags':{'bipolar':bip,'one_shot':False,'absolute':absolute}},'associated_parameter_id':None}
+    return [num(1,'Pitch','semitone',0,-48,48,True,False),num(2,'Pressure','norm',0,0,1),num(3,'Timbre','norm',0.5,0,1),num(4,'Volume','norm',1,0,1),num(5,'Pan','pan',0,-1,1,True,True)]
+
+def normalized_value(p, value):
+    t=p['type']; lo=p['min']; hi=p['max']
+    if t=='bool': return 1.0 if bool(value) else 0.0
+    if t=='enum':
+        vals=p['enum_values'] or []
+        if isinstance(value,str):
+            if value not in vals: raise ValueError(f"unknown enum value {p['path']}={value}")
+            idx=vals.index(value)
+        else: idx=int(round(float(value)))
+        return 0.0 if len(vals)<=1 else max(0.0,min(1.0,idx/(len(vals)-1)))
+    if t=='int':
+        v=max(int(lo),min(int(hi),int(round(float(value))))); n=int(hi-lo+1)
+        return 0.0 if n<=1 else (v-lo)/(n-1)
+    v=float(value)
+    if p['scale']['kind']=='log':
+        if v<=0 or lo<=0 or hi<=lo: raise ValueError(f"invalid log value {p['path']}={value}")
+        return max(0.0,min(1.0,math.log(v/lo)/math.log(hi/lo)))
+    return max(0.0,min(1.0,(v-lo)/(hi-lo))) if hi is not None and lo is not None and hi>lo else max(0.0,min(1.0,v))
+
+def normalized_default(p):
+    return normalized_value(p,p['default'])
+
+def stable_preset_ids(names):
+    import hashlib
+    used=set(); out={}
+    for name in sorted(names):
+        raw=int.from_bytes(hashlib.sha256(("soraoto-factory-preset-v1:"+name).encode('utf-8')).digest()[:4],'big') & 0xfffffffe
+        if raw==0: raw=2
+        while raw in used or raw==0xffffffff: raw=(raw+2)&0xfffffffe or 2
+        used.add(raw);out[name]=raw
+    return out
+
+def preset_cpu_class(p):
+    uni=int(p.get('unison_voices',3) or 3); engine=str(p.get('engine_model','wavetable'))
+    os=str(p.get('oversample','x2'))
+    score=(2 if os=='x4' else 1 if os=='x2' else 0)+(2 if uni>=5 else 1 if uni>=3 else 0)+(1 if engine in ('piano','concert_grand','tine','bowed','flute','reed','brass','vocal') else 0)
+    return 'high' if score>=4 else 'medium' if score>=2 else 'low'
+
+def recommended_range(category):
+    return {
+      'Bass':'C1-C4','Lead':'C3-C7','Pad':'C2-C7','Pluck':'C2-C7','Keys':'A0-C8','Brass':'E2-C6',
+      'Strings':'C2-C7','Motion':'C2-C7','Guitar':'E2-E6','Wind':'C4-C7','Vocal':'C3-C6','Organ':'C2-C7','Harp':'C2-C7'
+    }.get(str(category),'C2-C7')
+
+def make_preset_tables(model,presets):
+    by_path={p['path']:p for p in model['parameters']}
+    ids=stable_preset_ids(presets.keys()); factory=[]; programs=[]; values=[]
+    for name in sorted(presets):
+        src=presets[name]; category=src.get('category'); engine=str(src.get('engine_model','wavetable'))
+        tags=sorted(set(x for x in [str(category).lower() if category else None,engine,'factory'] if x))
+        meta={
+          'name':name,'category':category,'tags':tags,'author':'soraotoDSL','comment':src.get('description'),
+          'instrument':category,'style':None,'character':None,'state_type':'normal_preset','source_file_name':None,
+        }
+        pid=ids[name];factory.append({'id':pid,'meta':meta})
+        attrs={
+          'soraoto.family':str(category or 'General'),'soraoto.engine':engine,'soraoto.recommended_range':recommended_range(category),
+          'soraoto.polyphony':str(int(src.get('polyphony_limit',32))),'soraoto.cpu_class':preset_cpu_class(src),'soraoto.preset_version':model['version'],
+        }
+        programs.append({'id':pid,'name':name,'category':category,'instrument':category,'style':None,'character':None,'tags':tags,'attributes':attrs})
+        row=[]
+        for p in model['parameters']:
+            row.append(normalized_value(p,src[p['path']]) if p['path'] in src else normalized_default(p))
+        values.append(row)
+    return ids,factory,programs,values
+
+def descriptor(model,presets):
+    L={'kind':'speakers','channels':['L','R']}
+    browser_params={}
+    for p in model['parameters']:
+        browser_params[p['path']]={'id':p['id'],'type':p['type'],'unit':p['unit'],'min':p['min'],'max':p['max'],'default':p['default'],'enum_values':p['enum_values'],'scale':p['scale']}
+    preset_ids,factory,programs,values=make_preset_tables(model,presets)
+    return {
+      'abi_major':1,'abi_minor':0,'id':model['id'],'vendor':model['vendor'],'name':model['name'],'version':model['version'],
+      'kinds':model['kinds'],'max_instances':64,'compatible_plugin_ids':[],'required_wasm_features':['simd128'],'required_host_features':[],'optional_host_features':[],
+      'process_context_requirements':[],'supports_f64':False,'supports_in_place':False,'deterministic_dsp':True,'distributable':False,
+      'process_modes':['realtime','offline'],'io_modes':['simple','offline'],
+      'units':[{'id':0,'parent_id':None,'name':'Root','program_list_id':1,'supports_unit_data':False}],
+      'audio_buses':[{'id':2,'name':'Main Out','unit_id':0,'direction':'output','role':'main','sample_semantics':'audio','default_active':True,'required':True,'supported_layouts':[L]}],
+      'event_buses':[{'id':1,'name':'Notes','direction':'input','unit_id':0,'channel_count':16,'channel_unit_overrides':[],'dialects':['soraoto-note-v1']}],
+      'routing_hints':[],'parameters':model['parameters'],'controllers':[],'note_expressions':note_exprs(),'articulations':[],'key_switches':[],
+      'physical_ui_mappings':[],'orchestral_articulations':[],'controller_mappings':[],'remote_representations':[],'data_exchange_queues':[],
+      'parameter_aliases':[],'factory_presets':factory,
+      'program_lists':[{'id':1,'unit_id':0,'name':'SuperSynth Factory','supports_program_data':False,'mutable_program_names':False,'programs':programs}],
+      'state':{'schema_id':model['id']+'.state','schema_version':1,'max_snapshot_bytes':8+len(model['parameters'])*4},
+      'prefetch_support':'never','max_event_output_per_block':0,'max_host_requests_per_block':0,'max_asset_requests_per_block':0,'max_data_exchange_packets_per_block':0,
+      'x-net.daradara.soraotodsl-browser':{'parameters':browser_params,'preset_ids':preset_ids,'presets':presets},
+      '_factory_values':values,'_program_infos':programs,
+    }
+
+def header(desc):
+    ps=desc['parameters']; values=desc.pop('_factory_values'); program_infos=desc.pop('_program_infos'); b=cbor(desc)
+    type_code={'float':0,'int':1,'enum':2,'bool':3}
+    scale_code={'linear':0,'log':1,'power':2,'piecewise':3}
+    ids=[p['id'] for p in ps];mins=[0 if p['min'] is None else p['min'] for p in ps];maxs=[1 if p['max'] is None else p['max'] for p in ps]
+    defs=[normalized_default(p) for p in ps];types=[type_code[p['type']] for p in ps];scales=[scale_code[p['scale']['kind']] for p in ps];interpolations=[1 if p.get('interpolation')=='linear' else 0 for p in ps]
+    aux=[]
+    for p in ps:
+        if p['scale']['kind']=='log':aux.append(math.log2(float(p['max'])/float(p['min'])))
+        elif p['scale']['kind']=='power':aux.append(float(p['scale']['exponent']))
+        else:aux.append(0.0)
+    arr=lambda xs:','.join(repr(float(x))+'f' for x in xs)
+    ia=lambda xs:','.join(str(int(x)) for x in xs)
+    factory_ids=[x['id'] for x in desc['factory_presets']]
+    matrix=',\n'.join('{ '+arr(row)+' }' for row in values)
+    pbytes=[];offsets=[0]
+    for info in program_infos:
+        x=cbor(info);pbytes.extend(x);offsets.append(len(pbytes))
+    lines=['#ifndef SORAOTO_GENERATED_PLUGIN_DESCRIPTOR_H','#define SORAOTO_GENERATED_PLUGIN_DESCRIPTOR_H','#define PLUGIN_IS_INSTRUMENT 1','#define PLUGIN_INPUT_BUS_COUNT 0','#define PLUGIN_OUTPUT_BUS_COUNT 1',f'#define PLUGIN_PARAM_COUNT {len(ps)}']
+    lines += [f'static const unsigned int soraoto_param_ids[{len(ps)}]={{ {ia(ids)} }};',f'static const float soraoto_param_min[{len(ps)}]={{ {arr(mins)} }};',f'static const float soraoto_param_max[{len(ps)}]={{ {arr(maxs)} }};',f'static const float soraoto_param_default_norm[{len(ps)}]={{ {arr(defs)} }};',f'static const unsigned char soraoto_param_type[{len(ps)}]={{ {ia(types)} }};',f'static const unsigned char soraoto_param_scale[{len(ps)}]={{ {ia(scales)} }};',f'static const unsigned char soraoto_param_interpolation[{len(ps)}]={{ {ia(interpolations)} }};',f'static const float soraoto_param_scale_aux[{len(ps)}]={{ {arr(aux)} }};']
+    lines += [f'#define PLUGIN_FACTORY_PRESET_COUNT {len(factory_ids)}',f'static const unsigned int soraoto_factory_preset_ids[{len(factory_ids)}]={{ {ia(factory_ids)} }};',f'static const float soraoto_factory_preset_norm[{len(factory_ids)}][{len(ps)}]={{\n{matrix}\n}};']
+    lines += [f'#define PLUGIN_PROGRAM_LIST_ID 1',f'#define PLUGIN_PROGRAM_COUNT {len(program_infos)}',f'static const unsigned int soraoto_program_ids[{len(factory_ids)}]={{ {ia(factory_ids)} }};',f'static const unsigned int soraoto_program_info_offsets[{len(offsets)}]={{ {ia(offsets)} }};',f'static const unsigned char soraoto_program_info_bytes[{len(pbytes)}]={{'+','.join(str(x) for x in pbytes)+'};']
+    lines += [f'static const unsigned char soraoto_descriptor_bytes[{len(b)}]={{'+','.join(str(x) for x in b)+'};',f'#define SORAOTO_DESCRIPTOR_LEN {len(b)}','#endif']
+    return '\n'.join(lines)+'\n',b
+
+def build():
+    GEN.mkdir(parents=True,exist_ok=True)
+    interface_src,model=parse_interface(PLUGIN/'interface.soraoto')
+    presets=PRESETS
+    desc=descriptor(model,presets); h,db=header(desc)
+    write_if_changed(GEN/'super-synth_descriptor.h',h)
+    write_if_changed(GEN/'super-synth_descriptor.cbor',db)
+    write_if_changed(GEN/'super-synth_interface.soraoto',interface_src)
+    print('super-synth-v8',len(model['parameters']),len(presets),'descriptor generated')
+
+if __name__=='__main__':build()

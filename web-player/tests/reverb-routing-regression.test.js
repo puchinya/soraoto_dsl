@@ -1,0 +1,20 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert'),path=require('path');
+const root=path.resolve(__dirname,'..');
+const ctx={window:{},console};ctx.window=ctx;vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(path.join(root,'src/js/compiler.js'),'utf8'),ctx);
+vm.runInContext(fs.readFileSync(path.join(root,'src/js/plugin-registry.js'),'utf8'),ctx);
+const src=fs.readFileSync(path.join(root,'public/songs','jpop-blue-hour-signal.soraoto'),'utf8');
+const ir=ctx.SoraotoCompiler.compile(src);
+const space=ir.audioGraph.nodes.find(n=>n.id==='Space');assert(space,'Space bus exists');
+const reverb=space.effects.find(f=>f.name==='Reverb');assert(reverb,'Reverb insert exists');
+assert.strictEqual(reverb.kind,'plugin','Reverb is plugin IR');
+const resolved=ctx.SoraotoPluginRegistry.resolveEffect(reverb,{tempo:ir.tempo});
+assert(resolved,'Reverb resolves');
+assert.strictEqual(resolved.module,'wasm/plugins/effects/reverb/plugin.wasm');
+assert.strictEqual(resolved.props.mix.value,1,'Space bus reverb remains 100% wet');
+const sends=(ir.audioGraph.edges||[]).filter(e=>e.to==='Space');assert(sends.length>=1,'Space receives sends');
+for(const send of sends){assert(Number.isFinite(send.gain)&&send.gain<1,`send ${send.from} gain safe`);}
+const graph=fs.readFileSync(path.join(root,'src/js/audio-graph.js'),'utf8');
+assert(!graph.includes('if(fx.name==="Reverb")'),'Reverb no longer special-cased in audio graph');
+assert(graph.includes('Unresolved Plugin effect'),'unresolved plugin is diagnosed');
+console.log('PASS reverb routing regression',{sends:sends.length,module:resolved.module,mix:resolved.props.mix.value});

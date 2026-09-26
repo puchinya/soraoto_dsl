@@ -1,0 +1,440 @@
+{
+  "abi_major": 1,
+  "abi_minor": 0,
+  "id": "soraoto.stereo-delay",
+  "vendor": "soraotoDSL",
+  "name": "Stereo Delay",
+  "version": "1.0.0",
+  "categories": [],
+  "tags": [],
+  "homepage": null,
+  "kinds": [
+    "effect"
+  ],
+  "max_instances": 64,
+  "compatible_plugin_ids": [],
+  "required_wasm_features": [],
+  "required_host_features": [],
+  "optional_host_features": [],
+  "process_context_requirements": [],
+  "supports_f64": false,
+  "supports_in_place": false,
+  "deterministic_dsp": true,
+  "distributable": false,
+  "process_modes": [
+    "realtime",
+    "offline"
+  ],
+  "io_modes": [
+    "advanced",
+    "offline"
+  ],
+  "units": [
+    {
+      "id": 0,
+      "parent_id": null,
+      "name": "Root",
+      "program_list_id": null,
+      "supports_unit_data": false
+    }
+  ],
+  "audio_buses": [
+    {
+      "id": 1,
+      "name": "Main In",
+      "unit_id": 0,
+      "direction": "input",
+      "role": "main",
+      "sample_semantics": "audio",
+      "default_active": true,
+      "required": true,
+      "supported_layouts": [
+        {
+          "kind": "speakers",
+          "channels": [
+            "L",
+            "R"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Main Out",
+      "unit_id": 0,
+      "direction": "output",
+      "role": "main",
+      "sample_semantics": "audio",
+      "default_active": true,
+      "required": true,
+      "supported_layouts": [
+        {
+          "kind": "speakers",
+          "channels": [
+            "L",
+            "R"
+          ]
+        }
+      ]
+    }
+  ],
+  "event_buses": [],
+  "routing_hints": [],
+  "parameters": [
+    {
+      "id": 1,
+      "path": "time",
+      "name": "Time",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "seconds",
+      "default": 0.375,
+      "min": 0.0,
+      "max": 4.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 2,
+      "path": "feedback",
+      "name": "Feedback",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "none",
+      "default": 0.35,
+      "min": 0.0,
+      "max": 0.98,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 3,
+      "path": "mix",
+      "name": "Mix",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "norm",
+      "default": 0.3,
+      "min": 0.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 4,
+      "path": "left",
+      "name": "Left",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "seconds",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 4.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 5,
+      "path": "right",
+      "name": "Right",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "seconds",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 4.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 6,
+      "path": "feedback_high_pass",
+      "name": "Feedback High Pass",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "hz",
+      "default": 0.0,
+      "min": 0.0,
+      "max": 20000.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 7,
+      "path": "feedback_low_pass",
+      "name": "Feedback Low Pass",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "hz",
+      "default": 20000.0,
+      "min": 0.0,
+      "max": 20000.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 8,
+      "path": "ping_pong",
+      "name": "Ping Pong",
+      "unit_id": 0,
+      "type": "bool",
+      "unit": "none",
+      "default": true,
+      "min": null,
+      "max": null,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "step",
+      "automation": "none",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": true,
+      "function": null,
+      "display_precision": null
+    }
+  ],
+  "controllers": [],
+  "note_expressions": [],
+  "articulations": [],
+  "key_switches": [],
+  "physical_ui_mappings": [],
+  "orchestral_articulations": [],
+  "controller_mappings": [],
+  "remote_representations": [],
+  "data_exchange_queues": [],
+  "parameter_aliases": [],
+  "factory_presets": [],
+  "program_lists": [],
+  "state": {
+    "schema_id": "soraoto.stereo-delay.state",
+    "schema_version": 1,
+    "max_snapshot_bytes": 40
+  },
+  "prefetch_support": "never",
+  "prefetch_support_current": null,
+  "max_event_output_per_block": 0,
+  "max_host_requests_per_block": 0,
+  "max_asset_requests_per_block": 0,
+  "max_data_exchange_packets_per_block": 0,
+  "x-net.daradara.soraotodsl-browser": {
+    "parameters": {
+      "time": {
+        "id": 1,
+        "type": "float",
+        "unit": "seconds",
+        "min": 0.0,
+        "max": 4.0,
+        "default": 0.375,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "feedback": {
+        "id": 2,
+        "type": "float",
+        "unit": "none",
+        "min": 0.0,
+        "max": 0.98,
+        "default": 0.35,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "mix": {
+        "id": 3,
+        "type": "float",
+        "unit": "norm",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.3,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "left": {
+        "id": 4,
+        "type": "float",
+        "unit": "seconds",
+        "min": 0.0,
+        "max": 4.0,
+        "default": 0.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "right": {
+        "id": 5,
+        "type": "float",
+        "unit": "seconds",
+        "min": 0.0,
+        "max": 4.0,
+        "default": 0.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "feedback_high_pass": {
+        "id": 6,
+        "type": "float",
+        "unit": "hz",
+        "min": 0.0,
+        "max": 20000.0,
+        "default": 0.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "feedback_low_pass": {
+        "id": 7,
+        "type": "float",
+        "unit": "hz",
+        "min": 0.0,
+        "max": 20000.0,
+        "default": 20000.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "ping_pong": {
+        "id": 8,
+        "type": "bool",
+        "unit": "none",
+        "min": null,
+        "max": null,
+        "default": true,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,74 @@
+// Full work: Frédéric Chopin, Prelude in E minor, Op. 28 No. 4.
+// Complete 25-measure transcription; no abbreviated repeats.
+project {
+  version: 1
+  title: "Chopin — Prelude in E minor, Op. 28 No. 4"
+  tempo: 54bpm
+  tempo {
+    1bar: 56bpm
+    5bar: 54bpm
+    9bar: 52bpm
+    13bar: 55bpm
+    17bar: 51bpm
+    21bar: 47bpm
+    24bar: 40bpm
+  }
+
+  meter: 2/2
+  key: E.minor
+
+  track RightHand {
+    instrument: piano
+    gain: -7db
+    notes {
+      voice V1 {
+        !0.56: @8d: b3 @16: b4 @2d: b4 @4: c5 @2d: b4 @4: c5 @2d: b4 @4: c5 @2d: b4 @4: bb4
+        @2d: a4 @4: b4 @2d: a4 @4: b4 @2d: a4 @8d: b4 @16: a4 @2d: a4 @4_ @4: g#4
+        @8: a4 @8: b4 @8: d5 @8: c5 @8: e4 @8: a4 @2d: f#4 @4: a4 @2d: f#4 @4: a4
+        @8: g4 @8: f#4 @8: c4 @8: b3 @8: d#4 @8: f#4 @8t: d5 @8t: c5 @8t: b4 @2d: b4
+        @4: c5 @2d: b4 @4: c5 @2d: b4 @4: c5 @8d: b4 @16: a#4 @4: a#4 @4: g5 @8d: f#5
+        @16: e5 @8: e5 @8: d#5 @8: c6 @8: d#5 @8: d#5 @8: e5 @8: g5 @8: b4 @8: d5
+        @8: c5 @8t: e5 @8t: e4 @8t: a4 @4d: f#4 @8: a4 @2d: f#4 @4: a4 @2d_ @8d: f#4
+        @16: e4 @2d: e4 @4: f#4 @2d: e4 @4: f#4 @2: e4 @2_ @2: [e3 f#3 b3 e4] @2: [d#3 f#3 b3] @1: [e3 g3 b3 e4]
+      }
+      voice V2 {
+        !0.52: @1_ @1_ @1_ @1_ @1_ @1_ @1_ @1_ @1_ @1_
+        @2d_ @8d_ @16t_ @192_ @64: b4 @1_ @1_ @1_ @1_ @1_
+        @1_ @1_ @2d_ @8d_ @16t_ @192_ @64: b4 @1_ @1_ @1_
+        @1_ @1_ @1_ @4_
+      }
+    }
+  }
+
+  track LeftHand {
+    instrument: piano
+    gain: -10db
+    notes {
+      voice V1 {
+        !0.50: @4_ @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [f#3 a3 e4]
+        @8: [f#3 a3 e4] @8: [f#3 a3 e4] @8: [f#3 a3 e4] @8: [f#3 a3 eb4] @8: [f#3 a3 eb4] @8: [f#3 a3 eb4] @8: [f#3 a3 eb4] @8: [f3 a3 eb4] @8: [f3 a3 eb4] @8: [f3 a3 eb4]
+        @8: [f3 a3 eb4] @8: [f3 a3 d4] @8: [f3 a3 d4] @8: [f3 g#3 d4] @8: [f3 g#3 d4] @8: [e3 g#3 d4] @8: [e3 g#3 d4] @8: [e3 g#3 d4] @8: [e3 g#3 d4] @8: [e3 g3 d4]
+        @8: [e3 g3 d4] @8: [e3 g3 c#4] @8: [e3 g3 c#4] @8: [e3 g3 c4] @8: [e3 g3 c4] @8: [e3 g3 c4] @8: [e3 g3 c4] @8: [e3 f#3 c4] @8: [e3 f#3 c4] @8: [e3 f#3 c4]
+        @8: [e3 f#3 c4] @8: [e3 f#3 c4] @8: [e3 f#3 c4] @8: [e3 f#3 c4] @8: [e3 f#3 c4] @8: [d#3 f#3 c4] @8: [d#3 f#3 c4] @8: [d#3 f#3 c4] @8: [d#3 f#3 c4] @8: [d3 f#3 c4]
+        @8: [d3 f#3 c4] @8: [d3 f#3 c4] @8: [d3 f#3 c4] @8: [d3 f#3 c4] @8: [d3 f#3 c4] @8: [d3 f#3 c4] @8: [d3 f#3 c4] @8: [d3 f3 c4] @8: [d3 f3 c4] @8: [d3 f3 c4]
+        @8: [d3 f3 c4] @8: [d3 f3 b3] @8: [d3 f3 b3] @8: [d3 f3 b3] @8: [d3 f3 b3] @8: [c3 e3 b3] @8: [c3 e3 b3] @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [c3 e3 a3]
+        @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [b2 e3 a3] @8: [b2 e3 a3] @8: [b2 d#3 a3] @8: [b2 d#3 a3] @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [c3 e3 a3]
+        @8: [c3 e3 a3] @8: [b2 d#3 a3] @8: [b2 d#3 a3] @8: [b2 d#3 a3] @8: [b2 d#3 a3] @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [c3 e3 a3] @4: [b2 d#3 a3]
+        @2d_ @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [g3 b3 e4] @8: [f#3 a3 e4]
+        @8: [f#3 a3 e4] @8: [f#3 a3 e4] @8: [f#3 a3 e4] @8: [f3 a3 eb4] @8: [f3 a3 eb4] @8: [f3 a3 eb4] @8: [f3 a3 eb4] @8: [f3 ab3 eb4] @8: [f3 ab3 eb4] @8: [f3 ab3 d4]
+        @8: [f3 ab3 d4] @8: [e3 g#3 d4] @8: [e3 g#3 d4] @8: [e3 g#3 d4] @8: [e3 g#3 d4] @8: [e3 g3 d4] @8: [e3 g3 d4] @8: [e3 g3 c#4] @8: [e3 g3 c#4] @8: [c#3 e3 a#3]
+        @8: [c#3 e3 a#3] @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [b1 b2] @8: [a3 c4 f#4 a4] @8: [a3 c4 f#4 a4] @8: [a3 c4 f#4 a4] @8: [g3 b3 d#4 f#4] @8: [g3 b3 e4] @8: [g3 b3 e4]
+        @8: [g3 b3 e4] @8: [a3 c4 e4] @8: [a3 c4 e4] @8: a2 @8: [e3 f#3 c4] @8: [b2 e3 b3] @8: [b2 e3 b3] @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [b2 e3 b3]
+        @8: [b2 e3 b3] @8: [b2 e3 b3] @8: [b2 e3 b3] @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [b2 e3 b3] @8: [b2 e3 b3] @8: [b2 e3 b3]
+        @8: [b2 e3 b3] @8: [b2 d#3 b3] @8: [b2 d#3 b3] @8: [b2 d#3 a3] @8: [b2 d#3 a3] @8: [c3 g3] @8: [c3 g3] @8: [c3 g3] @8: [c3 g3] @8: [c3 bb3]
+        @8: [c3 bb3] @8: [c3 e3 a3] @8: [c3 e3 a3] @8: [b2 e3 a3] @8: [b2 e3 a3] @8: [b2 e3 g#3] @8: [b2 e3 g#3] @8: [b2 e3 g3] @8: [b2 e3 g3] @8: [b2 e3 g3]
+        @8: [b2 e3 g3] @2: [bb2 c3 g3] @2_ @2: [b1 b2] @2: [b1 f#2 b2] @1: [e1 e2]
+      }
+    }
+  }
+
+  master {
+    effects { Compressor { threshold: -12db ratio: 1.45 attack: 22ms release: 190ms } Limiter { ceiling: -1db } }
+    gain: -2db
+  }
+}

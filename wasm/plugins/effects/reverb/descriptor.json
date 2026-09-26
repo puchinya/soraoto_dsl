@@ -1,0 +1,642 @@
+{
+  "abi_major": 1,
+  "abi_minor": 0,
+  "id": "soraoto.reverb",
+  "vendor": "soraotoDSL",
+  "name": "Soraoto Reverb",
+  "version": "1.0.0",
+  "categories": [],
+  "tags": [],
+  "homepage": null,
+  "kinds": [
+    "effect"
+  ],
+  "max_instances": 64,
+  "compatible_plugin_ids": [],
+  "required_wasm_features": [],
+  "required_host_features": [],
+  "optional_host_features": [],
+  "process_context_requirements": [],
+  "supports_f64": false,
+  "supports_in_place": false,
+  "deterministic_dsp": true,
+  "distributable": false,
+  "process_modes": [
+    "realtime",
+    "offline"
+  ],
+  "io_modes": [
+    "advanced",
+    "offline"
+  ],
+  "units": [
+    {
+      "id": 0,
+      "parent_id": null,
+      "name": "Root",
+      "program_list_id": 1,
+      "supports_unit_data": false
+    }
+  ],
+  "audio_buses": [
+    {
+      "id": 1,
+      "name": "Main In",
+      "unit_id": 0,
+      "direction": "input",
+      "role": "main",
+      "sample_semantics": "audio",
+      "default_active": true,
+      "required": true,
+      "supported_layouts": [
+        {
+          "kind": "speakers",
+          "channels": [
+            "L",
+            "R"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Main Out",
+      "unit_id": 0,
+      "direction": "output",
+      "role": "main",
+      "sample_semantics": "audio",
+      "default_active": true,
+      "required": true,
+      "supported_layouts": [
+        {
+          "kind": "speakers",
+          "channels": [
+            "L",
+            "R"
+          ]
+        }
+      ]
+    }
+  ],
+  "event_buses": [],
+  "routing_hints": [],
+  "parameters": [
+    {
+      "id": 1,
+      "path": "mix",
+      "name": "Mix",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "norm",
+      "default": 0.22,
+      "min": 0.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 2,
+      "path": "decay",
+      "name": "Decay",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "seconds",
+      "default": 2.2,
+      "min": 0.2,
+      "max": 12.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 3,
+      "path": "damping",
+      "name": "Damping",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "norm",
+      "default": 0.36,
+      "min": 0.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 4,
+      "path": "predelay",
+      "name": "Predelay",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "seconds",
+      "default": 0.02,
+      "min": 0.0,
+      "max": 0.2,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 5,
+      "path": "width",
+      "name": "Width",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "width",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 2.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 6,
+      "path": "early_late",
+      "name": "Early Late",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "norm",
+      "default": 0.68,
+      "min": 0.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 7,
+      "path": "room_size",
+      "name": "Room Size",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "norm",
+      "default": 0.72,
+      "min": 0.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    }
+  ],
+  "controllers": [],
+  "note_expressions": [],
+  "articulations": [],
+  "key_switches": [],
+  "physical_ui_mappings": [],
+  "orchestral_articulations": [],
+  "controller_mappings": [],
+  "remote_representations": [],
+  "data_exchange_queues": [],
+  "parameter_aliases": [],
+  "factory_presets": [
+    {
+      "id": 2669170258,
+      "meta": {
+        "name": "ambience",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 3637719952,
+      "meta": {
+        "name": "chamber",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 166379850,
+      "meta": {
+        "name": "hall",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 1430931772,
+      "meta": {
+        "name": "plate",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 1984097968,
+      "meta": {
+        "name": "room",
+        "category": null,
+        "tags": [
+          "factory",
+          "effect"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    }
+  ],
+  "program_lists": [
+    {
+      "id": 1,
+      "unit_id": 0,
+      "name": "Soraoto Reverb Factory",
+      "supports_program_data": false,
+      "mutable_program_names": false,
+      "programs": [
+        {
+          "id": 2669170258,
+          "name": "ambience",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Reverb",
+            "soraoto.engine": "soraoto.reverb",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 3637719952,
+          "name": "chamber",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Reverb",
+            "soraoto.engine": "soraoto.reverb",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 166379850,
+          "name": "hall",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Reverb",
+            "soraoto.engine": "soraoto.reverb",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 1430931772,
+          "name": "plate",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Reverb",
+            "soraoto.engine": "soraoto.reverb",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 1984097968,
+          "name": "room",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "effect"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Reverb",
+            "soraoto.engine": "soraoto.reverb",
+            "soraoto.polyphony": "1",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        }
+      ]
+    }
+  ],
+  "state": {
+    "schema_id": "soraoto.reverb.state",
+    "schema_version": 1,
+    "max_snapshot_bytes": 36
+  },
+  "prefetch_support": "never",
+  "prefetch_support_current": null,
+  "max_event_output_per_block": 0,
+  "max_host_requests_per_block": 0,
+  "max_asset_requests_per_block": 0,
+  "max_data_exchange_packets_per_block": 0,
+  "x-net.daradara.soraotodsl-browser": {
+    "parameters": {
+      "mix": {
+        "id": 1,
+        "type": "float",
+        "unit": "norm",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.22,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "decay": {
+        "id": 2,
+        "type": "float",
+        "unit": "seconds",
+        "min": 0.2,
+        "max": 12.0,
+        "default": 2.2,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "damping": {
+        "id": 3,
+        "type": "float",
+        "unit": "norm",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.36,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "predelay": {
+        "id": 4,
+        "type": "float",
+        "unit": "seconds",
+        "min": 0.0,
+        "max": 0.2,
+        "default": 0.02,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "width": {
+        "id": 5,
+        "type": "float",
+        "unit": "width",
+        "min": 0.0,
+        "max": 2.0,
+        "default": 1.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "early_late": {
+        "id": 6,
+        "type": "float",
+        "unit": "norm",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.68,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "room_size": {
+        "id": 7,
+        "type": "float",
+        "unit": "norm",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.72,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      }
+    },
+    "presets": {
+      "room": {
+        "mix": 0.17,
+        "decay": 1.15,
+        "damping": 0.42,
+        "predelay": 0.009,
+        "width": 0.88,
+        "early_late": 0.42,
+        "room_size": 0.42
+      },
+      "plate": {
+        "mix": 0.22,
+        "decay": 2.15,
+        "damping": 0.28,
+        "predelay": 0.018,
+        "width": 1.18,
+        "early_late": 0.78,
+        "room_size": 0.66
+      },
+      "hall": {
+        "mix": 0.25,
+        "decay": 4.8,
+        "damping": 0.52,
+        "predelay": 0.032,
+        "width": 1.42,
+        "early_late": 0.82,
+        "room_size": 0.9
+      },
+      "chamber": {
+        "mix": 0.2,
+        "decay": 2.7,
+        "damping": 0.45,
+        "predelay": 0.014,
+        "width": 1.05,
+        "early_late": 0.62,
+        "room_size": 0.58
+      },
+      "ambience": {
+        "mix": 0.13,
+        "decay": 0.72,
+        "damping": 0.32,
+        "predelay": 0.004,
+        "width": 1.28,
+        "early_late": 0.24,
+        "room_size": 0.3
+      }
+    }
+  }
+}

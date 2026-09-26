@@ -1,0 +1,427 @@
+import component Sidechain from "std:components/sidechain"
+import component StereoDelay from "std:components/stereo-delay"
+import plugin SuperSynth from "../wasm/plugins/dsp/super-synth/plugin.wasm"
+
+project {
+  version: 1
+  title: "Neon Summer 2026"
+  tempo: 134bpm
+  meter: 4/4
+  key: D.major
+
+  structure {
+    Intro { bars: 4 }
+    Verse { bars: 8 }
+    Pre { bars: 4 }
+    Chorus { bars: 8 }
+    Bridge { bars: 4 }
+    Final { bars: 8 }
+  }
+
+  chords Harmony {
+    Intro {
+      Dmaj7,
+      A/C#,
+      Bm7,
+      Gmaj7,
+    }
+    Verse {
+      Bm7,
+      Gmaj7,
+      Dmaj7,
+      A,
+      Bm7,
+      Gmaj7,
+      Dmaj7,
+      A,
+    }
+    Pre {
+      Em7,
+      F#m7,
+      Gmaj7,
+      A,
+    }
+    Chorus {
+      D,
+      A/C#,
+      Bm7,
+      F#m7,
+      Gmaj7,
+      D/F#,
+      Em7,
+      A,
+    }
+    Bridge {
+      Bm7,
+      Gmaj7,
+      D,
+      A,
+    }
+    Final {
+      D,
+      A/C#,
+      Bm7,
+      F#m7,
+      Gmaj7,
+      D/F#,
+      Em7,
+      A,
+    }
+  }
+
+  track Lead {
+    instrument {
+      SuperSynth {
+        preset: supersaw_lead
+        filter_cutoff: 7.2khz
+      }
+    }
+    gain: -9db
+    pan: 0.03
+    stereo {
+      width: 1.10
+      balance: 0
+    }
+    Intro {
+      notes {
+        @8:
+        !mp:
+        ( f#5 ~ +3 . -3 -2 ,
+          e5 ~ +2 ~ +3 , ) * 2
+      }
+    }
+    Verse {
+      notes {
+        @8:
+        !mp:
+        ( b4 ~ +3 +2 ~ -2 ,
+          g4 ~ +4 +3 +2 -2 , ) * 2
+        ( a4 ~ +5 +4 ~ -2 ,
+          e5 ~ +2 +3 ~ -3 -2 , ) * 2
+      }
+    }
+    Pre {
+      notes {
+        @8:
+        !mf:
+        ( e5 ~ +3 +2 ~ -2 ,
+          f#5 ~ +3 +2 ~ +2 , ) * 2
+      }
+    }
+    Chorus {
+      notes {
+        @8:
+        !f:
+        ( f#5 ~ +3 +2 ~ -2 -3 ,
+          e5 ~ +2 +3 ~ +2 -2 ,
+          f#5 +3 ~ +2 +3 ~ - ,
+          a5 ~ -3 -2 +2 ~ +3 , ) * 2
+      }
+    }
+    Bridge {
+      notes {
+        @8:
+        !mp:
+        b4 ~ +3 +4 ~ ,
+        ,
+        a4 ~ +5 +4 +3 ~ -3 ,
+        e5 +2 +3 ~ +2 ~ ,
+      }
+    }
+    Final {
+      notes {
+        @8:
+        !f:
+        ( f#5 ~ +3 +2 ~ +3 - ,
+          e5 +2 ~ +3 +2 ~ -2 ,
+          f#5 +3 +2 ~ +3 +2 ~ -2 ,
+          c#6 ~ -4 -3 ~ +3 +2 , ) * 2
+      }
+    }
+    effects { Compressor {
+        threshold: -16db
+        ratio: 2.2
+        attack: 8ms
+        release: 90ms
+      } }
+  }
+
+  track Bass {
+    instrument: bass
+    gain: -8db
+    Harmony |> WalkingBass(octave: 2, approach: chromatic)
+    effects {
+      Sidechain {
+        source: Kick
+        amount: -5db
+        attack: 4ms
+        release: 110ms
+      }
+      Compressor {
+        threshold: -16db
+        ratio: 3
+        attack: 10ms
+        release: 100ms
+      }
+    }
+  }
+
+  track Piano {
+    instrument: piano
+    gain: -11db
+    pan: -0.15
+    Harmony |> PianoVoicing(range: d3..d5, voice_leading: nearest, voices: 4)
+    stereo {
+      width: 1.18
+      balance: -0.05
+    }
+    automation { gain: "0:0.12 16:0.24 48:0.34 64:0.48 96:0.22 112:0.52" }
+  }
+
+  track Guitar {
+    instrument: guitar
+    gain: -12db
+    pan: 0.20
+    Harmony |> GuitarVoicing(style: open, voice_leading: nearest) |> GuitarStrum(style: pop8)
+    stereo {
+      width: 1.22
+      balance: 0.08
+    }
+    automation { gain: "0:0.08 16:0.28 48:0.38 64:0.52 96:0.18 112:0.58" }
+  }
+
+  track Pad {
+    instrument {
+      SuperSynth {
+        preset: airy_pad
+        filter_cutoff: 4.8khz
+      }
+    }
+    gain: -17db
+    Harmony |> PadVoicing(range: d4..a5, voice_leading: smooth, voices: 4)
+    stereo {
+      width: 1.55
+      balance: 0
+    }
+    automation { gain: "0:0.10 16:0.08 48:0.20 64:0.38 96:0.18 112:0.44" }
+    effects { Sidechain {
+        source: Kick
+        amount: -5db
+        attack: 5ms
+        release: 120ms
+      } }
+  }
+
+  track CounterHook {
+    instrument {
+      SuperSynth {
+        preset: bright_pluck
+        filter_cutoff: 8.4khz
+      }
+    }
+    gain: -15db
+    pan: 0.20
+    stereo {
+      width: 1.32
+      balance: 0.10
+    }
+    Intro {
+      notes {
+        @8:
+        ( d6 _ -5 _ -3 -2 , , ) * 2
+      }
+    }
+    Verse {
+      notes {
+        @8:
+        , , , , , , , ,
+      }
+    }
+    Pre {
+      notes {
+        @8:
+        ( , e5 _ +2 _ + +2 , ) * 2
+      }
+    }
+    Chorus {
+      notes {
+        @8:
+        articulation staccato {
+          ( , a5 _ +2 _ +7 -2 ,
+            ,
+            c#6 _ -2 _ -3 ,
+            , ) * 2
+        }
+      }
+    }
+    Bridge {
+      notes {
+        @8:
+        , , , ,
+      }
+    }
+    Final {
+      notes {
+        @8:
+        articulation staccato {
+          ( , a5 _ +2 _ +7 -2 ,
+            c#6 _ -2 _ -3 ,
+            ,
+            d6 _ -3 _ -2 , ) * 2
+        }
+      }
+    }
+  }
+
+  track Kick {
+    gain: -7db
+    drums {
+      Intro {
+        @16:
+        Kick "x.......x.......x.......x.......x.......x.......x.......x......."
+      }
+      Verse {
+        @16:
+        Kick "x...x.....x.x...x...x.....x.x...x...x.....x.x...x...x.....x.x...x...x.....x.x...x...x.....x.x...x...x.....x.x...x...x.....x.x..."
+      }
+      Pre {
+        @16:
+        Kick "x...x.x.x...x.x.x...x.x.x...x.x.x...x.x.x...x.x.x...x.x.x...x.x."
+      }
+      Chorus {
+        @16:
+        Kick "x.x.x..xx...x.x.x.x.x..xx...x.x.x.x.x..xx...x.x.x.x.x..xx...x.x.x.x.x..xx...x.x.x.x.x..xx...x.x.x.x.x..xx...x.x.x.x.x..xx...x.x."
+      }
+      Bridge {
+        @16:
+        Kick "x.......x.......x.......x.......x.......x.......x.......x......."
+      }
+      Final {
+        @16:
+        Kick "x.x.x..xx.x.x.x.x.x.x..xx.x.x.x.x.x.x..xx.x.x.x.x.x.x..xx.x.x.x.x.x.x..xx.x.x.x.x.x.x..xx.x.x.x.x.x.x..xx.x.x.x.x.x.x..xx.x.x.x."
+      }
+      humanize {
+        timing: 2ms
+        velocity: 0.02
+        seed: 91
+      }
+    }
+  }
+
+  track Drums {
+    gain: -9db
+    drums {
+      Intro {
+        @16:
+        Snare "........X...............X...............X...............X......."
+        Hat "x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x."
+      }
+      Verse {
+        @16:
+        Snare "....X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X..."
+        Hat "x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x."
+      }
+      Pre {
+        @16:
+        Snare "....X.......X.......X.......X.......X.......X.......X.......X..."
+        Hat "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+      Chorus {
+        @16:
+        Snare "....X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X..."
+        Hat "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        Crash "X..............................................................................................................................."
+      }
+      Bridge {
+        @16:
+        Snare "........X...............X...............X...............X......."
+        Hat "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+        Tom "............x.x.............x.x.............x.x.............x.x."
+      }
+      Final {
+        @16:
+        Snare "....X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X..."
+        Hat "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        Crash "X...............X..............................................................................................................."
+      }
+      humanize {
+        timing: 4ms
+        velocity: 0.035
+        seed: 193
+      }
+    }
+  }
+
+  bus Delay {
+    StereoDelay {
+      time: 1/8d
+      feedback: 0.27
+      mix: 1.0
+      mode: ping_pong
+      feedback_filter {
+        high_pass: 260hz
+        low_pass: 5.8khz
+      }
+    }
+    gain: -2db
+    stereo {
+      width: 1.30
+      balance: 0
+    }
+  }
+
+  routing {
+    Kick -> Master
+    Drums -> Master
+    Bass -> Master
+    Piano -> Master
+    Guitar -> Master
+    Pad -> Master
+    Lead -> Master
+    CounterHook -> Master
+    Lead -> Delay {
+      gain: -14db
+      mode: post_fader
+    }
+    CounterHook -> Delay {
+      gain: -17db
+      mode: post_fader
+    }
+    Piano -> Delay {
+      gain: -22db
+      mode: post_fader
+    }
+    Guitar -> Delay {
+      gain: -24db
+      mode: post_fader
+    }
+    Delay -> Master
+  }
+
+  master {
+    effects {
+      Compressor {
+        threshold: -13db
+        ratio: 2
+        attack: 12ms
+        release: 130ms
+      }
+      Limiter {
+        ceiling: -1db
+      }
+    }
+    gain: -1db
+  }
+
+  render Main {
+    format: wav
+    sample_rate: 48khz
+    bit_depth: 24bit
+    normalize: false
+  }
+
+  export midi {
+    tracks: [Kick, Drums, Bass, Piano, Guitar, Pad, Lead, CounterHook]
+  }
+
+}

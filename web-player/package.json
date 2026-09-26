@@ -1,0 +1,10 @@
+{
+  "name": "soraoto-web-player",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/server.mjs dev",
+    "build": "node scripts/build.mjs",
+    "preview": "node scripts/server.mjs preview",
+    "test": "node scripts/test.mjs"
+  }
+}

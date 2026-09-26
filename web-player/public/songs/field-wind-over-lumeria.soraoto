@@ -1,0 +1,422 @@
+import component StereoDelay from "std:components/stereo-delay"
+import plugin SuperSynth from "../wasm/plugins/dsp/super-synth/plugin.wasm"
+
+project {
+  version: 1
+  title: "Wind over Lumeria"
+  tempo: 92bpm
+  meter: 4/4
+  key: D.major
+
+  structure {
+    Intro { bars: 4 }
+    A { bars: 8 }
+    B { bars: 4 }
+    Hook { bars: 8 }
+    Break { bars: 4 }
+    Final { bars: 8 }
+  }
+
+  chords Harmony {
+    Intro {
+      Dmaj7,
+      Gmaj7,
+      Bm7,
+      A,
+    }
+    A {
+      Dmaj7,
+      Gmaj7,
+      Bm7,
+      A,
+      Dmaj7,
+      Gmaj7,
+      Bm7,
+      A,
+    }
+    B {
+      Em7,
+      F#m7,
+      Gmaj7,
+      A,
+    }
+    Hook {
+      Gmaj7,
+      D/F#,
+      Em7,
+      A,
+      Gmaj7,
+      D/F#,
+      Em7,
+      A,
+    }
+    Break {
+      Bm7,
+      Gmaj7,
+      D,
+      A,
+    }
+    Final {
+      Gmaj7,
+      D/F#,
+      Em7,
+      A,
+      Gmaj7,
+      D/F#,
+      Em7,
+      A,
+    }
+  }
+
+  track Lead {
+    instrument: flute
+    gain: -10db
+    Intro {
+      notes {
+        @16:
+        !mp:
+        c#4 ~ f#4 ~ _ a4 ~ _ a4 ~ ~ _ f#4 ~ _ _ ,
+        f#4 ~ ~ _ b4 ~ _ b4 ~ _ g4 ~ _ _ _ _ ,
+        _ a4 ~ _ d5 ~ _ _ a4 ~ e4 ~ _ f#4 ~ _ ,
+        a4 ~ _ g4 ~ _ e4 ~ _ e4 ~ ~ _ _ _ _ ,
+      }
+    }
+    A {
+      notes {
+        @16:
+        !mp:
+        a4 ~ e4 ~ _ f#4 ~ _ d4 ~ ~ _ d4 ~ _ a4 ,
+        g4 ~ ~ _ g4 ~ _ d4 ~ _ d4 ~ _ g4 ~ ~ ,
+        _ f#4 ~ _ f#4 ~ _ _ f#4 ~ f#4 ~ _ a4 ~ d5 ,
+        e4 ~ _ d4 ~ _ f#4 ~ _ a4 ~ ~ _ c#5 ~ ~ ,
+        d5 ~ f#5 ~ _ a5 ~ _ d5 ~ ~ _ a4 ~ _ f#4 ,
+        g4 ~ ~ _ d5 ~ _ b4 ~ _ g4 ~ _ g4 ~ ~ ,
+        _ a4 ~ _ d5 ~ _ _ b4 ~ e4 ~ _ f#4 ~ f#4 ,
+        c#5 ~ _ g4 ~ _ e4 ~ _ f#4 ~ ~ _ e4 ~ ~ ,
+      }
+    }
+    B {
+      notes {
+        @16:
+        !mf:
+        d5 ~ e5 ~ _ f#5 ~ _ g5 ~ ~ _ g5 ~ _ b5 ,
+        a4 ~ ~ _ c#5 ~ _ g#4 ~ _ d5 ~ _ c#5 ~ ~ ,
+        _ f#5 ~ _ b4 ~ _ _ b4 ~ f#5 ~ _ a5 ~ g5 ,
+        a4 ~ _ g#4 ~ _ f#4 ~ _ a4 ~ ~ _ e5 ~ ~ ,
+      }
+    }
+    Hook {
+      notes {
+        @16:
+        !f:
+        d6 ~ f#5 ~ _ a5 ~ _ b5 ~ ~ _ g5 ~ _ d5 ,
+        f#6 ~ ~ _ a5 ~ _ c#6 ~ _ g5 ~ _ d5 ~ ~ ,
+        _ a5 ~ _ d6 ~ _ _ g5 ~ e5 ~ _ f#5 ~ e5 ,
+        a5 ~ _ g#5 ~ _ e5 ~ _ f#5 ~ ~ _ c#5 ~ ~ ,
+        g5 ~ e5 ~ _ f#5 ~ _ d5 ~ ~ _ d5 ~ _ f#5 ,
+        d6 ~ ~ _ f#5 ~ _ c#5 ~ _ d5 ~ _ f#5 ~ ~ ,
+        _ f#6 ~ _ e6 ~ _ _ e6 ~ f#5 ~ _ a5 ~ d6 ,
+        c#6 ~ _ c6 ~ _ f#5 ~ _ a5 ~ ~ _ a5 ~ ~ ,
+      }
+    }
+    Break {
+      notes {
+        @16:
+        !mp:
+        d4 ~ f#4 ~ _ a4 ~ _ b4 ~ ~ _ _ _ _ _ ,
+        g4 ~ ~ _ b4 ~ _ d5 ~ _ _ _ _ _ _ _ ,
+        _ a4 ~ _ d5 ~ _ _ a4 ~ f#4 ~ _ _ _ _ ,
+        a4 ~ _ g4 ~ _ e4 ~ _ _ _ _ _ _ _ _ ,
+      }
+    }
+    Final {
+      notes {
+        @16:
+        !ff:
+        g6 ~ e6 ~ _ f#5 ~ _ d5 ~ ~ _ d5 ~ _ g5 ,
+        f#6 ~ ~ _ a5 ~ _ f5 ~ _ d5 ~ _ f#5 ~ d6 ,
+        _ f#6 ~ _ e6 ~ _ _ e6 ~ f#5 ~ _ a5 ~ e6 ,
+        c#6 ~ _ d#5 ~ _ f#5 ~ _ a5 ~ ~ _ b5 ~ a5 ,
+        d6 ~ f#5 ~ _ a5 ~ _ d6 ~ ~ _ g5 ~ _ f#5 ,
+        g6 ~ ~ _ d6 ~ _ c#6 ~ _ g5 ~ _ e5 ~ a5 ,
+        _ g6 ~ _ e6 ~ _ _ b5 ~ e5 ~ _ f#5 ~ e5 ,
+        c#6 ~ _ g#5 ~ _ e5 ~ _ f#5 ~ ~ _ d5 ~ c#5 ,
+      }
+    }
+  
+    effects {
+      ChannelStrip {
+        preset: lead
+      }
+    }
+}
+
+  track Counter {
+    instrument: harp
+    gain: -17db
+    pan: 0.22
+    Intro {
+      notes {
+        @16:
+        !mp:
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ d6 ~ _ _ _ _ _ _ f#6 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ c#6 ~ _ _ _ _ _ _ e6 ~ _ ,
+      }
+    }
+    A {
+      notes {
+        @16:
+        !mp:
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ d6 ~ _ _ _ _ _ _ f#6 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ e6 ~ _ _ _ _ _ _ a6 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ d6 ~ _ _ _ _ _ _ f#6 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ a6 ~ _ _ _ _ _ _ c#6 ~ _ ,
+      }
+    }
+    B {
+      notes {
+        @16:
+        !mf:
+        _ _ _ g6 ~ _ _ _ _ _ b5 ~ _ _ d6 ~ ,
+        _ _ _ c#6 ~ _ _ _ _ _ e6 ~ _ _ f#6 ~ ,
+        _ _ _ f#6 ~ _ _ _ _ _ g6 ~ _ _ b5 ~ ,
+        _ _ _ c#6 ~ _ _ _ _ _ e6 ~ _ _ a6 ~ ,
+      }
+    }
+    Hook {
+      notes {
+        @16:
+        !f:
+        _ _ _ b6 ~ _ _ _ _ _ d6 ~ _ _ f#6 ~ ,
+        _ _ _ d6 ~ _ _ _ _ _ f#6 ~ _ _ a6 ~ ,
+        _ _ _ d6 ~ _ _ _ _ _ e6 ~ _ _ g6 ~ ,
+        _ _ _ e6 ~ _ _ _ _ _ a6 ~ _ _ c#6 ~ ,
+        _ _ _ b6 ~ _ _ _ _ _ d6 ~ _ _ f#6 ~ ,
+        _ _ _ f#6 ~ _ _ _ _ _ a6 ~ _ _ d6 ~ ,
+        _ _ _ d6 ~ _ _ _ _ _ e6 ~ _ _ g6 ~ ,
+        _ _ _ a6 ~ _ _ _ _ _ c#6 ~ _ _ e6 ~ ,
+      }
+    }
+    Break {
+      notes {
+        @16:
+        !mp:
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ d6 ~ _ _ _ _ _ _ f#6 ~ _ ,
+        _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ ,
+        _ _ _ _ _ c#6 ~ _ _ _ _ _ _ e6 ~ _ ,
+      }
+    }
+    Final {
+      notes {
+        @16:
+        !ff:
+        _ _ _ b6 ~ _ _ _ _ _ d6 ~ _ _ f#6 ~ ,
+        _ _ _ d6 ~ _ _ _ _ _ f#6 ~ _ _ a6 ~ ,
+        _ _ _ d6 ~ _ _ _ _ _ e6 ~ _ _ g6 ~ ,
+        _ _ _ e6 ~ _ _ _ _ _ a6 ~ _ _ c#6 ~ ,
+        _ _ _ b6 ~ _ _ _ _ _ d6 ~ _ _ f#6 ~ ,
+        _ _ _ f#6 ~ _ _ _ _ _ a6 ~ _ _ d6 ~ ,
+        _ _ _ d6 ~ _ _ _ _ _ e6 ~ _ _ g6 ~ ,
+        _ _ _ a6 ~ _ _ _ _ _ c#6 ~ _ _ e6 ~ ,
+      }
+    }
+  
+    effects {
+      ChannelStrip {
+        preset: lead
+      }
+    }
+}
+
+  track Bass {
+    instrument: bass
+    gain: -10db
+    Harmony |> BassRoot(octave: 2, mode: chord_bass)
+  
+    effects {
+      ChannelStrip {
+        preset: bass
+      }
+    }
+}
+
+  track Piano {
+    instrument: piano
+    gain: -13db
+    pan: -0.10
+    Harmony |> PianoVoicing(range: c3..c5, voice_leading: nearest, voices: 4)
+  
+    effects {
+      ChannelStrip {
+        preset: keys
+      }
+    }
+}
+
+  track Atmosphere {
+    instrument {
+      SuperSynth {
+        preset: airy_pad
+        filter_cutoff: 2.8khz
+      }
+    }
+    gain: -20db
+    Harmony |> PadVoicing(range: c4..c6, voice_leading: smooth, voices: 4)
+    stereo {
+      width: 1.7
+      balance: 0
+    }
+  
+    effects {
+      ChannelStrip {
+        preset: pad
+      }
+    }
+}
+
+  bus Delay {
+    StereoDelay {
+      time: 1/8d
+      feedback: 0.24
+      mix: 1.0
+      mode: ping_pong
+    }
+    gain: -4db
+  }
+  bus Space {
+    Reverb {
+      preset: hall
+      mix: 1.0
+    }
+    gain: -5db
+  }
+
+
+  routing {
+    Lead -> Master
+    Counter -> Master
+    Bass -> Master
+    Piano -> Master
+    Atmosphere -> Master
+    Lead -> Delay { gain: -16db mode: post_fader }
+    Counter -> Delay { gain: -19db mode: post_fader }
+    Delay -> Master
+  
+    Lead -> Space { gain: -19db mode: post_fader }
+    Counter -> Space { gain: -17db mode: post_fader }
+    Piano -> Space { gain: -19db mode: post_fader }
+    Atmosphere -> Space { gain: -17db mode: post_fader }
+    Space -> Master
+  }
+  // PRO_ARRANGEMENT_AUTOMATION_BEGIN
+  automation Lead.gain {
+    Intro: -11.9db
+    A: -11.1db
+    B: -10.4db
+    Hook: -9.6db
+    Break: -12.3db
+    Final: -9.2db
+  }
+
+  automation Counter.gain {
+    Intro: -19.8db
+    A: -19.0db
+    B: -17.1db
+    Hook: -16.3db
+    Break: -20.2db
+    Final: -15.9db
+  }
+
+  automation Bass.gain {
+    Intro: -11.8db
+    A: -11.0db
+    B: -10.3db
+    Hook: -9.5db
+    Break: -12.8db
+    Final: -9.1db
+  }
+
+  automation Piano.gain {
+    Intro: -15.0db
+    A: -14.2db
+    B: -13.5db
+    Hook: -12.7db
+    Break: -15.4db
+    Final: -12.3db
+  }
+
+  automation Atmosphere.gain {
+    Intro: -21.7db
+    A: -20.9db
+    B: -20.2db
+    Hook: -19.4db
+    Break: -21.3db
+    Final: -19.0db
+  }
+  // PRO_ARRANGEMENT_AUTOMATION_END
+
+
+
+
+  // PRIORITY_A_AUTOMATION_BEGIN
+
+  automation Lead.instrument.filter_cutoff {
+    Intro: 4200hz
+    A: 5600hz
+    B: 7000hz
+    Hook: 9000hz
+    Break: 3800hz
+    Final: 10200hz
+  }
+
+  automation Lead.stereo.width {
+    Intro: 0.82
+    A: 0.96
+    B: 1.04
+    Hook: 1.22
+    Break: 0.78
+    Final: 1.30
+  }
+
+  automation Lead.send.Space {
+    Intro: -23db
+    A: -21db
+    B: -19db
+    Hook: -17db
+    Break: -24db
+    Final: -16db
+  }
+
+  automation Lead.effects.ChannelStrip.mid_gain {
+    Intro: 0.0
+    A: 0.4
+    B: 0.8
+    Hook: 1.2
+    Break: -0.6
+    Final: 1.5
+  }
+
+  // PRIORITY_A_AUTOMATION_END
+
+  master {
+    effects {
+      Compressor {
+        threshold: -14db
+        ratio: 2
+        attack: 10ms
+        release: 120ms
+      }
+      Limiter {
+        ceiling: -1db
+      }
+    }
+    gain: -1db
+  }
+}

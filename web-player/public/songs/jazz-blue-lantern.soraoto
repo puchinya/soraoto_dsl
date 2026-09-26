@@ -1,0 +1,329 @@
+import component StereoDelay from "std:components/stereo-delay"
+import plugin SuperSynth from "../wasm/plugins/dsp/super-synth/plugin.wasm"
+
+project {
+  version: 1
+  title: "Blue Lantern"
+  tempo: 124bpm
+  meter: 4/4
+  key: F.major
+
+  structure {
+    Head { bars: 8 }
+    A { bars: 8 }
+    B { bars: 8 }
+    HeadOut { bars: 8 }
+  }
+
+  chords Harmony {
+    Head {
+      Fmaj7,
+      Gm7,
+      Am7,
+      Bbmaj7,
+      Gm7,
+      C7,
+      Fmaj7,
+      C7,
+    }
+    A {
+      Fmaj7,
+      Gm7,
+      Am7,
+      Bbmaj7,
+      Gm7,
+      C7,
+      Fmaj7,
+      C7,
+    }
+    B {
+      Dm7,
+      G7,
+      Gm7,
+      C7,
+      Am7,
+      D7,
+      Gm7,
+      C7,
+    }
+    HeadOut {
+      Fmaj7,
+      Gm7,
+      Am7,
+      Bbmaj7,
+      Gm7,
+      C7,
+      Fmaj7,
+      Fmaj7,
+    }
+  }
+
+  track Lead {
+    instrument: sax
+    gain: -11db
+    Head {
+      notes {
+        @8t:
+        !mf:
+        e4 ~ _ a4 _ c5 ~ _ g4 _ c5 ~ ,
+        _ a4 ~ _ c5 ~ _ g4 _ d5 ~ _ ,
+        c5 _ g4 ~ _ d5 _ a#4 ~ _ g4 _ ,
+        f4 ~ _ _ d4 _ a4 ~ _ d5 ~ _ ,
+        d5 ~ _ a#4 _ e5 ~ _ a4 _ f4 ~ ,
+        _ a#4 ~ _ e5 ~ _ a4 _ e4 ~ _ ,
+        f5 _ a5 ~ _ f5 _ a5 ~ _ c6 _ ,
+        g4 ~ _ _ f4 _ g4 ~ _ c5 ~ _ ,
+      }
+    }
+    A {
+      notes {
+        @8t:
+        !mp:
+        c5 ~ _ f4 _ c5 ~ _ g4 _ c5 ~ ,
+        _ a4 ~ _ c5 ~ _ g4 _ d5 ~ _ ,
+        c5 _ g4 ~ _ d5 _ a#4 ~ _ e5 _ ,
+        d4 ~ _ _ d4 _ f4 ~ _ d4 ~ _ ,
+        a#4 ~ _ g4 _ e4 ~ _ a4 _ d4 ~ ,
+        _ a#4 ~ _ e5 ~ _ a4 _ e4 ~ _ ,
+        e5 _ a4 ~ _ f4 _ a4 ~ _ c5 _ ,
+        e4 ~ _ _ f4 _ e4 ~ _ a#4 ~ _ ,
+      }
+    }
+    B {
+      notes {
+        @8t:
+        !mf:
+        f4 ~ _ a4 _ c#5 ~ _ g#4 _ f4 ~ ,
+        _ a4 ~ _ c5 ~ _ g4 _ f4 ~ _ ,
+        f5 _ a5 ~ _ f#5 _ a#5 ~ _ g5 _ ,
+        g4 ~ _ _ d5 _ c5 ~ _ e5 ~ _ ,
+        e5 ~ _ c5 _ f#5 ~ _ b4 _ g4 ~ ,
+        _ a#4 ~ _ e5 ~ _ a4 _ f#4 ~ _ ,
+        g5 _ c#5 ~ _ a4 _ a4 ~ _ f4 _ ,
+        a#4 ~ _ _ f4 _ a#4 ~ _ c5 ~ _ ,
+      }
+    }
+    HeadOut {
+      notes {
+        @8t:
+        !ff:
+        c6 ~ _ f5 _ g#5 ~ _ d#5 _ c6 ~ ,
+        _ a5 ~ _ c6 ~ _ g5 _ a#5 ~ _ ,
+        c6 _ f#5 ~ _ b5 _ a#5 ~ _ e6 _ ,
+        d6 ~ _ _ d6 _ f5 ~ _ a#5 ~ _ ,
+        a#5 ~ _ g5 _ c#6 ~ _ f#5 _ d5 ~ ,
+        _ a#5 ~ _ e6 ~ _ a5 _ c5 ~ _ ,
+        e6 _ g#5 ~ _ d#5 _ a5 ~ _ c6 _ ,
+        e6 ~ _ _ f6 _ e6 ~ _ a5 ~ _ ,
+      }
+    }
+  
+    effects {
+      ChannelStrip {
+        preset: lead
+      }
+    }
+}
+
+  track Bass {
+    instrument: bass
+    gain: -10db
+    Harmony |> WalkingBass(octave: 2, approach: chromatic)
+  
+    effects {
+      ChannelStrip {
+        preset: bass
+      }
+    }
+}
+
+  track Piano {
+    instrument: piano
+    gain: -13db
+    pan: -0.10
+    Harmony |> PianoVoicing(range: c3..c5, voice_leading: nearest, voices: 4)
+  
+    effects {
+      ChannelStrip {
+        preset: keys
+      }
+    }
+}
+
+  track Kick {
+
+    instrument: drums_studio
+    gain: -8db
+    drums {
+    Head {
+      @8t:
+      Kick "x...........x.....x.....x...........x.....x.....x...........x.....x.....x...........x.....x....."
+    }
+    A {
+      @8t:
+      Kick "x...........x.....x.....x...........x.....x.....x...........x.....x.....x...........x.....x....."
+    }
+    B {
+      @8t:
+      Kick "x...........x.....x.....x...........x.....x.....x...........x.....x.....x...........x.....x....."
+    }
+    HeadOut {
+      @8t:
+      Kick "x...........x.....x.....x...........x.....x.....x...........x.....x.....x...........x.....x....."
+    }
+
+    humanize {
+      timing: 1ms
+      velocity: 0.018
+      seed: 2143
+    }
+  }
+  
+    effects {
+      ChannelStrip {
+        preset: drums
+      }
+    }
+}
+
+  track Drums {
+
+    instrument: drums_studio
+    gain: -11db
+    drums {
+    Head {
+      @8t:
+      Kick "x...........x.....x.....x...........x.....x.....x...........x.....x.....x...........x.....x....."
+      Snare "..........g.....g.....g...........g...........g.....g.....g...........g...........g.....g.....g."
+      Ride "x..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.x"
+      Hat "...x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.."
+    }
+    A {
+      @8t:
+      Kick "x...........x.....x.....x...........x.....x.....x...........x.....x.....x...........x.....x....."
+      Snare "..........g.....g.....g...........g...........g.....g.....g...........g...........g.....g.....g."
+      Ride "x....xx....xx....xx....xx....xx....xx....xx....xx....xx....xx....xx....xx....xx....xx....xx....x"
+      Hat "...x...........x.....x...........x.....x...........x.....x...........x.....x...........x.....x.."
+    }
+    B {
+      @8t:
+      Kick "x...........x.....x.....x...........x.....x.....x...........x.....x.....x...........x.....x....."
+      Snare "..........g.....g.....g...........g...........g.....g.....g...........g...........g.....g.....g."
+      Ride "x..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.x"
+      Hat "...x..x..x.....x..x..x.....x..x..x.....x..x..x.....x..x..x.....x..x..x.....x..x..x.....x..x..x.."
+    }
+    HeadOut {
+      @8t:
+      Kick "x...........x.....x.....x...........x.....x.....x...........x.....x.....x...........x.....x....."
+      Snare "..........g.....g.....g...........g...........g.....g.....g...........g...........g.....g.....g."
+      Ride "x..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.xx..x.x"
+      Hat "...x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.....x.."
+    }
+
+    humanize {
+      timing: 7ms
+      velocity: 0.055
+      seed: 1143
+    }
+  }
+  
+    effects {
+      ChannelStrip {
+        preset: drums
+      }
+    }
+}
+  bus Space {
+    Reverb {
+      preset: chamber
+      mix: 1.0
+    }
+    gain: -5db
+  }
+
+
+  routing {
+    Lead -> Master
+    Bass -> Master
+    Piano -> Master
+    Kick -> Master
+    Drums -> Master
+  
+    Lead -> Space { gain: -19db mode: post_fader }
+    Piano -> Space { gain: -19db mode: post_fader }
+    Drums -> Space { gain: -24db mode: post_fader }
+    Space -> Master
+  }
+  // PRO_ARRANGEMENT_AUTOMATION_BEGIN
+  automation Lead.gain {
+    Head: -11.9db
+    A: -11.9db
+    B: -11.2db
+    HeadOut: -10.0db
+  }
+
+  automation Bass.gain {
+    Head: -11.1db
+    A: -11.1db
+    B: -10.4db
+    HeadOut: -9.2db
+  }
+
+  automation Piano.gain {
+    Head: -13.8db
+    A: -13.8db
+    B: -13.1db
+    HeadOut: -11.9db
+  }
+  // PRO_ARRANGEMENT_AUTOMATION_END
+
+
+
+
+  // PRIORITY_A_AUTOMATION_BEGIN
+
+  automation Lead.instrument.filter_cutoff {
+    Head: 6200hz
+    A: 5600hz
+    B: 7000hz
+    HeadOut: 7600hz
+  }
+
+  automation Lead.stereo.width {
+    Head: 0.90
+    A: 0.96
+    B: 1.04
+    HeadOut: 1.05
+  }
+
+  automation Lead.send.Space {
+    Head: -20db
+    A: -21db
+    B: -19db
+    HeadOut: -18db
+  }
+
+  automation Lead.effects.ChannelStrip.mid_gain {
+    Head: 0.4
+    A: 0.4
+    B: 0.8
+    HeadOut: 0.8
+  }
+
+  // PRIORITY_A_AUTOMATION_END
+
+  master {
+    effects {
+      Compressor {
+        threshold: -14db
+        ratio: 2
+        attack: 10ms
+        release: 120ms
+      }
+      Limiter {
+        ceiling: -1db
+      }
+    }
+    gain: -1db
+  }
+}

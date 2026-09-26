@@ -1,0 +1,1 @@
+soraoto_add_wasm_plugin(effects reverb)

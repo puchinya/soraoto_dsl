@@ -1,0 +1,9 @@
+const fs=require('fs');const path=require('path');const {PluginHarness}=require('../../../../test/helpers/plugin-harness.cjs');
+const R=path.resolve(__dirname,'../../../../../');function check(x,m){if(!x)throw new Error(m);}
+const src=fs.readFileSync(path.join(R,'wasm/plugins/dsp/super-synth/src/plugin.c'),'utf8');
+const m=src.match(/static const float g_hb\[HB_TAPS\]=\{([\s\S]*?)\};/);check(m,'half-band FIR coefficients missing');
+const taps=m[1].split(',').map(x=>Number(x.replace(/f\s*$/,''))).filter(Number.isFinite);check(taps.length===31,`half-band tap count ${taps.length}`);
+function mag(f){let re=0,im=0;for(let n=0;n<taps.length;n++){re+=taps[n]*Math.cos(-2*Math.PI*f*n);im+=taps[n]*Math.sin(-2*Math.PI*f*n);}return Math.hypot(re,im);}
+const pass=mag(.20),edge=mag(.25),stop=mag(.35);check(pass>.97,`decimator passband droop ${pass}`);check(edge>.45&&edge<.55,`half-band edge ${edge}`);check(stop<.002,`decimator stopband ${stop}`);check(src.includes('hb_tick(&g_hb1_l')&&src.includes('hb_tick(&g_hb2_l'),'cascaded x4 decimation not wired');check(!src.includes('sumL/(float)os'),'legacy box decimation still present');
+const h=new PluginHarness(R,'plugins/dsp/super-synth/plugin.wasm',{sampleRate:48000,maxFrames:128});h.applyPreset('supersaw_lead');for(const [k,v] of [['oversample','x4'],['filter_drive',.95],['saturation',.95],['filter_resonance',.9],['filter_cutoff',15000],['fm_amount',.8]])h.setPlain(k,v);let peak=0;for(let b=0;b<220;b++){const ev=b===0?[{kind:1,noteId:1,pitch:88,velocity:.9,offset:0}]:[];const o=h.process(128,{events:ev})[0];for(const ch of o)for(const x of ch){check(Number.isFinite(x),'non-finite x4 output');peak=Math.max(peak,Math.abs(x));}}h.close();check(peak<1.2,`unsafe x4 peak ${peak}`);
+console.log('PASS oversampling quality',{passband:+pass.toFixed(5),halfband:+edge.toFixed(5),stopbandDb:+(20*Math.log10(stop)).toFixed(2),peak:+peak.toFixed(4)});

@@ -1,0 +1,67 @@
+// Full work: Frédéric Chopin. Complete score; no abbreviated repeats.
+project {
+  version: 1
+  title: "Chopin — Prelude in C minor, Op. 28 No. 20"
+  tempo: 36bpm
+  tempo {
+    1bar: 38bpm
+    5bar: 36bpm
+    9bar: 34bpm
+    12bar: 30bpm
+  }
+
+  meter: 4/4
+  key: C.minor
+
+  track RightHand {
+    instrument: piano
+    gain: -7db
+    notes {
+      voice V1 {
+        !0.74: @4: [g3 c4 eb4 g4] @4: [ab3 c4 eb4 ab4] @8d: [eb4 g4] @16: [d4 f4] @4: [eb3 g3 c4 eb4]
+        @4: [eb3 ab3 c4 eb4] @4: [f3 ab3 db4 f4] @8d: [c4 eb4] @16: [bb3 db4] @4: [c3 eb3 ab3 c4]
+        @4: [d3 f3 b3 d4] @4: [e3 g3 bb3 c4 e4] @8d: [ab3 c4 g4] @16: f4 @4: [g3 c4 eb4]
+        @4: [f#3 c4 d4] @4: [g3 b3 d4 g4] @8d: b4 @16: a4 @4: [b3 d4 g4]
+        @4: [eb4 g4 eb5] @4: [eb4 ab4 eb5] @8d: ab4 @16: f#4 @4: [d4 g4 d5]
+        @4: [c4 g4 c5] @4: [c4 d4 f#4 d5] @8d: [d4 g4 b4] @16: [c4 a4] @4: [b3 d4 g4]
+        @4: [c4 g4 c5] @4: [ab3 c4 ab4] @8d: g4 @16: f4 @4: [g3 c4 eb4]
+        @4: [eb3 ab3 c4 eb4] @4: [f3 ab3 db4 f4] @8d: eb4 @16: d4 @4: [eb3 g3 c4]
+        @4: [eb4 g4 eb5] @4: [eb4 ab4 eb5] @8d: ab4 @16: f#4 @4: [d4 g4 d5]
+        @4: [c4 g4 c5] @4: [c4 d4 f#4 d5] @8d: [d4 g4 b4] @16: [c4 a4] @4: [b3 d4 g4]
+        @4: [c4 g4 c5] @4: [ab3 c4 ab4] @8d: g4 @16: f4 @4: [g3 c4 eb4]
+        @4: [eb3 ab3 c4 eb4] @4: [f3 ab3 db4 f4] @8d: eb4 @16: d4 @4: [eb3 g3 c4]
+        @1: [c4 eb4 g4 c5]
+      }
+      voice V2 {
+        !0.66: @2_ @4: [g3 b3] @2d_ @4: [db3 eb3 g3] @1_ @2d_ @4: [c4 d4 f#4]
+        @2d_ @4: [d4 d5] @1_ @2d_ @4: [g3 d4] @2d_ @4: [f3 g3 b3]
+        @2d_ @4: [d4 d5] @1_ @2d_ @4: [g3 d4] @2d_ @4: [f3 g3 b3]
+        @1_ @4_
+      }
+    }
+  }
+
+  track LeftHand {
+    instrument: piano
+    gain: -10db
+    notes {
+      voice V1 {
+        !0.68: @4: [c2 c3] @4: [f1 f2] @4: [g1 g2] @4: [c2 g2 c3] @4: [g#1 g#2]
+        @4: [c#1 c#2] @4: [eb1 eb2] @4: [g#1 g#2] @4: [g1 g2] @4: [c1 c2]
+        @4: [f1 f2] @4: [c2 c3] @4: [d2 a2 d3] @4: [g1 g2] @4: [d1 d2]
+        @4: [g1 g2] @4: [c2 c3] @4: [c3 c4] @4: [b2 b3] @4: [bb2 bb3]
+        @4: [a2 a3] @4: [g#2 g#3] @4: [g2 g3] @4: [f2 f3] @4: [eb2 eb3]
+        @4: [f2 f3] @4: [b1 b2] @4: [c2 c3] @4: [g#1 g#2] @4: [c#1 c#2]
+        @4: [g1 g2] @4: [c1 c2] @4: [c2 c3] @4: [c3 c4] @4: [b2 b3]
+        @4: [bb2 bb3] @4: [a2 a3] @4: [g#2 g#3] @4: [g2 g3] @4: [f2 f3]
+        @4: [eb2 eb3] @4: [f2 f3] @4: [b1 b2] @4: [c2 c3] @4: [g#1 g#2]
+        @4: [c#1 c#2] @4: [g1 g2] @4: [c1 c2] @1: [c3 g3]
+      }
+    }
+  }
+
+  master {
+    effects { Compressor { threshold: -12db ratio: 1.45 attack: 22ms release: 190ms } Limiter { ceiling: -1db } }
+    gain: -2db
+  }
+}

@@ -1,0 +1,226 @@
+plugin interface SuperSynthV8 {
+  abi: "1.0"
+  id: "net.puchinya.soraotodsl.super-synth-v8"
+  name: "SuperSynth v8"
+  version: "8.0.0"
+  kind: instrument
+  control_modulation_max_quantum: 64
+
+  audio {
+    output main: AudioStereo
+  }
+
+  events {
+    input notes: "soraoto-note-v1"
+  }
+
+  enum FilterMode { lowpass bandpass highpass }
+  enum OversampleMode { x1 x2 x4 }
+  enum EngineModel { wavetable pluck piano tine bowed flute reed brass vocal concert_grand }
+  enum FilterQuality { legacy tpt }
+  enum DecimationQuality { box halfband }
+  enum ModSource { off lfo1 lfo2 amp_env filter_env velocity pressure timbre note_age random }
+  enum ModDestination { pitch filter_cutoff osc_a_position osc_b_position formant body_resonance vibrato amplitude pan }
+  enum VoiceMode { poly mono legato }
+  enum NotePriority { last low high }
+  enum FMSource { b_to_a a_to_b random }
+
+  parameter master_gain: Norm {
+    id: 1
+    default: 0.12
+    range: 0.0..1.0
+    automation: sample_accurate
+    modulation: control
+    smoothing: 8ms
+  }
+
+  parameter voice_gain: Norm { id: 2 default: 0.72 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter osc_a_position: Norm { id: 3 default: 0.42 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter osc_b_position: Norm { id: 4 default: 0.18 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter osc_a_level: Norm { id: 5 default: 1.0 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter osc_b_level: Norm { id: 6 default: 0.30 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter sub_level: Norm { id: 7 default: 0.10 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter noise_level: Norm { id: 8 default: 0.015 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter osc_b_semitones: Semitone { id: 9 default: 0.0 range: -24.0..24.0 automation: sample_accurate modulation: control }
+  parameter osc_b_detune: Cent { id: 10 default: 7.0 range: -100.0..100.0 automation: sample_accurate modulation: control}
+  parameter unison_voices: Int { id: 11 default: 3 range: 1..8 automation: none modulation: none }
+  parameter unison_detune: Cent { id: 12 default: 12.0 range: 0.0..60.0 automation: sample_accurate modulation: control}
+  parameter stereo_spread: Norm { id: 13 default: 0.66 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter fm_amount: Norm { id: 14 default: 0.0 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter ring_mix: Norm { id: 15 default: 0.0 range: 0.0..1.0 automation: sample_accurate modulation: control}
+
+  parameter amp_attack: Time { id: 16 default: 0.008s range: 0.0005s..8s automation: sample_accurate modulation: control }
+  parameter amp_decay: Time { id: 17 default: 0.16s range: 0.001s..12s automation: sample_accurate modulation: control }
+  parameter amp_sustain: Norm { id: 18 default: 0.72 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter amp_release: Time { id: 19 default: 0.32s range: 0.002s..16s automation: sample_accurate modulation: control }
+
+  parameter filter_cutoff: Hz { id: 20 default: 7200hz range: 20hz..20000hz scale: logarithmic automation: sample_accurate modulation: control smoothing: 3ms }
+  parameter filter_resonance: Norm { id: 21 default: 0.16 range: 0.0..0.96 automation: sample_accurate modulation: control}
+  parameter filter_drive: Norm { id: 22 default: 0.08 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter filter_mode: Enum<FilterMode> { id: 23 default: lowpass automation: sample_accurate modulation: none }
+  parameter filter_env_amount: Float { id: 24 default: 0.42 range: -1.0..1.0 automation: sample_accurate modulation: control}
+  parameter filter_attack: Time { id: 25 default: 0.004s range: 0.0005s..8s automation: sample_accurate modulation: control }
+  parameter filter_decay: Time { id: 26 default: 0.24s range: 0.001s..12s automation: sample_accurate modulation: control }
+  parameter filter_sustain: Norm { id: 27 default: 0.18 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter filter_release: Time { id: 28 default: 0.28s range: 0.002s..16s automation: sample_accurate modulation: control }
+  parameter keytrack: Norm { id: 29 default: 0.32 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter velocity_to_filter: Norm { id: 30 default: 0.22 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter pressure_to_filter: Norm { id: 31 default: 0.25 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter timbre_to_position: Norm { id: 32 default: 0.28 range: 0.0..1.0 automation: sample_accurate modulation: control}
+
+  parameter lfo1_rate: Hz { id: 33 default: 5.2hz range: 0.01hz..40hz scale: logarithmic automation: sample_accurate modulation: control }
+  parameter lfo1_pitch: Cent { id: 34 default: 0.0 range: -100.0..100.0 automation: sample_accurate modulation: control}
+  parameter lfo1_cutoff: Float { id: 35 default: 0.0 range: -1.0..1.0 automation: sample_accurate modulation: control}
+  parameter lfo2_rate: Hz { id: 36 default: 0.21hz range: 0.01hz..20hz scale: logarithmic automation: sample_accurate modulation: control }
+  parameter lfo2_position: Float { id: 37 default: 0.0 range: -1.0..1.0 automation: sample_accurate modulation: control}
+
+  parameter phase_random: Norm { id: 38 default: 0.72 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter pan: Pan { id: 39 default: 0.0 range: -1.0..1.0 automation: sample_accurate modulation: control}
+  parameter portamento: Time { id: 40 default: 0.0s range: 0.0s..2s automation: sample_accurate modulation: control }
+
+  parameter chorus_mix: Norm { id: 41 default: 0.12 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter chorus_rate: Hz { id: 42 default: 0.31hz range: 0.02hz..8hz automation: sample_accurate modulation: control }
+  parameter chorus_depth: Norm { id: 43 default: 0.34 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter chorus_feedback: Norm { id: 44 default: 0.08 range: 0.0..0.72 automation: sample_accurate modulation: control}
+  parameter saturation: Norm { id: 45 default: 0.12 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter oversample: Enum<OversampleMode> { id: 46 default: x2 automation: none modulation: none }
+
+  parameter osc_a_warp: Norm { id: 47 default: 0.0 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter osc_b_warp: Norm { id: 48 default: 0.0 range: 0.0..1.0 automation: sample_accurate modulation: control}
+  parameter pulse_width: Norm { id: 49 default: 0.50 range: 0.05..0.95 automation: sample_accurate modulation: control}
+  parameter sub_octave: Int { id: 50 default: -1 range: -2..0 automation: sample_accurate modulation: none }
+  parameter noise_color: Float { id: 51 default: -0.10 range: -1.0..1.0 automation: sample_accurate modulation: control}
+  parameter output_width: Width { id: 52 default: 1.05 range: 0.0..2.0 automation: sample_accurate modulation: control}
+  parameter retrigger: Bool { id: 53 default: true automation: none modulation: none }
+
+  parameter engine_model: Enum<EngineModel> { id: 54 default: wavetable automation: none modulation: none }
+  parameter physical_mix: Norm { id: 55 default: 1.0 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter voice_drift: Cent { id: 56 default: 2.0 range: 0.0..20.0 automation: sample_accurate modulation: control }
+  parameter voice_lfo_spread: Norm { id: 57 default: 0.55 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter voice_age_motion: Norm { id: 58 default: 0.35 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter voice_timbre_spread: Norm { id: 59 default: 0.12 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter voice_pan_spread: Norm { id: 60 default: 0.10 range: 0.0..1.0 automation: sample_accurate modulation: control }
+
+  // Plucked-string waveguide
+  parameter pluck_pick_position: Norm { id: 61 default: 0.22 range: 0.03..0.97 automation: sample_accurate modulation: control }
+  parameter pluck_hardness: Norm { id: 62 default: 0.55 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter pluck_damping: Norm { id: 63 default: 0.28 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter pluck_dispersion: Norm { id: 64 default: 0.18 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter pluck_body_size: Norm { id: 65 default: 0.55 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter pluck_body_mix: Norm { id: 66 default: 0.55 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter pluck_sympathetic: Norm { id: 67 default: 0.15 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter pluck_bridge_loss: Norm { id: 68 default: 0.22 range: 0.0..1.0 automation: sample_accurate modulation: control }
+
+  // Acoustic piano hammer/string/soundboard model
+  parameter piano_hammer_hardness: Norm { id: 69 default: 0.35 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter piano_hammer_noise: Norm { id: 70 default: 0.62 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter piano_string_damping: Norm { id: 71 default: 0.28 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter piano_string_unison: Norm { id: 72 default: 0.45 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter piano_inharmonicity: Norm { id: 73 default: 0.35 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter piano_soundboard_size: Norm { id: 74 default: 0.65 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter piano_soundboard_mix: Norm { id: 75 default: 0.65 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter piano_sympathetic: Norm { id: 76 default: 0.35 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter piano_stereo_width: Norm { id: 77 default: 0.55 range: 0.0..1.0 automation: sample_accurate modulation: control }
+
+  // Electric-piano tine/pickup model
+  parameter tine_hammer_hardness: Norm { id: 78 default: 0.62 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter tine_decay: Norm { id: 79 default: 0.50 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter tine_stiffness: Norm { id: 80 default: 0.58 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter tine_pickup_position: Norm { id: 81 default: 0.38 range: 0.02..0.98 automation: sample_accurate modulation: control }
+  parameter tine_pickup_drive: Norm { id: 82 default: 0.28 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter tine_body: Norm { id: 83 default: 0.35 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter tine_bell_mix: Norm { id: 84 default: 0.38 range: 0.0..1.0 automation: sample_accurate modulation: control }
+
+  // Bow/string stick-slip waveguide
+  parameter bow_pressure: Norm { id: 85 default: 0.58 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter bow_velocity: Norm { id: 86 default: 0.52 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter bow_position: Norm { id: 87 default: 0.18 range: 0.03..0.45 automation: sample_accurate modulation: control }
+  parameter bow_friction: Norm { id: 88 default: 0.65 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter bow_rosin_noise: Norm { id: 89 default: 0.08 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter bow_string_damping: Norm { id: 90 default: 0.12 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter bow_string_stiffness: Norm { id: 91 default: 0.18 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter bow_body_size: Norm { id: 92 default: 0.65 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter bow_body_mix: Norm { id: 93 default: 0.60 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter bow_sympathetic: Norm { id: 94 default: 0.25 range: 0.0..1.0 automation: sample_accurate modulation: control }
+
+  // Flute jet / open bore model
+  parameter flute_breath_pressure: Norm { id: 95 default: 0.62 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter flute_jet_ratio: Norm { id: 96 default: 0.33 range: 0.05..0.95 automation: sample_accurate modulation: control }
+  parameter flute_embouchure: Norm { id: 97 default: 0.50 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter flute_air_noise: Norm { id: 98 default: 0.18 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter flute_bore_loss: Norm { id: 99 default: 0.10 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter flute_end_reflection: Norm { id: 100 default: 0.88 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter flute_body_size: Norm { id: 101 default: 0.45 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter flute_body_mix: Norm { id: 102 default: 0.35 range: 0.0..1.0 automation: sample_accurate modulation: control }
+
+  // Single-reed / conical bore model (sax/clarinet family)
+  parameter reed_breath_pressure: Norm { id: 103 default: 0.68 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter reed_stiffness: Norm { id: 104 default: 0.55 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter reed_aperture: Norm { id: 105 default: 0.45 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter reed_damping: Norm { id: 106 default: 0.18 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter reed_noise: Norm { id: 107 default: 0.10 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter reed_bore_conicity: Norm { id: 108 default: 0.62 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter reed_bell_loss: Norm { id: 109 default: 0.20 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter reed_body_mix: Norm { id: 110 default: 0.45 range: 0.0..1.0 automation: sample_accurate modulation: control }
+
+  // Lip-reed / mouthpiece / flared-bore brass model
+  parameter brass_breath_pressure: Norm { id: 111 default: 0.72 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter brass_lip_tension: Norm { id: 112 default: 0.55 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter brass_lip_mass: Norm { id: 113 default: 0.45 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter brass_lip_damping: Norm { id: 114 default: 0.18 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter brass_mouthpiece: Norm { id: 115 default: 0.50 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter brass_bore_flare: Norm { id: 116 default: 0.58 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter brass_bell_loss: Norm { id: 117 default: 0.18 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter brass_air_noise: Norm { id: 118 default: 0.05 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter brass_body_mix: Norm { id: 119 default: 0.50 range: 0.0..1.0 automation: sample_accurate modulation: control }
+
+  // Glottal source + four-formant vocal-tract model
+  parameter vocal_glottal_tension: Norm { id: 120 default: 0.55 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter vocal_open_quotient: Norm { id: 121 default: 0.50 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter vocal_breathiness: Norm { id: 122 default: 0.08 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter vocal_vowel_morph: Norm { id: 123 default: 0.45 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter vocal_formant_shift: Float { id: 124 default: 0.0 range: -1.0..1.0 automation: sample_accurate modulation: control }
+  parameter vocal_formant_bandwidth: Norm { id: 125 default: 0.45 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter vocal_formant_3: Norm { id: 126 default: 0.55 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter vocal_formant_4: Norm { id: 127 default: 0.45 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter vocal_chest: Norm { id: 128 default: 0.35 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter vocal_nasality: Norm { id: 129 default: 0.12 range: 0.0..1.0 automation: sample_accurate modulation: control }
+
+  parameter filter_quality: Enum<FilterQuality> { id: 130 default: tpt automation: none modulation: none }
+  parameter stereo_filter: Bool { id: 131 default: true automation: none modulation: none }
+  parameter decimation_quality: Enum<DecimationQuality> { id: 132 default: halfband automation: none modulation: none }
+
+  // Four-slot source x destination modulation matrix
+  parameter mod1_source: Enum<ModSource> { id: 133 default: off automation: none modulation: none }
+  parameter mod1_destination: Enum<ModDestination> { id: 134 default: pitch automation: none modulation: none }
+  parameter mod1_amount: Float { id: 135 default: 0.0 range: -1.0..1.0 automation: sample_accurate modulation: control }
+  parameter mod2_source: Enum<ModSource> { id: 136 default: off automation: none modulation: none }
+  parameter mod2_destination: Enum<ModDestination> { id: 137 default: filter_cutoff automation: none modulation: none }
+  parameter mod2_amount: Float { id: 138 default: 0.0 range: -1.0..1.0 automation: sample_accurate modulation: control }
+  parameter mod3_source: Enum<ModSource> { id: 139 default: off automation: none modulation: none }
+  parameter mod3_destination: Enum<ModDestination> { id: 140 default: amplitude automation: none modulation: none }
+  parameter mod3_amount: Float { id: 141 default: 0.0 range: -1.0..1.0 automation: sample_accurate modulation: control }
+  parameter mod4_source: Enum<ModSource> { id: 142 default: off automation: none modulation: none }
+  parameter mod4_destination: Enum<ModDestination> { id: 143 default: pan automation: none modulation: none }
+  parameter mod4_amount: Float { id: 144 default: 0.0 range: -1.0..1.0 automation: sample_accurate modulation: control }
+
+  // Voice / mono-legato engine
+  parameter voice_mode: Enum<VoiceMode> { id: 145 default: poly automation: none modulation: none }
+  parameter note_priority: Enum<NotePriority> { id: 146 default: last automation: none modulation: none }
+  parameter polyphony_limit: Int { id: 147 default: 32 range: 1..32 automation: none modulation: none }
+  parameter dynamic_voice_limit: Bool { id: 148 default: true automation: none modulation: none }
+  parameter sustain_pedal: Bool { id: 149 default: false automation: sample_accurate modulation: none }
+  parameter sostenuto_pedal: Bool { id: 150 default: false automation: sample_accurate modulation: none }
+  parameter legato_retrigger: Bool { id: 151 default: false automation: none modulation: none }
+
+  // Wavetable v8 oscillator extensions
+  parameter hard_sync: Norm { id: 152 default: 0.0 range: 0.0..1.0 automation: sample_accurate modulation: control }
+  parameter sync_ratio: Float { id: 153 default: 2.0 range: 1.0..8.0 automation: sample_accurate modulation: control }
+  parameter fm_source: Enum<FMSource> { id: 154 default: b_to_a automation: sample_accurate modulation: none }
+  parameter phase_distortion: Float { id: 155 default: 0.0 range: -1.0..1.0 automation: sample_accurate modulation: control }
+
+  // Adaptive CPU/quality governor
+  parameter adaptive_quality: Bool { id: 156 default: false automation: none modulation: none }
+  parameter cpu_budget: Norm { id: 157 default: 0.75 range: 0.25..1.0 automation: none modulation: none }
+
+}

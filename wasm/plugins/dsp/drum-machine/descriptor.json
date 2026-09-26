@@ -1,0 +1,601 @@
+{
+  "abi_major": 1,
+  "abi_minor": 0,
+  "id": "soraoto.drum-machine",
+  "vendor": "soraotoDSL",
+  "name": "Soraoto Drum Machine",
+  "version": "1.0.0",
+  "categories": [],
+  "tags": [],
+  "homepage": null,
+  "kinds": [
+    "instrument"
+  ],
+  "max_instances": 64,
+  "compatible_plugin_ids": [],
+  "required_wasm_features": [],
+  "required_host_features": [],
+  "optional_host_features": [],
+  "process_context_requirements": [],
+  "supports_f64": false,
+  "supports_in_place": false,
+  "deterministic_dsp": true,
+  "distributable": false,
+  "process_modes": [
+    "realtime",
+    "offline"
+  ],
+  "io_modes": [
+    "simple",
+    "offline"
+  ],
+  "units": [
+    {
+      "id": 0,
+      "parent_id": null,
+      "name": "Root",
+      "program_list_id": 1,
+      "supports_unit_data": false
+    }
+  ],
+  "audio_buses": [
+    {
+      "id": 2,
+      "name": "Main Out",
+      "unit_id": 0,
+      "direction": "output",
+      "role": "main",
+      "sample_semantics": "audio",
+      "default_active": true,
+      "required": true,
+      "supported_layouts": [
+        {
+          "kind": "speakers",
+          "channels": [
+            "L",
+            "R"
+          ]
+        }
+      ]
+    }
+  ],
+  "event_buses": [
+    {
+      "id": 1,
+      "name": "Notes",
+      "direction": "input",
+      "unit_id": 0,
+      "channel_count": 16,
+      "channel_unit_overrides": [],
+      "dialects": [
+        "soraoto-note-v1"
+      ]
+    }
+  ],
+  "routing_hints": [],
+  "parameters": [
+    {
+      "id": 1,
+      "path": "kit",
+      "name": "Kit",
+      "unit_id": 0,
+      "type": "enum",
+      "unit": "none",
+      "default": 0,
+      "min": 0,
+      "max": 4,
+      "enum_values": [
+        "studio",
+        "pop",
+        "rock",
+        "edm",
+        "lofi"
+      ],
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "step",
+      "automation": "none",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": true,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 2,
+      "path": "tone",
+      "name": "Tone",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "norm",
+      "default": 0.52,
+      "min": 0.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 3,
+      "path": "punch",
+      "name": "Punch",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "norm",
+      "default": 0.62,
+      "min": 0.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 4,
+      "path": "room",
+      "name": "Room",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "norm",
+      "default": 0.08,
+      "min": 0.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 5,
+      "path": "humanize",
+      "name": "Humanize",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "norm",
+      "default": 0.12,
+      "min": 0.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    },
+    {
+      "id": 6,
+      "path": "output_gain",
+      "name": "Output Gain",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "norm",
+      "default": 0.32,
+      "min": 0.0,
+      "max": 1.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    }
+  ],
+  "controllers": [],
+  "note_expressions": [],
+  "articulations": [],
+  "key_switches": [],
+  "physical_ui_mappings": [],
+  "orchestral_articulations": [],
+  "controller_mappings": [],
+  "remote_representations": [],
+  "data_exchange_queues": [],
+  "parameter_aliases": [],
+  "factory_presets": [
+    {
+      "id": 13735902,
+      "meta": {
+        "name": "edm",
+        "category": null,
+        "tags": [
+          "factory",
+          "instrument"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 785833910,
+      "meta": {
+        "name": "lofi",
+        "category": null,
+        "tags": [
+          "factory",
+          "instrument"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 165504932,
+      "meta": {
+        "name": "pop",
+        "category": null,
+        "tags": [
+          "factory",
+          "instrument"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 1136515732,
+      "meta": {
+        "name": "rock",
+        "category": null,
+        "tags": [
+          "factory",
+          "instrument"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    },
+    {
+      "id": 2250118190,
+      "meta": {
+        "name": "studio",
+        "category": null,
+        "tags": [
+          "factory",
+          "instrument"
+        ],
+        "author": "soraotoDSL",
+        "comment": null,
+        "instrument": null,
+        "style": null,
+        "character": null,
+        "state_type": "normal_preset",
+        "source_file_name": null
+      }
+    }
+  ],
+  "program_lists": [
+    {
+      "id": 1,
+      "unit_id": 0,
+      "name": "Soraoto Drum Machine Factory",
+      "supports_program_data": false,
+      "mutable_program_names": false,
+      "programs": [
+        {
+          "id": 13735902,
+          "name": "edm",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "instrument"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Drum Machine",
+            "soraoto.engine": "soraoto.drum-machine",
+            "soraoto.polyphony": "48",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 785833910,
+          "name": "lofi",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "instrument"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Drum Machine",
+            "soraoto.engine": "soraoto.drum-machine",
+            "soraoto.polyphony": "48",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 165504932,
+          "name": "pop",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "instrument"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Drum Machine",
+            "soraoto.engine": "soraoto.drum-machine",
+            "soraoto.polyphony": "48",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 1136515732,
+          "name": "rock",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "instrument"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Drum Machine",
+            "soraoto.engine": "soraoto.drum-machine",
+            "soraoto.polyphony": "48",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        },
+        {
+          "id": 2250118190,
+          "name": "studio",
+          "category": null,
+          "instrument": null,
+          "style": null,
+          "character": null,
+          "tags": [
+            "factory",
+            "instrument"
+          ],
+          "attributes": {
+            "soraoto.family": "Soraoto Drum Machine",
+            "soraoto.engine": "soraoto.drum-machine",
+            "soraoto.polyphony": "48",
+            "soraoto.cpu_class": "low",
+            "soraoto.preset_version": "1.0.0"
+          }
+        }
+      ]
+    }
+  ],
+  "state": {
+    "schema_id": "soraoto.drum-machine.state",
+    "schema_version": 1,
+    "max_snapshot_bytes": 32
+  },
+  "prefetch_support": "never",
+  "prefetch_support_current": null,
+  "max_event_output_per_block": 0,
+  "max_host_requests_per_block": 0,
+  "max_asset_requests_per_block": 0,
+  "max_data_exchange_packets_per_block": 0,
+  "x-net.daradara.soraotodsl-browser": {
+    "parameters": {
+      "kit": {
+        "id": 1,
+        "type": "enum",
+        "unit": "none",
+        "min": 0,
+        "max": 4,
+        "default": 0,
+        "enum_values": [
+          "studio",
+          "pop",
+          "rock",
+          "edm",
+          "lofi"
+        ],
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "tone": {
+        "id": 2,
+        "type": "float",
+        "unit": "norm",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.52,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "punch": {
+        "id": 3,
+        "type": "float",
+        "unit": "norm",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.62,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "room": {
+        "id": 4,
+        "type": "float",
+        "unit": "norm",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.08,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "humanize": {
+        "id": 5,
+        "type": "float",
+        "unit": "norm",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.12,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      },
+      "output_gain": {
+        "id": 6,
+        "type": "float",
+        "unit": "norm",
+        "min": 0.0,
+        "max": 1.0,
+        "default": 0.32,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      }
+    },
+    "presets": {
+      "studio": {
+        "kit": "studio",
+        "tone": 0.5,
+        "punch": 0.58,
+        "room": 0.04,
+        "humanize": 0.08,
+        "output_gain": 0.3
+      },
+      "pop": {
+        "kit": "pop",
+        "tone": 0.58,
+        "punch": 0.68,
+        "room": 0.04,
+        "humanize": 0.07,
+        "output_gain": 0.29
+      },
+      "rock": {
+        "kit": "rock",
+        "tone": 0.54,
+        "punch": 0.76,
+        "room": 0.07,
+        "humanize": 0.1,
+        "output_gain": 0.31
+      },
+      "edm": {
+        "kit": "edm",
+        "tone": 0.68,
+        "punch": 0.88,
+        "room": 0.025,
+        "humanize": 0.035,
+        "output_gain": 0.28
+      },
+      "lofi": {
+        "kit": "lofi",
+        "tone": 0.24,
+        "punch": 0.44,
+        "room": 0.08,
+        "humanize": 0.15,
+        "output_gain": 0.3
+      }
+    }
+  }
+}

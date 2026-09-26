@@ -1,0 +1,17 @@
+const fs=require('fs'),vm=require('vm'),assert=require('assert'),path=require('path');
+const root=path.resolve(__dirname,'..');
+const context={window:{}};context.window.window=context.window;vm.createContext(context);
+vm.runInContext(fs.readFileSync(path.join(root,'src/js','plugin-registry.js'),'utf8'),context);
+const R=context.window.SoraotoPluginRegistry;
+const mk=(name,mix=.22)=>({name,kind:'plugin',module:null,props:{mix:{value:mix,raw:String(mix)},preset:{value:'Hall'}}});
+const bus=R.resolveEffect(mk('Reverb',.22),{tempo:120,placement:{ownerKind:'bus',ownerId:'Space'}});
+const insert=R.resolveEffect(mk('Reverb',.22),{tempo:120,placement:{ownerKind:'track',ownerId:'Lead'}});
+const delayBus=R.resolveEffect({name:'StereoDelay',kind:'plugin',module:null,props:{time:{raw:'1/8'},feedback:{value:.3},mix:{value:.25}}},{tempo:120,placement:{ownerKind:'bus',ownerId:'Delay'}});
+assert(bus && bus.module==='wasm/plugins/effects/reverb/plugin.wasm');
+assert.strictEqual(Number(bus.props.mix.value),1,'bus Reverb must be 100% wet');
+assert.strictEqual(Number(insert.props.mix.value),.22,'insert Reverb must retain authored mix');
+assert.strictEqual(Number(delayBus.props.mix.value),1,'bus StereoDelay must be 100% wet');
+const graph=fs.readFileSync(path.join(root,'src/js','audio-graph.js'),'utf8');
+assert(graph.includes('resolveEffect?.(fx,{tempo,placement})'),'placement must reach registry');
+assert(graph.includes('wetOnly:placement?.ownerKind==="bus"'),'native delay fallback must also be wet-only on buses');
+console.log('PASS reverb bus wet-only', {reverbModule:bus.module,busMix:bus.props.mix.value,insertMix:insert.props.mix.value,delayBusMix:delayBus.props.mix.value});

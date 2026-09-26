@@ -1,0 +1,66 @@
+import plugin SuperSynth from "../wasm/plugins/dsp/super-synth/plugin.wasm"
+
+project {
+  version: 1
+  title: "Audio Diagnostic — Dry"
+  tempo: 100bpm
+  meter: 4/4
+  key: A.major
+
+  track SoftLead {
+    instrument {
+      SuperSynth {
+        preset: soft_lead
+        filter_cutoff: 3.9khz
+      }
+    }
+    gain: -14db
+    notes {
+      @4:
+      a4 b4 c#5 e5,
+      e5 c#5 b4 a4,
+      a4 c#5 e5 a5,
+      a5 e5 c#5 a4,
+    }
+  }
+
+  track SubBass {
+    instrument {
+      SuperSynth {
+        preset: sub_bass
+        filter_cutoff: 360hz
+      }
+    }
+    gain: -15db
+    notes {
+      @4:
+      a2 . e3 .,
+      f#2 . e2 .,
+      a2 . c#3 .,
+      e2 . a2 .,
+    }
+  }
+
+  track Piano {
+    instrument: piano
+    gain: -15db
+    notes {
+      @2:
+      [a3 +4 +7] [e3 +4 +7],
+      [f#3 +3 +7] [e3 +4 +7],
+      [a3 +4 +7] [c#4 +3 +7],
+      [e3 +4 +7] [a3 +4 +7],
+    }
+  }
+
+  track Drums {
+    instrument: drums
+    gain: -14db
+    drums {
+      @16:
+      Kick  "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+      Snare "....X.......X.......X.......X.......X.......X.......X.......X..."
+      Hat   "x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x."
+    }
+  }
+}

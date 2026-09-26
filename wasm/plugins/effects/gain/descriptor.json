@@ -1,0 +1,153 @@
+{
+  "abi_major": 1,
+  "abi_minor": 0,
+  "id": "soraoto.gain",
+  "vendor": "soraotoDSL",
+  "name": "Gain",
+  "version": "1.0.0",
+  "categories": [],
+  "tags": [],
+  "homepage": null,
+  "kinds": [
+    "effect"
+  ],
+  "max_instances": 64,
+  "compatible_plugin_ids": [],
+  "required_wasm_features": [],
+  "required_host_features": [],
+  "optional_host_features": [],
+  "process_context_requirements": [],
+  "supports_f64": false,
+  "supports_in_place": false,
+  "deterministic_dsp": true,
+  "distributable": false,
+  "process_modes": [
+    "realtime",
+    "offline"
+  ],
+  "io_modes": [
+    "advanced",
+    "offline"
+  ],
+  "units": [
+    {
+      "id": 0,
+      "parent_id": null,
+      "name": "Root",
+      "program_list_id": null,
+      "supports_unit_data": false
+    }
+  ],
+  "audio_buses": [
+    {
+      "id": 1,
+      "name": "Main In",
+      "unit_id": 0,
+      "direction": "input",
+      "role": "main",
+      "sample_semantics": "audio",
+      "default_active": true,
+      "required": true,
+      "supported_layouts": [
+        {
+          "kind": "speakers",
+          "channels": [
+            "L",
+            "R"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Main Out",
+      "unit_id": 0,
+      "direction": "output",
+      "role": "main",
+      "sample_semantics": "audio",
+      "default_active": true,
+      "required": true,
+      "supported_layouts": [
+        {
+          "kind": "speakers",
+          "channels": [
+            "L",
+            "R"
+          ]
+        }
+      ]
+    }
+  ],
+  "event_buses": [],
+  "routing_hints": [],
+  "parameters": [
+    {
+      "id": 1,
+      "path": "gain",
+      "name": "Gain",
+      "unit_id": 0,
+      "type": "float",
+      "unit": "none",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 4.0,
+      "enum_values": null,
+      "scale": {
+        "kind": "linear"
+      },
+      "interpolation": "linear",
+      "automation": "sample_accurate",
+      "modulation": {
+        "kind": "none"
+      },
+      "read_only": false,
+      "hidden": false,
+      "meter": false,
+      "bypass": false,
+      "program_selector": false,
+      "wrap_around": false,
+      "list": false,
+      "function": null,
+      "display_precision": null
+    }
+  ],
+  "controllers": [],
+  "note_expressions": [],
+  "articulations": [],
+  "key_switches": [],
+  "physical_ui_mappings": [],
+  "orchestral_articulations": [],
+  "controller_mappings": [],
+  "remote_representations": [],
+  "data_exchange_queues": [],
+  "parameter_aliases": [],
+  "factory_presets": [],
+  "program_lists": [],
+  "state": {
+    "schema_id": "soraoto.gain.state",
+    "schema_version": 1,
+    "max_snapshot_bytes": 12
+  },
+  "prefetch_support": "never",
+  "prefetch_support_current": null,
+  "max_event_output_per_block": 0,
+  "max_host_requests_per_block": 0,
+  "max_asset_requests_per_block": 0,
+  "max_data_exchange_packets_per_block": 0,
+  "x-net.daradara.soraotodsl-browser": {
+    "parameters": {
+      "gain": {
+        "id": 1,
+        "type": "float",
+        "unit": "none",
+        "min": 0.0,
+        "max": 4.0,
+        "default": 1.0,
+        "enum_values": null,
+        "scale": {
+          "kind": "linear"
+        }
+      }
+    }
+  }
+}

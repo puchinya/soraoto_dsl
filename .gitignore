@@ -1,0 +1,17 @@
+# CMake build output
+/build/
+/cmake-build-*/
+/web-player/dist/
+
+# CMake generated files (for accidental in-source builds)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# macOS metadata
+.DS_Store

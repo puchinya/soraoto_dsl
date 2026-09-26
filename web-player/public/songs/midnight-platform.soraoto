@@ -1,0 +1,421 @@
+import component Sidechain from "std:components/sidechain"
+import component StereoDelay from "std:components/stereo-delay"
+import plugin SuperSynth from "../wasm/plugins/dsp/super-synth/plugin.wasm"
+
+project {
+  version: 1
+  title: "2:17 AM 2026"
+  tempo: 106bpm
+  meter: 4/4
+  key: E.major
+
+  structure {
+    Intro { bars: 4 }
+    Verse { bars: 8 }
+    Pre { bars: 4 }
+    Chorus { bars: 8 }
+    Bridge { bars: 4 }
+    Final { bars: 8 }
+  }
+
+  chords Harmony {
+    Intro {
+      C#m7,
+      Amaj7,
+      Emaj7,
+      Bm7,
+    }
+    Verse {
+      C#m7,
+      Amaj7,
+      Emaj7,
+      Bm7,
+      C#m7,
+      Amaj7,
+      Emaj7,
+      Bm7,
+    }
+    Pre {
+      F#m7,
+      Amaj7,
+      C#m7,
+      Bm7,
+    }
+    Chorus {
+      Amaj7,
+      Bm7,
+      C#m7,
+      Emaj7,
+      Amaj7,
+      Bm7,
+      F#m7,
+      Gmaj7,
+    }
+    Bridge {
+      C#m7,
+      Bm7,
+      Amaj7,
+      Gmaj7,
+    }
+    Final {
+      Amaj7,
+      Bm7,
+      C#m7,
+      Emaj7,
+      Amaj7,
+      Bm7,
+      F#m7,
+      Gmaj7,
+    }
+  }
+
+  track Lead {
+    instrument {
+      SuperSynth {
+        preset: soft_lead
+        filter_cutoff: 4.8khz
+      }
+    }
+    gain: -9db
+    pan: 0.03
+    stereo {
+      width: 1.10
+      balance: 0
+    }
+    Intro {
+      notes {
+        @8:
+        !mp:
+        ( g#4 ~ +3 +2 ~ -2 ,
+          c#5 ~ +3 ~ -3 , ) * 2
+      }
+    }
+    Verse {
+      notes {
+        @8:
+        !mp:
+        ( g#4 ~ +3 +2 ~ -2 ,
+          c#5 ~ +3 +4 ~ -4 , ) * 2
+        ( b4 ~ +5 +2 ~ -2 ,
+          f#4 ~ +5 +2 ~ -2 , ) * 2
+      }
+    }
+    Pre {
+      notes {
+        @8:
+        !mf:
+        ( f#4 ~ +3 +4 ~ +3 ,
+          a4 ~ +4 +3 ~ +4 , ) * 2
+      }
+    }
+    Chorus {
+      notes {
+        @8:
+        !f:
+        ( e5 ~ +4 + ~ +2 ,
+          f#5 ~ +3 +2 ~ +4 -2 ,
+          g#5 ~ +3 +2 ~ +3 - ,
+          b5 ~ -3 -4 ~ +4 +3 , ) * 2
+      }
+    }
+    Bridge {
+      notes {
+        @8:
+        !mp:
+        g#4 ~ +5 +3 ~ ,
+        ,
+        e4 ~ +5 +4 +3 ~ -3 ,
+        g4 ~ +4 +3 +5 ~ ,
+      }
+    }
+    Final {
+      notes {
+        @8:
+        !f:
+        ( e5 ~ +4 + +2 ~ +2 ,
+          f#5 ~ +3 +2 +4 ~ -2 ,
+          g#5 +3 ~ +2 +3 ~ - ,
+          b5 ~ -3 -4 +4 ~ +3 , ) * 2
+      }
+    }
+    effects { Compressor {
+        threshold: -16db
+        ratio: 2.2
+        attack: 8ms
+        release: 90ms
+      } }
+  }
+
+  track Bass {
+    instrument {
+      SuperSynth {
+        preset: sub_bass
+        filter_cutoff: 520hz
+      }
+    }
+    gain: -8db
+    Harmony |> BassRoot(octave: 2, mode: chord_bass)
+    effects { Sidechain {
+        source: Kick
+        amount: -4db
+        attack: 6ms
+        release: 160ms
+      } }
+  }
+
+  track EPiano {
+    instrument: epiano
+    gain: -10db
+    pan: -0.16
+    Harmony |> PianoVoicing(range: e3..b4, voice_leading: nearest, voices: 4)
+    stereo {
+      width: 1.30
+      balance: -0.05
+    }
+  }
+
+  track Pad {
+    instrument {
+      SuperSynth {
+        preset: warm_pad
+        filter_cutoff: 3.6khz
+      }
+    }
+    gain: -18db
+    Harmony |> PadVoicing(range: b3..e6, voice_leading: smooth, voices: 4)
+    stereo {
+      width: 1.70
+      balance: 0.04
+    }
+    effects { Sidechain {
+        source: Kick
+        amount: -4db
+        attack: 7ms
+        release: 170ms
+      } }
+  }
+
+  track Pluck {
+    instrument {
+      SuperSynth {
+        preset: bright_pluck
+        filter_cutoff: 6.2khz
+      }
+    }
+    gain: -19db
+    pan: 0.28
+    Harmony |> Arpeggio(pattern: [1, 5, 3, 7], duration: @16, range: e5..b5)
+    stereo {
+      width: 1.45
+      balance: 0.12
+    }
+  }
+
+  track CounterHook {
+    instrument {
+      SuperSynth {
+        preset: digital_bell
+        filter_cutoff: 9.0khz
+      }
+    }
+    gain: -15db
+    pan: 0.20
+    stereo {
+      width: 1.32
+      balance: 0.10
+    }
+    Intro {
+      notes {
+        @8:
+        ( , e6 _ -5 _ -3 , ) * 2
+      }
+    }
+    Verse {
+      notes {
+        @8:
+        , , , , , , , ,
+      }
+    }
+    Pre {
+      notes {
+        @8:
+        ( , c#5 _ +3 _ +2 +3 , ) * 2
+      }
+    }
+    Chorus {
+      notes {
+        @8:
+        ( , e6 - _ -4 _ -3 ,
+          ,
+          c#6 _ +3 _ -4 ,
+          , ) * 2
+      }
+    }
+    Bridge {
+      notes {
+        @8:
+        , , , ,
+      }
+    }
+    Final {
+      notes {
+        @8:
+        ( , e6 - _ -4 _ -3 ,
+          c#6 _ +3 _ -4 ,
+          ,
+          e6 _ -4 _ -3 , ) * 2
+      }
+    }
+  }
+
+  track Kick {
+    gain: -7db
+    drums {
+      Intro {
+        @16:
+        Kick "x...............x...............x...............x..............."
+      }
+      Verse {
+        @16:
+        Kick "x.....x...x.....x.....x...x.....x.....x...x.....x.....x...x.....x.....x...x.....x.....x...x.....x.....x...x.....x.....x...x....."
+      }
+      Pre {
+        @16:
+        Kick "x...x.x...x...x.x...x.x...x...x.x...x.x...x...x.x...x.x...x...x."
+      }
+      Chorus {
+        @16:
+        Kick "x..x..x.x...x.x.x..x..x.x...x.x.x..x..x.x...x.x.x..x..x.x...x.x.x..x..x.x...x.x.x..x..x.x...x.x.x..x..x.x...x.x.x..x..x.x...x.x."
+      }
+      Bridge {
+        @16:
+        Kick "x.......x.......x.......x.......x.......x.......x.......x......."
+      }
+      Final {
+        @16:
+        Kick "x..x..x.x.x.x.x.x..x..x.x.x.x.x.x..x..x.x.x.x.x.x..x..x.x.x.x.x.x..x..x.x.x.x.x.x..x..x.x.x.x.x.x..x..x.x.x.x.x.x..x..x.x.x.x.x."
+      }
+      humanize {
+        timing: 2ms
+        velocity: 0.02
+        seed: 91
+      }
+    }
+  }
+
+  track Drums {
+    gain: -9db
+    drums {
+      Intro {
+        @16:
+        Snare "........g...............g...............g...............g......."
+        Hat "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+      }
+      Verse {
+        @16:
+        Snare "....X.......g.......X.......g.......X.......g.......X.......g.......X.......g.......X.......g.......X.......g.......X.......g..."
+        Hat "x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.x."
+      }
+      Pre {
+        @16:
+        Snare "....X.......X.......X.......X.......X.......X.......X.......X..."
+        Hat "x.xxxxx.x.xxxxx.x.xxxxx.x.xxxxx.x.xxxxx.x.xxxxx.x.xxxxx.x.xxxxx."
+      }
+      Chorus {
+        @16:
+        Snare "....X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X..."
+        Hat "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        OpenHat "...............x...............x...............x...............x...............x...............x...............x...............x"
+      }
+      Bridge {
+        @16:
+        Snare "........X...............X...............X...............X......."
+        Hat "x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x..."
+      }
+      Final {
+        @16:
+        Snare "....X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X.......X..."
+        Hat "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        OpenHat ".......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x.......x"
+      }
+      humanize {
+        timing: 4ms
+        velocity: 0.035
+        seed: 193
+      }
+    }
+  }
+
+  bus Delay {
+    StereoDelay {
+      time: 1/8d
+      feedback: 0.27
+      mix: 1.0
+      mode: ping_pong
+      feedback_filter {
+        high_pass: 260hz
+        low_pass: 5.8khz
+      }
+    }
+    gain: -2db
+    stereo {
+      width: 1.30
+      balance: 0
+    }
+  }
+
+  routing {
+    Kick -> Master
+    Drums -> Master
+    Bass -> Master
+    EPiano -> Master
+    Pad -> Master
+    Pluck -> Master
+    Lead -> Master
+    CounterHook -> Master
+    Lead -> Delay {
+      gain: -13db
+      mode: post_fader
+    }
+    CounterHook -> Delay {
+      gain: -16db
+      mode: post_fader
+    }
+    EPiano -> Delay {
+      gain: -20db
+      mode: post_fader
+    }
+    Pluck -> Delay {
+      gain: -18db
+      mode: post_fader
+    }
+    Delay -> Master
+  }
+
+  master {
+    effects {
+      Compressor {
+        threshold: -13db
+        ratio: 2
+        attack: 12ms
+        release: 130ms
+      }
+      Limiter {
+        ceiling: -1db
+      }
+    }
+    gain: -1db
+  }
+
+  render Main {
+    format: wav
+    sample_rate: 48khz
+    bit_depth: 24bit
+    normalize: false
+  }
+
+  export midi {
+    tracks: [Kick, Drums, Bass, EPiano, Pad, Pluck, Lead, CounterHook]
+  }
+
+}

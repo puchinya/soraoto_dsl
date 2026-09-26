@@ -1,0 +1,65 @@
+// Full work: Frédéric Chopin. Complete score; no abbreviated repeats.
+project {
+  version: 1
+  title: "Chopin — Prelude in A major, Op. 28 No. 7"
+  tempo: 56bpm
+  tempo {
+    1bar: 54bpm
+    3bar: 60bpm
+    5bar: 51bpm
+    7bar: 64bpm
+    9bar: 49bpm
+    11bar: 58bpm
+    13bar: 46bpm
+    15bar: 40bpm
+  }
+
+  meter: 3/4
+  key: A.major
+
+  track RightHand {
+    instrument: piano
+    gain: -7db
+    notes {
+      voice V1 {
+        !0.52: @4: e4 @8d: c#5 @16: d5 @4: [d4 g#4 b4] @4: [d4 g#4 b4]
+        @2: [d4 g#4 b4] @4: [d5 f#5] @8d: [b#4 d#5] @16: [c#5 e5] @4: [c#5 a5]
+        @4: [c#5 a5] @2: [c#5 a5] @4: [e4 c#5] @8d: [c#4 a#4] @16_ @4:
+        [f#4 d5] @4: [f#4 d5] @2: [d4 f#4 d5] @4: [d4 g#4] @8d: [d4 g#4] @16_
+        @4: [c#4 c#5] @4: [c#4 c#5] @2: [c#4 c#5] @4_ @8d: c#5 @16:
+        d5 @4: [d4 g#4 b4] @4: [d4 g#4 b4] @2: [d4 g#4 b4] @4: [d5 f#5] @8d:
+        [b#4 d#5] @16_ @4: [a5 c#6] @4: [a5 c#6] @2: [a#4 c#5 e5 a#5 c#6] @4: [a#4 c#5]
+        @8d: [a#4 c#5] @16_ @4: [b4 f#5] @4: [a4 f#5] @2: [g#4 f#5] @4:
+        [d4 g#4] @8d: [d4 b4] @16: [c#4 a4] @4: [c#5 a5] @4: [c#5 a5] @2:
+        [a4 c#5 a5] @4_
+      }
+      voice V2 {
+        !0.46: @1_ @1_ @1_ @2_ @2: d4 @1_ @1_ @4_ @4:
+        [e4 g#4] @1_ @2_ @2: [c#5 e5] @1_ @1_ @2_ @2: a4
+        @2d_
+      }
+    }
+  }
+
+  track LeftHand {
+    instrument: piano
+    gain: -10db
+    notes {
+      voice V1 {
+        !0.44: @4_ @4: e2 @4: [e3 e4] @4: [e3 e4] @2: [e3 e4] @4_
+        @4: a2 @4: [a3 e4] @4: [a3 e4] @2: [a3 e4] @4_ @4:
+        e2 @4: [e3 b3] @4: [e3 b3] @2: [e3 b3] @4_ @4: a1
+        @4: [e3 a3 e4] @4: [e3 a3 e4] @2: [e3 a3 e4] @4_ @4: e2 @4:
+        [e3 e4] @4: [e3 e4] @2: [e3 e4] @4_ @4: a2 @4: [a3 e4 a4]
+        @4: [a3 e4 a4] @2: [f#3 c#4 e4 f#4] @4_ @4: b1 @4: [f#3 d4] @4:
+        [f#3 b3 d4] @2: [e3 b3 d4] @4_ @4: a1 @4: [e3 a3 e4] @4: [e3 a3 e4]
+        @2: [a3 e4] @4_
+      }
+    }
+  }
+
+  master {
+    effects { Compressor { threshold: -12db ratio: 1.45 attack: 22ms release: 190ms } Limiter { ceiling: -1db } }
+    gain: -2db
+  }
+}

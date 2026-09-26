@@ -1,0 +1,15 @@
+const assert=require('assert'),path=require('path');
+const {PluginHarness,paramDef,normalize}=require('../../../../test/helpers/plugin-harness.cjs');
+const R=path.resolve(__dirname,'../../../../../'),B=128;
+const h=new PluginHarness(R,'plugins/effects/gain/plugin.wasm',{sampleRate:48000,maxFrames:B});
+const d=paramDef(h.descriptor,'gain');
+const L=new Float32Array(B).fill(1),RR=new Float32Array(B).fill(1);
+const o=h.process(B,{inputs:[[L,RR]],params:[{id:Number(d.id),normalized:normalize(d,0),offset:B-1}]})[0][0];
+h.close();
+assert(Math.abs(o[0]-1)<1e-4,`start ${o[0]}`);
+assert(o[32]<.80&&o[32]>.70,`q1 ${o[32]}`);
+assert(o[64]<.55&&o[64]>.45,`mid ${o[64]}`);
+assert(o[96]<.30&&o[96]>.20,`q3 ${o[96]}`);
+assert(Math.abs(o[127])<1e-4,`end ${o[127]}`);
+for(let i=1;i<B;i++)assert(o[i]<=o[i-1]+1e-5,`nonmonotonic ${i}`);
+console.log('PASS parameter interpolation regression',{start:o[0],q1:o[32],mid:o[64],q3:o[96],end:o[127]});
