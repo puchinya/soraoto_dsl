@@ -90,6 +90,14 @@ allowed imports only
 required exports exact signature
 soraoto.plugin.v1 exactly once
 descriptor valid
+soraoto.interface count <= 1
+if soraoto.interface is present:
+    valid UTF-8 and normalized source form
+    restricted declarative grammar only
+    parameter IDs and paths unique
+    defaults/ranges/type rules valid
+    no audio-rate modulation on discrete parameter types
+    overlapping fields semantically equivalent to soraoto.plugin.v1
 ID uniqueness
 parameter scale/flags valid
 NoteExpression descriptor/flags valid

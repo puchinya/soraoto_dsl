@@ -24,15 +24,15 @@ A supplied implementation contract is a handoff, not a workflow bypass. Associat
 
 Start documentation lookup at [`docs/README.md`](docs/README.md), then the relevant category README, then only the document or specification sections needed for the task.
 
-- [`docs/specs/soraotoDSL/soraotoDSL.md`](docs/specs/soraotoDSL/soraotoDSL.md) and its `spec/*.md` modules are the normative DSL source. Edit the root or owning module. [`soraotoDSL-full.md`](docs/specs/soraotoDSL/soraotoDSL-full.md) is a generated snapshot; do not edit it directly.
-- `docs/specs/soraotoDSL/spec/09-conformance.md` defines conformance expectations. The `Maintenance` section of the specification documents `tools/validate-spec.py` and `tools/build-full.py`.
+- [`docs/specs/soraotoDSL/soraotoDSL.md`](docs/specs/soraotoDSL/soraotoDSL.md) and its `spec/*.md` modules are the complete normative DSL source. Edit the root or owning split module; no combined snapshot is maintained.
+- `docs/specs/soraotoDSL/spec/09-conformance.md` defines conformance expectations. Run a repository spec validator only if that tool exists in the checkout.
 - Source code is the implementation, tests are executable evidence, and `web-player/README.md` plus `wasm/CMakeLists.txt` document the available build and test entry points.
 - Keep requirements, architecture decisions, implementation, and current status in documents with those responsibilities. Do not use implementation status or examples to override normative rules.
 
 ## Working rules
 
 - Stay within the approved Issue scope. Do not combine unrelated cleanup or silently decide a material change to DSL semantics, plugin ABI, compatibility, architecture, or supported behavior.
-- A public syntax, semantic, interchange, or ABI change must update its owning normative specification and relevant conformance coverage. Regenerate the full snapshot from the split source.
+- A public syntax, semantic, interchange, or ABI change must update its owning split normative specification and relevant conformance coverage.
 - Keep the working set small: owning Issue/PR, active phase document, relevant spec sections, affected source/tests, and the task diff. Keep large logs and temporary screenshots out of committed source.
 - Run focused verification that covers the acceptance criteria. Report each check as PASS, FAIL, NOT RUN, or BLOCKED with the command and relevant result. Do not describe a build or page launch as proof of browser interaction or audio behavior.
 
