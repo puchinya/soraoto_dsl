@@ -2,12 +2,13 @@
 
 **Issue:** [#7](https://github.com/puchinya/soraoto_dsl/issues/7)
 **Model specification:** [`../../../../specs/plugins/dsp/super-synth/super-synth-engine-models-spec.md`](../../../../specs/plugins/dsp/super-synth/super-synth-engine-models-spec.md)
-**Review state:** Proposed companion design; approval pending.
+**Review state:** Revised companion design approved by the user on 2026-09-26 for Issue #7.
 
 ## 1. Scope and source basis
 
 This document records how the existing `EngineModel` values are routed through the native runtime.
-It documents current source ownership; it does not redesign or retune those sound generators.
+It documents current source ownership and the approved `concert_grand` architecture delta; it does
+not change or retune the other sound generators.
 `interface.soraoto` owns the stable enum order and parameter schema. `src/plugin.c` owns the renderer
 and voice state. Product roles are defined by the companion
 [`super-synth-engine-models-spec.md`](../../../../specs/plugins/dsp/super-synth/super-synth-engine-models-spec.md).
@@ -27,7 +28,7 @@ The `engine_model` enum order maps to the current native render paths as follows
 | 6 | `reed` | `reed_v7`: pressure-driven aperture/flow, bore partials, and body resonance. |
 | 7 | `brass` | `brass_v7`: pressure-driven lip/mouthpiece excitation, bore partials, and body resonance. |
 | 8 | `vocal` | `vocal_v7`: glottal source, vowel-controlled formants, and nasal/chest resonances. |
-| 9 | `concert_grand` | V9 physical string path using `prepare_grand_strings`, `grand_string_contact`, `grand_strings_step`, and shared soundboard-zone state; detailed in [`super-synth-design.md`](super-synth-design.md). |
+| 9 | `concert_grand` | Dynamic hammer and traveling-wave strings with a shared bridge junction, passive sympathetic register, fitted soundboard/radiation state, longitudinal modes, and SIMD128 modal kernels; detailed in [`super-synth-design.md`](super-synth-design.md). |
 
 The mapping is derived from the `EngineModel` declaration and `render_voice_step` dispatch. Keep the
 enum mapping, native dispatch, and metadata generation consistent. Do not reorder numeric values or
@@ -46,9 +47,10 @@ when legato retargeting requires a new pitch. The bowed, flute, reed, and brass 
 resonant models and retain their resonant state across continuous pitch changes. Keep any future
 lifecycle change tied to an explicit design and regression requirement.
 
-The concert-grand model additionally uses shared three-zone soundboard accumulation alongside
-per-voice hammer/string state. Other engine paths keep their current per-voice resonator ownership.
-Do not move these native DSP paths into Web Player JavaScript.
+The concert-grand model owns dynamic hammer, transverse-string, and longitudinal state per voice,
+plus one shared three-zone fitted soundboard and one shared 88-key passive sympathetic register.
+Other engine paths keep their current per-voice resonator ownership. Do not move these native DSP
+paths into Web Player JavaScript.
 
 ## 4. Product routing and metadata boundary
 

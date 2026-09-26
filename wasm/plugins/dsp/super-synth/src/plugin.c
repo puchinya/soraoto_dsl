@@ -2,6 +2,12 @@
 #include <wasm_simd128.h>
 #endif
 
+#if defined(__wasm_simd128__) && !defined(SORAOTO_FORCE_SCALAR_GRAND)
+#define SORAOTO_GRAND_SIMD 1
+#else
+#define SORAOTO_GRAND_SIMD 0
+#endif
+
 /*
  * SuperSynth v9 reference DSP for soraotoDSL.
  * Freestanding WebAssembly build, no libc/libm, no allocation in process().
@@ -27,8 +33,17 @@
 #define MAX_WG_DELAY 8192
 #define GRAND_SEG_MAX 4096
 #define GRAND_SB_MODES 24
+#define GRAND_SIMD_LANES 4
+#define GRAND_HAMMER_FORCE_SCALE 100.0f
+#define GRAND_SB_GROUPS (GRAND_SB_MODES / GRAND_SIMD_LANES)
+#define GRAND_SYMP_KEYS 88
+#define GRAND_SYMP_MODES_PER_KEY 2
+#define GRAND_SYMP_GROUPS ((GRAND_SYMP_KEYS / GRAND_SIMD_LANES) * GRAND_SYMP_MODES_PER_KEY)
+#define GRAND_LONG_MODES 2
 #define HB_TAPS 31
 #define PARAM_COUNT 157
+
+#include "grand_physics_fit_v9.h"
 
 /* v8 parameter indices. Descriptor IDs are index + 1. */
 #define P_ENGINE 53
@@ -165,9 +180,40 @@ static float g_grand_b2h[3][MAX_VOICES][GRAND_SEG_MAX];
    dense low-Q modal radiation field.  Feedback is returned per bridge zone,
    so active strings interact through the same physical body. */
 static float g_grand_sb_ic1[GRAND_SB_MODES],g_grand_sb_ic2[GRAND_SB_MODES];
+static float g_grand_sb_g[GRAND_SB_MODES] __attribute__((aligned(16)));
+static float g_grand_sb_a1[GRAND_SB_MODES] __attribute__((aligned(16)));
+static int g_grand_sb_cache_dirty=1;
+static int g_grand_sb_cache_rate=0;
+static unsigned int g_active_voice_mask=0;
+#if defined(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+static unsigned int g_supersynth_guard_hits=0;
+unsigned int soraoto_supersynth_guard_hit_count(void){return g_supersynth_guard_hits;}
+unsigned int soraoto_supersynth_active_voice_count(void){
+  unsigned int count=0,mask=g_active_voice_mask;
+  while(mask){count++;mask&=mask-1u;}
+  return count;
+}
+#endif
+static int g_grand_symp_mask_dirty=1;
+static int g_grand_symp_cache_dirty=1;
+static int g_grand_symp_clear_pending=1;
+static int g_grand_symp_was_enabled=0;
+static int g_grand_symp_cache_rate=0;
+typedef struct __attribute__((aligned(16))) {
+  float g[4],a1[4],g_damped[4],a1_damped[4];
+  float gain[4],gain_damped[4],ic1[4],ic2[4],undamped[4];
+  float g_active[4],a1_active[4],gain_active[4];
+  float zone_b[4],zone_m[4],zone_t[4];
+  unsigned int active_lanes;
+  float state_energy;
+} GrandSympGroup;
+static GrandSympGroup g_grand_symp_groups[GRAND_SYMP_GROUPS];
+static float g_grand_symp_return_prev[3]={0.0f,0.0f,0.0f};
+static float g_grand_symp_return_next[3]={0.0f,0.0f,0.0f};
 static float g_grand_board_drive[3]={0.0f,0.0f,0.0f};
 static float g_grand_board_feedback[3]={0.0f,0.0f,0.0f};
 static float g_grand_board_broad[3]={0.0f,0.0f,0.0f};
+static float g_grand_board_excitation_pan=0.0f;
 typedef struct { float z[HB_TAPS]; int pos; } HalfbandState;
 static HalfbandState g_hb1_l,g_hb1_r,g_hb2_l,g_hb2_r;
 static const float g_hb[HB_TAPS]={
@@ -375,6 +421,17 @@ typedef struct {
   float res2;
   float physical_prev;
   float physical_aux;
+  float grand_hammer_velocity;
+  float grand_hammer_compression;
+  float grand_hammer_force;
+  float grand_hammer_force_prev;
+  int grand_hammer_contact;
+  float grand_long_ic1[GRAND_LONG_MODES];
+  float grand_long_ic2[GRAND_LONG_MODES];
+  float grand_long_g[GRAND_LONG_MODES];
+  float grand_long_a1[GRAND_LONG_MODES];
+  float grand_long_gain[GRAND_LONG_MODES];
+  float grand_long_ac_lp;
   /* De-click state for voice stealing.  When all 32 voices are busy, keep
      the stolen voice's final contribution and crossfade it into the new
      voice instead of hard-resetting the waveform at the note boundary. */
@@ -398,6 +455,21 @@ typedef struct { int down; int id; float pitch; float velocity; unsigned int ord
 static HeldNote g_held[MAX_VOICES];
 static unsigned int g_note_order=1;
 
+static float resonator_g(float normalized);
+#if SORAOTO_GRAND_SIMD
+static float grand_hsum_f32x4(v128_t v);
+#endif
+static void grand_update_board_cache(float rate);
+static void grand_update_symp_cache(float rate);
+static void grand_prepare_longitudinal(Voice* q,float pitch);
+static void grand_sympathetic_step(const float drive[3],float rate);
+
+static void grand_clear_sympathetic_state(void){
+  for(int group=0;group<GRAND_SYMP_GROUPS;group++)
+    for(int lane=0;lane<GRAND_SIMD_LANES;lane++)g_grand_symp_groups[group].ic1[lane]=g_grand_symp_groups[group].ic2[lane]=0.0f;
+  for(int z=0;z<3;z++)g_grand_symp_return_prev[z]=g_grand_symp_return_next[z]=0.0f;
+}
+
 static void release_voice(Voice* q){
   if(!q->active||q->amp_stage==3)return;
   q->amp_stage=3;q->filt_stage=3;q->amp_release_start=q->amp_env;q->filt_release_start=q->filt_env;
@@ -409,8 +481,9 @@ static void held_add(int id,float pitch,float velocity){
   int slot=-1;for(int i=0;i<MAX_VOICES;i++){if(g_held[i].down&&g_held[i].id==id){slot=i;break;}if(slot<0&&!g_held[i].down)slot=i;}
   if(slot<0){unsigned int best=0xffffffffu;slot=0;for(int i=0;i<MAX_VOICES;i++)if(g_held[i].order<best){best=g_held[i].order;slot=i;}}
   g_held[slot].down=1;g_held[slot].id=id;g_held[slot].pitch=pitch;g_held[slot].velocity=velocity;g_held[slot].order=g_note_order++;
+  g_grand_symp_mask_dirty=1;
 }
-static void held_remove(int id){for(int i=0;i<MAX_VOICES;i++)if(g_held[i].down&&g_held[i].id==id){g_held[i].down=0;return;}}
+static void held_remove(int id){g_grand_symp_mask_dirty=1;for(int i=0;i<MAX_VOICES;i++)if(g_held[i].down&&g_held[i].id==id){g_held[i].down=0;return;}}
 static HeldNote* held_select(void){
   HeldNote* best=0;int pri=clampi((int)(g_params[P_NOTE_PRIORITY]+0.5f),0,2);
   for(int i=0;i<MAX_VOICES;i++)if(g_held[i].down){HeldNote* h=&g_held[i];if(!best)best=h;else if(pri==0&&h->order>best->order)best=h;else if(pri==1&&h->pitch<best->pitch)best=h;else if(pri==2&&h->pitch>best->pitch)best=h;}
@@ -458,21 +531,26 @@ void dsp_init(int sample_rate,int max_block_size){
   g_sr=sample_rate>8000?sample_rate:48000;
   defaults();
   build_wavetables();
-  for(int i=0;i<MAX_VOICES;i++){g_voices[i].active=0;g_held[i].down=0;}g_note_order=1;
+  for(int i=0;i<MAX_VOICES;i++){g_voices[i].active=0;g_held[i].down=0;}g_note_order=1;g_active_voice_mask=0;
   for(int i=0;i<CHORUS_SIZE;i++){g_chorus_l[i]=0.0f;g_chorus_r[i]=0.0f;}
   g_chorus_pos=0;g_lfo1_phase=g_lfo2_phase=g_chorus_phase=0.0f;g_noise_lp=0.0f;
   for(int i=0;i<HB_TAPS;i++){g_hb1_l.z[i]=g_hb1_r.z[i]=g_hb2_l.z[i]=g_hb2_r.z[i]=0.0f;}g_hb1_l.pos=g_hb1_r.pos=g_hb2_l.pos=g_hb2_r.pos=0;
   for(int i=0;i<GRAND_SB_MODES;i++){g_grand_sb_ic1[i]=0.0f;g_grand_sb_ic2[i]=0.0f;}
   for(int i=0;i<3;i++){g_grand_board_drive[i]=0.0f;g_grand_board_feedback[i]=0.0f;g_grand_board_broad[i]=0.0f;}
+  g_grand_board_excitation_pan=0.0f;
+  grand_clear_sympathetic_state();g_grand_symp_mask_dirty=1;g_grand_symp_clear_pending=0;g_grand_symp_was_enabled=0;
+  g_grand_sb_cache_dirty=1;g_grand_sb_cache_rate=0;grand_update_board_cache((float)g_sr);grand_update_symp_cache((float)g_sr);
 }
 
 void dsp_reset(void){
-  for(int i=0;i<MAX_VOICES;i++){g_voices[i].active=0;g_held[i].down=0;}g_note_order=1;
+  for(int i=0;i<MAX_VOICES;i++){g_voices[i].active=0;g_held[i].down=0;}g_note_order=1;g_active_voice_mask=0;
   for(int i=0;i<CHORUS_SIZE;i++){g_chorus_l[i]=0.0f;g_chorus_r[i]=0.0f;}
   g_chorus_pos=0;g_lfo1_phase=g_lfo2_phase=g_chorus_phase=0.0f;g_noise_lp=0.0f;
   for(int i=0;i<HB_TAPS;i++){g_hb1_l.z[i]=g_hb1_r.z[i]=g_hb2_l.z[i]=g_hb2_r.z[i]=0.0f;}g_hb1_l.pos=g_hb1_r.pos=g_hb2_l.pos=g_hb2_r.pos=0;
   for(int i=0;i<GRAND_SB_MODES;i++){g_grand_sb_ic1[i]=0.0f;g_grand_sb_ic2[i]=0.0f;}
   for(int i=0;i<3;i++){g_grand_board_drive[i]=0.0f;g_grand_board_feedback[i]=0.0f;g_grand_board_broad[i]=0.0f;}
+  g_grand_board_excitation_pan=0.0f;
+  grand_clear_sympathetic_state();g_grand_symp_mask_dirty=1;g_grand_symp_clear_pending=0;g_grand_symp_was_enabled=0;
 }
 
 void dsp_set_parameter(int id,float value,int sample_offset){
@@ -513,8 +591,12 @@ void dsp_set_parameter(int id,float value,int sample_offset){
     default:break;
   }
   g_params[id]=value;
-  if(id==P_SOSTENUTO_PEDAL && old_value<0.5f && value>=0.5f){for(int i=0;i<MAX_VOICES;i++)if(g_voices[i].active&&g_voices[i].key_down)g_voices[i].sostenuto_latched=1;}
-  if(id==P_SOSTENUTO_PEDAL && old_value>=0.5f && value<0.5f){for(int i=0;i<MAX_VOICES;i++)g_voices[i].sostenuto_latched=0;if(g_params[P_SUSTAIN_PEDAL]<0.5f)release_unheld_voices();}
+  if(id==P_PIANO_SOUNDBOARD_SIZE && old_value!=value)g_grand_sb_cache_dirty=1;
+  if((id==P_PIANO_STRING_DAMPING||id==P_PIANO_INHARMONICITY)&&old_value!=value)g_grand_symp_cache_dirty=1;
+  if(id==P_PIANO_SYMPATHETIC){if(value<=0.0f&&old_value>0.0f)g_grand_symp_clear_pending=1;g_grand_symp_mask_dirty=1;}
+  if(id==P_SOSTENUTO_PEDAL && old_value<0.5f && value>=0.5f){for(int i=0;i<MAX_VOICES;i++)if(g_voices[i].active&&g_voices[i].key_down)g_voices[i].sostenuto_latched=1;g_grand_symp_mask_dirty=1;}
+  if(id==P_SOSTENUTO_PEDAL && old_value>=0.5f && value<0.5f){for(int i=0;i<MAX_VOICES;i++)g_voices[i].sostenuto_latched=0;if(g_params[P_SUSTAIN_PEDAL]<0.5f)release_unheld_voices();g_grand_symp_mask_dirty=1;}
+  if(id==P_SUSTAIN_PEDAL && old_value!=value)g_grand_symp_mask_dirty=1;
   if(id==P_SUSTAIN_PEDAL && old_value>=0.5f && value<0.5f)release_unheld_voices();
 }
 
@@ -630,100 +712,189 @@ static void prepare_grand_strings(Voice* q,float pitch){
   q->grand_bridge_radiation_prev=0.0f;
 }
 
-/* Hammer-point displacement/velocity proxy from the two incoming traveling
-   waves.  This is sampled before scattering so the nonlinear felt force is
-   genuinely coupled to the current string state. */
-static float grand_string_contact(Voice* q){
-  int vi=voice_index(q),count=grand_string_count(q->glide_pitch);
-  float mean=0.0f;
-  for(int st=0;st<count;st++){
-    float ia=grand_delay_read(g_grand_a2h[st][vi],q->grand_a_pos[st],q->grand_a_len[st],q->grand_a_frac[st]);
-    float ib=grand_delay_read(g_grand_b2h[st][vi],q->grand_b_pos[st],q->grand_b_len[st],q->grand_b_frac[st]);
-    mean+=(ia+ib)*.5f;
-  }
-  return mean/(count>0?(float)count:1.0f);
-}
-
-/* Four-segment traveling-wave piano string.  The hammer is a matched scattering
-   junction; agraffe and bridge are separate, frequency-dependent terminations.
-   Stiffness is represented by weak all-pass dispersion in the reflected waves.
-   The bridge-arrival force is exported separately to the shared soundboard. */
-static float grand_strings_step(Voice* q,float hammer,float rate,float* bridge_out){
+/* Four-segment transverse string plus explicit dynamic hammer and shared
+   bridge scattering.  All delay reads and same-sample bridge arrivals are
+   gathered before any delay line is written, so unison strings share one solve. */
+static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_out,float* transverse_out){
   int vi=voice_index(q),count=grand_string_count(q->glide_pitch);
   float key=clampf((q->glide_pitch-21.0f)/87.0f,0.0f,1.0f);
-  float damping=g_params[P_PIANO_STRING_DAMPING];
-  float inh=g_params[P_PIANO_INHARMONICITY];
-  float sy=g_params[P_PIANO_SYMPATHETIC];
+  float damping=g_params[P_PIANO_STRING_DAMPING],inh=g_params[P_PIANO_INHARMONICITY];
+  float wound=clampf((48.0f-q->glide_pitch)/19.0f,0.0f,1.0f);
+  float ref_loss=.00140f*clampf((.68f-key)/.45f,0.0f,1.0f)*(1.82f-.82f*q->velocity);
   float zb,zm,zt;grand_zone_weights(key,&zb,&zm,&zt);
   float body_fb=g_grand_board_feedback[0]*zb+g_grand_board_feedback[1]*zm+g_grand_board_feedback[2]*zt;
-  float string_sum=0.0f,bridge_sum=0.0f;
+  float in_a[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
+  float in_b[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
+  float at_a[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
+  float at_b[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
+  float ret_a[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
+  float ret_b[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
+  float out_a[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
+  float out_b[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
+  float impedance[4] __attribute__((aligned(16)))={1.0f,.965f,1.035f,0.0f};
+  float active_lanes[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
+  float zsum=0.0f,contact_weighted=0.0f,string_sum=0.0f;
   float release=q->amp_stage==3?(0.00006f+.00025f*damping+.00008f*key):0.0f;
   float disp=.018f+inh*(.045f+.16f*key);
-  const float imp[3]={1.0f,.965f,1.035f};
+  /* A. Gather every delay-line value before changing any string state. */
   for(int st=0;st<count;st++){
-    int ap=q->grand_a_pos[st],al=q->grand_a_len[st];
-    int bp=q->grand_b_pos[st],bl=q->grand_b_len[st];
-    float in_a=grand_delay_read_ap(g_grand_a2h[st][vi],ap,al,q->grand_a_frac[st],&q->grand_fd_a2h_x[st],&q->grand_fd_a2h_y[st]);
-    float in_b=grand_delay_read_ap(g_grand_b2h[st][vi],bp,bl,q->grand_b_frac[st],&q->grand_fd_b2h_x[st],&q->grand_fd_b2h_y[st]);
-    float at_a=grand_delay_read_ap(g_grand_h2a[st][vi],ap,al,q->grand_a_frac[st],&q->grand_fd_h2a_x[st],&q->grand_fd_h2a_y[st]);
-    float at_b=grand_delay_read_ap(g_grand_h2b[st][vi],bp,bl,q->grand_b_frac[st],&q->grand_fd_h2b_x[st],&q->grand_fd_h2b_y[st]);
+    active_lanes[st]=1.0f;
+    int ap=q->grand_a_pos[st],al=q->grand_a_len[st],bp=q->grand_b_pos[st],bl=q->grand_b_len[st];
+    in_a[st]=grand_delay_read_ap(g_grand_a2h[st][vi],ap,al,q->grand_a_frac[st],&q->grand_fd_a2h_x[st],&q->grand_fd_a2h_y[st]);
+    in_b[st]=grand_delay_read_ap(g_grand_b2h[st][vi],bp,bl,q->grand_b_frac[st],&q->grand_fd_b2h_x[st],&q->grand_fd_b2h_y[st]);
+    at_a[st]=grand_delay_read_ap(g_grand_h2a[st][vi],ap,al,q->grand_a_frac[st],&q->grand_fd_h2a_x[st],&q->grand_fd_h2a_y[st]);
+    at_b[st]=grand_delay_read_ap(g_grand_h2b[st][vi],bp,bl,q->grand_b_frac[st],&q->grand_fd_h2b_x[st],&q->grand_fd_h2b_y[st]);
+  }
+#if SORAOTO_GRAND_SIMD
+  v128_t v_impedance=wasm_f32x4_mul(wasm_v128_load(impedance),wasm_v128_load(active_lanes));
+  v128_t pair=wasm_f32x4_mul(wasm_f32x4_add(wasm_v128_load(in_a),wasm_v128_load(in_b)),wasm_f32x4_splat(.5f));
+  zsum=grand_hsum_f32x4(v_impedance);
+  contact_weighted=grand_hsum_f32x4(wasm_f32x4_mul(v_impedance,pair));
+  string_sum=grand_hsum_f32x4(pair);
+#else
+  for(int st=0;st<count;st++){
+    zsum+=impedance[st];contact_weighted+=impedance[st]*(in_a[st]+in_b[st])*.5f;
+    string_sum+=(in_a[st]+in_b[st])*.5f;
+  }
+#endif
+  float v_string=contact_weighted/(zsum>0.0f?zsum:1.0f);
+  float transverse=string_sum/(count>0?(float)count:1.0f);
 
-    /* Boundary impedance is lossy and increasingly low-pass toward the treble.
-       The bridge is less rigid than the agraffe and receives soundboard motion. */
-    float aa=clampf(.79f-.10f*damping-.035f*key,.58f,.84f);
-    float ab=clampf(.76f-.13f*damping-.055f*key,.52f,.82f);
-    q->grand_agraffe_lp[st]+=aa*(at_a-q->grand_agraffe_lp[st]);
-    q->grand_bridge_lp[st]+=ab*(at_b-q->grand_bridge_lp[st]);
-    float wound=clampf((48.0f-q->glide_pitch)/19.0f,0.0f,1.0f);
-    float hf_a=.002f+.012f*damping+.003f*key + wound*.026f;
-    float hf_b=.004f+.020f*damping+.006f*key + wound*.044f;
-    float fa=lerpf(at_a,q->grand_agraffe_lp[st],hf_a);
-    float fb=lerpf(at_b,q->grand_bridge_lp[st],hf_b);
-    float loss_a=.99980f-(.00010f+.0011f*key)*(.38f+1.05f*damping);
-    float loss_b=.99955f-(.00025f+.0020f*key)*(.42f+1.15f*damping)-release;
-    /* Real-note calibration: low/mid strings need more per-roundtrip loss than
-       the old nearly-constant reflection model, while upper strings already
-       accumulate enough loss through their much faster round trips. */
-    float ref_loss=.00140f*clampf((.68f-key)/.45f,0.0f,1.0f)*(1.82f-.82f*q->velocity);
-    loss_a-=ref_loss;loss_b-=ref_loss*1.08f;
-    loss_a=clampf(loss_a,.970f,.9998f);loss_b=clampf(loss_b,.930f,.9996f);
-    float ret_a=grand_allpass(-fa*loss_a,disp*.72f,&q->grand_disp_a[st]);
-    float ret_b=grand_allpass(-fb*loss_b,disp,&q->grand_disp_b[st]);
-    /* The board-to-string mobility is much lower in the wound-bass register.
-       Strong low-register feedback turns shared plate modes into a drone when
-       pedalled chords accumulate, so scale the coupling with register. */
-    float board_string_couple=.00030f+.00068f*key;
-    ret_b += body_fb*sy*board_string_couple;
+  /* B. Passive agraffe returns are independent and dissipative. */
+  float aa=clampf(.79f-.10f*damping-.035f*key,.58f,.84f);
+  float hf_a=.002f+.012f*damping+.003f*key+wound*.026f;
+  float loss_a=clampf(.99980f-(.00010f+.0011f*key)*(.38f+1.05f*damping)-ref_loss,.970f,.9998f);
+#if SORAOTO_GRAND_SIMD
+  v128_t v_active=wasm_f32x4_eq(wasm_v128_load(active_lanes),wasm_f32x4_splat(1.0f));
+  v128_t v_at_a=wasm_v128_load(at_a);
+  v128_t v_lp_a=wasm_f32x4_make(q->grand_agraffe_lp[0],q->grand_agraffe_lp[1],q->grand_agraffe_lp[2],0.0f);
+  v128_t v_disp_a=wasm_f32x4_make(q->grand_disp_a[0],q->grand_disp_a[1],q->grand_disp_a[2],0.0f);
+  v128_t v_next_lp_a=wasm_f32x4_add(v_lp_a,wasm_f32x4_mul(wasm_f32x4_splat(aa),wasm_f32x4_sub(v_at_a,v_lp_a)));
+  v_next_lp_a=wasm_v128_bitselect(v_next_lp_a,v_lp_a,v_active);
+  v128_t v_fa=wasm_f32x4_add(v_at_a,wasm_f32x4_mul(wasm_f32x4_sub(v_next_lp_a,v_at_a),wasm_f32x4_splat(hf_a)));
+  v128_t v_input_a=wasm_f32x4_mul(v_fa,wasm_f32x4_splat(-loss_a));
+  float ap_a=clampf(disp*.72f,-.72f,.72f);
+  v128_t v_y_a=wasm_f32x4_sub(v_disp_a,wasm_f32x4_mul(wasm_f32x4_splat(ap_a),v_input_a));
+  v128_t v_next_disp_a=wasm_f32x4_add(v_input_a,wasm_f32x4_mul(wasm_f32x4_splat(ap_a),v_y_a));
+  v_next_disp_a=wasm_v128_bitselect(v_next_disp_a,v_disp_a,v_active);
+  v_y_a=wasm_v128_bitselect(v_y_a,wasm_f32x4_splat(0.0f),v_active);
+  wasm_v128_store(ret_a,v_y_a);
+  q->grand_agraffe_lp[0]=wasm_f32x4_extract_lane(v_next_lp_a,0);
+  q->grand_agraffe_lp[1]=wasm_f32x4_extract_lane(v_next_lp_a,1);
+  q->grand_agraffe_lp[2]=wasm_f32x4_extract_lane(v_next_lp_a,2);
+  q->grand_disp_a[0]=wasm_f32x4_extract_lane(v_next_disp_a,0);
+  q->grand_disp_a[1]=wasm_f32x4_extract_lane(v_next_disp_a,1);
+  q->grand_disp_a[2]=wasm_f32x4_extract_lane(v_next_disp_a,2);
+#else
+  for(int st=0;st<count;st++){
+    q->grand_agraffe_lp[st]+=aa*(at_a[st]-q->grand_agraffe_lp[st]);
+    float fa=lerpf(at_a[st],q->grand_agraffe_lp[st],hf_a);
+    ret_a[st]=grand_allpass(-fa*loss_a,disp*.72f,&q->grand_disp_a[st]);
+  }
+#endif
 
-    /* Equal-impedance hammer junction.  Incoming energy crosses to the opposite
-       segment; contact force launches waves in both directions. */
-    /* The old launch scale left the modeled string roughly 20 dB below the
-       recorded reference after the shared output stage. Calibrate wave energy
-       at the hammer junction so the bridge and string paths retain headroom. */
-    float inj=hammer*(.032f+.032f*(1.0f-key))*imp[st]/(.78f+.22f*(float)count);
-    float out_a=softclip((in_b+inj)*1.0004f);
-    float out_b=softclip((in_a+inj)*1.0004f);
+  /* C. Symplectic hammer/felt update.  Hardness raises stiffness and the
+     exponent continuously between the required p=2 and p=4 limits. */
+  float force=0.0f;
+  if(q->grand_hammer_contact){
+    float hard=clampf(g_params[P_PIANO_HAMMER_HARDNESS],0.0f,1.0f);
+    float dt=1.0f/rate;
+    float delta_dot=q->grand_hammer_velocity-v_string;
+    float predicted=q->grand_hammer_compression+dt*delta_dot;
+    if(predicted<0.0f)predicted=0.0f;
+    float normalized=clampf(predicted/.004f,0.0f,1.75f);
+    float square=normalized*normalized,fourth=square*square;
+    float felt_shape=lerpf(square,fourth,hard);
+    float stiffness=lerpf(.018f,.155f,hard);
+    float passive_loss=clampf(1.0f+lerpf(.08f,.28f,hard)*delta_dot,.0f,1.8f);
+    force=GRAND_HAMMER_FORCE_SCALE*stiffness*felt_shape*passive_loss;
+    if(force<0.0f)force=0.0f;
+    q->physical_aux+=(.04f+.12f*hard)*(noise-q->physical_aux);
+    float contact_noise=1.0f+(noise-q->physical_aux)*g_params[P_PIANO_HAMMER_NOISE]*(.012f+.028f*hard);
+    if(contact_noise<0.0f)contact_noise=0.0f;
+    force*=contact_noise;
+    float mass=lerpf(.010f,.0065f,hard);
+    q->grand_hammer_velocity-=dt*force/mass;
+    float next=q->grand_hammer_compression+dt*(q->grand_hammer_velocity-v_string);
+    if(next<=0.0f && q->grand_hammer_velocity<=v_string){
+      q->grand_hammer_compression=0.0f;q->grand_hammer_velocity=0.0f;q->grand_hammer_contact=0;force=0.0f;
+    }else q->grand_hammer_compression=next>0.0f?next:0.0f;
+  }
+  q->grand_hammer_force_prev=q->grand_hammer_force;q->grand_hammer_force=force;
+  float delta_v=force/(2.0f*(zsum>0.0f?zsum:1.0f));
+#if SORAOTO_GRAND_SIMD
+  v128_t hammer_mask=wasm_v128_load(active_lanes),hammer_delta=wasm_f32x4_splat(delta_v);
+  wasm_v128_store(out_a,wasm_f32x4_add(wasm_v128_load(in_b),wasm_f32x4_mul(hammer_mask,hammer_delta)));
+  wasm_v128_store(out_b,wasm_f32x4_add(wasm_v128_load(in_a),wasm_f32x4_mul(hammer_mask,hammer_delta)));
+#else
+  for(int st=0;st<count;st++){out_a[st]=in_b[st]+delta_v;out_b[st]=in_a[st]+delta_v;}
+#endif
 
-    g_grand_h2a[st][vi][ap]=out_a;
-    g_grand_a2h[st][vi][ap]=ret_a;
-    g_grand_h2b[st][vi][bp]=out_b;
-    g_grand_b2h[st][vi][bp]=ret_b;
+  /* D. One positive-impedance bridge solve couples every active string. */
+  float zb_imp=1.0f+.35f*key;
+  float v_board=body_fb*g_params[P_PIANO_SYMPATHETIC];
+#if SORAOTO_GRAND_SIMD
+  v128_t v_at_bridge=wasm_v128_load(at_b);
+  float numerator=grand_hsum_f32x4(wasm_f32x4_mul(wasm_f32x4_splat(2.0f),wasm_f32x4_mul(v_impedance,v_at_bridge)))+zb_imp*v_board;
+  float v_bridge=numerator/(grand_hsum_f32x4(v_impedance)+zb_imp);
+#else
+  float numerator=zb_imp*v_board;
+  for(int st=0;st<count;st++)numerator+=2.0f*impedance[st]*at_b[st];
+  float v_bridge=numerator/(zsum+zb_imp);
+#endif
+  float bridge_force=zb_imp*(v_bridge-v_board);
+
+  /* E. Apply the frequency-dependent passive bridge termination after the
+     shared junction; all dissipative gains remain in [0,1]. */
+  float ab=clampf(.76f-.13f*damping-.055f*key,.52f,.82f);
+  float hf_b=.004f+.020f*damping+.006f*key+wound*.044f;
+  float loss_b=clampf(.99955f-(.00025f+.0020f*key)*(.42f+1.15f*damping)-release-ref_loss*1.08f,.930f,.9996f);
+#if SORAOTO_GRAND_SIMD
+  v128_t v_at_b=wasm_v128_load(at_b);
+  v128_t v_lp_b=wasm_f32x4_make(q->grand_bridge_lp[0],q->grand_bridge_lp[1],q->grand_bridge_lp[2],0.0f);
+  v128_t v_disp_b=wasm_f32x4_make(q->grand_disp_b[0],q->grand_disp_b[1],q->grand_disp_b[2],0.0f);
+  v128_t v_reflected=wasm_f32x4_sub(wasm_f32x4_splat(v_bridge),v_at_b);
+  v128_t v_next_lp_b=wasm_f32x4_add(v_lp_b,wasm_f32x4_mul(wasm_f32x4_splat(ab),wasm_f32x4_sub(v_reflected,v_lp_b)));
+  v_next_lp_b=wasm_v128_bitselect(v_next_lp_b,v_lp_b,v_active);
+  v128_t v_filtered=wasm_f32x4_add(v_reflected,wasm_f32x4_mul(wasm_f32x4_sub(v_next_lp_b,v_reflected),wasm_f32x4_splat(hf_b)));
+  v_filtered=wasm_f32x4_mul(v_filtered,wasm_f32x4_splat(loss_b));
+  float ap_b=clampf(disp,-.72f,.72f);
+  v128_t v_y_b=wasm_f32x4_sub(v_disp_b,wasm_f32x4_mul(wasm_f32x4_splat(ap_b),v_filtered));
+  v128_t v_next_disp_b=wasm_f32x4_add(v_filtered,wasm_f32x4_mul(wasm_f32x4_splat(ap_b),v_y_b));
+  v_next_disp_b=wasm_v128_bitselect(v_next_disp_b,v_disp_b,v_active);
+  v_y_b=wasm_v128_bitselect(v_y_b,wasm_f32x4_splat(0.0f),v_active);
+  wasm_v128_store(ret_b,v_y_b);
+  q->grand_bridge_lp[0]=wasm_f32x4_extract_lane(v_next_lp_b,0);
+  q->grand_bridge_lp[1]=wasm_f32x4_extract_lane(v_next_lp_b,1);
+  q->grand_bridge_lp[2]=wasm_f32x4_extract_lane(v_next_lp_b,2);
+  q->grand_disp_b[0]=wasm_f32x4_extract_lane(v_next_disp_b,0);
+  q->grand_disp_b[1]=wasm_f32x4_extract_lane(v_next_disp_b,1);
+  q->grand_disp_b[2]=wasm_f32x4_extract_lane(v_next_disp_b,2);
+#else
+  for(int st=0;st<count;st++){
+    float reflected=v_bridge-at_b[st];
+    q->grand_bridge_lp[st]+=ab*(reflected-q->grand_bridge_lp[st]);
+    float filtered=lerpf(reflected,q->grand_bridge_lp[st],hf_b)*loss_b;
+    ret_b[st]=grand_allpass(filtered,disp,&q->grand_disp_b[st]);
+  }
+#endif
+
+  /* F-G. Write only after both junctions have resolved all active strings. */
+  for(int st=0;st<count;st++){
+    int ap=q->grand_a_pos[st],al=q->grand_a_len[st],bp=q->grand_b_pos[st],bl=q->grand_b_len[st];
+    g_grand_h2a[st][vi][ap]=out_a[st];g_grand_a2h[st][vi][ap]=ret_a[st];
+    g_grand_h2b[st][vi][bp]=out_b[st];g_grand_b2h[st][vi][bp]=ret_b[st];
     ap++;if(ap>=al)ap=0;bp++;if(bp>=bl)bp=0;
     q->grand_a_pos[st]=ap;q->grand_b_pos[st]=bp;
-
-    float junction=(in_a+in_b)*.5f;
-    float bridge_force=at_b-ret_b;
-    string_sum+=junction;
-    bridge_sum+=bridge_force;
   }
-  float inv=1.0f/(count>0?(float)count:1.0f);
-  *bridge_out=bridge_sum*inv;
-  return string_sum*inv;
+  *bridge_out=bridge_force;*transverse_out=transverse;
+  return transverse;
 }
 
 static void init_voice(Voice* q,int note_id,float pitch,float velocity){
   float old=q->glide_pitch;
   q->active=1;q->id=note_id;q->base_pitch=pitch;q->pitch=pitch;
+  g_active_voice_mask|=1u<<(unsigned int)voice_index(q);
   q->velocity=clampf(velocity,0.0f,1.0f);
   /* Continuous-excitation instruments need a sensible MIDI-note baseline even
      when no MPE pressure event is sent. A later pressure expression can still
@@ -736,6 +907,9 @@ static void init_voice(Voice* q,int note_id,float pitch,float velocity){
   if(g_params[39]>0.0001f && old>0.0f)q->glide_pitch=old;else q->glide_pitch=pitch;
   if(g_params[52]>=0.5f || q->amp_env<0.0001f){q->amp_env=0.0f;q->filt_env=0.0f;q->amp_stage=0;q->filt_stage=0;}
   q->amp_release_start=q->filt_release_start=0.0f;q->lp1=q->lp2=0.0f;q->res1=q->res2=0.0f;q->physical_prev=q->physical_aux=0.0f;
+  q->grand_hammer_velocity=q->grand_hammer_compression=q->grand_hammer_force=q->grand_hammer_force_prev=0.0f;q->grand_hammer_contact=0;
+  q->grand_long_ac_lp=0.0f;
+  for(int m=0;m<GRAND_LONG_MODES;m++)q->grand_long_ic1[m]=q->grand_long_ic2[m]=q->grand_long_g[m]=q->grand_long_a1[m]=q->grand_long_gain[m]=0.0f;
   q->steal_tail_l=q->steal_tail_r=q->steal_fade=q->last_out_l=q->last_out_r=0.0f;q->age=0.0f;
   q->svf_ic1_l=q->svf_ic2_l=q->svf_ic1_r=q->svf_ic2_r=0.0f;
   q->modal1_ic1=q->modal1_ic2=q->modal2_ic1=q->modal2_ic2=0.0f;
@@ -754,7 +928,13 @@ static void init_voice(Voice* q,int note_id,float pitch,float velocity){
   }
   q->phase_sub=wrap01(rnd()*0.5f*randamt);
   prepare_waveguide(q,pitch,q->velocity);
-  if(engine==9)prepare_grand_strings(q,pitch);
+  if(engine==9){
+    float hard=g_params[P_PIANO_HAMMER_HARDNESS];
+    q->grand_hammer_velocity=(.42f+1.05f*q->velocity)*(.78f+.42f*hard);
+    q->grand_hammer_contact=1;
+    prepare_grand_strings(q,pitch);
+    grand_prepare_longitudinal(q,pitch);
+  }
 }
 
 static int effective_voice_limit(void){
@@ -778,6 +958,13 @@ static void retarget_voice(Voice* q,int note_id,float pitch,float velocity,int r
      deliberately re-prepared if a user chooses legato for those families. */
   int engine=clampi((int)(g_params[P_ENGINE]+0.5f),0,9);
   if(engine==1)prepare_waveguide(q,pitch,q->velocity);
+  else if(engine==9){
+    float hard=g_params[P_PIANO_HAMMER_HARDNESS];
+    q->grand_hammer_velocity=(.42f+1.05f*q->velocity)*(.78f+.42f*hard);
+    q->grand_hammer_compression=q->grand_hammer_force=q->grand_hammer_force_prev=0.0f;
+    q->grand_hammer_contact=1;q->grand_long_ac_lp=0.0f;
+    prepare_grand_strings(q,pitch);grand_prepare_longitudinal(q,pitch);
+  }
   if(engine==9)prepare_grand_strings(q,pitch);
 }
 
@@ -1130,7 +1317,7 @@ static ModState modulation_matrix(Voice* q,float lfo1,float lfo2){
 static void render_voice_step(Voice* q,float lfo1,float lfo2,float rate,float* l,float* r){
   q->amp_env=advance_env(q->amp_env,&q->amp_stage,g_params[15],g_params[16],g_params[17],g_params[18],q->amp_release_start,rate);
   q->filt_env=advance_env(q->filt_env,&q->filt_stage,g_params[24],g_params[25],g_params[26],g_params[27],q->filt_release_start,rate);
-  if(q->amp_stage==3 && q->amp_env<=0.00002f){q->active=0;return;}
+  if(q->amp_stage==3 && q->amp_env<=0.00002f){q->active=0;g_active_voice_mask&=~(1u<<(unsigned int)voice_index(q));g_grand_symp_mask_dirty=1;return;}
 
   /* Note-expression points arrive as sample-accurate events.  Treating volume,
      pan, pressure or timbre as hard steps creates an audible discontinuity in
@@ -1286,75 +1473,42 @@ static void render_voice_step(Voice* q,float lfo1,float lfo2,float rate,float* l
       m=(strings+(b1*.30f+b2*.15f)*sbm)*3.45f;
       side=(key-.5f)*g_params[P_PIANO_STEREO_WIDTH];
     }else if(engine==9){
-      /* Grand Piano v9: nonlinear felt hammer coupled at a physical strike
-         junction to four one-way traveling-wave segments per unison string. */
-      float key=clampf((q->glide_pitch-21.0f)/87.0f,0.0f,1.0f),vel=clampf(q->velocity,0.0f,1.0f);
-      float bass_hammer=clampf((48.0f-q->glide_pitch)/12.0f,0.0f,1.0f);
-      float hard=clampf(g_params[P_PIANO_HAMMER_HARDNESS]*.52f+vel*.48f+bass_hammer*.18f*(.30f+.70f*vel),0.0f,1.0f);
-      float one_minus_h=1.0f-hard;
-      float contact_len=.00200f+.0125f*one_minus_h*one_minus_h*one_minus_h,t=q->age/contact_len;
-      /* Hammer trajectory is velocity-like and returns to zero, avoiding a DC
-         displacement step while retaining a finite physical contact window. */
-      float hammer_path=t<1.0f?fast_sine(t*.5f):0.0f;
-      float string_x=grand_string_contact(q);
-      float string_v=(string_x-q->physical_prev)*rate;q->physical_prev=string_x;
-      float contact_fb=lerpf(.86f,.46f,key);
-      float compression=hammer_path-contact_fb*(string_x*(2.8f+2.6f*hard)+string_v*(.00022f+.00018f*hard));
-      if(compression<0.0f)compression=0.0f;if(compression>1.15f)compression=1.15f;
-      /* Hunt-Crossley-like felt law: stiffness and damping increase with
-         compression, so velocity changes both level and spectrum. */
-      float felt_force=compression*compression*(.34f+.66f*compression)*(1.0f+1.65f*hard);
-      float white=rnd();q->physical_aux+=(.024f+.19f*hard)*(white-q->physical_aux);
-      float vel2=vel*vel,vel3=vel2*vel,vel5=vel3*vel2;
-      float vel_noise=.03f*vel+.97f*vel5;
-      float mid_vel=clampf(1.0f-absf(vel-.55f)/.35f,0.0f,1.0f);
-      vel_noise += bass_hammer*.30f*mid_vel*mid_vel*mid_vel;
-      float bass_noise=1.0f+bass_hammer*(2.2f+3.0f*mid_vel);
-      float felt_noise=(white-q->physical_aux)*g_params[P_PIANO_HAMMER_NOISE]*hard*(.004f+.030f*hard)*compression*(.10f+.90f*vel_noise)*bass_noise;
-      /* Keep the softest SFZ layers audible across the short upper-string
-         round trips while retaining a monotonic velocity response. */
-      float vcurve=.72f+.28f*vel;
-      float micro_gate=t<.40f?(1.0f-t/.40f):0.0f;
-      float micro_hp=white-q->physical_aux;
-      q->res2+=.18f*(micro_hp-q->res2);
-      /* Contact noise follows hammer travel so it cannot excite the string before the strike. */
-      float micro=q->res2*g_params[P_PIANO_HAMMER_NOISE]*hard*vel_noise*micro_gate*clampf(hammer_path,0.0f,1.0f)*25.0f*bass_noise;
-      float force=(felt_force+felt_noise+micro)*(.075f+.925f*vcurve);
-      float bridge=0.0f,string=grand_strings_step(q,force,rate,&bridge);
-
-      /* Route the physically observed bridge force to three spatial soundboard
-         zones.  Direct string radiation is deliberately small: the acoustic
-         piano is heard predominantly through the bridge and soundboard. */
+      /* Grand V9: a stateful hammer/felt collision excites transverse waves;
+         measured bridge force and low-register longitudinal motion feed the
+         fitted three-zone radiation transfer. */
+      float key=clampf((q->glide_pitch-21.0f)/87.0f,0.0f,1.0f);
       float wb,wm,wt;grand_zone_weights(key,&wb,&wm,&wt);
-      float voice_amp=(.32f+.68f*vel)*q->expr_volume*q->amp_env*g_params[1];
-      float high_register=clampf((q->glide_pitch-60.0f)/36.0f,0.0f,1.0f);
-      float board_gain=voice_amp*(.42f+.34f*g_params[P_PIANO_SYMPATHETIC])*
-        lerpf(1.0f,2.2f,key)*lerpf(1.0f,4.0f,high_register);
-      /* A microphone hears soundboard velocity, while the string/bridge junction
-         state is closer to displacement/force.  A bounded first difference is
-         therefore part of the physical bridge-radiation transfer; it restores
-         the upper partials without adding a post-synthesis EQ. */
+      float white=rnd(),bridge=0.0f,transverse=0.0f;
+      (void)grand_strings_step(q,rate,white,&bridge,&transverse);
+      float low_region=clampf((57.0f-q->glide_pitch)/12.0f,0.0f,1.0f);
+      low_region=low_region*low_region*(3.0f-2.0f*low_region);
+      float energy=transverse*transverse;
+      q->grand_long_ac_lp+=.004f*(energy-q->grand_long_ac_lp);
+      float ac_energy=energy-q->grand_long_ac_lp,longitudinal=0.0f;
+      if(low_region>0.0f){
+        for(int mode=0;mode<GRAND_LONG_MODES;mode++){
+          float g=q->grand_long_g[mode],a1=q->grand_long_a1[mode];
+          float v3=ac_energy-q->grand_long_ic2[mode];
+          float v1=(q->grand_long_ic1[mode]+g*v3)*a1;
+          float v2=q->grand_long_ic2[mode]+g*v1;
+          q->grand_long_ic1[mode]=2.0f*v1-q->grand_long_ic1[mode];
+          q->grand_long_ic2[mode]=2.0f*v2-q->grand_long_ic2[mode];
+          longitudinal+=v1*q->grand_long_gain[mode];
+        }
+        longitudinal*=low_region;
+      }
+      float voice_amp=q->expr_volume*q->amp_env*g_params[1];
       float bridge_delta=bridge-q->grand_bridge_radiation_prev;
       q->grand_bridge_radiation_prev=bridge;
+      float vel2=q->velocity*q->velocity,vel3=vel2*q->velocity;
       float bridge_diff_gain=(5.0f-2.0f*key)+2.0f*vel2-3.0f*key*vel3;
       float bridge_radiated=bridge+bridge_delta*bridge_diff_gain;
-      g_grand_board_drive[0]+=bridge_radiated*board_gain*wb;
-      g_grand_board_drive[1]+=bridge_radiated*board_gain*wm;
-      g_grand_board_drive[2]+=bridge_radiated*board_gain*wt;
-      float impact=(t<1.0f?(white-q->physical_aux)*compression:0.0f)*(.006f+.030f*hard)*hard*vel_noise*1.8f*bass_noise;
-      /* The bare string radiates very inefficiently into air, especially in the
-         wound-bass register.  Let the bridge/soundboard carry the low register
-         instead of exposing displacement as a strong direct "buzzy" tone. */
-      /* Bare-string air radiation is extremely inefficient in the wound-bass
-         register.  The previous floor still exposed a near-periodic string
-         displacement directly and produced an audible sustained "buzz" under
-         pedalled chords.  Fade that path in only above the low register and
-         leave bass radiation to the bridge/soundboard. */
-      float key_air=clampf((key-.16f)/.55f,0.0f,1.0f);
-      float bass_air=clampf((48.0f-q->glide_pitch)/15.0f,0.0f,1.0f);
-      float direct_string=lerpf(.001f+.020f*key_air*key_air,.004f+.020f*key_air*key_air,bass_air);
-      float direct_bridge=lerpf(.003f+.018f*key_air,.012f+.015f*key_air,bass_air);
-      m=(string*direct_string+bridge*direct_bridge+impact)*2.75f;
+      float bridge_drive=(bridge_radiated+longitudinal)*voice_amp;
+      g_grand_board_drive[0]+=bridge_drive*wb;
+      g_grand_board_drive[1]+=bridge_drive*wm;
+      g_grand_board_drive[2]+=bridge_drive*wt;
+      float contact_transient=q->grand_hammer_force*(white-q->physical_aux)*g_params[P_PIANO_HAMMER_NOISE]*.002f;
+      m=(transverse*.010f+bridge*.004f+contact_transient+longitudinal*.002f);
       side=(key-.5f)*g_params[P_PIANO_STEREO_WIDTH]*.52f;
     }else if(engine==3){
       float vel=q->velocity,hard=g_params[P_TINE_HAMMER_HARDNESS],alen=lerpf(.0075f,.0016f,hard),a=q->age<alen?(1.0f-q->age/alen):0.0f;
@@ -1427,74 +1581,252 @@ static void render_voice_step(Voice* q,float lfo1,float lfo2,float rate,float* l
   q->age += 1.0f/rate;
 }
 
+static float grand_fit_interpolate(float pitch,const float* values,int count){
+  if(pitch<=GRAND_FIT_PITCHES[0])return values[0];
+  for(int i=0;i<count-1;i++)if(pitch<=GRAND_FIT_PITCHES[i+1]){
+    float t=(pitch-GRAND_FIT_PITCHES[i])/(GRAND_FIT_PITCHES[i+1]-GRAND_FIT_PITCHES[i]);
+    return lerpf(values[i],values[i+1],t);
+  }
+  return values[count-1];
+}
+
+#if SORAOTO_GRAND_SIMD
+static float grand_hsum_f32x4(v128_t v){
+  return wasm_f32x4_extract_lane(v,0)+wasm_f32x4_extract_lane(v,1)+
+         wasm_f32x4_extract_lane(v,2)+wasm_f32x4_extract_lane(v,3);
+}
+
+static v128_t grand_resonator4_tick(v128_t x,v128_t g,v128_t a1,float* ic1,float* ic2){
+  v128_t s1=wasm_v128_load(ic1),s2=wasm_v128_load(ic2);
+  v128_t v3=wasm_f32x4_sub(x,s2),v1=wasm_f32x4_mul(wasm_f32x4_add(s1,wasm_f32x4_mul(g,v3)),a1);
+  v128_t v2=wasm_f32x4_add(s2,wasm_f32x4_mul(g,v1));
+  wasm_v128_store(ic1,wasm_f32x4_sub(wasm_f32x4_mul(wasm_f32x4_splat(2.0f),v1),s1));
+  wasm_v128_store(ic2,wasm_f32x4_sub(wasm_f32x4_mul(wasm_f32x4_splat(2.0f),v2),s2));
+  return v1;
+}
+#endif
+
+static void grand_update_board_cache(float rate){
+  float size_scale=.88f+.24f*clampf(g_params[P_PIANO_SOUNDBOARD_SIZE],0.0f,1.0f);
+  for(int i=0;i<GRAND_SB_MODES;i++){
+    float hz=clampf(GRAND_FIT_BOARD_FREQ_HZ[i]*size_scale,20.0f,rate*.43f);
+    float g=resonator_g(hz/rate),k=1.0f/clampf(GRAND_FIT_BOARD_Q[i],.55f,2400.0f);
+    g_grand_sb_g[i]=g;g_grand_sb_a1[i]=1.0f/(1.0f+g*(g+k));
+  }
+  g_grand_sb_cache_rate=(int)rate;g_grand_sb_cache_dirty=0;
+}
+
+static void grand_update_symp_cache(float rate){
+  for(int mode=0;mode<GRAND_SYMP_MODES_PER_KEY;mode++)for(int key=0;key<GRAND_SYMP_KEYS;key++){
+    int group=mode*(GRAND_SYMP_KEYS/GRAND_SIMD_LANES)+key/GRAND_SIMD_LANES;
+    int lane=key%GRAND_SIMD_LANES,midi=key+21;
+    float f0=440.0f*fast_exp2(((float)midi-69.0f)/12.0f);
+    float b=grand_fit_interpolate((float)midi,GRAND_FIT_STRING_INHARMONICITY_B,GRAND_FIT_PITCH_COUNT);
+    float ratio=mode==0?1.0f:2.0f*(1.0f+1.5f*b);
+    float hz=clampf(f0*ratio,20.0f,rate*.43f);
+    float gu=resonator_g(hz/rate),ku=1.0f/clampf(GRAND_FIT_SYMP_Q_UNDAMPED[mode],.55f,2400.0f);
+    float gd=resonator_g(hz/rate),kd=1.0f/clampf(GRAND_FIT_SYMP_Q_DAMPED[mode],.55f,2400.0f);
+    GrandSympGroup* g=&g_grand_symp_groups[group];
+    g->g[lane]=gu;g->a1[lane]=1.0f/(1.0f+gu*(gu+ku));
+    g->g_damped[lane]=gd;g->a1_damped[lane]=1.0f/(1.0f+gd*(gd+kd));
+    g->gain[lane]=GRAND_FIT_SYMP_GAIN[mode];
+    g->gain_damped[lane]=GRAND_FIT_SYMP_GAIN[mode]*GRAND_FIT_SYMP_DAMPED_GAIN[mode];
+    float zone=(float)midi;
+    grand_zone_weights(clampf((zone-21.0f)/87.0f,0.0f,1.0f),&g->zone_b[lane],&g->zone_m[lane],&g->zone_t[lane]);
+  }
+  g_grand_symp_cache_rate=(int)rate;g_grand_symp_cache_dirty=0;g_grand_symp_mask_dirty=1;
+}
+
+static void grand_prepare_longitudinal(Voice* q,float pitch){
+  int lo=0;
+  while(lo<GRAND_FIT_LONG_PITCH_COUNT-1 && pitch>GRAND_FIT_LONG_PITCH[lo+1])lo++;
+  int hi=lo<GRAND_FIT_LONG_PITCH_COUNT-1?lo+1:lo;
+  float t=hi==lo?0.0f:clampf((pitch-GRAND_FIT_LONG_PITCH[lo])/(GRAND_FIT_LONG_PITCH[hi]-GRAND_FIT_LONG_PITCH[lo]),0.0f,1.0f);
+  for(int mode=0;mode<GRAND_LONG_MODES;mode++){
+    float hz=lerpf(GRAND_FIT_LONG_FREQ_HZ[lo][mode],GRAND_FIT_LONG_FREQ_HZ[hi][mode],t);
+    float qv=lerpf(GRAND_FIT_LONG_Q[lo][mode],GRAND_FIT_LONG_Q[hi][mode],t);
+    q->grand_long_g[mode]=resonator_g(clampf(hz,20.0f,(float)g_sr*.43f)/(float)g_sr);
+    float k=1.0f/clampf(qv,.55f,2400.0f);
+    q->grand_long_a1[mode]=1.0f/(1.0f+q->grand_long_g[mode]*(q->grand_long_g[mode]+k));
+    q->grand_long_gain[mode]=lerpf(GRAND_FIT_LONG_GAIN[lo][mode],GRAND_FIT_LONG_GAIN[hi][mode],t);
+  }
+}
+
+static int grand_key_is_undamped(int midi){
+  if(g_params[P_SUSTAIN_PEDAL]>=.5f)return 1;
+  for(int i=0;i<MAX_VOICES;i++){
+    if(g_held[i].down && (int)(g_held[i].pitch+.5f)==midi)return 1;
+    Voice* q=&g_voices[i];
+    if(q->active && (q->key_down||q->sostenuto_latched) && (int)(q->base_pitch+.5f)==midi)return 1;
+  }
+  return 0;
+}
+
+static void grand_update_symp_mask(void){
+  for(int group=0;group<GRAND_SYMP_GROUPS;group++){
+    int mode=group/(GRAND_SYMP_KEYS/GRAND_SIMD_LANES),base=(group%(GRAND_SYMP_KEYS/GRAND_SIMD_LANES))*GRAND_SIMD_LANES;
+    (void)mode;GrandSympGroup* s=&g_grand_symp_groups[group];
+    unsigned int old_active=s->active_lanes,new_active=0;
+    for(int lane=0;lane<GRAND_SIMD_LANES;lane++){
+      int undamped=grand_key_is_undamped(21+base+lane);
+      float mask=undamped?1.0f:0.0f;
+      s->undamped[lane]=mask;
+      s->g_active[lane]=s->g_damped[lane]+mask*(s->g[lane]-s->g_damped[lane]);
+      s->a1_active[lane]=s->a1_damped[lane]+mask*(s->a1[lane]-s->a1_damped[lane]);
+      s->gain_active[lane]=s->gain_damped[lane]+mask*(s->gain[lane]-s->gain_damped[lane]);
+      new_active+=(unsigned int)undamped;
+    }
+    if(old_active && !new_active){
+      s->state_energy=0.0f;
+      for(int lane=0;lane<GRAND_SIMD_LANES;lane++)s->state_energy+=s->ic1[lane]*s->ic1[lane]+s->ic2[lane]*s->ic2[lane];
+    }
+    s->active_lanes=new_active;
+  }
+  g_grand_symp_mask_dirty=0;
+}
+
+static void grand_sympathetic_step(const float drive[3],float rate){
+  for(int z=0;z<3;z++)g_grand_symp_return_next[z]=0.0f;
+  if(g_params[P_PIANO_SYMPATHETIC]<=0.0f){
+    if(g_grand_symp_clear_pending){grand_clear_sympathetic_state();g_grand_symp_clear_pending=0;}
+    g_grand_symp_was_enabled=0;return;
+  }
+  if(!g_grand_symp_was_enabled){g_grand_symp_was_enabled=1;g_grand_symp_mask_dirty=1;}
+  if(g_grand_symp_cache_dirty || g_grand_symp_cache_rate!=(int)rate)grand_update_symp_cache(rate);
+  if(g_grand_symp_mask_dirty)grand_update_symp_mask();
+  float sy=g_params[P_PIANO_SYMPATHETIC];
+  for(int group=0;group<GRAND_SYMP_GROUPS;group++){
+    GrandSympGroup* s=&g_grand_symp_groups[group];
+    if(!s->active_lanes && s->state_energy<1e-8f)continue;
+    int startLane=(group%(GRAND_SYMP_KEYS/GRAND_SIMD_LANES))*GRAND_SIMD_LANES;
+    int mode=group/(GRAND_SYMP_KEYS/GRAND_SIMD_LANES);
+    (void)startLane;(void)mode;
+    float returnB=0.0f,returnM=0.0f,returnT=0.0f;
+#if SORAOTO_GRAND_SIMD
+    v128_t g=wasm_v128_load(s->g_active),a1=wasm_v128_load(s->a1_active),gain=wasm_v128_load(s->gain_active);
+    v128_t x=wasm_f32x4_add(wasm_f32x4_add(wasm_f32x4_mul(wasm_v128_load(s->zone_b),wasm_f32x4_splat(drive[0])),wasm_f32x4_mul(wasm_v128_load(s->zone_m),wasm_f32x4_splat(drive[1]))),wasm_f32x4_mul(wasm_v128_load(s->zone_t),wasm_f32x4_splat(drive[2])));
+    x=wasm_f32x4_mul(x,wasm_f32x4_splat(GRAND_FIT_SYMP_EXCITATION_GAIN));
+    v128_t v1=grand_resonator4_tick(x,g,a1,s->ic1,s->ic2);
+    v128_t ret=wasm_f32x4_mul(v1,gain);
+    returnB=grand_hsum_f32x4(wasm_f32x4_mul(ret,wasm_v128_load(s->zone_b)))*sy;
+    returnM=grand_hsum_f32x4(wasm_f32x4_mul(ret,wasm_v128_load(s->zone_m)))*sy;
+    returnT=grand_hsum_f32x4(wasm_f32x4_mul(ret,wasm_v128_load(s->zone_t)))*sy;
+    if(s->active_lanes)s->state_energy=1.0f;
+    else{
+      v128_t next1=wasm_v128_load(s->ic1),next2=wasm_v128_load(s->ic2);
+      s->state_energy=grand_hsum_f32x4(wasm_f32x4_add(wasm_f32x4_mul(next1,next1),wasm_f32x4_mul(next2,next2)));
+    }
+#else
+    s->state_energy=0.0f;
+    for(int lane=0;lane<GRAND_SIMD_LANES;lane++){
+      float m=s->undamped[lane],g=s->g_damped[lane]+m*(s->g[lane]-s->g_damped[lane]);
+      float a1=s->a1_damped[lane]+m*(s->a1[lane]-s->a1_damped[lane]);
+      float gain=s->gain_damped[lane]+m*(s->gain[lane]-s->gain_damped[lane]);
+      float x=(drive[0]*s->zone_b[lane]+drive[1]*s->zone_m[lane]+drive[2]*s->zone_t[lane])*GRAND_FIT_SYMP_EXCITATION_GAIN;
+      float v3=x-s->ic2[lane],v1=(s->ic1[lane]+g*v3)*a1,v2=s->ic2[lane]+g*v1;
+      s->ic1[lane]=2.0f*v1-s->ic1[lane];s->ic2[lane]=2.0f*v2-s->ic2[lane];
+      float ret=v1*gain;returnB+=ret*s->zone_b[lane]*sy;returnM+=ret*s->zone_m[lane]*sy;returnT+=ret*s->zone_t[lane]*sy;
+      s->state_energy+=s->ic1[lane]*s->ic1[lane]+s->ic2[lane]*s->ic2[lane];
+    }
+#endif
+    g_grand_symp_return_next[0]+=returnB*GRAND_FIT_SYMP_RETURN_GAIN;
+    g_grand_symp_return_next[1]+=returnM*GRAND_FIT_SYMP_RETURN_GAIN;
+    g_grand_symp_return_next[2]+=returnT*GRAND_FIT_SYMP_RETURN_GAIN;
+  }
+}
+
 static void grand_soundboard_step(float rate,float* l,float* r){
-  float sb=g_params[P_PIANO_SOUNDBOARD_SIZE],mix=g_params[P_PIANO_SOUNDBOARD_MIX];
+  float mix=g_params[P_PIANO_SOUNDBOARD_MIX];
   float in[3]={g_grand_board_drive[0],g_grand_board_drive[1],g_grand_board_drive[2]};
   for(int z=0;z<3;z++)g_grand_board_drive[z]=0.0f;
-  /* Irregular, overlapping soundboard modes.  Their low Q and spatially varying
-     bridge-zone participation approximate a distributed plate rather than six
-     obvious tuned resonators. */
-  const float basef[GRAND_SB_MODES]={
-    54.0f,72.0f,96.0f,127.0f,166.0f,216.0f,279.0f,358.0f,
-    455.0f,573.0f,716.0f,888.0f,1092.0f,1334.0f,1618.0f,1950.0f,
-    2330.0f,2765.0f,3260.0f,3815.0f,4440.0f,5135.0f,5905.0f,6750.0f};
-  /* Real-studio calibration showed a shallow 455-1334 Hz radiation deficit in
-     the tenor bridge zone.  Keep only a modest ~8% plate-mobility lift here;
-     larger boosts overfit the reference mic and regress the C4 harmonic guard. */
-  const float weight[GRAND_SB_MODES]={
-    .055f,.070f,.092f,.128f,.168f,.205f,.225f,.225f,.2268f,.1998f,.17496f,.15228f,
-    .13068f,.11016f,.084f,.068f,.145f,.118f,.092f,.068f,.014f,.010f,.007f,.005f};
-  float zone_fb[3]={0.0f,0.0f,0.0f},sl=0.0f,sr=0.0f;
-  float zone_energy=absf(in[0])+absf(in[1])+absf(in[2])+1e-9f;
-  float zone_pan=clampf((absf(in[2])-absf(in[0]))/zone_energy,-1.0f,1.0f);
-  float bass_share=absf(in[0])/zone_energy;
-  float bass_focus=clampf((bass_share-.42f)/.38f,0.0f,1.0f);
-  float size_scale=.88f+.24f*sb;
+  float drive_energy=absf(in[0])+absf(in[1])+absf(in[2]);
+  if(drive_energy>1e-12f){
+    float target_pan=(absf(in[0])*GRAND_FIT_BOARD_ZONE_PAN[0]+absf(in[1])*GRAND_FIT_BOARD_ZONE_PAN[1]+absf(in[2])*GRAND_FIT_BOARD_ZONE_PAN[2])/drive_energy;
+    float pan_k=clampf(240.0f/rate,.001f,.01f);
+    g_grand_board_excitation_pan+=pan_k*(target_pan-g_grand_board_excitation_pan);
+  }
+  if(g_grand_sb_cache_dirty||g_grand_sb_cache_rate!=(int)rate)grand_update_board_cache(rate);
+  float sl=0.0f,sr=0.0f,zone_fb[3]={0.0f,0.0f,0.0f};
+#if SORAOTO_GRAND_SIMD
+  v128_t sum_l=wasm_f32x4_splat(0.0f),sum_r=wasm_f32x4_splat(0.0f);
+  v128_t feedback_b=wasm_f32x4_splat(0.0f),feedback_m=wasm_f32x4_splat(0.0f),feedback_t=wasm_f32x4_splat(0.0f);
+  v128_t one=wasm_f32x4_splat(1.0f),half=wasm_f32x4_splat(0.5f);
+  for(int group=0;group<GRAND_SB_GROUPS;group++){
+    int i=group*GRAND_SIMD_LANES;
+    v128_t drive=wasm_f32x4_add(wasm_f32x4_add(wasm_f32x4_mul(wasm_v128_load(&GRAND_FIT_BOARD_ZONE_B[i]),wasm_f32x4_splat(in[0])),wasm_f32x4_mul(wasm_v128_load(&GRAND_FIT_BOARD_ZONE_M[i]),wasm_f32x4_splat(in[1]))),wasm_f32x4_mul(wasm_v128_load(&GRAND_FIT_BOARD_ZONE_T[i]),wasm_f32x4_splat(in[2])));
+    v128_t g=wasm_v128_load(&g_grand_sb_g[i]),a1=wasm_v128_load(&g_grand_sb_a1[i]);
+    v128_t v1=grand_resonator4_tick(drive,g,a1,&g_grand_sb_ic1[i],&g_grand_sb_ic2[i]);
+    v128_t weighted=wasm_f32x4_mul(v1,wasm_v128_load(&GRAND_FIT_BOARD_GAIN[i]));
+    v128_t pan=wasm_f32x4_mul(wasm_v128_load(&GRAND_FIT_BOARD_PAN[i]),wasm_f32x4_splat(g_params[P_PIANO_STEREO_WIDTH]));
+    sum_l=wasm_f32x4_add(sum_l,wasm_f32x4_mul(weighted,wasm_f32x4_mul(half,wasm_f32x4_sub(one,pan))));
+    sum_r=wasm_f32x4_add(sum_r,wasm_f32x4_mul(weighted,wasm_f32x4_mul(half,wasm_f32x4_add(one,pan))));
+    feedback_b=wasm_f32x4_add(feedback_b,wasm_f32x4_mul(v1,wasm_v128_load(&GRAND_FIT_BOARD_FEEDBACK_B[i])));
+    feedback_m=wasm_f32x4_add(feedback_m,wasm_f32x4_mul(v1,wasm_v128_load(&GRAND_FIT_BOARD_FEEDBACK_M[i])));
+    feedback_t=wasm_f32x4_add(feedback_t,wasm_f32x4_mul(v1,wasm_v128_load(&GRAND_FIT_BOARD_FEEDBACK_T[i])));
+  }
+  sl=grand_hsum_f32x4(sum_l);sr=grand_hsum_f32x4(sum_r);
+  zone_fb[0]=grand_hsum_f32x4(feedback_b);zone_fb[1]=grand_hsum_f32x4(feedback_m);zone_fb[2]=grand_hsum_f32x4(feedback_t);
+#else
   for(int i=0;i<GRAND_SB_MODES;i++){
-    float t=(float)i/(float)(GRAND_SB_MODES-1);
-    float mode_hz=basef[i]*size_scale;
-    float br=mode_hz/420.0f,br2=br*br;
-    float bass_lp=1.0f/(1.0f+br2*br2);
-    /* Apply the steep bass transfer only when the bass bridge actually dominates.
-       This keeps C4/tenor calibration unchanged while preventing F1/A1 from
-       exciting the full fixed modal bank. */
-    float cb_old=clampf(1.18f-1.12f*t,0.08f,1.10f);
-    float cb_bass=clampf((.18f-.04f*t)*bass_lp,0.0008f,.18f);
-    float cb=lerpf(cb_old,cb_bass,bass_focus);
-    float ct=clampf(.10f+1.08f*t,0.10f,1.12f);
-    float cm=.38f+.68f*(1.0f-absf(t-.5f)*2.0f);
-    float drive=in[0]*cb+in[1]*cm+in[2]*ct;
-    /* A real soundboard is a poor acoustic radiator at the very lowest
-       structural modes.  Keep those modes for mechanical coupling, but do not
-       let them dominate the microphone signal as quasi-sine drones. */
-    float low_rad=.18f+.82f*clampf((basef[i]-72.0f)/210.0f,0.0f,1.0f);
-    float q=2.10f+sb*2.15f+t*1.25f;
-    float y=resonator_step(drive,mode_hz,q,rate,&g_grand_sb_ic1[i],&g_grand_sb_ic2[i]);
-    float w=weight[i];
-    float pan=zone_pan*.62f+(t-.5f)*.32f+((i&1)?-.09f:.09f);
-    sl+=y*w*low_rad*(1.0f-pan*.52f);sr+=y*w*low_rad*(1.0f+pan*.52f);
-    float mech_fb=lerpf(.42f,1.0f,low_rad);
-    zone_fb[0]+=y*w*cb*mech_fb;zone_fb[1]+=y*w*cm*mech_fb;zone_fb[2]+=y*w*ct*mech_fb;
+    float drive=in[0]*GRAND_FIT_BOARD_ZONE_B[i]+in[1]*GRAND_FIT_BOARD_ZONE_M[i]+in[2]*GRAND_FIT_BOARD_ZONE_T[i];
+    float ic1=g_grand_sb_ic1[i],ic2=g_grand_sb_ic2[i],g=g_grand_sb_g[i],a1=g_grand_sb_a1[i];
+    float v3=drive-ic2,v1=(ic1+g*v3)*a1,v2=ic2+g*v1;
+    g_grand_sb_ic1[i]=2.0f*v1-ic1;g_grand_sb_ic2[i]=2.0f*v2-ic2;
+    float weighted=v1*GRAND_FIT_BOARD_GAIN[i],pan=GRAND_FIT_BOARD_PAN[i]*g_params[P_PIANO_STEREO_WIDTH];
+    sl+=weighted*.5f*(1.0f-pan);sr+=weighted*.5f*(1.0f+pan);
+    zone_fb[0]+=v1*GRAND_FIT_BOARD_FEEDBACK_B[i];zone_fb[1]+=v1*GRAND_FIT_BOARD_FEEDBACK_M[i];zone_fb[2]+=v1*GRAND_FIT_BOARD_FEEDBACK_T[i];
   }
-  /* Broadband plate motion prevents the modal bank from sounding like a set of
-     bells and preserves the short wooden/bridge transient. */
-  float broad_l=0.0f,broad_r=0.0f;
-  const float zp[3]={-.72f,0.0f,.72f};
+#endif
+  float mode_center=(sl+sr)*.5f;
+  float mode_pan=clampf((sr-sl)/(absf(sl)+absf(sr)+1e-12f),-.8f,.8f);
+  float spatial_pan=clampf(.10f*mode_pan+.90f*g_grand_board_excitation_pan,-.8f,.8f);
+  sl=mode_center*(1.0f-spatial_pan);sr=mode_center*(1.0f+spatial_pan);
+  float residual_l=0.0f,residual_r=0.0f;
   for(int z=0;z<3;z++){
-    float bass_a=.010f+.018f*sb,normal_a=.020f+.055f*sb;
-    float a=z==0?lerpf(normal_a,bass_a,bass_focus):normal_a;
-    g_grand_board_broad[z]+=a*(in[z]-g_grand_board_broad[z]);
-    float hp=z==0?lerpf(.12f,.008f,bass_focus):(z==1?.070f:.12f);
-    float lp_gain=z==0?lerpf(.46f,1.00f,bass_focus):.46f;
-    float broad=g_grand_board_broad[z]*lp_gain+(in[z]-g_grand_board_broad[z])*hp;
-    float broad_gain=z==0?lerpf(1.0f,2.30f,bass_focus):1.0f;
-    broad_l+=broad*broad_gain*(1.0f-zp[z]*.48f);broad_r+=broad*broad_gain*(1.0f+zp[z]*.48f);
-    g_grand_board_feedback[z]=clampf(zone_fb[z]*(.44f+.32f*sb),-.20f,.20f);
+    g_grand_board_broad[z]+=GRAND_FIT_BOARD_RESIDUAL_ALPHA[z]*(in[z]-g_grand_board_broad[z]);
+    float residual=g_grand_board_broad[z]*GRAND_FIT_BOARD_RESIDUAL_GAIN[z];
+    float pan=GRAND_FIT_BOARD_ZONE_PAN[z]*g_params[P_PIANO_STEREO_WIDTH];
+    residual_l+=residual*.5f*(1.0f-pan);residual_r+=residual*.5f*(1.0f+pan);
+    g_grand_board_feedback[z]=clampf(zone_fb[z]*GRAND_FIT_BOARD_FEEDBACK_SCALE[z],-1.0f,1.0f);
   }
-  float wet=8.69f*mix;
-  *l+=(sl+broad_l*.24f)*wet;
-  *r+=(sr+broad_r*.24f)*wet;
+  if(mix>0.0f){
+    *l+=(sl+residual_l)*mix*GRAND_FIT_BOARD_RADIATION_SCALE;
+    *r+=(sr+residual_r)*mix*GRAND_FIT_BOARD_RADIATION_SCALE;
+  }
 }
+
+#if defined(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+float soraoto_supersynth_benchmark_soundboard(unsigned int iterations){
+  float checksum=0.0f,l=0.0f,r=0.0f,rate=(float)(g_sr>0?g_sr:48000);
+  if(g_grand_sb_cache_dirty||g_grand_sb_cache_rate!=(int)rate)grand_update_board_cache(rate);
+  for(unsigned int i=0;i<iterations;i++){
+    float phase=(float)(i&255u)*(1.0f/255.0f);
+    g_grand_board_drive[0]=0.12f+0.08f*phase;
+    g_grand_board_drive[1]=0.09f-0.04f*phase;
+    g_grand_board_drive[2]=0.03f+0.05f*phase;
+    l=0.0f;r=0.0f;
+    grand_soundboard_step(rate,&l,&r);
+    checksum+=l*0.6180339f+r*0.3819661f;
+  }
+  return checksum;
+}
+
+float soraoto_supersynth_benchmark_sympathetic(unsigned int iterations){
+  float checksum=0.0f,rate=(float)(g_sr>0?g_sr:48000);
+  float drive[3]={0.12f,0.08f,0.04f};
+  g_params[P_PIANO_SYMPATHETIC]=1.0f;g_params[P_SUSTAIN_PEDAL]=1.0f;
+  g_grand_symp_mask_dirty=1;
+  if(g_grand_symp_cache_dirty||g_grand_symp_cache_rate!=(int)rate)grand_update_symp_cache(rate);
+  if(g_grand_symp_mask_dirty)grand_update_symp_mask();
+  for(unsigned int i=0;i<iterations;i++){
+    float phase=(float)(i&255u)*(1.0f/255.0f);
+    drive[0]=0.12f+0.08f*phase;drive[1]=0.09f-0.04f*phase;drive[2]=0.03f+0.05f*phase;
+    grand_sympathetic_step(drive,rate);
+    checksum+=g_grand_symp_return_next[0]*0.5f+g_grand_symp_return_next[1]*0.3f+g_grand_symp_return_next[2]*0.2f;
+  }
+  return checksum;
+}
+#endif
 
 static float chorus_read(float* buf,float delay){
   float rp=(float)g_chorus_pos-delay;
@@ -1560,8 +1892,18 @@ void dsp_process(int frames,float* outL,float* outR){
       g_lfo2_phase=wrap01(g_lfo2_phase+g_params[35]/internal_rate);
       float l=0.0f,r=0.0f;
       for(int z=0;z<3;z++)g_grand_board_drive[z]=0.0f;
-      for(int v=0;v<MAX_VOICES;v++)if(g_voices[v].active)render_voice_step(&g_voices[v],lfo1,lfo2,internal_rate,&l,&r);
-      if(clampi((int)(g_params[P_ENGINE]+0.5f),0,9)==9)grand_soundboard_step(internal_rate,&l,&r);
+      unsigned int active_mask=g_active_voice_mask;
+      while(active_mask){
+        int v=__builtin_ctz(active_mask);
+        active_mask&=active_mask-1u;
+        if(g_voices[v].active)render_voice_step(&g_voices[v],lfo1,lfo2,internal_rate,&l,&r);
+      }
+      if(clampi((int)(g_params[P_ENGINE]+0.5f),0,9)==9){
+        for(int z=0;z<3;z++)g_grand_board_drive[z]+=g_grand_symp_return_prev[z];
+        grand_sympathetic_step(g_grand_board_drive,internal_rate);
+        grand_soundboard_step(internal_rate,&l,&r);
+        for(int z=0;z<3;z++)g_grand_symp_return_prev[z]=g_grand_symp_return_next[z];
+      }
       float sat_amt=clampf(g_params[44],0.0f,1.0f);
       if(sat_amt>0.0001f){
         float drive=1.0f+sat_amt*5.0f;
@@ -1592,8 +1934,18 @@ void dsp_process(int frames,float* outL,float* outR){
     /* Final guard is transparent in the normal -1..+1 range.  The previous
        always-on softclip introduced low-level intermodulation on dense piano
        chords even with the saturation parameter at zero. */
-    if(absf(l)>1.0f){float a=absf(l)-1.0f;l=(l<0.0f?-1.0f:1.0f)*(1.0f+a/(1.0f+3.0f*a));}
-    if(absf(r)>1.0f){float a=absf(r)-1.0f;r=(r<0.0f?-1.0f:1.0f)*(1.0f+a/(1.0f+3.0f*a));}
+    if(absf(l)>1.0f){
+#if defined(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+      g_supersynth_guard_hits++;
+#endif
+      float a=absf(l)-1.0f;l=(l<0.0f?-1.0f:1.0f)*(1.0f+a/(1.0f+3.0f*a));
+    }
+    if(absf(r)>1.0f){
+#if defined(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+      g_supersynth_guard_hits++;
+#endif
+      float a=absf(r)-1.0f;r=(r<0.0f?-1.0f:1.0f)*(1.0f+a/(1.0f+3.0f*a));
+    }
     outL[i]=clampf(l,-1.2f,1.2f);
     outR[i]=clampf(r,-1.2f,1.2f);
   }

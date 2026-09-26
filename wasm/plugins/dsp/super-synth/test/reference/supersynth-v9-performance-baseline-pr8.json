@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "benchmark": "supersynth-v9-render-cpu",
+  "sourceRevision": "28113fa0a6ee33a5366b8da8a8851d2d35d2d5ac",
+  "wasmSha256": "5db28818eae89096141c279b59076ff10080e0fc30813c522e56c973d5d22431",
+  "runtime": "v26.7.0",
+  "platform": "darwin-arm64",
+  "sampleRate": 48000,
+  "blockFrames": 128,
+  "scenarios": [
+    {
+      "name": "voice1-sustain-off",
+      "generatedSeconds": 1.5,
+      "measuredRuns": 10,
+      "warmupRuns": 3,
+      "medianMs": 69.269833,
+      "p90Ms": 70.42225,
+      "medianRealtimeRatio": 0.04617988866666667,
+      "samplesMs": [
+        69.929209,
+        69.269833,
+        69.417167,
+        69.053541,
+        68.772291,
+        68.903708,
+        70.975416,
+        70.42225,
+        69.670667,
+        68.832875
+      ]
+    },
+    {
+      "name": "voice8-sustain-off",
+      "generatedSeconds": 1.5,
+      "measuredRuns": 10,
+      "warmupRuns": 3,
+      "medianMs": 180.756875,
+      "p90Ms": 183.041209,
+      "medianRealtimeRatio": 0.12050458333333335,
+      "samplesMs": [
+        184.435583,
+        180.756875,
+        180.763042,
+        180.151,
+        180.657125,
+        182.236042,
+        180.278542,
+        180.32375,
+        181.309791,
+        183.041209
+      ]
+    },
+    {
+      "name": "voice32-sustain-off",
+      "generatedSeconds": 1.5,
+      "measuredRuns": 10,
+      "warmupRuns": 3,
+      "medianMs": 232.47025,
+      "p90Ms": 236.266708,
+      "medianRealtimeRatio": 0.15498016666666667,
+      "samplesMs": [
+        228.054292,
+        229.28875,
+        231.368458,
+        228.531333,
+        232.47025,
+        256.523,
+        236.266708,
+        234.5335,
+        234.787792,
+        234.2335
+      ]
+    },
+    {
+      "name": "voice32-sustain-on",
+      "generatedSeconds": 1.5,
+      "measuredRuns": 10,
+      "warmupRuns": 3,
+      "medianMs": 229.512541,
+      "p90Ms": 232.968541,
+      "medianRealtimeRatio": 0.15300836066666668,
+      "samplesMs": [
+        231.742083,
+        229.512541,
+        229.358417,
+        230.273167,
+        231.774625,
+        229.128041,
+        228.386625,
+        269.234791,
+        227.559584,
+        232.968541
+      ]
+    },
+    {
+      "name": "dense-sustain-release",
+      "generatedSeconds": 1.5,
+      "measuredRuns": 10,
+      "warmupRuns": 3,
+      "medianMs": 240.285708,
+      "p90Ms": 243.397291,
+      "medianRealtimeRatio": 0.160190472,
+      "samplesMs": [
+        239.999458,
+        242.790791,
+        243.397291,
+        249.588667,
+        240.285708,
+        238.643708,
+        237.139709,
+        241.043334,
+        237.109167,
+        241.623917
+      ]
+    }
+  ]
+}

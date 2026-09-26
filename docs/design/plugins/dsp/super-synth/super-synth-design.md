@@ -2,13 +2,14 @@
 
 **Issue:** [#7](https://github.com/puchinya/soraoto_dsl/issues/7)
 **Product contract:** [`../../../../specs/plugins/dsp/super-synth/super-synth-spec.md`](../../../../specs/plugins/dsp/super-synth/super-synth-spec.md)
-**Review state:** Approved by the user on 2026-09-26; this design governs Issue #7 implementation.
+**Review state:** Revised physical-model and WASM SIMD design approved by the user on 2026-09-26 through the supplied Issue #7 contract; implementation pending.
 
 ## 1. Scope and decisions
 
 This design covers the in-place SuperSynth release identity update and evidence-driven calibration
-of the existing native concert-grand model. It preserves Plugin ABI 1.0, the existing plugin ID,
-public parameter and factory-preset compatibility, and the established runtime architecture.
+of the native concert-grand model, including the approved physical-model and SIMD delta. It preserves
+Plugin ABI 1.0, the existing plugin ID, public parameter and factory-preset compatibility, and the
+existing plugin runtime architecture.
 The complete current engine family inventory and non-piano renderer ownership are split into
 [`super-synth-engine-models-design.md`](super-synth-engine-models-design.md).
 
@@ -197,3 +198,172 @@ Run the repository's documented WASM/CTest and Web Player test/build entry point
 [`../../../../../web-player/README.md`](../../../../../web-player/README.md) and `wasm/CMakeLists.txt`;
 record exact commands and PASS/FAIL/NOT RUN/BLOCKED results in the Issue and status mirror. These
 checks do not substitute for direct audio comparison or browser-interaction evidence.
+
+## 8. Physical-model and WASM SIMD delta
+
+The approved architecture delta is preserved in
+`.agent-state/issues/7/implementation-contract-pr8-physical-model-wasm-simd-delta.txt`. It changes
+only the native `concert_grand` renderer and its owned evidence/tooling. The signal path is:
+
+```text
+dynamic hammer mass and nonlinear felt
+  -> energy-consistent hammer scattering
+  -> one, two, or three traveling-wave strings
+  -> one shared bridge scattering solve
+  <-> passive sympathetic-string register
+  <-> stable fitted soundboard/radiation model
+  -> stereo radiation
+
+transverse low-register energy -> nonlinear longitudinal modes -> bridge/body radiation
+```
+
+### 8.1 Compatibility and state ownership
+
+Keep Plugin ABI 1.0, Plugin ID `net.puchinya.soraotodsl.super-synth-v8`, all 157 public parameter
+identities and ranges, factory preset identities, and serialized state unchanged. Add no public
+parameters and no allocation or dynamic containers in `dsp_process()`. Continue to own per-note
+string, hammer, and longitudinal state in the fixed-size `Voice` records. Own the 88-key × 2-mode
+sympathetic register and the 24-mode, three-zone soundboard state once in shared concert-grand state.
+Reset all new fixed-size state in the existing reset path; a repeated strike or voice steal replaces
+only the selected voice state and never clears shared body energy.
+
+Reuse existing controls: hammer hardness controls felt stiffness/exponent/contact loss; hammer noise
+controls only contact-gated acoustic/radiation noise; string damping controls passive string loss;
+unison controls detuning/coupling spread; inharmonicity controls transverse dispersion and calibrated
+low-register coupling; board size scales fitted modal frequencies; board mix remains a true radiation
+bypass; sympathetic amount controls passive-register coupling/return; stereo width remains the final
+keyboard radiation control.
+
+### 8.2 Waveguide, hammer, and shared bridge
+
+Treat delay-line values in the grand-piano path as normalized transverse velocity waves. This is an
+internal normalization, not an SI-calibrated displacement claim. Every characteristic impedance is
+positive, passive termination/scattering is non-energy-creating, and force exchange at the hammer is
+equal and opposite.
+
+Replace the prescribed `hammer_path`/`micro_gate` drive with per-voice dynamic mass, compression,
+force, previous force, and contact state. Felt compression and force remain non-negative. The felt
+force is nonlinear with exponent 2–4 and a passive contact-loss term; hardness maps monotonically to
+stiffness, exponent, and contact loss. Update contact from current string velocity, integrate hammer
+velocity with a semi-implicit/symplectic or wave-digital step, inject the resulting force, and latch
+contact off when separating compression reaches zero. Do not retrigger that strike. Hammer noise is
+a contact-duration/force-gated transient and never a free waveguide-force source.
+
+For N active strings with positive impedances `Z_i`, sum `Z_sum = Σ Z_i` and distribute the common
+force-generated junction velocity increment `delta_v = F_hammer / (2 * Z_sum)`. Remove soft clipping
+from normal hammer-point propagation. Any retained numerical guard is an emergency-only path and
+must have zero hits in all required calibration renders.
+
+Keep the current one/two/three-string register and detuning. Gather every string's bridge-arrival
+wave before updating any string. Solve the same-sample shared junction:
+
+```text
+v_bridge = (2 * Σ(Z_i * a_i) + Z_b * v_board) / (Σ Z_i + Z_b)
+b_i       = v_bridge - a_i
+F_bridge  = Z_b * (v_bridge - v_board)
+```
+
+`Z_b` is positive. Apply only approved passive bridge-loss filtering to each reflected wave. Gather,
+solve, filter, write all string values, then advance delay positions; no string may observe another
+string's partially updated same-sample state.
+
+### 8.3 Fitted soundboard and radiation
+
+Replace hand-authored `basef[]`, `weight[]`, `wet`, and register-boost tuning with a deterministic,
+reference-derived stable modal model of the existing computational class: 24 modal sections, three
+bridge zones, and a broadband residual path. More than 24 modes requires design re-approval. The
+identification target is an effective bridge-to-radiation/admittance proxy constrained to passivity
+and BIBO stability. Salamander is a microphone recording, not a bridge-force/velocity experiment;
+the model must not claim true mechanical bridge admittance.
+
+The deterministic fitter consumes committed derived Salamander metrics and captures from the same
+final hammer/string/longitudinal/sympathetic model with soundboard radiation bypassed. It emits
+`test/reference/salamander-grand-piano-v3-board-fit.json` and
+`src/grand_physics_fit_v9.h`, with archive SHA, metric schema, fitter version, and dry-capture model
+identity. A regular test compares their coefficients. Positive frequencies/Q, finite gains, bounded
+zone coupling, and nonnegative dissipative/radiation gains are required. `piano_soundboard_size`
+smoothly scales fitted frequencies without changing mode count or adding unrelated EQ. A zero board
+mix bypasses board-radiated longitudinal and sympathetic output as well as direct board output.
+
+### 8.4 Sympathetic strings and longitudinal modes
+
+Own one shared 88-key × 2-mode passive register, never one copy per voice. Excite each key from its
+appropriate shared bridge zone. Return its force with at least one sample/state delay so no
+zero-delay feedback loop exists. Derive undamped keys from existing held-note state, sustain, and
+`sostenuto_latched`: sustain lifts all dampers, sostenuto lifts only latched keys, ordinary held keys
+lift their own dampers, and other resonators receive heavy damping. `piano_sympathetic=0` bypasses
+both passive-register return and board-to-string sympathetic feedback. Use fixed group masks to skip
+the 44 SIMD groups when disabled or idle, and skip inactive four-key groups when sparse.
+
+Add two nonlinear longitudinal resonators per active voice. Their excitation is zero-mean and
+derived from transverse velocity/bridge-force energy, such as AC-coupled squared energy; it is not a
+separate MIDI-triggered oscillator. They are full strength through MIDI 45, fade smoothly over MIDI
+45–57, and are absent at and above MIDI 57. Frequencies, gains, and Q values come from Salamander-
+derived low-register non-harmonic resonance analysis, are interpolated between reference centers,
+and radiate through the bridge/body path rather than a large dry oscillator.
+
+### 8.5 SIMD layout, caches, and CPU behavior
+
+Production uses standard Wasm `simd128` only. Keep `-O3 -msimd128 -fvectorize -fslp-vectorize`
+explicit for SuperSynth. Add an OFF-by-default vectorizer-diagnostics option. Do not enable relaxed
+SIMD, threads/shared memory, memory64, fp16, or global fast-math. Gate explicit grand kernels with
+`__wasm_simd128__ && !SORAOTO_FORCE_SCALAR_GRAND`; the forced-scalar build exists only for local
+reference tests and benchmarks and is not shipped.
+
+Use aligned structure-of-arrays/four-lane state and cached modal coefficients. The soundboard runs
+24 modes as six `f32x4` groups. The passive register runs 176 resonators as 44 groups when active,
+with lane masks instead of 176 individual branches. Pack one/two/three gathered bridge strings into
+lanes 0–2 and use lane 3 as zero; SIMD accelerates arithmetic after scalar delay addressing, without
+adding a fourth physical string. Preserve a scalar reference for each explicit kernel. Keep the
+hammer recurrence scalar per voice and never vectorize serial time samples. Reuse/generalize the
+existing `resonator_step4()` recurrence.
+
+Cache `g`/`a1` and related fixed coefficients at initialization or dirty transitions: sample-rate,
+mode-frequency, damping/Q, board-size, and note initialization changes. Rebuild the board cache before
+using a new board-size value and clear/rebuild ownership correctly on reset. Do not calculate MIDI to
+Hz or tangent/Pade/Q terms per resonator per sample. Iterate a fixed `active_voice_mask` rather than
+scanning 32 inactive voices; note-on/steal sets bits, same-pass lifecycle deactivation clears them,
+retarget preserves them, and reset clears all bits.
+
+Profile the x2/x4 halfband FIR first. Vectorize it only if it costs at least 5% of total CPU in those
+benchmarks; otherwise record `N/A — below SIMD optimization threshold` and leave the shared filter
+layout alone.
+
+### 8.6 Runtime semantics, passivity, and performance acceptance
+
+A new strike resets only that voice's hammer contact; note-off stops hammer force and follows
+existing pedal/damper lifecycle; voice stealing replaces per-voice state while preserving the current
+de-click tail and all shared energy. Sustain lifts all passive dampers. Sostenuto holds only latched
+keys, and its release restores damping and finite decay when sustain is up. Board mix zero is a true
+radiation bypass. Sympathetic amount zero leaves unrelated transverse strings unchanged. No passive
+network uses negative impedance or unstable poles; no normal string path relies on clipping. An
+instability is a design conflict, not permission to restore clipping.
+
+Require scalar/SIMD equivalence with no topology/lifecycle or NaN/Inf difference, pitch delta ≤0.1
+cent, peak delta ≤0.05 dB, RMS/envelope delta ≤0.05 dB, and derived spectral metric change ≤0.5%
+where the reference metric is non-negligible. Performance runs use the same runtime, sample rate,
+block size, and event stream, with at least three warm-ups and ten measured runs using
+`process.hrtime.bigint()`; report median and P90 wall-clock render time.
+
+Production SIMD median CPU must be ≤0.90× PR #8 baseline for one sustain-off voice; ≤0.85× for 8 and
+32 sustain-off voices; ≤1.00× for 32 sustain-on voices and dense sustain/release. Against the final
+scalar-reference build, the soundboard kernel must be ≥1.8× faster, sympathetic kernel ≥2.0×,
+32-voice sustain-off render ≥1.20×, and 32-voice sustain-on render ≥1.35×. Do not lower these gates
+without returning to design. Record compact machine-readable evidence at
+`docs/status/plugins/dsp/super-synth/metrics/performance-simd-summary.json`.
+
+### 8.7 Provenance and validation sequence
+
+Bind the committed Salamander metrics to the verified archive with a hash manifest for the SFZ,
+all 641 referenced audio files, required license/provenance files, and archive SHA. The analyzer
+must verify each extracted file before deriving metrics; a missing/mismatching hash fails or blocks
+analysis. Extend numeric-only analysis for low-register non-harmonic peaks, log-spaced board-fit
+bands, direct per-pitch brightness direction, and per-pitch dynamic span. Keep raw audio and private
+Drive identifiers/paths out of Git.
+
+Capture PR #8 baseline evidence at `28113fa0a6ee33a5366b8da8a8851d2d35d2d5ac` before DSP edits.
+Record baseline, hammer, bridge, longitudinal, sympathetic, soundboard, and final preset/gain stages
+with direct-reference distributions, dynamic-span error, brightness failures, full-range and adjacent
+failures, peak/guard hits, and CPU ratio. Fit the board only after earlier physical stages are stable.
+Then run the direct 480 cells, 1,408 lifecycle cells, and 1,392 adjacent comparisons; tune preset and
+output gain last. Any later relevant source or document change invalidates its affected evidence.

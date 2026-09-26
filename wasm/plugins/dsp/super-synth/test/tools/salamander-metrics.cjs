@@ -96,6 +96,77 @@ function peakNear(magnitude, binHz, hz) {
   return {hz: (best + Math.max(-0.5, Math.min(0.5, fraction))) * binHz, amplitude: b};
 }
 
+function spectralBandPowerRatios(magnitude, binHz) {
+  const bands = 64, lo = 40, hi = 16000, ratio = hi / lo;
+  let total = 0;
+  for (let i = 1; i < magnitude.length; i++) total += magnitude[i] * magnitude[i];
+  const result = [];
+  for (let b = 0; b < bands; b++) {
+    const f0 = lo * ratio ** (b / bands), f1 = lo * ratio ** ((b + 1) / bands);
+    const start = Math.max(1, Math.floor(f0 / binHz)), end = Math.min(magnitude.length, Math.max(start + 1, Math.ceil(f1 / binHz)));
+    let power = 0;
+    for (let i = start; i < end; i++) power += magnitude[i] * magnitude[i];
+    result.push(roundMetric(power / Math.max(total, 1e-20)));
+  }
+  return result;
+}
+
+function nonHarmonicPeaks(spec, pitch, partials) {
+  if (!spec) return [];
+  const {magnitude, binHz} = spec;
+  const peaks = [];
+  const start = Math.max(2, Math.ceil(650 / binHz));
+  const end = Math.min(magnitude.length - 1, Math.floor(10000 / binHz));
+  const reference = Math.max(partials[0]?.amplitude || 0, 1e-15);
+  const f1 = partials[0]?.hz || 0;
+  const bEstimates = [];
+  for (let i = 1; i < partials.length; i++) {
+    const n = i + 1;
+    const ratio = (partials[i].hz / Math.max(1e-12, n * f1)) ** 2;
+    const denominator = n * n - ratio;
+    if (denominator > 0) {
+      const b = (ratio - 1) / denominator;
+      if (Number.isFinite(b) && b >= 0 && b <= 0.01) bEstimates.push(b);
+    }
+  }
+  bEstimates.sort((a,b)=>a-b);
+  const inharmonicityB = bEstimates.length ? bEstimates[Math.floor(bEstimates.length / 2)] : 0;
+  for (let i = start; i < end; i++) {
+    const amp = magnitude[i];
+    if (amp < reference * 0.006 || amp < magnitude[i - 1] || amp < magnitude[i + 1]) continue;
+    let harmonic = false;
+    for (let n = 1; n * f1 <= 10000; n++) {
+      const partialHz = n * f1 * Math.sqrt((1 + inharmonicityB * n * n) / (1 + inharmonicityB));
+      if (Math.abs(i * binHz - partialHz) < Math.max(18, partialHz * 0.022)) { harmonic = true; break; }
+    }
+    if (!harmonic) peaks.push({hz:i * binHz,ratio:amp / reference});
+  }
+  peaks.sort((a,b)=>b.ratio-a.ratio);
+  const chosen = [];
+  for (const p of peaks) {
+    if (chosen.some(q=>Math.abs(q.hz-p.hz)<Math.max(24,p.hz*0.018))) continue;
+    chosen.push(p);
+    if (chosen.length === 8) break;
+  }
+  return chosen;
+}
+
+function persistentNonHarmonicPeaks(left, right, sampleRate, onset, pitch, partials) {
+  if (pitch > 45) return [];
+  const later = nonHarmonicPeaks(spectrum(left, right, sampleRate, onset, 160), pitch, partials);
+  const early = nonHarmonicPeaks(spectrum(left, right, sampleRate, onset, 20), pitch, partials);
+  const joined = [];
+  for (const a of early) {
+    const b = later.find(p => Math.abs(p.hz-a.hz) <= Math.max(24, a.hz*0.025));
+    if (b) {
+      const hz=(a.hz+b.hz)*0.5,decay=Math.max(.02,Math.min(.995,b.ratio/Math.max(a.ratio,1e-12)));
+      const tau=-.140/Math.log(decay),q=Math.max(2,Math.min(80,Math.PI*hz*tau));
+      joined.push({hz,ratio:(a.ratio+b.ratio)*0.5,q});
+    }
+  }
+  return joined.sort((a,b)=>b.ratio-a.ratio).slice(0,4);
+}
+
 function analyzeStereo(left, right, pitch, {sampleRate = 48000} = {}) {
   if (!(left instanceof Float32Array || left instanceof Float64Array) || !(right instanceof Float32Array || right instanceof Float64Array)) {
     throw new TypeError('left and right must be floating point sample arrays');
@@ -133,6 +204,7 @@ function analyzeStereo(left, right, pitch, {sampleRate = 48000} = {}) {
   for (let n = 1; n <= 8 && n * expectedHz < sampleRate * 0.48; n++) partials.push(peakNear(magnitude, binHz, n * expectedHz));
   const f1 = partials[0]?.hz || expectedHz;
   const harmonicRatios = partials.slice(1, 6).map(p => p.amplitude / Math.max(partials[0].amplitude, 1e-15));
+  const longitudinalPeaks = persistentNonHarmonicPeaks(left, right, sampleRate, onset, pitch, partials);
   let inharmonicSum = 0, inharmonicWeight = 0;
   for (let i = 1; i < partials.length; i++) {
     const n = i + 1;
@@ -145,6 +217,8 @@ function analyzeStereo(left, right, pitch, {sampleRate = 48000} = {}) {
   const totalLR = sumL + sumR;
   const metrics = {
     onsetMs: onset * 1000 / sampleRate,
+    fundamentalHz: f1,
+    pitchErrorCents: 1200 * Math.log2(f1 / expectedHz),
     peakDbfs: db(peak),
     envelopeDbfs,
     envelope20msDbfs,
@@ -153,6 +227,10 @@ function analyzeStereo(left, right, pitch, {sampleRate = 48000} = {}) {
     harmonicRatiosH2ToH6: harmonicRatios,
     inharmonicityB: inharmonicWeight > 0 ? inharmonicSum / inharmonicWeight : 0,
     spectralSpreadHz: Math.sqrt(spreadEnergy / Math.max(total, 1e-20)),
+    spectralBandPowerRatios: spectralBandPowerRatios(magnitude, binHz),
+    lowRegisterNonHarmonicPeakHz: longitudinalPeaks.map(p=>p.hz),
+    lowRegisterNonHarmonicPeakAmplitudeRatio: longitudinalPeaks.map(p=>p.ratio),
+    lowRegisterNonHarmonicPeakQ: longitudinalPeaks.map(p=>p.q),
     stereoWidth: sideRms / Math.max(midRms, 1e-12),
     stereoPan: (sumR - sumL) / Math.max(totalLR, 1e-20)
   };

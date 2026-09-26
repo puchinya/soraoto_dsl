@@ -4,7 +4,7 @@
 - Product version: 9.0.0
 - Plugin ABI: 1.0
 - Status: Normative product specification
-- Review state: Proposed for Issue [#7](https://github.com/puchinya/soraoto_dsl/issues/7); approval pending
+- Review state: Revised physical-model and SIMD design approved by the user on 2026-09-26 for Issue [#7](https://github.com/puchinya/soraoto_dsl/issues/7); implementation in progress
 - Owning implementation: `wasm/plugins/dsp/super-synth/`
 
 ## 1. Scope and authority
@@ -75,13 +75,23 @@ the canonical preset/catalog sources.
 
 The `concert_grand` model is a native physical piano model. Its behavior includes:
 
-- nonlinear felt/hammer contact and velocity response;
+- dynamic hammer mass with nonlinear felt contact and velocity response;
 - traveling-wave strings with register-dependent string count, unison, inharmonicity, and damping;
+- explicit energy exchange between unison strings through a shared bridge junction;
+- a stable, passive, reference-derived modal soundboard/radiation model;
+- a shared passive sympathetic-string register with existing damper, sustain, and sostenuto behavior;
+- two nonlinearly excited longitudinal modes per active low-register voice, smoothly faded out by MIDI 57;
 - bridge/soundboard coupling and keyboard stereo radiation;
 - damper, note release, sustain, and sostenuto response;
 - controlled low-bass radiation without audible sustained buzz;
 - finite, safe output across the supported pitch and velocity range;
 - no synthetic fixed-fifth or bell-like regression.
+
+The normal hammer/string path uses energy-consistent force and impedance scattering. Waveguide
+clipping is not a normal stabilizer. The soundboard model is a stable effective bridge-to-radiation
+proxy identified from derived Salamander metrics; the microphone recordings are not mechanical
+bridge-force/bridge-velocity measurements and must not be described as the piano's measured
+mechanical admittance.
 
 Changes for this V9 task target the `concert_grand` implementation and its behavior. Other engine
 families remain documented and covered by their existing compatibility/regression evidence; do not
@@ -135,13 +145,22 @@ brightness, inharmonic spectral spread, output RMS/energy and peak progression, 
 response, attack and decay behavior, stereo width/localization from the AB recording, and release /
 damper response. Remove DC and align note onset; compare equivalent windows. Normalize only
 shape-specific spectral windows. Do not normalize away level progression across velocity layers;
-velocity response must change contact/brightness as well as level. Calibrate in the approved order:
+velocity response must change contact/brightness as well as level. At each direct Salamander pitch,
+if the reference materially brightens from low to high velocity, the SuperSynth response must not
+materially darken there. Check every direct pitch individually, including MIDI 21, 24, and 27; the
+aggregate 75% brightness criterion cannot hide a direct-pitch inversion. Compare dynamic span at
+each direct pitch, with an absolute synth-versus-reference span error no greater than 8 dB unless a
+tighter evidence-backed design threshold is recorded. Calibrate in the approved order:
 hammer/felt response, velocity hardness, hammer noise/attack, string harmonics, dispersion and
 inharmonicity, damping/decay, unison, bridge, soundboard, low-register mode suppression,
 release/damper, sustain/sostenuto, stereo radiation, preset defaults, and output gain last.
 
 Use broad physically meaningful tolerances and evaluate each key/layer and continuity comparison
 individually. Tuning may not improve an aggregate average while causing a new severe cell failure.
+For this physical-model delta, each of the 1,408 full-range single-note cells includes note-on,
+sustain, note-off, and release phases with hard checks for finite output, pitch, finite decay, and
+stuck tails. Every such cell must peak below 0 dBFS in normal operation, and the emergency final
+output guard must not activate in the matrix. The test threshold must not be set to the guard ceiling.
 Raw audio remains in the private reference store and is excluded from Git and the distributed plugin.
 Commit only numeric derived metrics and source provenance needed for reproducible regression. Do not
 commit private Drive IDs/URLs, credentials, account identifiers, or absolute local paths. No other

@@ -38,7 +38,27 @@ function(soraoto_add_wasm_plugin group plugin)
     "PLUGIN_DESCRIPTOR_HEADER=\"generated/${plugin}_descriptor.h\"")
 
   if(plugin STREQUAL "super-synth")
-    target_compile_options(${target} PRIVATE -msimd128)
+    option(SORAOTO_SUPERSYNTH_SIMD_DIAGNOSTICS
+      "Emit local SuperSynth Wasm loop/SLP vectorization remarks" OFF)
+    option(SORAOTO_FORCE_SCALAR_GRAND
+      "Build a local scalar reference for the SuperSynth concert-grand kernels" OFF)
+    option(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS
+      "Expose SuperSynth guard, voice-count and kernel-benchmark hooks in local diagnostics" OFF)
+    target_compile_options(${target} PRIVATE -msimd128 -fvectorize -fslp-vectorize)
+    if(SORAOTO_SUPERSYNTH_SIMD_DIAGNOSTICS)
+      target_compile_options(${target} PRIVATE
+        -Rpass=loop-vectorize
+        -Rpass-missed=loop-vectorize
+        -Rpass=slp-vectorizer
+        -Rpass-missed=slp-vectorizer)
+    endif()
+    if(SORAOTO_FORCE_SCALAR_GRAND)
+      target_compile_definitions(${target} PRIVATE SORAOTO_FORCE_SCALAR_GRAND=1)
+      target_compile_options(${target} PRIVATE -fno-vectorize -fno-slp-vectorize)
+    endif()
+    if(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+      target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=1)
+    endif()
   elseif(plugin STREQUAL "reverb")
     target_compile_options(${target} PRIVATE -O2)
   endif()
@@ -54,6 +74,12 @@ function(soraoto_add_wasm_plugin group plugin)
   foreach(symbol IN LISTS SORAOTO_PLUGIN_EXPORTS)
     list(APPEND link_options "-Wl,--export=${symbol}")
   endforeach()
+  if(plugin STREQUAL "super-synth" AND SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_guard_hit_count")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_active_voice_count")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_benchmark_soundboard")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_benchmark_sympathetic")
+  endif()
   target_link_options(${target} PRIVATE ${link_options})
 
   set_target_properties(${target} PROPERTIES
