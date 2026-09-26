@@ -38,7 +38,9 @@ preset-first/explicit-values-second ordering.
 `disposed` acknowledgement, with a bounded fallback timeout so a broken Worklet cannot permanently
 block teardown.
 
-Application-level reload/Stop waits for graph disposal before closing the owning `AudioContext`.
+Project reload (`src/js/app.js::releaseProjectAudioContext()`) waits for graph disposal before
+closing the owning `AudioContext`. Stop (`src/js/app.js::stopPlayback()`) also waits for graph
+disposal, but keeps that `AudioContext` open for subsequent playback.
 
 ## Cache scope
 
