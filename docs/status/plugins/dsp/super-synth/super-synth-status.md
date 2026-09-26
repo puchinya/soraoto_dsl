@@ -2,8 +2,8 @@
 
 > This document records current evidence. It is non-normative; the product specification and approved design define requirements and decisions.
 
-**Owning Issue:** [#7](https://github.com/puchinya/soraoto_dsl/issues/7) — SuperSynth V9 Salamander Calibration and Full-Range Delivery  
-**Issue phase:** `phase:review`  
+**Owning Issue:** [#7](https://github.com/puchinya/soraoto_dsl/issues/7) — SuperSynth V9 Salamander Calibration and Full-Range Delivery
+**Issue phase:** `phase:review`
 **Updated:** 2026-09-26
 
 ## Progress
