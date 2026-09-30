@@ -40,3 +40,27 @@ v1の3音響アンカーを変更・再レンダーせずに再利用し、Stage
 - No Stage2F candidate altered DSP, preset, ABI, version, soundboard, or master gain.
 
 この結果は、試した7点局所設計では厳格な全制約を満たす候補が見つからなかったことを示す。Stage3/4や親Issue #7のacceptance完了を意味しない。
+
+## 残差帰属診断 — 実装チェックリスト
+
+この診断は既存21結果JSONのread-only再集計のみ行い、新規レンダーを行わない。値の不一致、evidence欠損、identity不整合時は診断をBLOCKし、部分的な数値を確定結果として扱わない。
+
+- [x] 最新Issue/PR、spec→design→code→statusを確認。
+- [x] 21件のidentityと32制約を検査。入力SHA不変、新render 0。
+- [x] セル別EARLY/LATE、最大違反、pitch×velocityを記録。
+- [x] 同条件の3軸差分とdynamic-span等の競合を数値検証。
+- [x] aggregate二重計上なし。全既存閾値不変。
+- [x] 合成テストで算術/境界/欠落/identity/入力不変を確認。
+- [x] private情報をコミットせず、PR #8の`Closes #7`を維持。
+- [x] 親Issue blocked、Stage3/4未実行。
+
+## 残差帰属診断 — 2026-10-01
+
+- 判定: COMPLETE_READ_ONLY_ATTRIBUTION。保存済みStage2F v2の21候補のみを読み、direct-reference 5,964セルを再集計した。追加レンダーは0。これはStage2 feasible、Stage3/4 PASS、または物理モデル全体の実現可能性を意味しない。
+- identity: 3 anchor × 7 local point、32制約、production SIMD、source/evaluator/subset identity、manifest/run/result一致を確認。protected evidence 61ファイルのSHA-256は解析前後で不変。
+- post-attack: 21/21候補が10 dB hard gate FAIL。セル形状違反は412/5,964。成分別にはEARLYのabs(residual)>10 dBが14件、LATEが412件。LATEが支配するセルは4,144件、EARLYは1,820件。最大EARLYは+10.573 dB（pitch 108 / velocity 40）、最大LATEは−29.454 dB（pitch 108 / velocity 14）。
+- 0015 / 0016 anchor: pitchは各24/24 valid、±15 cents内。dynamic-spanはそれぞれ3 pitch / 1 pitchがFAIL、最大違反は+3.496 / +3.529 dB。peakは−8.019 / −8.059 dBFS、guard 0、finite、release finite、stuck voice 0。buzzは0.119004 / 0.117357。tail2は0.000563938 / 0.000561672。どちらもStage2全体はPASSしていない。
+- 局所差分: damping L6/L7は3 anchorすべてでdynamic-span最大違反を約0.097–0.197 dB改善し、post-attack最大違反を約8.526–17.237 dB悪化。termination floor L4/L5はdynamic-spanを約0.017–0.035 dB改善し、post-attackを約1.547–3.091 dB悪化。hardnessはanchor依存で、両方の最大違反が同時に改善したのは0015/L3の1点のみ（post −0.149 dB、dynamic-span −2.924 dB）で、両familyのFAILは残る。
+- 診断は残差が当該21点内でLATE優勢であることを示す。原因の設計判断、探索拡張、DSP変更、追加レンダーはこの契約の対象外。pitch estimatorのaggregate conformance 96/96 PASSと、個別physicalPitchTrajectory FAILは区別して未解決として保持する。
+- 検証: analyzer 21/21・render 0、専用合成テスト11件、WASM build、Stage2F dry-runはPASS。tuning全体72件中71件PASS・1件FAIL。失敗はtest_v1_anchor_evidence_is_reused_without_mutating_v1_filesで、保存済みv1 anchorのsourceRevisionが現行sourceRevisionと不一致。証拠ファイルは書き換えず、full CTest / Web Player / Stage3/4 / manual listeningは未実行。
+- private詳細とprotected SHA一覧: .agent-state/issues/7/calibration-optuna/stage2f-v2/diagnostics/residual-attribution.json。合成テスト: test_stage2f_v2_residuals.py。
