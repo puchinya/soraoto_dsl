@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import sys
 import unittest
@@ -38,13 +39,42 @@ from stage2f_anchored import (
 class Stage2FAnchorTests(unittest.TestCase):
     @unittest.skipUnless(V1_RUN_PATH.is_file() and V1_MANIFEST_PATH.is_file(), "requires private historical acoustic evidence")
     def test_v1_anchor_evidence_is_reused_without_mutating_v1_files(self):
-        before = (V1_MANIFEST_PATH.read_bytes(), V1_RUN_PATH.read_bytes())
+        root = Path(__file__).resolve().parents[7]
+        v2_manifest_path = root / ".agent-state/issues/7/calibration-optuna/stage2f-v2/manifests/stage2f-v2-anchor-manifest.json"
+        v2_manifest = json.loads(v2_manifest_path.read_text(encoding="utf-8"))
+        saved_run = json.loads(V1_RUN_PATH.read_text(encoding="utf-8"))
+        saved_identity = saved_run["sourceIdentity"]
         anchors = resolve_anchors()
-        reused = load_v1_anchor_observations(anchors, source_identity())
+        self.assertTrue(verify_manifest(json.loads(V1_MANIFEST_PATH.read_text(encoding="utf-8"))))
+        self.assertEqual(reusable_identity_matches(saved_identity, saved_identity), (True, []))
+
+        # Validate the preserved observation using its historical identity first. This checks the
+        # stored result, exact 32-key constraints, result bytes and hashes without weakening the
+        # production current-HEAD reuse guard.
+        historical = load_v1_anchor_observations(anchors, saved_identity)
+        v2_anchor_hashes = {row["v1ResultPath"]: row["v1ResultSha256"] for row in v2_manifest["anchors"]}
+        protected_paths = {V1_MANIFEST_PATH, V1_RUN_PATH, v2_manifest_path}
+        for row in historical.values():
+            result_path = root / row["rawResultPath"]
+            result_bytes = result_path.read_bytes()
+            self.assertEqual(hashlib.sha256(result_bytes).hexdigest(), row["resultSha256"])
+            self.assertEqual(v2_anchor_hashes.get(row["rawResultPath"]), row["resultSha256"])
+            protected_paths.add(result_path)
+        before = {path: path.read_bytes() for path in protected_paths}
+
+        current_identity = source_identity()
+        compatible, mismatches = reusable_identity_matches(current_identity, saved_identity)
+        self.assertEqual(mismatches, [] if compatible else ["sourceRevision"])
+        if compatible:
+            reused = load_v1_anchor_observations(anchors, current_identity)
+        else:
+            with self.assertRaisesRegex(RuntimeError, r"BLOCKED_ANCHOR_EVIDENCE_IDENTITY: acoustic identity mismatch: sourceRevision"):
+                load_v1_anchor_observations(anchors, current_identity)
+            reused = historical
         self.assertEqual(set(reused), {row["sourceCandidateId"] for row in anchors})
         self.assertTrue(all(row["result"].get("productionSimd") is True for row in reused.values()))
         self.assertTrue(all(row["result"]["constraints"]["release_tail2_min_violation"] > 0 for row in reused.values()))
-        self.assertEqual((V1_MANIFEST_PATH.read_bytes(), V1_RUN_PATH.read_bytes()), before)
+        self.assertEqual({path: path.read_bytes() for path in protected_paths}, before)
 
     def test_acoustic_reuse_identity_ignores_runner_bookkeeping_only(self):
         baseline = {key: key for key in (
@@ -58,6 +88,21 @@ class Stage2FAnchorTests(unittest.TestCase):
         matches, mismatches = reusable_identity_matches(current, previous)
         self.assertFalse(matches)
         self.assertEqual(mismatches, ["evaluatorSha256"])
+
+    def test_source_revision_only_is_historical_but_blocks_current_reuse(self):
+        baseline = {key: key for key in (
+            "sourceRevision", "sourceConfigSha256", "evaluatorSha256", "searchSpaceSha256",
+            "oatResultSha256", "subsetSha256", "studyName", "stage2eConstraintSchemaSha256",
+        )}
+        current = {**baseline, "sourceRevision": "current-revision"}
+        compatible, mismatches = reusable_identity_matches(current, baseline)
+        self.assertFalse(compatible)
+        self.assertEqual(mismatches, ["sourceRevision"])
+        for key in set(baseline) - {"sourceRevision"}:
+            changed = {**current, key: "changed-value"}
+            compatible, mismatches = reusable_identity_matches(changed, baseline)
+            self.assertFalse(compatible)
+            self.assertEqual(mismatches, ["sourceRevision", key])
 
     def test_cumulative_physical_render_budget_reserves_one_unused_slot(self):
         self.assertEqual(PRIOR_PHYSICAL_RENDERS, 3)

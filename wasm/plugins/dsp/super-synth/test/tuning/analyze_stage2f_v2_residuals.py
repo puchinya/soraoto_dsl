@@ -201,7 +201,9 @@ def validate_candidate(result: dict[str, Any], path: Path, expected: dict[str, A
         violation = error - SPAN_LIMIT
         exact(row.get("errorDb"), error, "velocity.errorDb", path)
         exact(row.get("violationDb"), violation, "velocity.violationDb", path)
-        spans.append({"pitch": pitch, "errorDb": error, "violationDb": violation})
+        spans.append({"pitch": pitch, "actualSpanDb": float(row["actualSpanDb"]),
+                      "referenceSpanDb": float(row["referenceSpanDb"]),
+                      "errorDb": error, "violationDb": violation})
     dynamic = result.get("metrics", {}).get("directProxy", {}).get("dynamicSpan", {})
     stored_per_pitch = dynamic.get("perPitch")
     if not isinstance(stored_per_pitch, list) or len(stored_per_pitch) != len(spans):
@@ -317,6 +319,8 @@ def build_report(candidates: list[dict[str, Any]], evidence: dict[str, Any]) -> 
             "stuckVoiceCount": c["raw"].get("heldReleaseDiagnostics", {}).get("stuckVoiceCount"),
             "positiveIndependentConstraints": {k: v for k, v in c["constraints"].items() if float(v) > 0 and
                 k not in ("stage1_violation", "stage2_violation", "stage2b_violation")}}
+    max_late_key = (int(maxl["pitch"]), int(maxl["velocity"]))
+    focus = focused_attribution(candidates, max_late_key)
     return {"schemaVersion": 1, "status": "COMPLETE_READ_ONLY_ATTRIBUTION",
         "generatedAt": datetime.now(timezone.utc).isoformat(), "renderCount": 0, "stage3Or4Run": False,
         "feasibilityClaim": False, "evidence": evidence, "candidateCount": len(candidates),
@@ -328,11 +332,95 @@ def build_report(candidates: list[dict[str, Any]], evidence: dict[str, Any]) -> 
             "maxAbsLateDb": abs(maxl["lateDb"]), "maxLateCell": {k: maxl[k] for k in ("pitch", "velocity", "lateDb")}},
         "recurrentPitchFailures": [{"pitch": p, "velocity": v, "candidateCount": n}
                                    for (p, v), n in sorted(recurrent.items(), key=lambda x: (-x[1], x[0]))],
-        "anchorSafetyAndCalibration": anchors, "oneFactorComparisons": oat,
+        "anchorSafetyAndCalibration": anchors, "oneFactorComparisons": oat, "focus": focus,
         "interpretation": {"observedFailuresAreLocalToThisDesign": True, "physicalModelInfeasibilityProven": False,
             "pitchEstimatorAggregateConformance": "96/96 PASS",
             "physicalPitchTrajectorySubcase": "FAIL; remains unresolved",
             "nextStep": "Use these measurements for a separate design decision; do not infer global infeasibility or run Stage 3/4."}}
+
+
+def focus_candidate(c: dict[str, Any]) -> dict[str, Any]:
+    stage2 = c["raw"].get("stage2Metrics", {})
+    held = c["raw"].get("heldReleaseDiagnostics", {})
+    valid_pitch = [p for p in c["pitchRows"] if p["valid"]]
+    worst_pitch = max((abs(p["errorCents"]) for p in valid_pitch), default=None)
+    constraints = [{"name": name, "value": float(value), "passed": float(value) <= 0.0,
+                    "independent": name not in ("stage1_violation", "stage2_violation", "stage2b_violation")}
+                   for name, value in c["constraints"].items()]
+    feasible = all(row["passed"] for row in constraints) and stage2.get("measurementInvalidCount") == 0
+    return {
+        "candidateId": c["candidateId"], "anchor": c["anchor"]["historicalResultId"], "point": c["point"],
+        "postAttackShapeViolations": [
+            {"pitch": r["pitch"], "velocity": r["velocity"], "earlyResidualDb": r["earlyDb"],
+             "lateResidualDb": r["lateDb"], "dominantResidual": r["dominant"], "violationDb": r["violationDb"]}
+            for r in c["cells"] if r["violationDb"] > 0.0],
+        "dynamicSpanViolations": [
+            {"pitch": r["pitch"], "actualSpanDb": r["actualSpanDb"],
+             "referenceSpanDb": r["referenceSpanDb"], "errorDb": r["errorDb"],
+             "violationDb": r["violationDb"]}
+            for r in c["spanRows"] if r["violationDb"] > 0.0],
+        "pitch": {"validCells": len(valid_pitch), "totalCells": len(c["pitchRows"]),
+                  "worstAbsoluteErrorCents": worst_pitch,
+                  "failedCells": [{"pitch": p["pitch"], "velocity": p["velocity"], "errorCents": p["errorCents"]}
+                                  for p in c["pitchRows"] if p["failed"]]},
+        "lowRegisterBuzz": stage2.get("lowRegisterBuzz"),
+        "releaseTail2": held.get("releaseTail2"), "finiteRelease": held.get("finiteRelease"),
+        "stuckVoiceCount": held.get("stuckVoiceCount"),
+        "peakDbfs": stage2.get("peakDbfs"), "guardHits": stage2.get("guardHits"),
+        "finite": stage2.get("finite"), "measurementInvalidCount": stage2.get("measurementInvalidCount"),
+        "constraintCount": len(constraints), "constraints": constraints,
+        "positiveIndependentConstraints": [row["name"] for row in constraints
+                                            if row["independent"] and not row["passed"]],
+        "hardFeasible": feasible,
+    }
+
+
+def focused_attribution(candidates: list[dict[str, Any]], max_late_key: tuple[int, int]) -> dict[str, Any]:
+    byid = {c["candidateId"]: c for c in candidates}
+    focus_ids = [f"stage2f-split-v3-s2-{anchor}-{point}"
+                 for anchor, point in (("0001", "L1"), ("0015", "L1"), ("0015", "L3"),
+                                       ("0016", "L1"), ("0016", "L3"))]
+    missing = sorted(set(focus_ids) - set(byid))
+    if missing:
+        raise EvidenceError("BLOCKED_EVIDENCE_IDENTITY", f"focus candidates missing: {missing}")
+    rows = {candidate_id: focus_candidate(byid[candidate_id]) for candidate_id in focus_ids}
+    l1_keys = {}
+    for anchor in ("0001", "0015", "0016"):
+        row = rows[f"stage2f-split-v3-s2-{anchor}-L1"]
+        l1_keys[anchor] = [[cell["pitch"], cell["velocity"]]
+                           for cell in row["postAttackShapeViolations"]]
+    single_key_values = [tuple(keys[0]) for keys in l1_keys.values() if len(keys) == 1]
+    one_cell_keys_agree = (len(single_key_values) == 3 and len(set(single_key_values)) == 1)
+    l1_to_max_late = {
+        anchor: {"singleFailCell": keys[0] if len(keys) == 1 else None,
+                 "matchesGlobalMaxAbsoluteLateCell": len(keys) == 1 and tuple(keys[0]) == max_late_key}
+        for anchor, keys in l1_keys.items()
+    }
+    pairs = {}
+    for anchor in ("0015", "0016"):
+        l1_id, l3_id = f"stage2f-split-v3-s2-{anchor}-L1", f"stage2f-split-v3-s2-{anchor}-L3"
+        l1, l3 = rows[l1_id], rows[l3_id]
+        pairs[anchor] = {
+            "L1": l1, "L3": l3,
+            "deltaL3MinusL1": {
+                "lowRegisterBuzz": l3["lowRegisterBuzz"] - l1["lowRegisterBuzz"],
+                "releaseTail2": l3["releaseTail2"] - l1["releaseTail2"],
+                "peakDbfs": l3["peakDbfs"] - l1["peakDbfs"],
+                "guardHits": l3["guardHits"] - l1["guardHits"],
+                "worstAbsolutePitchErrorCents": (
+                    None if l1["pitch"]["worstAbsoluteErrorCents"] is None or
+                    l3["pitch"]["worstAbsoluteErrorCents"] is None else
+                    l3["pitch"]["worstAbsoluteErrorCents"] - l1["pitch"]["worstAbsoluteErrorCents"]),
+                "finiteChanged": l3["finite"] != l1["finite"],
+                "finiteReleaseChanged": l3["finiteRelease"] != l1["finiteRelease"],
+                "stuckVoiceCount": l3["stuckVoiceCount"] - l1["stuckVoiceCount"],
+            },
+        }
+    return {"candidates": rows, "l1ShapeFailureKeys": l1_keys,
+            "allThreeL1SingleFailureKeysMatch": one_cell_keys_agree,
+            "globalMaxAbsoluteLateCell": {"pitch": max_late_key[0], "velocity": max_late_key[1]},
+            "l1FailureKeyVsGlobalMaxLate": l1_to_max_late,
+            "sameAnchorL1L3": pairs}
 
 
 def protected_paths(root: Path, results_root: Path, manifest: dict[str, Any], run: dict[str, Any]) -> list[Path]:

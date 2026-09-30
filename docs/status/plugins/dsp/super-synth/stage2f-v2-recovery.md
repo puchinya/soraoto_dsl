@@ -64,3 +64,12 @@ v1の3音響アンカーを変更・再レンダーせずに再利用し、Stage
 - 診断は残差が当該21点内でLATE優勢であることを示す。原因の設計判断、探索拡張、DSP変更、追加レンダーはこの契約の対象外。pitch estimatorのaggregate conformance 96/96 PASSと、個別physicalPitchTrajectory FAILは区別して未解決として保持する。
 - 検証: analyzer 21/21・render 0、専用合成テスト11件、WASM build、Stage2F dry-runはPASS。tuning全体72件中71件PASS・1件FAIL。失敗はtest_v1_anchor_evidence_is_reused_without_mutating_v1_filesで、保存済みv1 anchorのsourceRevisionが現行sourceRevisionと不一致。証拠ファイルは書き換えず、full CTest / Web Player / Stage3/4 / manual listeningは未実行。
 - private詳細とprotected SHA一覧: .agent-state/issues/7/calibration-optuna/stage2f-v2/diagnostics/residual-attribution.json。合成テスト: test_stage2f_v2_residuals.py。
+
+## Stage2G — provenance test / focused late-residual diagnosis — 2026-10-01
+
+- 既存21候補・5,964セルを検証済みの読み取り値から再集計。追加render 0。Stage3/4は未実行。
+- 3つのL1候補はそれぞれpost-attack shapeのFAILが1セルで、全てpitch 108 / velocity 14。全体の最大絶対LATE残差も同じセル（−29.454274 dB）で、測定からキー一致を確認した。
+- L1 dynamic-span違反: 0015はpitch 45/90/99、0016はpitch 45。L3は0015/0016ともpitch 93/108に残る。focus JSONには各pitchのactual/reference span、誤差、違反量を保持する。
+- 同anchorのL1→L3では0015 buzzが0.119004から0.121478へ上がり、0.12制約を超える。post-attackとdynamic-spanの違反も残るためL3は不適格。0016 L3もbuzz 0.120214で上限を超え、post-attack/dynamic-span違反が残る。各比較にはpitch、buzz、tail2、peak、guard、finite/release/stuck、および全32制約を列挙し、トレードオフを隠さない。
+- v1保存identityと現HEADの差はsourceRevisionのみ。保存identityでv1の3結果、全32制約、参照result hashを検証し、現HEAD loaderはstrict guardにより `BLOCKED_ANCHOR_EVIDENCE_IDENTITY: ... sourceRevision` を返すことを確認。runner/production guardは変更していない。
+- 合成identity/focusテスト、tuning全体、WASM build、Stage2F dry-run、既存analyzer、privacy scan、diff checkの結果はPR #8のStage2G更新に記録する。full CTest、Web Player、Stage3/4、manual listeningは未実行。Issue #7は`phase:implementation` + `blocked`のまま。

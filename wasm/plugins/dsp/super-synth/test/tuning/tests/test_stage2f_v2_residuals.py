@@ -95,6 +95,8 @@ class IdentityAndSpanTests(unittest.TestCase):
         result["metrics"]["directProxy"]["dynamicSpan"]["perPitch"][0]["violationDb"] = violation
         candidate = analyzer.validate_candidate(result, pathlib.Path("fixture.json"), expected, analyzer.constraint_keys(), None)
         self.assertAlmostEqual(candidate["spanMax"], violation)
+        self.assertEqual(candidate["spanRows"][0]["actualSpanDb"], 8.0001)
+        self.assertEqual(candidate["spanRows"][0]["referenceSpanDb"], 0.0)
 
     def test_incomplete_velocity_spans_are_not_accepted(self):
         result = complete_result()
@@ -155,6 +157,47 @@ class IdentityAndSpanTests(unittest.TestCase):
             expected = {"candidate": {"anchor": {}, "point": {"point": "L1", "parameters": {"axis": 0.5}}}}
             analyzer.validate_candidate(result, pathlib.Path("fixture.json"), expected, analyzer.constraint_keys(), None)
         self.assertEqual(json.dumps(result, sort_keys=True), before)
+
+
+class FocusAttributionTests(unittest.TestCase):
+    def test_focus_lists_measured_failures_and_keeps_buzz_and_all_constraints_visible(self):
+        candidates = []
+        for anchor, point, pitch, velocity in (
+            ("0001", "L1", 108, 14), ("0015", "L1", 60, 61), ("0015", "L3", 72, 61),
+            ("0016", "L1", 60, 61), ("0016", "L3", 84, 61),
+        ):
+            constraints = {key: 0.0 for key in analyzer.constraint_keys()}
+            buzz = 0.121478 if (anchor, point) == ("0015", "L3") else 0.119
+            if buzz > 0.12:
+                constraints["stage2_buzz_violation"] = buzz - 0.12
+            candidates.append({
+                "candidateId": f"stage2f-split-v3-s2-{anchor}-{point}",
+                "anchor": {"historicalResultId": f"stage2b-v1-{anchor}"}, "point": point,
+                "cells": [{"pitch": pitch, "velocity": velocity, "earlyDb": 0.0, "lateDb": 12.0,
+                           "dominant": "LATE", "violationDb": 2.0}],
+                "spanRows": [{"pitch": 60, "actualSpanDb": 15.0, "referenceSpanDb": 6.0,
+                              "errorDb": 9.0, "violationDb": 1.0}],
+                "pitchRows": [{"pitch": 60, "velocity": 61, "valid": True, "errorCents": 4.0, "failed": False}],
+                "constraints": constraints,
+                "raw": {"stage2Metrics": {"lowRegisterBuzz": buzz, "peakDbfs": -8.0, "guardHits": 0,
+                                           "finite": True, "measurementInvalidCount": 0},
+                        "heldReleaseDiagnostics": {"releaseTail2": 0.00014, "finiteRelease": True,
+                                                   "stuckVoiceCount": 0}},
+            })
+
+        report = analyzer.focused_attribution(candidates, (108, 14))
+        self.assertEqual(report["globalMaxAbsoluteLateCell"], {"pitch": 108, "velocity": 14})
+        self.assertTrue(report["l1FailureKeyVsGlobalMaxLate"]["0001"]["matchesGlobalMaxAbsoluteLateCell"])
+        self.assertFalse(report["allThreeL1SingleFailureKeysMatch"])
+        focus_0015_l3 = report["candidates"]["stage2f-split-v3-s2-0015-L3"]
+        self.assertEqual(focus_0015_l3["postAttackShapeViolations"][0]["dominantResidual"], "LATE")
+        self.assertEqual(focus_0015_l3["dynamicSpanViolations"][0]["actualSpanDb"], 15.0)
+        self.assertEqual(focus_0015_l3["dynamicSpanViolations"][0]["referenceSpanDb"], 6.0)
+        self.assertEqual(focus_0015_l3["constraintCount"], 32)
+        self.assertIn("stage2_buzz_violation", focus_0015_l3["positiveIndependentConstraints"])
+        self.assertFalse(focus_0015_l3["hardFeasible"])
+        self.assertEqual(report["sameAnchorL1L3"]["0015"]["L3"]["lowRegisterBuzz"], 0.121478)
+        self.assertEqual(report["sameAnchorL1L3"]["0015"]["L1"]["constraintCount"], 32)
 
 
 if __name__ == "__main__":
