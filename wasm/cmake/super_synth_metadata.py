@@ -11,6 +11,225 @@ ABI=0x00010000
 # Presets are stored directly in the current SuperSynth parameter model; no legacy runtime translation is required.
 PRESETS=json.loads((PLUGIN/'presets.json').read_text(encoding='utf-8'))
 
+GRAND_PROFILE_KIND='grand_piano_v1'
+GRAND_PROFILE_REVISION=1
+GRAND_SB_MODE_COUNT=24
+GRAND_PROFILE_HEADER=SHARED/'generated'/'super-synth_grand_profiles.h'
+
+def _array(length,item):
+    return ('array',length,item)
+
+_TERMINATION_SCHEMA={
+  'lowpass_base':'number','lowpass_damping_coefficient':'number','lowpass_key_coefficient':'number',
+  'high_frequency_loss_base':'number','high_frequency_loss_damping_coefficient':'number',
+  'high_frequency_loss_key_coefficient':'number','high_frequency_loss_wound_coefficient':'number',
+  'reflection_loss_base':'number','key_loss_base':'number','key_loss_coefficient':'number',
+  'damping_base':'number','damping_coefficient':'number','reference_loss_multiplier':'number',
+  'passive_min':'number','passive_max':'number','dispersion_multiplier':'number',
+}
+_BRIDGE_TERMINATION_SCHEMA={**_TERMINATION_SCHEMA,'release_loss_multiplier':'number'}
+_SOUNDBOARD_MODE_SCHEMA={
+  'frequency_hz':'number','q':'number','gain':'number','pan':'number',
+  'zone_b':'number','zone_m':'number','zone_t':'number',
+  'feedback_b':'number','feedback_m':'number','feedback_t':'number',
+}
+_GRAND_PROFILE_SCHEMA={
+  'hammer':{
+    'force_scale':'number','initial_velocity_base':'number','initial_velocity_velocity_scale':'number',
+    'initial_velocity_hardness_base':'number','initial_velocity_hardness_scale':'number',
+    'velocity_hardness_amount':'number',
+    'compression_scale':'number','compression_max_normalized':'number','stiffness_soft':'number',
+    'stiffness_hard':'number','felt_exponent_soft':'number','felt_exponent_hard':'number',
+    'contact_loss_soft':'number','contact_loss_hard':'number','contact_loss_min':'number',
+    'contact_loss_max':'number','mass_soft':'number','mass_hard':'number','noise_filter_base':'number',
+    'noise_filter_hardness_scale':'number','noise_gain_base':'number','noise_gain_hardness_scale':'number',
+    'radiation_transient_gain':'number',
+  },
+  'string':{
+    'strike_position_bass':'number','strike_position_treble':'number',
+    'unison_activation_start_midi':'number','unison_activation_width_midi':'number',
+    'one_to_two_string_midi':'number','two_to_three_string_midi':'number',
+    'unison_detune_base_cents':'number','unison_detune_amount':'number',
+    'unison_detune_key_base':'number','unison_detune_key_scale':'number',
+    'unison_offsets':_array(3,'number'),'strike_offsets':_array(3,'number'),
+    'strike_offset_base':'number','strike_offset_unison_scale':'number',
+    'strike_position_min':'number','strike_position_max':'number',
+    'characteristic_impedance':_array(3,'number'),'geometric_phase_delay_samples':'number',
+    'wound_reference_midi':'number','wound_transition_width_midi':'number',
+    'reference_pitches':_array(30,'number'),'inharmonicity_b':_array(30,'number'),
+    'reference_loss_base':'number','reference_loss_register_start':'number',
+    'reference_loss_register_width':'number','reference_loss_velocity_base':'number',
+    'reference_loss_velocity_scale':'number','release_loss_base':'number',
+    'release_loss_damping_scale':'number','release_loss_key_scale':'number',
+    'dispersion_base':'number','dispersion_inharmonicity_base':'number',
+    'dispersion_inharmonicity_key_scale':'number','agraffe':_TERMINATION_SCHEMA,
+    'bridge_termination':_BRIDGE_TERMINATION_SCHEMA,
+  },
+  'bridge':{
+    'impedance_bass':'number','impedance_treble':'number',
+    'radiation_diff_base_bass':'number','radiation_diff_base_treble':'number',
+    'radiation_diff_velocity2':'number','radiation_diff_key_velocity3':'number',
+  },
+  'zones':{
+    'bass_to_tenor_start':'number','bass_to_tenor_end':'number',
+    'tenor_to_treble_start':'number','tenor_to_treble_end':'number',
+    'low_bass_gate_start':'number','low_bass_gate_end':'number',
+  },
+  'soundboard':{
+    'size_scale_min':'number','size_scale_max':'number',
+    'modes':_array(24,_SOUNDBOARD_MODE_SCHEMA),
+    'zone_pan':_array(3,'number'),'residual_alpha':_array(3,'number'),
+    'residual_gain':_array(3,'number'),'feedback_scale':_array(3,'number'),
+    'radiation_scale':'number','excitation_pan_mode_weight':'number',
+    'excitation_pan_zone_weight':'number','excitation_pan_slew_per_second':'number',
+    'excitation_pan_slew_min':'number','excitation_pan_slew_max':'number',
+    'spatial_pan_limit':'number',
+  },
+  'sympathetic':{
+    'excitation_gain':'number','return_gain':'number','q_undamped':_array(2,'number'),
+    'q_damped':_array(2,'number'),'gain_undamped':_array(2,'number'),
+    'gain_damped':_array(2,'number'),'second_mode_ratio':'number',
+    'second_mode_inharmonicity_scale':'number','idle_energy_threshold':'number',
+  },
+  'longitudinal':{
+    'full_strength_until_midi':'number','fade_out_until_midi':'number',
+    'energy_dc_alpha':'number','reference_pitches':_array(9,'number'),
+    'frequency_hz':_array(9,_array(2,'number')),'q':_array(9,_array(2,'number')),
+    'gain':_array(9,_array(2,'number')),
+  },
+  'radiation':{
+    'dry_transverse_gain':'number','dry_bridge_gain':'number','dry_longitudinal_gain':'number',
+    'contact_transient_gain':'number','voice_side_scale':'number',
+  },
+  'velocity':{'output_gain_base':'number','output_gain_velocity_scale':'number'},
+}
+
+def _validate_profile_shape(path,value,schema):
+    if isinstance(schema,dict):
+        if not isinstance(value,dict):raise ValueError(f'{path} must be an object')
+        expected=set(schema);actual=set(value)
+        missing=sorted(expected-actual);unknown=sorted(actual-expected)
+        if missing:raise ValueError(f'{path} missing fields: {", ".join(missing)}')
+        if unknown:raise ValueError(f'{path} has unknown fields: {", ".join(unknown)}')
+        for key,child in schema.items():_validate_profile_shape(f'{path}.{key}',value[key],child)
+    elif isinstance(schema,tuple) and schema[0]=='array':
+        if not isinstance(value,list) or len(value)!=schema[1]:raise ValueError(f'{path} must contain exactly {schema[1]} entries')
+        for index,child in enumerate(value):_validate_profile_shape(f'{path}[{index}]',child,schema[2])
+    else:
+        if schema!='number' or isinstance(value,bool) or not isinstance(value,(int,float)) or not math.isfinite(float(value)):
+            raise ValueError(f'{path} must be a finite number')
+
+def validate_grand_profile(name,config):
+    if not isinstance(config,dict):raise ValueError(f'{name}.engine_config must be an object')
+    expected={'kind','revision',*_GRAND_PROFILE_SCHEMA}
+    missing=sorted(expected-set(config));unknown=sorted(set(config)-expected)
+    if missing:raise ValueError(f'{name}.engine_config missing fields: {", ".join(missing)}')
+    if unknown:raise ValueError(f'{name}.engine_config has unknown fields: {", ".join(unknown)}')
+    if config['kind']!=GRAND_PROFILE_KIND:raise ValueError(f'{name}.engine_config.kind must be {GRAND_PROFILE_KIND}')
+    if type(config['revision']) is not int or config['revision']!=GRAND_PROFILE_REVISION:
+        raise ValueError(f'{name}.engine_config.revision must be {GRAND_PROFILE_REVISION}')
+    for key,schema in _GRAND_PROFILE_SCHEMA.items():_validate_profile_shape(f'{name}.engine_config.{key}',config[key],schema)
+    h=config['hammer'];s=config['string'];b=config['bridge'];z=config['zones'];sb=config['soundboard'];sy=config['sympathetic'];lo=config['longitudinal']
+    if h['force_scale']<=0 or h['compression_scale']<=0 or h['compression_max_normalized']<=0:raise ValueError(f'{name}: hammer scale values must be positive')
+    if h['initial_velocity_base']!=0.42 or h['initial_velocity_velocity_scale']!=1.05:raise ValueError(f'{name}: hammer launch intercept/slope are FIXED_ARCHITECTURE at 0.42/1.05')
+    if not (0.0<=h['velocity_hardness_amount']<=1.0):raise ValueError(f'{name}: hammer.velocity_hardness_amount must be in [0,1]')
+    if min(h['mass_soft'],h['mass_hard'])<=0 or h['stiffness_soft']<=0 or h['stiffness_hard']<=0:raise ValueError(f'{name}: hammer mass and stiffness must be positive')
+    if not (2.0<=h['felt_exponent_soft']<=h['felt_exponent_hard']<=4.0):raise ValueError(f'{name}: felt exponents must be ordered within [2,4]')
+    if h['contact_loss_min']<0 or h['contact_loss_max']<h['contact_loss_min'] or h['contact_loss_soft']<0 or h['contact_loss_hard']<0:raise ValueError(f'{name}: invalid hammer contact-loss range')
+    if s['one_to_two_string_midi']>=s['two_to_three_string_midi'] or not (21<=s['one_to_two_string_midi']<s['two_to_three_string_midi']<=108):raise ValueError(f'{name}: string-count transitions must increase within MIDI 21..108')
+    if s['unison_activation_width_midi']<=0 or s['strike_position_min']<=0 or s['strike_position_max']<s['strike_position_min']:raise ValueError(f'{name}: invalid string geometry range')
+    if min(s['characteristic_impedance'])<=0:raise ValueError(f'{name}: characteristic impedances must be positive')
+    if any(a>=b for a,b in zip(s['reference_pitches'],s['reference_pitches'][1:])):raise ValueError(f'{name}: string reference pitches must increase')
+    if any(x<0 for x in s['inharmonicity_b']):raise ValueError(f'{name}: inharmonicity values must be nonnegative')
+    for termination_name in ('agraffe','bridge_termination'):
+        t=s[termination_name]
+        if not (0<=t['passive_min']<=t['reflection_loss_base']<=t['passive_max']<=1):raise ValueError(f'{name}: invalid {termination_name} passive range')
+        if not (0<=t['lowpass_base']<=1) or t['dispersion_multiplier']<0:raise ValueError(f'{name}: invalid {termination_name} filter/dispersion range')
+    if min(b['impedance_bass'],b['impedance_treble'])<=0:raise ValueError(f'{name}: bridge impedances must be positive')
+    if not (z['bass_to_tenor_start']<z['bass_to_tenor_end']<=z['tenor_to_treble_start']<z['tenor_to_treble_end']):raise ValueError(f'{name}: zone transitions must be ordered')
+    if not (z['low_bass_gate_start']<z['low_bass_gate_end']):raise ValueError(f'{name}: low-bass gate must be ordered')
+    if not (0<sb['size_scale_min']<=sb['size_scale_max']) or sb['radiation_scale']<=0:raise ValueError(f'{name}: soundboard scales must be positive')
+    if not (0<sb['excitation_pan_slew_min']<=sb['excitation_pan_slew_max']) or sb['spatial_pan_limit']<0 or sb['spatial_pan_limit']>1:raise ValueError(f'{name}: invalid soundboard spatial limits')
+    for mode_index,mode in enumerate(sb['modes']):
+        if not (0<mode['frequency_hz']<24000) or mode['q']<=0 or mode['gain']<0:raise ValueError(f'{name}: invalid soundboard mode {mode_index} frequency/Q/gain')
+        if not all(-1<=mode[k]<=1 for k in ('pan',)) or min(mode[k] for k in ('zone_b','zone_m','zone_t'))<0:raise ValueError(f'{name}: invalid soundboard mode {mode_index} pan/zones')
+        if abs(mode['zone_b']+mode['zone_m']+mode['zone_t']-1.0)>1e-4:raise ValueError(f'{name}: soundboard mode {mode_index} zone weights must sum to one')
+        if min(mode['feedback_b'],mode['feedback_m'],mode['feedback_t'])<0:raise ValueError(f'{name}: soundboard feedback must be nonnegative')
+    if any(not -1<=x<=1 for x in sb['zone_pan']) or any(not 0<=x<=1 for x in sb['residual_alpha']):raise ValueError(f'{name}: invalid soundboard pan/residual alpha')
+    if any(x<0 for x in sb['residual_gain']+sb['feedback_scale']):raise ValueError(f'{name}: soundboard gains must be nonnegative')
+    if any(x<=0 for x in sy['q_undamped']+sy['q_damped']) or any(x<0 for x in sy['gain_undamped']+sy['gain_damped']):raise ValueError(f'{name}: invalid sympathetic Q/gain')
+    if sy['second_mode_ratio']<=0 or sy['idle_energy_threshold']<0:raise ValueError(f'{name}: invalid sympathetic mode/cutoff')
+    if not (lo['full_strength_until_midi']<lo['fade_out_until_midi']<=108) or lo['energy_dc_alpha']<0 or lo['energy_dc_alpha']>1:raise ValueError(f'{name}: invalid longitudinal range/filter')
+    if any(a>=b for a,b in zip(lo['reference_pitches'],lo['reference_pitches'][1:])):raise ValueError(f'{name}: longitudinal reference pitches must increase')
+    for table in (lo['frequency_hz'],lo['q']):
+        if any(value<=0 or value>=24000 for row in table for value in row):raise ValueError(f'{name}: longitudinal frequencies/Q values are invalid')
+    if any(value<0 for row in lo['gain'] for value in row):raise ValueError(f'{name}: longitudinal gains must be nonnegative')
+    if config['velocity']['output_gain_base']<0 or config['velocity']['output_gain_velocity_scale']<0:raise ValueError(f'{name}: velocity gain curve must be nonnegative')
+    for key,value in config['radiation'].items():
+        if value<0:raise ValueError(f'{name}: radiation.{key} must be nonnegative')
+    if config['radiation']['dry_longitudinal_gain'] != 0.0:
+        raise ValueError(f'{name}: radiation.dry_longitudinal_gain is FIXED_ARCHITECTURE and must be 0.0')
+    return config
+
+def validate_grand_profiles(presets):
+    grand=[]
+    for name in sorted(presets):
+        preset=presets[name]
+        is_grand=preset.get('engine_model','wavetable')=='concert_grand'
+        if is_grand:
+            if 'engine_config' not in preset:raise ValueError(f'{name}: concert_grand preset requires engine_config')
+            grand.append((name,validate_grand_profile(name,preset['engine_config'])))
+        elif 'engine_config' in preset:
+            raise ValueError(f'{name}: engine_config is only valid for a concert_grand preset')
+    if not grand:raise ValueError('at least one concert_grand preset profile is required')
+    if not any(name=='concert_grand' for name,_ in grand):raise ValueError('default concert_grand profile is required')
+    return grand
+
+def grand_profile_header(presets):
+    profiles=validate_grand_profiles(presets)
+    ids=stable_preset_ids(presets.keys())
+    default_id=ids['concert_grand']
+    all_names=sorted(presets)
+    profile_index={name:i for i,(name,_) in enumerate(profiles)}
+    mapping=[]
+    for name in all_names:mapping.append((ids[name],profile_index.get(name,profile_index['concert_grand'])))
+    def cf(value):
+        text=format(float(value),'.17g')
+        if '.' not in text and 'e' not in text.lower():text += '.0'
+        return text+'f'
+    def array(values,item_schema):
+        if isinstance(item_schema,dict):
+            return '{ '+', '.join('.'+key+' = '+array(values[key],child) for key,child in item_schema.items())+' }'
+        if isinstance(item_schema,tuple) and item_schema[0]=='array':
+            return '{ '+', '.join(array(value,item_schema[2]) for value in values)+' }'
+        return cf(values)
+    lines=['#ifndef SORAOTO_GENERATED_SUPER_SYNTH_GRAND_PROFILES_H','#define SORAOTO_GENERATED_SUPER_SYNTH_GRAND_PROFILES_H','#include <stdint.h>',
+      f'#define SORAOTO_GRAND_PROFILE_COUNT {len(profiles)}',f'#define SORAOTO_GRAND_FACTORY_PRESET_COUNT {len(mapping)}',
+      f'#define SORAOTO_GRAND_DEFAULT_PRESET_ID {default_id}u',
+      'typedef struct { uint32_t preset_id; uint16_t profile_index; } SoraotoGrandPresetProfileMap;',
+      'static const uint32_t soraoto_grand_profile_preset_ids[SORAOTO_GRAND_PROFILE_COUNT] = { '+', '.join(f'{ids[name]}u' for name,_ in profiles)+' };',
+      'static const GrandEngineConfig soraoto_grand_profiles[SORAOTO_GRAND_PROFILE_COUNT] = {']
+    for _,config in profiles:
+        lines.append('  {')
+        for key,schema in _GRAND_PROFILE_SCHEMA.items():
+            if key=='soundboard':
+                lines.append('    .soundboard = {')
+                for field in ('size_scale_min','size_scale_max'):
+                    lines.append('      .'+field+' = '+cf(config['soundboard'][field])+',')
+                for field in _SOUNDBOARD_MODE_SCHEMA:
+                    values=[mode[field] for mode in config['soundboard']['modes']]
+                    lines.append('      .mode_'+field+' = '+array(values,_array(GRAND_SB_MODE_COUNT,'number'))+',')
+                for field,child in schema.items():
+                    if field not in ('size_scale_min','size_scale_max','modes'):
+                        lines.append('      .'+field+' = '+array(config['soundboard'][field],child)+',')
+                lines.append('    },')
+            else:lines.append('    .'+key+' = '+array(config[key],schema)+',')
+        lines.append('  },')
+    lines += ['};','static const SoraotoGrandPresetProfileMap soraoto_grand_preset_profiles[SORAOTO_GRAND_FACTORY_PRESET_COUNT] = {']
+    lines += [f'  {{ {preset_id}u, {index}u }},' for preset_id,index in mapping]
+    lines += ['};','static inline int soraoto_grand_profile_index_for_preset_id(uint32_t preset_id) {','  for (uint32_t i=0;i<SORAOTO_GRAND_PROFILE_COUNT;i++) if (soraoto_grand_profile_preset_ids[i]==preset_id) return (int)i;','  return -1;','}','static inline uint16_t soraoto_grand_profile_index_for_preset(uint32_t preset_id) {','  for (uint32_t i=0;i<SORAOTO_GRAND_FACTORY_PRESET_COUNT;i++) if (soraoto_grand_preset_profiles[i].preset_id==preset_id) return soraoto_grand_preset_profiles[i].profile_index;','  return (uint16_t)soraoto_grand_profile_index_for_preset_id(SORAOTO_GRAND_DEFAULT_PRESET_ID);','}','#endif']
+    return '\n'.join(lines)+'\n'
+
 def cbor_head(major,n):
     if n<24:return bytes([(major<<5)|n])
     if n<=0xff:return bytes([(major<<5)|24,n])
@@ -228,7 +447,7 @@ def make_preset_tables(model,presets):
         tags=sorted(set(x for x in [str(category).lower() if category else None,engine,'factory'] if x))
         meta={
           'name':name,'category':category,'tags':tags,'author':'soraotoDSL','comment':src.get('description'),
-          'instrument':category,'style':None,'character':None,'state_type':'normal_preset','source_file_name':None,
+          'instrument':category,'style':None,'character':None,'preset_type':'normal_preset','source_file_name':None,
         }
         pid=ids[name];factory.append({'id':pid,'meta':meta})
         attrs={
@@ -243,26 +462,27 @@ def make_preset_tables(model,presets):
     return ids,factory,programs,values
 
 def descriptor(model,presets):
+    validate_grand_profiles(presets)
     L={'kind':'speakers','channels':['L','R']}
     browser_params={}
     for p in model['parameters']:
         browser_params[p['path']]={'id':p['id'],'type':p['type'],'unit':p['unit'],'min':p['min'],'max':p['max'],'default':p['default'],'enum_values':p['enum_values'],'scale':p['scale']}
     preset_ids,factory,programs,values=make_preset_tables(model,presets)
+    browser_presets={name:{key:value for key,value in preset.items() if key!='engine_config'} for name,preset in presets.items()}
     return {
       'abi_major':1,'abi_minor':0,'id':model['id'],'vendor':model['vendor'],'name':model['name'],'version':model['version'],
       'kinds':model['kinds'],'max_instances':64,'compatible_plugin_ids':[],'required_wasm_features':['simd128'],'required_host_features':[],'optional_host_features':[],
       'process_context_requirements':[],'supports_f64':False,'supports_in_place':False,'deterministic_dsp':True,'distributable':False,
       'process_modes':['realtime','offline'],'io_modes':['simple','offline'],
-      'units':[{'id':0,'parent_id':None,'name':'Root','program_list_id':1,'supports_unit_data':False}],
+      'units':[{'id':0,'parent_id':None,'name':'Root','program_list_id':1}],
       'audio_buses':[{'id':2,'name':'Main Out','unit_id':0,'direction':'output','role':'main','sample_semantics':'audio','default_active':True,'required':True,'supported_layouts':[L]}],
       'event_buses':[{'id':1,'name':'Notes','direction':'input','unit_id':0,'channel_count':16,'channel_unit_overrides':[],'dialects':['soraoto-note-v1']}],
       'routing_hints':[],'parameters':model['parameters'],'controllers':[],'note_expressions':note_exprs(),'articulations':[],'key_switches':[],
       'physical_ui_mappings':[],'orchestral_articulations':[],'controller_mappings':[],'remote_representations':[],'data_exchange_queues':[],
       'parameter_aliases':[],'factory_presets':factory,
-      'program_lists':[{'id':1,'unit_id':0,'name':'SuperSynth Factory','supports_program_data':False,'mutable_program_names':False,'programs':programs}],
-      'state':{'schema_id':model['id']+'.state','schema_version':1,'max_snapshot_bytes':8+len(model['parameters'])*4},
+      'program_lists':[{'id':1,'unit_id':0,'name':'SuperSynth Factory','mutable_program_names':False,'programs':programs}],
       'prefetch_support':'never','max_event_output_per_block':0,'max_host_requests_per_block':0,'max_asset_requests_per_block':0,'max_data_exchange_packets_per_block':0,
-      'x-net.daradara.soraotodsl-browser':{'parameters':browser_params,'preset_ids':preset_ids,'presets':presets},
+      'x-net.daradara.soraotodsl-browser':{'parameters':browser_params,'preset_ids':preset_ids,'presets':browser_presets},
       '_factory_values':values,'_program_infos':programs,
     }
 
@@ -299,6 +519,7 @@ def build():
     write_if_changed(GEN/'super-synth_descriptor.h',h)
     write_if_changed(GEN/'super-synth_descriptor.cbor',db)
     write_if_changed(GEN/'super-synth_interface.soraoto',interface_src)
+    write_if_changed(GRAND_PROFILE_HEADER,grand_profile_header(presets))
     print('super-synth-v9',len(model['parameters']),len(presets),'descriptor generated')
 
 if __name__=='__main__':build()

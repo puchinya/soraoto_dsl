@@ -11,8 +11,6 @@ set(SORAOTO_PLUGIN_EXPORTS
   soraoto_plugin_stop_processing
   soraoto_plugin_process
   soraoto_plugin_reset
-  soraoto_plugin_state_snapshot
-  soraoto_plugin_state_load
   soraoto_plugin_latency_samples
   soraoto_plugin_tail_samples)
 
@@ -35,15 +33,21 @@ function(soraoto_add_wasm_plugin group plugin)
     "${PROJECT_SOURCE_DIR}/shared")
   target_compile_options(${target} PRIVATE -O3 -nostdlib -fno-builtin)
   target_compile_definitions(${target} PRIVATE
-    "PLUGIN_DESCRIPTOR_HEADER=\"generated/${plugin}_descriptor.h\"")
+    "PLUGIN_DESCRIPTOR_HEADER=\"${generated_dir}/${plugin}_descriptor.h\"")
 
   if(plugin STREQUAL "super-synth")
     option(SORAOTO_SUPERSYNTH_SIMD_DIAGNOSTICS
       "Emit local SuperSynth Wasm loop/SLP vectorization remarks" OFF)
     option(SORAOTO_FORCE_SCALAR_GRAND
       "Build a local scalar reference for the SuperSynth concert-grand kernels" OFF)
+    if(BUILD_TESTING)
+      set(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS_DEFAULT ON)
+    else()
+      set(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS_DEFAULT OFF)
+    endif()
     option(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS
-      "Expose SuperSynth guard, voice-count and kernel-benchmark hooks in local diagnostics" OFF)
+      "Expose SuperSynth guard, voice-count and kernel-benchmark hooks in local diagnostics"
+      ${SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS_DEFAULT})
     target_compile_options(${target} PRIVATE -msimd128 -fvectorize -fslp-vectorize)
     if(SORAOTO_SUPERSYNTH_SIMD_DIAGNOSTICS)
       target_compile_options(${target} PRIVATE
@@ -79,6 +83,11 @@ function(soraoto_add_wasm_plugin group plugin)
     list(APPEND link_options "-Wl,--export=soraoto_supersynth_active_voice_count")
     list(APPEND link_options "-Wl,--export=soraoto_supersynth_benchmark_soundboard")
     list(APPEND link_options "-Wl,--export=soraoto_supersynth_benchmark_sympathetic")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_soundboard_diag_reset")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_soundboard_diag_sum_squares")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_soundboard_diag_peak")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_soundboard_diag_frames")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_diagnostic_set_ablation_mask")
   endif()
   target_link_options(${target} PRIVATE ${link_options})
 

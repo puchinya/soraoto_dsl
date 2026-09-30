@@ -32,6 +32,8 @@ foreach(plugin_path IN LISTS SORAOTO_PLUGIN_PATHS)
   list(APPEND SORAOTO_METADATA_INPUTS
     "${CMAKE_CURRENT_SOURCE_DIR}/${plugin_path}/descriptor.json")
 endforeach()
+list(APPEND SORAOTO_METADATA_OUTPUTS
+  "${CMAKE_CURRENT_SOURCE_DIR}/shared/generated/super-synth_grand_profiles.h")
 list(APPEND SORAOTO_METADATA_INPUTS
   "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/presets.json"
   "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/interface.soraoto")
@@ -65,4 +67,21 @@ if(BUILD_TESTING AND SORAOTO_NODE_EXECUTABLE)
     set_tests_properties("wasm.${test_name}" PROPERTIES
       ENVIRONMENT "SORAOTO_WASM_BUILD_DIR=${CMAKE_BINARY_DIR}")
   endforeach()
+  add_test(NAME wasm.dsp.super-synth.supersynth-v9-production-lifecycle
+    COMMAND "${SORAOTO_NODE_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/test/tools/verify-supersynth-v9-production-lifecycle.cjs"
+      --production-dir "${CMAKE_BINARY_DIR}"
+      --output "${CMAKE_BINARY_DIR}/test-results/supersynth-v9-production-lifecycle.json")
+  add_test(NAME wasm.dsp.super-synth.salamander-board-fit-scale
+    COMMAND "${SORAOTO_NODE_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/test/fit-salamander-board.test.cjs")
+  add_test(NAME wasm.dsp.super-synth.salamander-pitch-detector
+    COMMAND "${SORAOTO_NODE_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/test/tools/salamander-metrics.test.cjs")
+endif()
+
+if(BUILD_TESTING)
+  add_test(NAME wasm.super-synth-grand-profile-schema
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_super_synth_metadata.py")
 endif()

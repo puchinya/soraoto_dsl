@@ -103,8 +103,9 @@
       "sample": "samples/A0v1.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 26.755967,
-        "pitchErrorCents": -47.48511,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 0.511536,
         "peakDbfs": -22.605423,
         "envelopeDbfs": [
           -30.202461,
@@ -242,8 +243,9 @@
       "sample": "samples/A0v2.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 29.159331,
-        "pitchErrorCents": 101.431199,
+        "fundamentalHz": 27.278512,
+        "pitchErrorCents": -14,
+        "fundamentalPeakProminence": 1.158833,
         "peakDbfs": -16.119744,
         "envelopeDbfs": [
           -46.812249,
@@ -366,8 +368,9 @@
       "sample": "samples/A0v3.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 21.972656,
-        "pitchErrorCents": -388.466799,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 1.027648,
         "peakDbfs": -14.220859,
         "envelopeDbfs": [
           -43.762683,
@@ -505,8 +508,9 @@
       "sample": "samples/A0v4.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 20.073866,
-        "pitchErrorCents": -544.935796,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 2.493183,
         "peakDbfs": -12.516873,
         "envelopeDbfs": [
           -42.523281,
@@ -629,8 +633,9 @@
       "sample": "samples/A0v5.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 21.828544,
-        "pitchErrorCents": -399.858833,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 1.842973,
         "peakDbfs": -10.962329,
         "envelopeDbfs": [
           -39.322161,
@@ -768,8 +773,9 @@
       "sample": "samples/A0v6.flac",
       "metrics": {
         "onsetMs": 18,
-        "fundamentalHz": 22.437961,
-        "pitchErrorCents": -352.188027,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 0.532458,
         "peakDbfs": -9.897766,
         "envelopeDbfs": [
           -37.588209,
@@ -907,8 +913,9 @@
       "sample": "samples/A0v7.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 29.164735,
-        "pitchErrorCents": 101.752004,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 0.427591,
         "peakDbfs": -8.969053,
         "envelopeDbfs": [
           -35.814034,
@@ -1031,8 +1038,9 @@
       "sample": "samples/A0v8.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 28.329743,
-        "pitchErrorCents": 51.463102,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 0.659123,
         "peakDbfs": -7.953084,
         "envelopeDbfs": [
           -33.230736,
@@ -1155,8 +1163,9 @@
       "sample": "samples/A0v9.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 28.855729,
-        "pitchErrorCents": 83.311364,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 0.94591,
         "peakDbfs": -7.44209,
         "envelopeDbfs": [
           -32.161607,
@@ -1279,8 +1288,9 @@
       "sample": "samples/A0v10.flac",
       "metrics": {
         "onsetMs": 22,
-        "fundamentalHz": 29.041412,
-        "pitchErrorCents": 94.415994,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 0.630103,
         "peakDbfs": -6.999012,
         "envelopeDbfs": [
           -31.208652,
@@ -1403,8 +1413,9 @@
       "sample": "samples/A0v11.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 21.212303,
-        "pitchErrorCents": -449.43643,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 0.676707,
         "peakDbfs": -6.263844,
         "envelopeDbfs": [
           -30.409192,
@@ -1527,8 +1538,9 @@
       "sample": "samples/A0v12.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 19.042969,
-        "pitchErrorCents": -636.207852,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 1.676461,
         "peakDbfs": -5.678341,
         "envelopeDbfs": [
           -30.22606,
@@ -1651,8 +1663,9 @@
       "sample": "samples/A0v13.flac",
       "metrics": {
         "onsetMs": 22,
-        "fundamentalHz": 19.042969,
-        "pitchErrorCents": -636.207852,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 2.969178,
         "peakDbfs": -4.629268,
         "envelopeDbfs": [
           -28.111492,
@@ -1775,8 +1788,9 @@
       "sample": "samples/A0v14.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 21.972656,
-        "pitchErrorCents": -388.466799,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 2.18009,
         "peakDbfs": -4.392218,
         "envelopeDbfs": [
           -27.353583,
@@ -1914,8 +1928,9 @@
       "sample": "samples/A0v15.flac",
       "metrics": {
         "onsetMs": 4,
-        "fundamentalHz": 19.40373,
-        "pitchErrorCents": -603.717145,
+        "fundamentalHz": 27.247017,
+        "pitchErrorCents": -16,
+        "fundamentalPeakProminence": 3.834238,
         "peakDbfs": -2.85734,
         "envelopeDbfs": [
           -27.877663,
@@ -2038,8 +2053,9 @@
       "sample": "samples/A0v16.flac",
       "metrics": {
         "onsetMs": 20,
-        "fundamentalHz": 19.042969,
-        "pitchErrorCents": -636.207852,
+        "fundamentalHz": 27.26276,
+        "pitchErrorCents": -15,
+        "fundamentalPeakProminence": 3.39222,
         "peakDbfs": -1.56868,
         "envelopeDbfs": [
           -23.408775,
@@ -2162,8 +2178,9 @@
       "sample": "samples/C1v1.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 31.120505,
-        "pitchErrorCents": -85.879349,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.465812,
         "peakDbfs": -15.832352,
         "envelopeDbfs": [
           -47.815089,
@@ -2301,8 +2318,9 @@
       "sample": "samples/C1v2.flac",
       "metrics": {
         "onsetMs": 44,
-        "fundamentalHz": 27.832031,
-        "pitchErrorCents": -279.222498,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 1.374739,
         "peakDbfs": -12.899105,
         "envelopeDbfs": [
           -43.261225,
@@ -2440,8 +2458,9 @@
       "sample": "samples/C1v3.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 29.87648,
-        "pitchErrorCents": -156.505735,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.570534,
         "peakDbfs": -10.873997,
         "envelopeDbfs": [
           -39.719701,
@@ -2579,8 +2598,9 @@
       "sample": "samples/C1v4.flac",
       "metrics": {
         "onsetMs": 32,
-        "fundamentalHz": 29.380983,
-        "pitchErrorCents": -185.458766,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.298758,
         "peakDbfs": -9.56999,
         "envelopeDbfs": [
           -40.039036,
@@ -2718,8 +2738,9 @@
       "sample": "samples/C1v5.flac",
       "metrics": {
         "onsetMs": 28,
-        "fundamentalHz": 30.559427,
-        "pitchErrorCents": -117.376952,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.418761,
         "peakDbfs": -9.186326,
         "envelopeDbfs": [
           -37.209306,
@@ -2857,8 +2878,9 @@
       "sample": "samples/C1v6.flac",
       "metrics": {
         "onsetMs": 28,
-        "fundamentalHz": 30.628581,
-        "pitchErrorCents": -113.463694,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.251637,
         "peakDbfs": -8.729033,
         "envelopeDbfs": [
           -37.304329,
@@ -2996,8 +3018,9 @@
       "sample": "samples/C1v7.flac",
       "metrics": {
         "onsetMs": 24,
-        "fundamentalHz": 27.832031,
-        "pitchErrorCents": -279.222498,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.256217,
         "peakDbfs": -8.391166,
         "envelopeDbfs": [
           -37.218304,
@@ -3135,8 +3158,9 @@
       "sample": "samples/C1v8.flac",
       "metrics": {
         "onsetMs": 22,
-        "fundamentalHz": 29.599773,
-        "pitchErrorCents": -172.614636,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.286557,
         "peakDbfs": -7.815013,
         "envelopeDbfs": [
           -36.448223,
@@ -3274,8 +3298,9 @@
       "sample": "samples/C1v9.flac",
       "metrics": {
         "onsetMs": 24,
-        "fundamentalHz": 28.755346,
-        "pitchErrorCents": -222.721695,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.495493,
         "peakDbfs": -7.026216,
         "envelopeDbfs": [
           -33.121498,
@@ -3413,8 +3438,9 @@
       "sample": "samples/C1v10.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 29.774881,
-        "pitchErrorCents": -162.40307,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.567807,
         "peakDbfs": -6.83214,
         "envelopeDbfs": [
           -33.143855,
@@ -3552,8 +3578,9 @@
       "sample": "samples/C1v11.flac",
       "metrics": {
         "onsetMs": 24,
-        "fundamentalHz": 30.826594,
-        "pitchErrorCents": -102.307332,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.443276,
         "peakDbfs": -6.223124,
         "envelopeDbfs": [
           -46.643006,
@@ -3691,8 +3718,9 @@
       "sample": "samples/C1v12.flac",
       "metrics": {
         "onsetMs": 32,
-        "fundamentalHz": 30.656588,
-        "pitchErrorCents": -111.881398,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.358451,
         "peakDbfs": -5.212167,
         "envelopeDbfs": [
           -29.748244,
@@ -3830,8 +3858,9 @@
       "sample": "samples/C1v13.flac",
       "metrics": {
         "onsetMs": 30,
-        "fundamentalHz": 30.275253,
-        "pitchErrorCents": -133.551107,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.266189,
         "peakDbfs": -4.264006,
         "envelopeDbfs": [
           -36.59993,
@@ -3969,8 +3998,9 @@
       "sample": "samples/C1v14.flac",
       "metrics": {
         "onsetMs": 36,
-        "fundamentalHz": 29.59877,
-        "pitchErrorCents": -172.673254,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.198011,
         "peakDbfs": -3.293014,
         "envelopeDbfs": [
           -28.203025,
@@ -4108,8 +4138,9 @@
       "sample": "samples/C1v15.flac",
       "metrics": {
         "onsetMs": 30,
-        "fundamentalHz": 36.621094,
-        "pitchErrorCents": 195.891914,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.492899,
         "peakDbfs": -2.558964,
         "envelopeDbfs": [
           -27.650813,
@@ -4232,8 +4263,9 @@
       "sample": "samples/C1v16.flac",
       "metrics": {
         "onsetMs": 32,
-        "fundamentalHz": 36.621094,
-        "pitchErrorCents": 195.891914,
+        "fundamentalHz": 32.327567,
+        "pitchErrorCents": -20,
+        "fundamentalPeakProminence": 0.541131,
         "peakDbfs": -1.49171,
         "envelopeDbfs": [
           -26.575776,
@@ -4356,8 +4388,9 @@
       "sample": "samples/D#1v1.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 44.496728,
-        "pitchErrorCents": 233.121161,
+        "fundamentalHz": 38.622234,
+        "pitchErrorCents": -12,
+        "fundamentalPeakProminence": 1.471516,
         "peakDbfs": -17.239736,
         "envelopeDbfs": [
           -49.296582,
@@ -4495,8 +4528,9 @@
       "sample": "samples/D#1v2.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 30.761719,
-        "pitchErrorCents": -405.954606,
+        "fundamentalHz": 38.622234,
+        "pitchErrorCents": -12,
+        "fundamentalPeakProminence": 0.820856,
         "peakDbfs": -13.159677,
         "envelopeDbfs": [
           -39.470815,
@@ -4634,8 +4668,9 @@
       "sample": "samples/D#1v3.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 43.46577,
-        "pitchErrorCents": 192.537692,
+        "fundamentalHz": 38.622234,
+        "pitchErrorCents": -12,
+        "fundamentalPeakProminence": 3.470667,
         "peakDbfs": -12.902947,
         "envelopeDbfs": [
           -42.496066,
@@ -4764,8 +4799,9 @@
       "sample": "samples/D#1v4.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 43.665643,
-        "pitchErrorCents": 200.480345,
+        "fundamentalHz": 38.622234,
+        "pitchErrorCents": -12,
+        "fundamentalPeakProminence": 3.935304,
         "peakDbfs": -11.081719,
         "envelopeDbfs": [
           -40.423651,
@@ -4897,8 +4933,9 @@
       "sample": "samples/D#1v5.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 43.978082,
-        "pitchErrorCents": 212.823675,
+        "fundamentalHz": 38.895092,
+        "pitchErrorCents": 0.187786,
+        "fundamentalPeakProminence": 12.750191,
         "peakDbfs": -9.815762,
         "envelopeDbfs": [
           -37.395509,
@@ -5021,8 +5058,9 @@
       "sample": "samples/D#1v6.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 44.091554,
-        "pitchErrorCents": 217.284837,
+        "fundamentalHz": 38.895848,
+        "pitchErrorCents": 0.221458,
+        "fundamentalPeakProminence": 2.482519,
         "peakDbfs": -9.709694,
         "envelopeDbfs": [
           -38.22537,
@@ -5151,8 +5189,9 @@
       "sample": "samples/D#1v7.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 43.650563,
-        "pitchErrorCents": 199.882357,
+        "fundamentalHz": 38.947441,
+        "pitchErrorCents": 2.516304,
+        "fundamentalPeakProminence": 5.935822,
         "peakDbfs": -8.342951,
         "envelopeDbfs": [
           -35.49522,
@@ -5284,8 +5323,9 @@
       "sample": "samples/D#1v8.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 42.188973,
-        "pitchErrorCents": 140.921231,
+        "fundamentalHz": 38.977437,
+        "pitchErrorCents": 3.849133,
+        "fundamentalPeakProminence": 2.123726,
         "peakDbfs": -7.521055,
         "envelopeDbfs": [
           -33.727019,
@@ -5414,8 +5454,9 @@
       "sample": "samples/D#1v9.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 41.681921,
-        "pitchErrorCents": 119.988183,
+        "fundamentalHz": 39.018822,
+        "pitchErrorCents": 5.686306,
+        "fundamentalPeakProminence": 1.567369,
         "peakDbfs": -6.525902,
         "envelopeDbfs": [
           -31.969935,
@@ -5547,8 +5588,9 @@
       "sample": "samples/D#1v10.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 44.284055,
-        "pitchErrorCents": 224.82684,
+        "fundamentalHz": 39.030958,
+        "pitchErrorCents": 6.224727,
+        "fundamentalPeakProminence": 1.318013,
         "peakDbfs": -6.303641,
         "envelopeDbfs": [
           -30.423603,
@@ -5686,8 +5728,9 @@
       "sample": "samples/D#1v11.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 43.694767,
-        "pitchErrorCents": 201.634674,
+        "fundamentalHz": 39.033263,
+        "pitchErrorCents": 6.326963,
+        "fundamentalPeakProminence": 2.249779,
         "peakDbfs": -6.215624,
         "envelopeDbfs": [
           -29.203202,
@@ -5810,8 +5853,9 @@
       "sample": "samples/D#1v12.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 43.307765,
-        "pitchErrorCents": 186.232916,
+        "fundamentalHz": 39.063273,
+        "pitchErrorCents": 7.657452,
+        "fundamentalPeakProminence": 3.413994,
         "peakDbfs": -5.333588,
         "envelopeDbfs": [
           -28.868199,
@@ -5943,8 +5987,9 @@
       "sample": "samples/D#1v13.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 43.222068,
-        "pitchErrorCents": 182.803779,
+        "fundamentalHz": 39.077726,
+        "pitchErrorCents": 8.297857,
+        "fundamentalPeakProminence": 8.827585,
         "peakDbfs": -4.700743,
         "envelopeDbfs": [
           -30.449091,
@@ -6082,8 +6127,9 @@
       "sample": "samples/D#1v14.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 43.764044,
-        "pitchErrorCents": 204.377331,
+        "fundamentalHz": 39.091529,
+        "pitchErrorCents": 8.90927,
+        "fundamentalPeakProminence": 7.114334,
         "peakDbfs": -3.937813,
         "envelopeDbfs": [
           -27.812314,
@@ -6206,8 +6252,9 @@
       "sample": "samples/D#1v15.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 43.879648,
-        "pitchErrorCents": 208.944402,
+        "fundamentalHz": 39.106336,
+        "pitchErrorCents": 9.564921,
+        "fundamentalPeakProminence": 8.965719,
         "peakDbfs": -2.910954,
         "envelopeDbfs": [
           -25.30957,
@@ -6330,8 +6377,9 @@
       "sample": "samples/D#1v16.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 43.232672,
-        "pitchErrorCents": 183.228445,
+        "fundamentalHz": 39.109068,
+        "pitchErrorCents": 9.685859,
+        "fundamentalPeakProminence": 8.554783,
         "peakDbfs": -1.548016,
         "envelopeDbfs": [
           -24.415572,
@@ -6469,8 +6517,9 @@
       "sample": "samples/F#1v1.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 44.512606,
-        "pitchErrorCents": -66.261197,
+        "fundamentalHz": 45.982926,
+        "pitchErrorCents": -10,
+        "fundamentalPeakProminence": 7.896327,
         "peakDbfs": -23.922452,
         "envelopeDbfs": [
           -50.994894,
@@ -6602,8 +6651,9 @@
       "sample": "samples/F#1v2.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 45.019518,
-        "pitchErrorCents": -46.657205,
+        "fundamentalHz": 45.982926,
+        "pitchErrorCents": -10,
+        "fundamentalPeakProminence": 17.194412,
         "peakDbfs": -15.331266,
         "envelopeDbfs": [
           -32.156171,
@@ -6741,8 +6791,9 @@
       "sample": "samples/F#1v3.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 45.038433,
-        "pitchErrorCents": -45.929979,
+        "fundamentalHz": 45.982926,
+        "pitchErrorCents": -10,
+        "fundamentalPeakProminence": 15.55798,
         "peakDbfs": -12.932305,
         "envelopeDbfs": [
           -34.751926,
@@ -6880,8 +6931,9 @@
       "sample": "samples/F#1v4.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 44.591501,
-        "pitchErrorCents": -63.195441,
+        "fundamentalHz": 45.982926,
+        "pitchErrorCents": -10,
+        "fundamentalPeakProminence": 15.574078,
         "peakDbfs": -10.85856,
         "envelopeDbfs": [
           -40.814464,
@@ -7019,8 +7071,9 @@
       "sample": "samples/F#1v5.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 44.665523,
-        "pitchErrorCents": -60.323958,
+        "fundamentalHz": 45.982926,
+        "pitchErrorCents": -10,
+        "fundamentalPeakProminence": 17.001601,
         "peakDbfs": -9.037664,
         "envelopeDbfs": [
           -40.057112,
@@ -7158,8 +7211,9 @@
       "sample": "samples/F#1v6.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 44.841805,
-        "pitchErrorCents": -53.504719,
+        "fundamentalHz": 45.982926,
+        "pitchErrorCents": -10,
+        "fundamentalPeakProminence": 16.007978,
         "peakDbfs": -8.888305,
         "envelopeDbfs": [
           -37.775974,
@@ -7297,8 +7351,9 @@
       "sample": "samples/F#1v7.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 44.982125,
-        "pitchErrorCents": -48.095748,
+        "fundamentalHz": 45.982926,
+        "pitchErrorCents": -10,
+        "fundamentalPeakProminence": 18.351892,
         "peakDbfs": -7.392916,
         "envelopeDbfs": [
           -33.260245,
@@ -7436,8 +7491,9 @@
       "sample": "samples/F#1v8.flac",
       "metrics": {
         "onsetMs": 18,
-        "fundamentalHz": 45.550539,
-        "pitchErrorCents": -26.356195,
+        "fundamentalHz": 46.009495,
+        "pitchErrorCents": -9,
+        "fundamentalPeakProminence": 14.413807,
         "peakDbfs": -7.034539,
         "envelopeDbfs": [
           -29.253264,
@@ -7575,8 +7631,9 @@
       "sample": "samples/F#1v9.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 44.850384,
-        "pitchErrorCents": -53.173548,
+        "fundamentalHz": 45.982926,
+        "pitchErrorCents": -10,
+        "fundamentalPeakProminence": 12.250118,
         "peakDbfs": -6.593825,
         "envelopeDbfs": [
           -35.344224,
@@ -7714,8 +7771,9 @@
       "sample": "samples/F#1v10.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 45.219285,
-        "pitchErrorCents": -38.992113,
+        "fundamentalHz": 45.982926,
+        "pitchErrorCents": -10,
+        "fundamentalPeakProminence": 13.076431,
         "peakDbfs": -6.500384,
         "envelopeDbfs": [
           -28.316195,
@@ -7853,8 +7911,9 @@
       "sample": "samples/F#1v11.flac",
       "metrics": {
         "onsetMs": 18,
-        "fundamentalHz": 44.940481,
-        "pitchErrorCents": -49.699254,
+        "fundamentalHz": 45.982926,
+        "pitchErrorCents": -10,
+        "fundamentalPeakProminence": 8.131667,
         "peakDbfs": -6.137623,
         "envelopeDbfs": [
           -27.915214,
@@ -7992,8 +8051,9 @@
       "sample": "samples/F#1v12.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 44.417134,
-        "pitchErrorCents": -69.978368,
+        "fundamentalHz": 46.009495,
+        "pitchErrorCents": -9,
+        "fundamentalPeakProminence": 11.468932,
         "peakDbfs": -5.1419,
         "envelopeDbfs": [
           -28.736163,
@@ -8131,8 +8191,9 @@
       "sample": "samples/F#1v13.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 44.394869,
-        "pitchErrorCents": -70.846407,
+        "fundamentalHz": 46.009495,
+        "pitchErrorCents": -9,
+        "fundamentalPeakProminence": 15.092571,
         "peakDbfs": -4.38653,
         "envelopeDbfs": [
           -29.937554,
@@ -8270,8 +8331,9 @@
       "sample": "samples/F#1v14.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 45.067228,
-        "pitchErrorCents": -44.823473,
+        "fundamentalHz": 46.009495,
+        "pitchErrorCents": -9,
+        "fundamentalPeakProminence": 7.768897,
         "peakDbfs": -3.21527,
         "envelopeDbfs": [
           -24.129972,
@@ -8409,8 +8471,9 @@
       "sample": "samples/F#1v15.flac",
       "metrics": {
         "onsetMs": 20,
-        "fundamentalHz": 45.098469,
-        "pitchErrorCents": -43.623799,
+        "fundamentalHz": 46.009495,
+        "pitchErrorCents": -9,
+        "fundamentalPeakProminence": 8.098987,
         "peakDbfs": -2.798987,
         "envelopeDbfs": [
           -25.566308,
@@ -8548,8 +8611,9 @@
       "sample": "samples/F#1v16.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 45.001812,
-        "pitchErrorCents": -47.338228,
+        "fundamentalHz": 46.009495,
+        "pitchErrorCents": -9,
+        "fundamentalPeakProminence": 23.345298,
         "peakDbfs": -1.568192,
         "envelopeDbfs": [
           -22.489468,
@@ -8687,8 +8751,9 @@
       "sample": "samples/A1v1.flac",
       "metrics": {
         "onsetMs": 4,
-        "fundamentalHz": 50.444567,
-        "pitchErrorCents": -149.679257,
+        "fundamentalHz": 54.809714,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 7.999411,
         "peakDbfs": -20.831621,
         "envelopeDbfs": [
           -30.213003,
@@ -8826,8 +8891,9 @@
       "sample": "samples/A1v2.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 52.691929,
-        "pitchErrorCents": -74.219553,
+        "fundamentalHz": 54.841383,
+        "pitchErrorCents": -5,
+        "fundamentalPeakProminence": 4.460936,
         "peakDbfs": -15.755639,
         "envelopeDbfs": [
           -39.983451,
@@ -8965,8 +9031,9 @@
       "sample": "samples/A1v3.flac",
       "metrics": {
         "onsetMs": 4,
-        "fundamentalHz": 50.486197,
-        "pitchErrorCents": -148.25114,
+        "fundamentalHz": 54.841383,
+        "pitchErrorCents": -5,
+        "fundamentalPeakProminence": 6.364191,
         "peakDbfs": -13.21849,
         "envelopeDbfs": [
           -27.369449,
@@ -9104,8 +9171,9 @@
       "sample": "samples/A1v4.flac",
       "metrics": {
         "onsetMs": 4,
-        "fundamentalHz": 51.623635,
-        "pitchErrorCents": -109.679877,
+        "fundamentalHz": 54.841383,
+        "pitchErrorCents": -5,
+        "fundamentalPeakProminence": 3.540653,
         "peakDbfs": -11.46045,
         "envelopeDbfs": [
           -25.788591,
@@ -9243,8 +9311,9 @@
       "sample": "samples/A1v5.flac",
       "metrics": {
         "onsetMs": 4,
-        "fundamentalHz": 53.972215,
-        "pitchErrorCents": -32.657673,
+        "fundamentalHz": 54.809714,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 2.767514,
         "peakDbfs": -10.600357,
         "envelopeDbfs": [
           -24.723785,
@@ -9382,8 +9451,9 @@
       "sample": "samples/A1v6.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 55.443279,
-        "pitchErrorCents": 13.897152,
+        "fundamentalHz": 54.841383,
+        "pitchErrorCents": -5,
+        "fundamentalPeakProminence": 2.038627,
         "peakDbfs": -9.209775,
         "envelopeDbfs": [
           -26.85556,
@@ -9521,8 +9591,9 @@
       "sample": "samples/A1v7.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 55.253734,
-        "pitchErrorCents": 7.968421,
+        "fundamentalHz": 54.841383,
+        "pitchErrorCents": -5,
+        "fundamentalPeakProminence": 2.915727,
         "peakDbfs": -9.229481,
         "envelopeDbfs": [
           -27.849937,
@@ -9660,8 +9731,9 @@
       "sample": "samples/A1v8.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 55.373256,
-        "pitchErrorCents": 11.709278,
+        "fundamentalHz": 54.841383,
+        "pitchErrorCents": -5,
+        "fundamentalPeakProminence": 3.92044,
         "peakDbfs": -8.635571,
         "envelopeDbfs": [
           -26.991836,
@@ -9799,8 +9871,9 @@
       "sample": "samples/A1v9.flac",
       "metrics": {
         "onsetMs": 4,
-        "fundamentalHz": 55.412272,
-        "pitchErrorCents": 12.928674,
+        "fundamentalHz": 54.841383,
+        "pitchErrorCents": -5,
+        "fundamentalPeakProminence": 4.693045,
         "peakDbfs": -8.331246,
         "envelopeDbfs": [
           -22.291921,
@@ -9938,8 +10011,9 @@
       "sample": "samples/A1v10.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 55.347809,
-        "pitchErrorCents": 10.913498,
+        "fundamentalHz": 55.237171,
+        "pitchErrorCents": 7.44939,
+        "fundamentalPeakProminence": 2.420336,
         "peakDbfs": -8.023155,
         "envelopeDbfs": [
           -27.693716,
@@ -10077,8 +10151,9 @@
       "sample": "samples/A1v11.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 55.79624,
-        "pitchErrorCents": 24.883554,
+        "fundamentalHz": 55.265728,
+        "pitchErrorCents": 8.344186,
+        "fundamentalPeakProminence": 2.310321,
         "peakDbfs": -6.837942,
         "envelopeDbfs": [
           -27.203183,
@@ -10216,8 +10291,9 @@
       "sample": "samples/A1v12.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 55.463044,
-        "pitchErrorCents": 14.514224,
+        "fundamentalHz": 55.290646,
+        "pitchErrorCents": 9.124573,
+        "fundamentalPeakProminence": 2.952462,
         "peakDbfs": -5.556463,
         "envelopeDbfs": [
           -24.94155,
@@ -10355,8 +10431,9 @@
       "sample": "samples/A1v13.flac",
       "metrics": {
         "onsetMs": 4,
-        "fundamentalHz": 55.540133,
-        "pitchErrorCents": 16.918812,
+        "fundamentalHz": 55.287449,
+        "pitchErrorCents": 9.024478,
+        "fundamentalPeakProminence": 2.42028,
         "peakDbfs": -4.861954,
         "envelopeDbfs": [
           -24.108583,
@@ -10494,8 +10571,9 @@
       "sample": "samples/A1v14.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 55.845785,
-        "pitchErrorCents": 26.420142,
+        "fundamentalHz": 55.28409,
+        "pitchErrorCents": 8.919274,
+        "fundamentalPeakProminence": 2.32267,
         "peakDbfs": -3.665174,
         "envelopeDbfs": [
           -27.170692,
@@ -10633,8 +10711,9 @@
       "sample": "samples/A1v15.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 55.213627,
-        "pitchErrorCents": 6.711306,
+        "fundamentalHz": 55.2792,
+        "pitchErrorCents": 8.766148,
+        "fundamentalPeakProminence": 2.705922,
         "peakDbfs": -2.277251,
         "envelopeDbfs": [
           -22.632865,
@@ -10772,8 +10851,9 @@
       "sample": "samples/A1v16.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 55.212197,
-        "pitchErrorCents": 6.666483,
+        "fundamentalHz": 55.336544,
+        "pitchErrorCents": 10.561104,
+        "fundamentalPeakProminence": 2.710025,
         "peakDbfs": -1.552405,
         "envelopeDbfs": [
           -21.184967,
@@ -10911,8 +10991,9 @@
       "sample": "samples/C2v1.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 64.709662,
-        "pitchErrorCents": -18.54058,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 4.327962,
         "peakDbfs": -22.74692,
         "envelopeDbfs": [
           -35.576686,
@@ -11050,8 +11131,9 @@
       "sample": "samples/C2v2.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 64.945815,
-        "pitchErrorCents": -12.234067,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 10.035641,
         "peakDbfs": -15.111672,
         "envelopeDbfs": [
           -32.467325,
@@ -11189,8 +11271,9 @@
       "sample": "samples/C2v3.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 64.971579,
-        "pitchErrorCents": -11.547427,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 12.167413,
         "peakDbfs": -12.440019,
         "envelopeDbfs": [
           -29.545603,
@@ -11328,8 +11411,9 @@
       "sample": "samples/C2v4.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 64.891869,
-        "pitchErrorCents": -13.672668,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 7.723393,
         "peakDbfs": -11.228319,
         "envelopeDbfs": [
           -29.871811,
@@ -11467,8 +11551,9 @@
       "sample": "samples/C2v5.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 64.755392,
-        "pitchErrorCents": -17.317562,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 8.914839,
         "peakDbfs": -9.836729,
         "envelopeDbfs": [
           -26.653328,
@@ -11606,8 +11691,9 @@
       "sample": "samples/C2v6.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 65.144734,
-        "pitchErrorCents": -6.939672,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 9.914183,
         "peakDbfs": -9.344291,
         "envelopeDbfs": [
           -26.278731,
@@ -11742,8 +11828,9 @@
       "sample": "samples/C2v7.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 65.078914,
-        "pitchErrorCents": -8.68973,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 11.325675,
         "peakDbfs": -8.842326,
         "envelopeDbfs": [
           -25.811047,
@@ -11881,8 +11968,9 @@
       "sample": "samples/C2v8.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 64.981692,
-        "pitchErrorCents": -11.277967,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 12.062448,
         "peakDbfs": -8.18215,
         "envelopeDbfs": [
           -24.475137,
@@ -12020,8 +12108,9 @@
       "sample": "samples/C2v9.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 64.729866,
-        "pitchErrorCents": -18.000125,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 8.537296,
         "peakDbfs": -7.622303,
         "envelopeDbfs": [
           -25.581982,
@@ -12159,8 +12248,9 @@
       "sample": "samples/C2v10.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 64.731872,
-        "pitchErrorCents": -17.946458,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 8.345628,
         "peakDbfs": -6.872758,
         "envelopeDbfs": [
           -23.671664,
@@ -12298,8 +12388,9 @@
       "sample": "samples/C2v11.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 64.809655,
-        "pitchErrorCents": -15.867447,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 6.133147,
         "peakDbfs": -5.981886,
         "envelopeDbfs": [
           -22.930302,
@@ -12437,8 +12528,9 @@
       "sample": "samples/C2v12.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 65.012777,
-        "pitchErrorCents": -10.449995,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 7.762902,
         "peakDbfs": -5.342331,
         "envelopeDbfs": [
           -21.580054,
@@ -12576,8 +12668,9 @@
       "sample": "samples/C2v13.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 64.93677,
-        "pitchErrorCents": -12.475201,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 5.664702,
         "peakDbfs": -4.48882,
         "envelopeDbfs": [
           -20.709775,
@@ -12715,8 +12808,9 @@
       "sample": "samples/C2v14.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 64.777278,
-        "pitchErrorCents": -16.732538,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 8.019149,
         "peakDbfs": -3.834874,
         "envelopeDbfs": [
           -20.425051,
@@ -12854,8 +12948,9 @@
       "sample": "samples/C2v15.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 64.943067,
-        "pitchErrorCents": -12.307323,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 11.539205,
         "peakDbfs": -2.559395,
         "envelopeDbfs": [
           -19.704253,
@@ -12993,8 +13088,9 @@
       "sample": "samples/C2v16.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 64.833425,
-        "pitchErrorCents": -15.232603,
+        "fundamentalHz": 65.180102,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 6.077359,
         "peakDbfs": -1.545153,
         "envelopeDbfs": [
           -22.84221,
@@ -13132,8 +13228,9 @@
       "sample": "samples/D#2v1.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 77.164534,
-        "pitchErrorCents": -13.792437,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 120.79159,
         "peakDbfs": -17.029065,
         "envelopeDbfs": [
           -35.915885,
@@ -13271,8 +13368,9 @@
       "sample": "samples/D#2v2.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 77.150425,
-        "pitchErrorCents": -14.109009,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 69.209182,
         "peakDbfs": -14.898327,
         "envelopeDbfs": [
           -25.885618,
@@ -13410,8 +13508,9 @@
       "sample": "samples/D#2v3.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 77.139838,
-        "pitchErrorCents": -14.346602,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 64.636446,
         "peakDbfs": -11.712816,
         "envelopeDbfs": [
           -24.576302,
@@ -13549,8 +13648,9 @@
       "sample": "samples/D#2v4.flac",
       "metrics": {
         "onsetMs": 4,
-        "fundamentalHz": 77.108135,
-        "pitchErrorCents": -15.05826,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 115.799864,
         "peakDbfs": -10.733195,
         "envelopeDbfs": [
           -30.293107,
@@ -13688,8 +13788,9 @@
       "sample": "samples/D#2v5.flac",
       "metrics": {
         "onsetMs": 4,
-        "fundamentalHz": 77.108375,
-        "pitchErrorCents": -15.052855,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 93.661783,
         "peakDbfs": -9.970962,
         "envelopeDbfs": [
           -23.85851,
@@ -13827,8 +13928,9 @@
       "sample": "samples/D#2v6.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 77.114463,
-        "pitchErrorCents": -14.916172,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 73.404334,
         "peakDbfs": -9.648262,
         "envelopeDbfs": [
           -22.644774,
@@ -13966,8 +14068,9 @@
       "sample": "samples/D#2v7.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 77.109281,
-        "pitchErrorCents": -15.032518,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 92.803031,
         "peakDbfs": -9.21307,
         "envelopeDbfs": [
           -22.194614,
@@ -14105,8 +14208,9 @@
       "sample": "samples/D#2v8.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 77.102723,
-        "pitchErrorCents": -15.179758,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 116.884924,
         "peakDbfs": -8.547875,
         "envelopeDbfs": [
           -22.331224,
@@ -14244,8 +14348,9 @@
       "sample": "samples/D#2v9.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 77.089972,
-        "pitchErrorCents": -15.466108,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 102.893271,
         "peakDbfs": -7.812752,
         "envelopeDbfs": [
           -24.046834,
@@ -14383,8 +14488,9 @@
       "sample": "samples/D#2v10.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 77.07812,
-        "pitchErrorCents": -15.732277,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 85.301597,
         "peakDbfs": -7.479989,
         "envelopeDbfs": [
           -21.325707,
@@ -14522,8 +14628,9 @@
       "sample": "samples/D#2v11.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 77.079882,
-        "pitchErrorCents": -15.692697,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 75.345675,
         "peakDbfs": -7.044765,
         "envelopeDbfs": [
           -20.853228,
@@ -14661,8 +14768,9 @@
       "sample": "samples/D#2v12.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 77.07881,
-        "pitchErrorCents": -15.716785,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 67.487531,
         "peakDbfs": -6.443965,
         "envelopeDbfs": [
           -29.655398,
@@ -14800,8 +14908,9 @@
       "sample": "samples/D#2v13.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 77.097554,
-        "pitchErrorCents": -15.295834,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 69.966435,
         "peakDbfs": -5.403065,
         "envelopeDbfs": [
           -19.466896,
@@ -14939,8 +15048,9 @@
       "sample": "samples/D#2v14.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 77.072208,
-        "pitchErrorCents": -15.865076,
+        "fundamentalHz": 77.602239,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 117.911396,
         "peakDbfs": -4.102672,
         "envelopeDbfs": [
           -17.117645,
@@ -15080,6 +15190,7 @@
         "onsetMs": 10,
         "fundamentalHz": 77.041602,
         "pitchErrorCents": -16.552688,
+        "fundamentalPeakProminence": 86.052104,
         "peakDbfs": -2.958188,
         "envelopeDbfs": [
           -17.052641,
@@ -15219,6 +15330,7 @@
         "onsetMs": 10,
         "fundamentalHz": 77.033927,
         "pitchErrorCents": -16.725169,
+        "fundamentalPeakProminence": 72.062388,
         "peakDbfs": -1.524408,
         "envelopeDbfs": [
           -15.562448,
@@ -15356,8 +15468,9 @@
       "sample": "samples/F#2v1.flac",
       "metrics": {
         "onsetMs": 2,
-        "fundamentalHz": 92.125001,
-        "pitchErrorCents": -7.006675,
+        "fundamentalHz": 92.285135,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 90.962128,
         "peakDbfs": -21.256968,
         "envelopeDbfs": [
           -48.780544,
@@ -15480,8 +15593,9 @@
       "sample": "samples/F#2v2.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 92.124725,
-        "pitchErrorCents": -7.011845,
+        "fundamentalHz": 92.285135,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 87.894162,
         "peakDbfs": -15.871016,
         "envelopeDbfs": [
           -29.724101,
@@ -15604,8 +15718,9 @@
       "sample": "samples/F#2v3.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 92.149543,
-        "pitchErrorCents": -6.545536,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 97.080441,
         "peakDbfs": -13.152863,
         "envelopeDbfs": [
           -27.316751,
@@ -15728,8 +15843,9 @@
       "sample": "samples/F#2v4.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 92.154352,
-        "pitchErrorCents": -6.455185,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 106.971374,
         "peakDbfs": -11.935408,
         "envelopeDbfs": [
           -24.078724,
@@ -15852,8 +15968,9 @@
       "sample": "samples/F#2v5.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 92.168759,
-        "pitchErrorCents": -6.184544,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 115.554895,
         "peakDbfs": -11.249357,
         "envelopeDbfs": [
           -25.948842,
@@ -15982,8 +16099,9 @@
       "sample": "samples/F#2v6.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 92.162856,
-        "pitchErrorCents": -6.295437,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 106.663084,
         "peakDbfs": -9.869361,
         "envelopeDbfs": [
           -22.18595,
@@ -16106,8 +16224,9 @@
       "sample": "samples/F#2v7.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 92.162129,
-        "pitchErrorCents": -6.309085,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 139.957277,
         "peakDbfs": -9.347079,
         "envelopeDbfs": [
           -21.403233,
@@ -16230,8 +16349,9 @@
       "sample": "samples/F#2v8.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 92.168201,
-        "pitchErrorCents": -6.195035,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 144.869164,
         "peakDbfs": -8.429102,
         "envelopeDbfs": [
           -22.510025,
@@ -16363,8 +16483,9 @@
       "sample": "samples/F#2v9.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 92.172852,
-        "pitchErrorCents": -6.107675,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 134.023944,
         "peakDbfs": -8.09973,
         "envelopeDbfs": [
           -23.055662,
@@ -16496,8 +16617,9 @@
       "sample": "samples/F#2v10.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 92.186119,
-        "pitchErrorCents": -5.858508,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 110.57739,
         "peakDbfs": -6.702188,
         "envelopeDbfs": [
           -20.473237,
@@ -16629,8 +16751,9 @@
       "sample": "samples/F#2v11.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 92.18459,
-        "pitchErrorCents": -5.887213,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 109.862288,
         "peakDbfs": -6.319254,
         "envelopeDbfs": [
           -20.030088,
@@ -16762,8 +16885,9 @@
       "sample": "samples/F#2v12.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 92.181892,
-        "pitchErrorCents": -5.937886,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 121.62105,
         "peakDbfs": -6.14551,
         "envelopeDbfs": [
           -19.719879,
@@ -16898,8 +17022,9 @@
       "sample": "samples/F#2v13.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 92.206927,
-        "pitchErrorCents": -5.46778,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 123.924216,
         "peakDbfs": -4.56652,
         "envelopeDbfs": [
           -19.464621,
@@ -17031,8 +17156,9 @@
       "sample": "samples/F#2v14.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 92.206465,
-        "pitchErrorCents": -5.476454,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 105.106802,
         "peakDbfs": -3.477418,
         "envelopeDbfs": [
           -20.772558,
@@ -17164,8 +17290,9 @@
       "sample": "samples/F#2v15.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 92.199306,
-        "pitchErrorCents": -5.610877,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 123.076911,
         "peakDbfs": -2.463619,
         "envelopeDbfs": [
           -17.11549,
@@ -17297,8 +17424,9 @@
       "sample": "samples/F#2v16.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 92.203935,
-        "pitchErrorCents": -5.523952,
+        "fundamentalHz": 92.338457,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 149.019146,
         "peakDbfs": -1.477852,
         "envelopeDbfs": [
           -20.616601,
@@ -17430,8 +17558,9 @@
       "sample": "samples/A2v1.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 109.467908,
-        "pitchErrorCents": -8.39465,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 47.668588,
         "peakDbfs": -22.639213,
         "envelopeDbfs": [
           -49.086407,
@@ -17554,8 +17683,9 @@
       "sample": "samples/A2v2.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 109.524562,
-        "pitchErrorCents": -7.498888,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 88.438521,
         "peakDbfs": -16.657122,
         "envelopeDbfs": [
           -31.376556,
@@ -17684,8 +17814,9 @@
       "sample": "samples/A2v3.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 109.533556,
-        "pitchErrorCents": -7.356732,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 68.933825,
         "peakDbfs": -14.702596,
         "envelopeDbfs": [
           -28.204298,
@@ -17817,8 +17948,9 @@
       "sample": "samples/A2v4.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 109.534275,
-        "pitchErrorCents": -7.345367,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 65.476585,
         "peakDbfs": -12.790473,
         "envelopeDbfs": [
           -24.755352,
@@ -17950,8 +18082,9 @@
       "sample": "samples/A2v5.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 109.525293,
-        "pitchErrorCents": -7.487346,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 58.438435,
         "peakDbfs": -11.812296,
         "envelopeDbfs": [
           -24.360241,
@@ -18086,8 +18219,9 @@
       "sample": "samples/A2v6.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 109.527967,
-        "pitchErrorCents": -7.445075,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 69.382227,
         "peakDbfs": -11.254319,
         "envelopeDbfs": [
           -24.898809,
@@ -18222,8 +18356,9 @@
       "sample": "samples/A2v7.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 109.52585,
-        "pitchErrorCents": -7.478529,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 69.310824,
         "peakDbfs": -10.166781,
         "envelopeDbfs": [
           -22.505651,
@@ -18358,8 +18493,9 @@
       "sample": "samples/A2v8.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 109.521797,
-        "pitchErrorCents": -7.542595,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 69.058289,
         "peakDbfs": -9.88478,
         "envelopeDbfs": [
           -24.705984,
@@ -18494,8 +18630,9 @@
       "sample": "samples/A2v9.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 109.516186,
-        "pitchErrorCents": -7.631298,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 70.482593,
         "peakDbfs": -9.102229,
         "envelopeDbfs": [
           -25.438483,
@@ -18630,8 +18767,9 @@
       "sample": "samples/A2v10.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 109.525653,
-        "pitchErrorCents": -7.481645,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 55.511762,
         "peakDbfs": -8.891143,
         "envelopeDbfs": [
           -21.889107,
@@ -18766,8 +18904,9 @@
       "sample": "samples/A2v11.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 109.525356,
-        "pitchErrorCents": -7.486343,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 72.559481,
         "peakDbfs": -7.460691,
         "envelopeDbfs": [
           -20.6901,
@@ -18902,8 +19041,9 @@
       "sample": "samples/A2v12.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 109.523608,
-        "pitchErrorCents": -7.513981,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 68.20265,
         "peakDbfs": -7.075328,
         "envelopeDbfs": [
           -21.596701,
@@ -19038,8 +19178,9 @@
       "sample": "samples/A2v13.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 109.519569,
-        "pitchErrorCents": -7.577812,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 62.413088,
         "peakDbfs": -4.787345,
         "envelopeDbfs": [
           -17.657367,
@@ -19177,8 +19318,9 @@
       "sample": "samples/A2v14.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 109.512221,
-        "pitchErrorCents": -7.693971,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 101.949539,
         "peakDbfs": -4.276547,
         "envelopeDbfs": [
           -18.586836,
@@ -19316,8 +19458,9 @@
       "sample": "samples/A2v15.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 109.508039,
-        "pitchErrorCents": -7.760093,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 56.950138,
         "peakDbfs": -2.923591,
         "envelopeDbfs": [
           -16.686738,
@@ -19455,8 +19598,9 @@
       "sample": "samples/A2v16.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 109.521221,
-        "pitchErrorCents": -7.551713,
+        "fundamentalHz": 109.93648,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 64.724804,
         "peakDbfs": -1.540313,
         "envelopeDbfs": [
           -18.829363,
@@ -19594,8 +19738,9 @@
       "sample": "samples/C3v1.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 130.424135,
-        "pitchErrorCents": -5.151191,
+        "fundamentalHz": 130.51089,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 73.639415,
         "peakDbfs": -21.108611,
         "envelopeDbfs": [
           -37.184879,
@@ -19718,8 +19863,9 @@
       "sample": "samples/C3v2.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 130.229477,
-        "pitchErrorCents": -7.736991,
+        "fundamentalHz": 130.435526,
+        "pitchErrorCents": -5,
+        "fundamentalPeakProminence": 67.695022,
         "peakDbfs": -16.505486,
         "envelopeDbfs": [
           -30.596887,
@@ -19842,8 +19988,9 @@
       "sample": "samples/C3v3.flac",
       "metrics": {
         "onsetMs": 18,
-        "fundamentalHz": 130.101909,
-        "pitchErrorCents": -9.433673,
+        "fundamentalHz": 130.435526,
+        "pitchErrorCents": -5,
+        "fundamentalPeakProminence": 42.648823,
         "peakDbfs": -14.017955,
         "envelopeDbfs": [
           -27.049437,
@@ -19966,8 +20113,9 @@
       "sample": "samples/C3v4.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 129.964802,
-        "pitchErrorCents": -11.259086,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 48.943866,
         "peakDbfs": -12.403907,
         "envelopeDbfs": [
           -25.936204,
@@ -20090,8 +20238,9 @@
       "sample": "samples/C3v5.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 129.932391,
-        "pitchErrorCents": -11.690881,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 58.850623,
         "peakDbfs": -11.713295,
         "envelopeDbfs": [
           -24.652269,
@@ -20214,8 +20363,9 @@
       "sample": "samples/C3v6.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 129.893721,
-        "pitchErrorCents": -12.206198,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 75.30524,
         "peakDbfs": -11.461411,
         "envelopeDbfs": [
           -27.624663,
@@ -20338,8 +20488,9 @@
       "sample": "samples/C3v7.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 129.884635,
-        "pitchErrorCents": -12.3273,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 118.458091,
         "peakDbfs": -10.469927,
         "envelopeDbfs": [
           -25.298125,
@@ -20462,8 +20613,9 @@
       "sample": "samples/C3v8.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 129.854609,
-        "pitchErrorCents": -12.727566,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 130.225752,
         "peakDbfs": -9.000775,
         "envelopeDbfs": [
           -22.048151,
@@ -20586,8 +20738,9 @@
       "sample": "samples/C3v9.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 129.892253,
-        "pitchErrorCents": -12.225761,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 107.686717,
         "peakDbfs": -8.226493,
         "envelopeDbfs": [
           -21.35138,
@@ -20710,8 +20863,9 @@
       "sample": "samples/C3v10.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 129.842898,
-        "pitchErrorCents": -12.883708,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 101.67846,
         "peakDbfs": -7.637026,
         "envelopeDbfs": [
           -20.788254,
@@ -20834,8 +20988,9 @@
       "sample": "samples/C3v11.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 129.823111,
-        "pitchErrorCents": -13.147554,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 107.985619,
         "peakDbfs": -7.377839,
         "envelopeDbfs": [
           -20.430385,
@@ -20958,8 +21113,9 @@
       "sample": "samples/C3v12.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 129.818183,
-        "pitchErrorCents": -13.213265,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 110.076121,
         "peakDbfs": -6.554855,
         "envelopeDbfs": [
           -19.857835,
@@ -21082,8 +21238,9 @@
       "sample": "samples/C3v13.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 129.82884,
-        "pitchErrorCents": -13.071153,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 121.934514,
         "peakDbfs": -5.641177,
         "envelopeDbfs": [
           -19.22842,
@@ -21206,8 +21363,9 @@
       "sample": "samples/C3v14.flac",
       "metrics": {
         "onsetMs": 18,
-        "fundamentalHz": 129.768614,
-        "pitchErrorCents": -13.874435,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 126.753836,
         "peakDbfs": -4.495753,
         "envelopeDbfs": [
           -17.916604,
@@ -21330,8 +21488,9 @@
       "sample": "samples/C3v15.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 129.702105,
-        "pitchErrorCents": -14.761956,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 114.05576,
         "peakDbfs": -3.047463,
         "envelopeDbfs": [
           -15.834936,
@@ -21454,8 +21613,9 @@
       "sample": "samples/C3v16.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 129.731628,
-        "pitchErrorCents": -14.36793,
+        "fundamentalHz": 130.360205,
+        "pitchErrorCents": -6,
+        "fundamentalPeakProminence": 54.879249,
         "peakDbfs": -1.568556,
         "envelopeDbfs": [
           -14.297071,
@@ -21578,8 +21738,9 @@
       "sample": "samples/D#3v1.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 155.37903,
-        "pitchErrorCents": -2.054054,
+        "fundamentalHz": 155.383882,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 72.241427,
         "peakDbfs": -19.509374,
         "envelopeDbfs": [
           -41.377161,
@@ -21702,8 +21863,9 @@
       "sample": "samples/D#3v2.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 155.398927,
-        "pitchErrorCents": -1.832381,
+        "fundamentalHz": 155.383882,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 80.648088,
         "peakDbfs": -15.885685,
         "envelopeDbfs": [
           -29.334799,
@@ -21826,8 +21988,9 @@
       "sample": "samples/D#3v3.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 155.424812,
-        "pitchErrorCents": -1.544031,
+        "fundamentalHz": 155.383882,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 116.988607,
         "peakDbfs": -12.775569,
         "envelopeDbfs": [
           -28.650708,
@@ -21950,8 +22113,9 @@
       "sample": "samples/D#3v4.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 155.441368,
-        "pitchErrorCents": -1.35963,
+        "fundamentalHz": 155.383882,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 127.775085,
         "peakDbfs": -10.870695,
         "envelopeDbfs": [
           -24.867266,
@@ -22074,8 +22238,9 @@
       "sample": "samples/D#3v5.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 155.442226,
-        "pitchErrorCents": -1.350072,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 119.017036,
         "peakDbfs": -10.215409,
         "envelopeDbfs": [
           -24.205066,
@@ -22198,8 +22363,9 @@
       "sample": "samples/D#3v6.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 155.447266,
-        "pitchErrorCents": -1.29394,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 113.56944,
         "peakDbfs": -9.638017,
         "envelopeDbfs": [
           -24.134172,
@@ -22322,8 +22488,9 @@
       "sample": "samples/D#3v7.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 155.443955,
-        "pitchErrorCents": -1.330815,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 126.253861,
         "peakDbfs": -9.251598,
         "envelopeDbfs": [
           -24.229884,
@@ -22446,8 +22613,9 @@
       "sample": "samples/D#3v8.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 155.447725,
-        "pitchErrorCents": -1.28882,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 140.214498,
         "peakDbfs": -8.821682,
         "envelopeDbfs": [
           -24.268233,
@@ -22570,8 +22738,9 @@
       "sample": "samples/D#3v9.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 155.45301,
-        "pitchErrorCents": -1.229963,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 158.862758,
         "peakDbfs": -7.918937,
         "envelopeDbfs": [
           -21.988544,
@@ -22694,8 +22863,9 @@
       "sample": "samples/D#3v10.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 155.454537,
-        "pitchErrorCents": -1.212965,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 163.428048,
         "peakDbfs": -7.344795,
         "envelopeDbfs": [
           -21.7476,
@@ -22818,8 +22988,9 @@
       "sample": "samples/D#3v11.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 155.458603,
-        "pitchErrorCents": -1.167675,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 151.294875,
         "peakDbfs": -7.143872,
         "envelopeDbfs": [
           -21.656064,
@@ -22942,8 +23113,9 @@
       "sample": "samples/D#3v12.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 155.46087,
-        "pitchErrorCents": -1.142439,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 166.718184,
         "peakDbfs": -6.792296,
         "envelopeDbfs": [
           -20.9259,
@@ -23066,8 +23238,9 @@
       "sample": "samples/D#3v13.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 155.464633,
-        "pitchErrorCents": -1.100527,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 203.450116,
         "peakDbfs": -5.01205,
         "envelopeDbfs": [
           -21.207173,
@@ -23190,8 +23363,9 @@
       "sample": "samples/D#3v14.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 155.464682,
-        "pitchErrorCents": -1.099987,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 172.501119,
         "peakDbfs": -4.364677,
         "envelopeDbfs": [
           -19.558637,
@@ -23314,8 +23488,9 @@
       "sample": "samples/D#3v15.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 155.46411,
-        "pitchErrorCents": -1.106357,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 140.464678,
         "peakDbfs": -3.011128,
         "envelopeDbfs": [
           -19.25368,
@@ -23438,8 +23613,9 @@
       "sample": "samples/D#3v16.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 155.464365,
-        "pitchErrorCents": -1.103519,
+        "fundamentalHz": 155.473661,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 167.901664,
         "peakDbfs": -1.567927,
         "envelopeDbfs": [
           -17.275304,
@@ -23562,8 +23738,9 @@
       "sample": "samples/F#3v1.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 183.792118,
-        "pitchErrorCents": -11.314355,
+        "fundamentalHz": 184.57027,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 7.639295,
         "peakDbfs": -21.001388,
         "envelopeDbfs": [
           -31.442439,
@@ -23686,8 +23863,9 @@
       "sample": "samples/F#3v2.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 182.657304,
-        "pitchErrorCents": -22.036892,
+        "fundamentalHz": 184.676913,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 3.543513,
         "peakDbfs": -17.766909,
         "envelopeDbfs": [
           -29.235626,
@@ -23810,8 +23988,9 @@
       "sample": "samples/F#3v3.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 182.28621,
-        "pitchErrorCents": -25.557722,
+        "fundamentalHz": 184.676913,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 4.31258,
         "peakDbfs": -15.90067,
         "envelopeDbfs": [
           -27.331437,
@@ -23934,8 +24113,9 @@
       "sample": "samples/F#3v4.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 181.900871,
-        "pitchErrorCents": -29.221283,
+        "fundamentalHz": 184.783618,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 7.212645,
         "peakDbfs": -14.508912,
         "envelopeDbfs": [
           -28.410004,
@@ -24058,8 +24238,9 @@
       "sample": "samples/F#3v5.flac",
       "metrics": {
         "onsetMs": 18,
-        "fundamentalHz": 181.869475,
-        "pitchErrorCents": -29.520125,
+        "fundamentalHz": 184.783618,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 8.785262,
         "peakDbfs": -13.282097,
         "envelopeDbfs": [
           -24.30995,
@@ -24182,8 +24363,9 @@
       "sample": "samples/F#3v6.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 181.930485,
-        "pitchErrorCents": -28.939455,
+        "fundamentalHz": 184.783618,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 10.913695,
         "peakDbfs": -11.548781,
         "envelopeDbfs": [
           -23.793034,
@@ -24306,8 +24488,9 @@
       "sample": "samples/F#3v7.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 181.884233,
-        "pitchErrorCents": -29.379644,
+        "fundamentalHz": 184.783618,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 7.614286,
         "peakDbfs": -10.441201,
         "envelopeDbfs": [
           -22.871672,
@@ -24430,8 +24613,9 @@
       "sample": "samples/F#3v8.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 181.975549,
-        "pitchErrorCents": -28.510686,
+        "fundamentalHz": 184.783618,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 7.304174,
         "peakDbfs": -9.893075,
         "envelopeDbfs": [
           -24.08176,
@@ -24554,8 +24738,9 @@
       "sample": "samples/F#3v9.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 182.005119,
-        "pitchErrorCents": -28.229394,
+        "fundamentalHz": 184.783618,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 7.437179,
         "peakDbfs": -9.656548,
         "envelopeDbfs": [
           -20.670485,
@@ -24678,8 +24863,9 @@
       "sample": "samples/F#3v10.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 182.155477,
-        "pitchErrorCents": -26.79978,
+        "fundamentalHz": 184.783618,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 7.446722,
         "peakDbfs": -8.995144,
         "envelopeDbfs": [
           -22.902923,
@@ -24802,8 +24988,9 @@
       "sample": "samples/F#3v11.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 182.18265,
-        "pitchErrorCents": -26.541539,
+        "fundamentalHz": 184.783618,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 7.670493,
         "peakDbfs": -8.104851,
         "envelopeDbfs": [
           -20.41447,
@@ -24926,8 +25113,9 @@
       "sample": "samples/F#3v12.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 182.376108,
-        "pitchErrorCents": -24.704133,
+        "fundamentalHz": 184.783618,
+        "pitchErrorCents": -2,
+        "fundamentalPeakProminence": 8.175233,
         "peakDbfs": -7.245289,
         "envelopeDbfs": [
           -19.432902,
@@ -25050,8 +25238,9 @@
       "sample": "samples/F#3v13.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 182.564697,
-        "pitchErrorCents": -22.914846,
+        "fundamentalHz": 184.676913,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 8.619156,
         "peakDbfs": -6.554767,
         "envelopeDbfs": [
           -18.889643,
@@ -25174,8 +25363,9 @@
       "sample": "samples/F#3v14.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 182.86583,
-        "pitchErrorCents": -20.061606,
+        "fundamentalHz": 184.676913,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 8.729241,
         "peakDbfs": -5.771497,
         "envelopeDbfs": [
           -17.113878,
@@ -25298,8 +25488,9 @@
       "sample": "samples/F#3v15.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 183.384713,
-        "pitchErrorCents": -15.156168,
+        "fundamentalHz": 184.676913,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 8.304296,
         "peakDbfs": -4.038252,
         "envelopeDbfs": [
           -15.659797,
@@ -25422,8 +25613,9 @@
       "sample": "samples/F#3v16.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 183.6907,
-        "pitchErrorCents": -12.269923,
+        "fundamentalHz": 184.676913,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 9.942059,
         "peakDbfs": -1.526173,
         "envelopeDbfs": [
           -14.404716,
@@ -25546,8 +25738,9 @@
       "sample": "samples/A3v1.flac",
       "metrics": {
         "onsetMs": 2,
-        "fundamentalHz": 220.00614,
-        "pitchErrorCents": 0.048315,
+        "fundamentalHz": 220,
+        "pitchErrorCents": 0,
+        "fundamentalPeakProminence": 34.863891,
         "peakDbfs": -28.512524,
         "envelopeDbfs": [
           -56.164395,
@@ -25670,8 +25863,9 @@
       "sample": "samples/A3v2.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 220.01126,
-        "pitchErrorCents": 0.088604,
+        "fundamentalHz": 220.127114,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 40.812167,
         "peakDbfs": -24.136243,
         "envelopeDbfs": [
           -37.15151,
@@ -25794,8 +25988,9 @@
       "sample": "samples/A3v3.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 220.01697,
-        "pitchErrorCents": 0.133533,
+        "fundamentalHz": 220.127114,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 48.697182,
         "peakDbfs": -19.401445,
         "envelopeDbfs": [
           -29.521767,
@@ -25918,8 +26113,9 @@
       "sample": "samples/A3v4.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 220.011685,
-        "pitchErrorCents": 0.091949,
+        "fundamentalHz": 220.127114,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 45.034444,
         "peakDbfs": -16.794649,
         "envelopeDbfs": [
           -27.903033,
@@ -26042,8 +26238,9 @@
       "sample": "samples/A3v5.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 220.01353,
-        "pitchErrorCents": 0.106466,
+        "fundamentalHz": 220.127114,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 43.619659,
         "peakDbfs": -15.115978,
         "envelopeDbfs": [
           -26.840279,
@@ -26166,8 +26363,9 @@
       "sample": "samples/A3v6.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 220.013321,
-        "pitchErrorCents": 0.104826,
+        "fundamentalHz": 220.127114,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 44.921177,
         "peakDbfs": -13.152797,
         "envelopeDbfs": [
           -23.852936,
@@ -26290,8 +26488,9 @@
       "sample": "samples/A3v7.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 220.01872,
-        "pitchErrorCents": 0.147306,
+        "fundamentalHz": 220.127114,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 44.771879,
         "peakDbfs": -12.637695,
         "envelopeDbfs": [
           -23.606875,
@@ -26414,8 +26613,9 @@
       "sample": "samples/A3v8.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 220.021207,
-        "pitchErrorCents": 0.166877,
+        "fundamentalHz": 220.127114,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 41.389226,
         "peakDbfs": -11.644443,
         "envelopeDbfs": [
           -23.411402,
@@ -26538,8 +26738,9 @@
       "sample": "samples/A3v9.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 220.034827,
-        "pitchErrorCents": 0.274042,
+        "fundamentalHz": 220.127114,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 39.085626,
         "peakDbfs": -10.463038,
         "envelopeDbfs": [
           -21.923324,
@@ -26662,8 +26863,9 @@
       "sample": "samples/A3v10.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 220.041661,
-        "pitchErrorCents": 0.327808,
+        "fundamentalHz": 220.127114,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 38.439085,
         "peakDbfs": -9.43424,
         "envelopeDbfs": [
           -22.803271,
@@ -26786,8 +26988,9 @@
       "sample": "samples/A3v11.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 220.045964,
-        "pitchErrorCents": 0.361666,
+        "fundamentalHz": 220.254301,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 39.49782,
         "peakDbfs": -7.355813,
         "envelopeDbfs": [
           -19.586838,
@@ -26910,8 +27113,9 @@
       "sample": "samples/A3v12.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 220.045152,
-        "pitchErrorCents": 0.355275,
+        "fundamentalHz": 220.254301,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 37.282448,
         "peakDbfs": -6.93104,
         "envelopeDbfs": [
           -19.578291,
@@ -27034,8 +27238,9 @@
       "sample": "samples/A3v13.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 220.045379,
-        "pitchErrorCents": 0.357061,
+        "fundamentalHz": 220.254301,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 43.035511,
         "peakDbfs": -5.111291,
         "envelopeDbfs": [
           -17.999797,
@@ -27158,8 +27363,9 @@
       "sample": "samples/A3v14.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 220.048772,
-        "pitchErrorCents": 0.38376,
+        "fundamentalHz": 220.254301,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 39.918008,
         "peakDbfs": -4.342812,
         "envelopeDbfs": [
           -17.287613,
@@ -27282,8 +27488,9 @@
       "sample": "samples/A3v15.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 220.063188,
-        "pitchErrorCents": 0.497173,
+        "fundamentalHz": 220.254301,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 42.179442,
         "peakDbfs": -2.563667,
         "envelopeDbfs": [
           -15.283152,
@@ -27406,8 +27613,9 @@
       "sample": "samples/A3v16.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 220.071125,
-        "pitchErrorCents": 0.559606,
+        "fundamentalHz": 220.254301,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 43.595392,
         "peakDbfs": -1.476797,
         "envelopeDbfs": [
           -15.211807,
@@ -27530,8 +27738,9 @@
       "sample": "samples/C4v1.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 261.071965,
-        "pitchErrorCents": -3.667177,
+        "fundamentalHz": 261.02178,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 197.888303,
         "peakDbfs": -19.391033,
         "envelopeDbfs": [
           -34.852174,
@@ -27654,8 +27863,9 @@
       "sample": "samples/C4v2.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 261.070983,
-        "pitchErrorCents": -3.673688,
+        "fundamentalHz": 261.474488,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 227.242123,
         "peakDbfs": -15.479916,
         "envelopeDbfs": [
           -26.691471,
@@ -27778,8 +27988,9 @@
       "sample": "samples/C4v3.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 261.06379,
-        "pitchErrorCents": -3.721385,
+        "fundamentalHz": 261.474488,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 227.900008,
         "peakDbfs": -13.346521,
         "envelopeDbfs": [
           -26.248135,
@@ -27902,8 +28113,9 @@
       "sample": "samples/C4v4.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 261.061364,
-        "pitchErrorCents": -3.737478,
+        "fundamentalHz": 261.474488,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 205.628964,
         "peakDbfs": -11.694299,
         "envelopeDbfs": [
           -23.208829,
@@ -28026,8 +28238,9 @@
       "sample": "samples/C4v5.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 261.065043,
-        "pitchErrorCents": -3.71308,
+        "fundamentalHz": 261.474488,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 168.438672,
         "peakDbfs": -10.533466,
         "envelopeDbfs": [
           -22.852441,
@@ -28150,8 +28363,9 @@
       "sample": "samples/C4v6.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 261.069426,
-        "pitchErrorCents": -3.684012,
+        "fundamentalHz": 261.474488,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 150.180899,
         "peakDbfs": -9.697267,
         "envelopeDbfs": [
           -21.140707,
@@ -28274,8 +28488,9 @@
       "sample": "samples/C4v7.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 261.080122,
-        "pitchErrorCents": -3.613084,
+        "fundamentalHz": 261.474488,
+        "pitchErrorCents": -1,
+        "fundamentalPeakProminence": 141.002785,
         "peakDbfs": -8.599304,
         "envelopeDbfs": [
           -20.232211,
@@ -28398,8 +28613,9 @@
       "sample": "samples/C4v8.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 261.085595,
-        "pitchErrorCents": -3.576792,
+        "fundamentalHz": 261.625565,
+        "pitchErrorCents": 0,
+        "fundamentalPeakProminence": 143.286087,
         "peakDbfs": -8.113453,
         "envelopeDbfs": [
           -20.123721,
@@ -28522,8 +28738,9 @@
       "sample": "samples/C4v9.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 261.174335,
-        "pitchErrorCents": -2.988467,
+        "fundamentalHz": 261.625565,
+        "pitchErrorCents": 0,
+        "fundamentalPeakProminence": 186.214491,
         "peakDbfs": -7.151766,
         "envelopeDbfs": [
           -19.76195,
@@ -28646,8 +28863,9 @@
       "sample": "samples/C4v10.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 261.146286,
-        "pitchErrorCents": -3.174404,
+        "fundamentalHz": 261.625565,
+        "pitchErrorCents": 0,
+        "fundamentalPeakProminence": 143.647515,
         "peakDbfs": -5.609701,
         "envelopeDbfs": [
           -17.832482,
@@ -28770,8 +28988,9 @@
       "sample": "samples/C4v11.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 261.131529,
-        "pitchErrorCents": -3.272237,
+        "fundamentalHz": 261.625565,
+        "pitchErrorCents": 0,
+        "fundamentalPeakProminence": 181.302694,
         "peakDbfs": -4.476991,
         "envelopeDbfs": [
           -17.44377,
@@ -28894,8 +29113,9 @@
       "sample": "samples/C4v12.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 261.131596,
-        "pitchErrorCents": -3.271794,
+        "fundamentalHz": 261.625565,
+        "pitchErrorCents": 0,
+        "fundamentalPeakProminence": 189.109263,
         "peakDbfs": -3.70195,
         "envelopeDbfs": [
           -17.703218,
@@ -29018,8 +29238,9 @@
       "sample": "samples/C4v13.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 261.128835,
-        "pitchErrorCents": -3.290101,
+        "fundamentalHz": 261.625565,
+        "pitchErrorCents": 0,
+        "fundamentalPeakProminence": 200.476689,
         "peakDbfs": -3.167025,
         "envelopeDbfs": [
           -16.85926,
@@ -29142,8 +29363,9 @@
       "sample": "samples/C4v14.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 261.143498,
-        "pitchErrorCents": -3.192886,
+        "fundamentalHz": 261.625565,
+        "pitchErrorCents": 0,
+        "fundamentalPeakProminence": 270.586252,
         "peakDbfs": -0.858308,
         "envelopeDbfs": [
           -13.654845,
@@ -29266,8 +29488,9 @@
       "sample": "samples/C4v15.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 261.140931,
-        "pitchErrorCents": -3.209908,
+        "fundamentalHz": 261.625565,
+        "pitchErrorCents": 0,
+        "fundamentalPeakProminence": 266.225641,
         "peakDbfs": -1.039671,
         "envelopeDbfs": [
           -12.956737,
@@ -29390,8 +29613,9 @@
       "sample": "samples/C4v16.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 261.137176,
-        "pitchErrorCents": -3.234801,
+        "fundamentalHz": 261.625565,
+        "pitchErrorCents": 0,
+        "fundamentalPeakProminence": 247.911663,
         "peakDbfs": -1.53268,
         "envelopeDbfs": [
           -13.803193,
@@ -29514,8 +29738,9 @@
       "sample": "samples/D#4v1.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 311.079311,
-        "pitchErrorCents": -0.265291,
+        "fundamentalHz": 311.30675,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 40.174194,
         "peakDbfs": -22.023689,
         "envelopeDbfs": [
           -32.114927,
@@ -29638,8 +29863,9 @@
       "sample": "samples/D#4v2.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 311.075907,
-        "pitchErrorCents": -0.284234,
+        "fundamentalHz": 311.30675,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 41.196302,
         "peakDbfs": -16.914869,
         "envelopeDbfs": [
           -27.148008,
@@ -29762,8 +29988,9 @@
       "sample": "samples/D#4v3.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 311.086422,
-        "pitchErrorCents": -0.225715,
+        "fundamentalHz": 311.30675,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 43.095834,
         "peakDbfs": -14.061162,
         "envelopeDbfs": [
           -24.331754,
@@ -29886,8 +30113,9 @@
       "sample": "samples/D#4v4.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 311.081345,
-        "pitchErrorCents": -0.253971,
+        "fundamentalHz": 311.30675,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 43.458248,
         "peakDbfs": -13.201574,
         "envelopeDbfs": [
           -23.629102,
@@ -30010,8 +30238,9 @@
       "sample": "samples/D#4v5.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 311.065677,
-        "pitchErrorCents": -0.341171,
+        "fundamentalHz": 311.30675,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 51.595669,
         "peakDbfs": -11.606989,
         "envelopeDbfs": [
           -22.001855,
@@ -30134,8 +30363,9 @@
       "sample": "samples/D#4v6.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 311.067278,
-        "pitchErrorCents": -0.332257,
+        "fundamentalHz": 311.30675,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 49.483308,
         "peakDbfs": -10.954936,
         "envelopeDbfs": [
           -21.936368,
@@ -30258,8 +30488,9 @@
       "sample": "samples/D#4v7.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 311.061439,
-        "pitchErrorCents": -0.364754,
+        "fundamentalHz": 311.30675,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 56.637769,
         "peakDbfs": -9.750609,
         "envelopeDbfs": [
           -20.309691,
@@ -30382,8 +30613,9 @@
       "sample": "samples/D#4v8.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 311.062957,
-        "pitchErrorCents": -0.356306,
+        "fundamentalHz": 311.30675,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 57.433463,
         "peakDbfs": -8.76771,
         "envelopeDbfs": [
           -19.309558,
@@ -30506,8 +30738,9 @@
       "sample": "samples/D#4v9.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 311.06365,
-        "pitchErrorCents": -0.352451,
+        "fundamentalHz": 311.30675,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 58.233633,
         "peakDbfs": -7.939199,
         "envelopeDbfs": [
           -18.776427,
@@ -30630,8 +30863,9 @@
       "sample": "samples/D#4v10.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 311.065909,
-        "pitchErrorCents": -0.339875,
+        "fundamentalHz": 311.30675,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 58.413139,
         "peakDbfs": -7.400006,
         "envelopeDbfs": [
           -18.744892,
@@ -30754,8 +30988,9 @@
       "sample": "samples/D#4v11.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 311.07003,
-        "pitchErrorCents": -0.316941,
+        "fundamentalHz": 311.30675,
+        "pitchErrorCents": 1,
+        "fundamentalPeakProminence": 60.945307,
         "peakDbfs": -6.965413,
         "envelopeDbfs": [
           -17.802521,
@@ -30878,8 +31113,9 @@
       "sample": "samples/D#4v12.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 311.076854,
-        "pitchErrorCents": -0.278963,
+        "fundamentalHz": 311.486619,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 61.644368,
         "peakDbfs": -6.234408,
         "envelopeDbfs": [
           -17.710718,
@@ -31002,8 +31238,9 @@
       "sample": "samples/D#4v13.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 311.082194,
-        "pitchErrorCents": -0.249247,
+        "fundamentalHz": 311.486619,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 66.66597,
         "peakDbfs": -5.500785,
         "envelopeDbfs": [
           -16.715781,
@@ -31126,8 +31363,9 @@
       "sample": "samples/D#4v14.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 311.105606,
-        "pitchErrorCents": -0.118959,
+        "fundamentalHz": 311.486619,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 66.101987,
         "peakDbfs": -3.92955,
         "envelopeDbfs": [
           -15.308026,
@@ -31250,8 +31488,9 @@
       "sample": "samples/D#4v15.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 311.120781,
-        "pitchErrorCents": -0.034517,
+        "fundamentalHz": 311.486619,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 65.403422,
         "peakDbfs": -3.307317,
         "envelopeDbfs": [
           -14.486826,
@@ -31374,8 +31613,9 @@
       "sample": "samples/D#4v16.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 311.16847,
-        "pitchErrorCents": 0.230828,
+        "fundamentalHz": 311.486619,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 65.242307,
         "peakDbfs": -1.500618,
         "envelopeDbfs": [
           -13.505596,
@@ -31498,8 +31738,9 @@
       "sample": "samples/F#4v1.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 369.356178,
-        "pitchErrorCents": -2.988978,
+        "fundamentalHz": 369.353826,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 125.335054,
         "peakDbfs": -25.607015,
         "envelopeDbfs": [
           -36.553006,
@@ -31622,8 +31863,9 @@
       "sample": "samples/F#4v2.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 369.355893,
-        "pitchErrorCents": -2.990315,
+        "fundamentalHz": 369.353826,
+        "pitchErrorCents": -3,
+        "fundamentalPeakProminence": 130.750622,
         "peakDbfs": -21.991841,
         "envelopeDbfs": [
           -32.763669,
@@ -31746,8 +31988,9 @@
       "sample": "samples/F#4v3.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 369.362034,
-        "pitchErrorCents": -2.961531,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 132.825487,
         "peakDbfs": -17.971328,
         "envelopeDbfs": [
           -30.777207,
@@ -31870,8 +32113,9 @@
       "sample": "samples/F#4v4.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 369.362746,
-        "pitchErrorCents": -2.958193,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 143.255928,
         "peakDbfs": -15.495572,
         "envelopeDbfs": [
           -27.147615,
@@ -31994,8 +32238,9 @@
       "sample": "samples/F#4v5.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 369.362811,
-        "pitchErrorCents": -2.957888,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 135.72635,
         "peakDbfs": -14.824775,
         "envelopeDbfs": [
           -26.078912,
@@ -32118,8 +32363,9 @@
       "sample": "samples/F#4v6.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 369.363673,
-        "pitchErrorCents": -2.953849,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 137.158165,
         "peakDbfs": -12.995526,
         "envelopeDbfs": [
           -26.117992,
@@ -32242,8 +32488,9 @@
       "sample": "samples/F#4v7.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 369.363046,
-        "pitchErrorCents": -2.956786,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 130.494934,
         "peakDbfs": -11.839751,
         "envelopeDbfs": [
           -23.143366,
@@ -32366,8 +32613,9 @@
       "sample": "samples/F#4v8.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 369.365456,
-        "pitchErrorCents": -2.945489,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 133.621602,
         "peakDbfs": -11.323555,
         "envelopeDbfs": [
           -23.178648,
@@ -32490,8 +32738,9 @@
       "sample": "samples/F#4v9.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 369.366905,
-        "pitchErrorCents": -2.938698,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 127.377708,
         "peakDbfs": -10.27568,
         "envelopeDbfs": [
           -22.155475,
@@ -32614,8 +32863,9 @@
       "sample": "samples/F#4v10.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 369.365693,
-        "pitchErrorCents": -2.94438,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 133.271379,
         "peakDbfs": -9.654993,
         "envelopeDbfs": [
           -22.713614,
@@ -32738,8 +32988,9 @@
       "sample": "samples/F#4v11.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 369.366586,
-        "pitchErrorCents": -2.940196,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 128.302226,
         "peakDbfs": -8.749293,
         "envelopeDbfs": [
           -20.458745,
@@ -32862,8 +33113,9 @@
       "sample": "samples/F#4v12.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 369.366796,
-        "pitchErrorCents": -2.93921,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 127.740979,
         "peakDbfs": -7.895433,
         "envelopeDbfs": [
           -20.616441,
@@ -32986,8 +33238,9 @@
       "sample": "samples/F#4v13.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 369.371608,
-        "pitchErrorCents": -2.916658,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 130.166169,
         "peakDbfs": -6.376234,
         "envelopeDbfs": [
           -19.777225,
@@ -33110,8 +33363,9 @@
       "sample": "samples/F#4v14.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 369.376677,
-        "pitchErrorCents": -2.8929,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 120.378611,
         "peakDbfs": -5.022502,
         "envelopeDbfs": [
           -18.29778,
@@ -33234,8 +33488,9 @@
       "sample": "samples/F#4v15.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 369.377946,
-        "pitchErrorCents": -2.88695,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 109.144894,
         "peakDbfs": -3.836584,
         "envelopeDbfs": [
           -15.961881,
@@ -33358,8 +33613,9 @@
       "sample": "samples/F#4v16.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 369.404176,
-        "pitchErrorCents": -2.764019,
+        "fundamentalHz": 369.140541,
+        "pitchErrorCents": -4,
+        "fundamentalPeakProminence": 114.583607,
         "peakDbfs": -1.536599,
         "envelopeDbfs": [
           -15.148602,
@@ -33482,8 +33738,9 @@
       "sample": "samples/A4v1.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.777912,
-        "pitchErrorCents": 3.058089,
+        "fundamentalHz": 440.763123,
+        "pitchErrorCents": 3,
+        "fundamentalPeakProminence": 54.459394,
         "peakDbfs": -23.447877,
         "envelopeDbfs": [
           -34.547894,
@@ -33606,8 +33863,9 @@
       "sample": "samples/A4v2.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.789536,
-        "pitchErrorCents": 3.103741,
+        "fundamentalHz": 440.763123,
+        "pitchErrorCents": 3,
+        "fundamentalPeakProminence": 49.921755,
         "peakDbfs": -19.258334,
         "envelopeDbfs": [
           -30.731045,
@@ -33730,8 +33988,9 @@
       "sample": "samples/A4v3.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 440.790931,
-        "pitchErrorCents": 3.109222,
+        "fundamentalHz": 440.763123,
+        "pitchErrorCents": 3,
+        "fundamentalPeakProminence": 50.575167,
         "peakDbfs": -17.639164,
         "envelopeDbfs": [
           -29.7905,
@@ -33854,8 +34113,9 @@
       "sample": "samples/A4v4.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.795248,
-        "pitchErrorCents": 3.126177,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 49.801623,
         "peakDbfs": -15.199392,
         "envelopeDbfs": [
           -27.141681,
@@ -33978,8 +34238,9 @@
       "sample": "samples/A4v5.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.792029,
-        "pitchErrorCents": 3.113535,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 46.970042,
         "peakDbfs": -12.737768,
         "envelopeDbfs": [
           -25.119722,
@@ -34102,8 +34363,9 @@
       "sample": "samples/A4v6.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.823169,
-        "pitchErrorCents": 3.235835,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 52.767556,
         "peakDbfs": -11.543773,
         "envelopeDbfs": [
           -22.966287,
@@ -34226,8 +34488,9 @@
       "sample": "samples/A4v7.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 440.832708,
-        "pitchErrorCents": 3.273296,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 54.264379,
         "peakDbfs": -10.979769,
         "envelopeDbfs": [
           -22.491377,
@@ -34350,8 +34613,9 @@
       "sample": "samples/A4v8.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.843766,
-        "pitchErrorCents": 3.316722,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 54.580118,
         "peakDbfs": -10.216305,
         "envelopeDbfs": [
           -21.299769,
@@ -34474,8 +34738,9 @@
       "sample": "samples/A4v9.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.852082,
-        "pitchErrorCents": 3.349378,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 55.21905,
         "peakDbfs": -9.550246,
         "envelopeDbfs": [
           -21.509439,
@@ -34598,8 +34863,9 @@
       "sample": "samples/A4v10.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.838657,
-        "pitchErrorCents": 3.296657,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 53.801039,
         "peakDbfs": -8.777982,
         "envelopeDbfs": [
           -19.567371,
@@ -34722,8 +34988,9 @@
       "sample": "samples/A4v11.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.858824,
-        "pitchErrorCents": 3.375857,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 58.905706,
         "peakDbfs": -7.717879,
         "envelopeDbfs": [
           -19.110178,
@@ -34846,8 +35113,9 @@
       "sample": "samples/A4v12.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 440.865757,
-        "pitchErrorCents": 3.403081,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 60.001664,
         "peakDbfs": -6.809646,
         "envelopeDbfs": [
           -18.253333,
@@ -34970,8 +35238,9 @@
       "sample": "samples/A4v13.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.869441,
-        "pitchErrorCents": 3.417549,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 57.597884,
         "peakDbfs": -6.151637,
         "envelopeDbfs": [
           -17.726622,
@@ -35094,8 +35363,9 @@
       "sample": "samples/A4v14.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 440.874732,
-        "pitchErrorCents": 3.438323,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 58.480557,
         "peakDbfs": -4.55627,
         "envelopeDbfs": [
           -16.173224,
@@ -35218,8 +35488,9 @@
       "sample": "samples/A4v15.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.888514,
-        "pitchErrorCents": 3.492443,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 55.931504,
         "peakDbfs": -3.003221,
         "envelopeDbfs": [
           -14.244403,
@@ -35342,8 +35613,9 @@
       "sample": "samples/A4v16.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 440.890182,
-        "pitchErrorCents": 3.498994,
+        "fundamentalHz": 441.017791,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 55.268872,
         "peakDbfs": -1.538273,
         "envelopeDbfs": [
           -13.870841,
@@ -35466,8 +35738,9 @@
       "sample": "samples/C5v1.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 524.213129,
-        "pitchErrorCents": 3.179956,
+        "fundamentalHz": 524.158642,
+        "pitchErrorCents": 3,
+        "fundamentalPeakProminence": 69.705696,
         "peakDbfs": -24.538076,
         "envelopeDbfs": [
           -39.496785,
@@ -35590,8 +35863,9 @@
       "sample": "samples/C5v2.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 524.186376,
-        "pitchErrorCents": 3.091599,
+        "fundamentalHz": 524.158642,
+        "pitchErrorCents": 3,
+        "fundamentalPeakProminence": 66.752771,
         "peakDbfs": -19.672418,
         "envelopeDbfs": [
           -35.020655,
@@ -35714,8 +35988,9 @@
       "sample": "samples/C5v3.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 524.179835,
-        "pitchErrorCents": 3.069996,
+        "fundamentalHz": 524.158642,
+        "pitchErrorCents": 3,
+        "fundamentalPeakProminence": 62.481576,
         "peakDbfs": -16.023144,
         "envelopeDbfs": [
           -30.280512,
@@ -35838,8 +36113,9 @@
       "sample": "samples/C5v4.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 524.226557,
-        "pitchErrorCents": 3.224302,
+        "fundamentalHz": 524.158642,
+        "pitchErrorCents": 3,
+        "fundamentalPeakProminence": 71.159513,
         "peakDbfs": -14.218756,
         "envelopeDbfs": [
           -29.888425,
@@ -35962,8 +36238,9 @@
       "sample": "samples/C5v5.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 524.175694,
-        "pitchErrorCents": 3.056321,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 61.484031,
         "peakDbfs": -12.554113,
         "envelopeDbfs": [
           -28.324069,
@@ -36086,8 +36363,9 @@
       "sample": "samples/C5v6.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 524.178877,
-        "pitchErrorCents": 3.066833,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 55.562362,
         "peakDbfs": -12.104409,
         "envelopeDbfs": [
           -27.365572,
@@ -36210,8 +36488,9 @@
       "sample": "samples/C5v7.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 524.177766,
-        "pitchErrorCents": 3.063163,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 60.916529,
         "peakDbfs": -11.414701,
         "envelopeDbfs": [
           -26.543106,
@@ -36334,8 +36613,9 @@
       "sample": "samples/C5v8.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 524.161751,
-        "pitchErrorCents": 3.010269,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 57.057835,
         "peakDbfs": -11.118966,
         "envelopeDbfs": [
           -26.736654,
@@ -36458,8 +36738,9 @@
       "sample": "samples/C5v9.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 524.145933,
-        "pitchErrorCents": 2.958024,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 57.529418,
         "peakDbfs": -10.036016,
         "envelopeDbfs": [
           -25.135319,
@@ -36582,8 +36863,9 @@
       "sample": "samples/C5v10.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 524.126879,
-        "pitchErrorCents": 2.895089,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 60.618936,
         "peakDbfs": -9.137993,
         "envelopeDbfs": [
           -24.729632,
@@ -36706,8 +36988,9 @@
       "sample": "samples/C5v11.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 524.108357,
-        "pitchErrorCents": 2.833908,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 58.906148,
         "peakDbfs": -8.074557,
         "envelopeDbfs": [
           -22.175006,
@@ -36830,8 +37113,9 @@
       "sample": "samples/C5v12.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 524.084708,
-        "pitchErrorCents": 2.755787,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 59.025641,
         "peakDbfs": -6.966096,
         "envelopeDbfs": [
           -20.874786,
@@ -36954,8 +37238,9 @@
       "sample": "samples/C5v13.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 524.083504,
-        "pitchErrorCents": 2.751812,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 59.158088,
         "peakDbfs": -5.568802,
         "envelopeDbfs": [
           -20.772426,
@@ -37078,8 +37363,9 @@
       "sample": "samples/C5v14.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 524.109649,
-        "pitchErrorCents": 2.838176,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 59.231769,
         "peakDbfs": -4.118771,
         "envelopeDbfs": [
           -18.066418,
@@ -37202,8 +37488,9 @@
       "sample": "samples/C5v15.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 524.139159,
-        "pitchErrorCents": 2.935648,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 58.634329,
         "peakDbfs": -2.965814,
         "envelopeDbfs": [
           -16.58631,
@@ -37326,8 +37613,9 @@
       "sample": "samples/C5v16.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 524.139355,
-        "pitchErrorCents": 2.936298,
+        "fundamentalHz": 523.855963,
+        "pitchErrorCents": 2,
+        "fundamentalPeakProminence": 58.467996,
         "peakDbfs": -1.539468,
         "envelopeDbfs": [
           -15.197363,
@@ -37450,8 +37738,9 @@
       "sample": "samples/D#5v1.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 623.595733,
-        "pitchErrorCents": 3.729038,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 63.28245,
         "peakDbfs": -19.278064,
         "envelopeDbfs": [
           -30.116153,
@@ -37574,8 +37863,9 @@
       "sample": "samples/D#5v2.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 623.589068,
-        "pitchErrorCents": 3.710535,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 63.0207,
         "peakDbfs": -18.770839,
         "envelopeDbfs": [
           -31.105056,
@@ -37698,8 +37988,9 @@
       "sample": "samples/D#5v3.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 623.583123,
-        "pitchErrorCents": 3.694031,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 62.416814,
         "peakDbfs": -16.133632,
         "envelopeDbfs": [
           -27.988916,
@@ -37822,8 +38113,9 @@
       "sample": "samples/D#5v4.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 623.579974,
-        "pitchErrorCents": 3.685289,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 62.351877,
         "peakDbfs": -14.878593,
         "envelopeDbfs": [
           -25.950929,
@@ -37946,8 +38238,9 @@
       "sample": "samples/D#5v5.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 623.579191,
-        "pitchErrorCents": 3.683115,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 59.67287,
         "peakDbfs": -14.472747,
         "envelopeDbfs": [
           -25.551683,
@@ -38070,8 +38363,9 @@
       "sample": "samples/D#5v6.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 623.572669,
-        "pitchErrorCents": 3.665007,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 60.860634,
         "peakDbfs": -13.821509,
         "envelopeDbfs": [
           -25.292631,
@@ -38194,8 +38488,9 @@
       "sample": "samples/D#5v7.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 623.565769,
-        "pitchErrorCents": 3.645849,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 62.6276,
         "peakDbfs": -12.897492,
         "envelopeDbfs": [
           -24.826249,
@@ -38318,8 +38613,9 @@
       "sample": "samples/D#5v8.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 623.561168,
-        "pitchErrorCents": 3.633077,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 60.150429,
         "peakDbfs": -12.143731,
         "envelopeDbfs": [
           -24.016739,
@@ -38442,8 +38738,9 @@
       "sample": "samples/D#5v9.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 623.567319,
-        "pitchErrorCents": 3.650155,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 62.259876,
         "peakDbfs": -11.330055,
         "envelopeDbfs": [
           -22.716032,
@@ -38566,8 +38863,9 @@
       "sample": "samples/D#5v10.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 623.56436,
-        "pitchErrorCents": 3.641938,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 63.31447,
         "peakDbfs": -10.397943,
         "envelopeDbfs": [
           -22.468466,
@@ -38690,8 +38988,9 @@
       "sample": "samples/D#5v11.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 623.558733,
-        "pitchErrorCents": 3.626317,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 65.85295,
         "peakDbfs": -9.35763,
         "envelopeDbfs": [
           -20.214464,
@@ -38814,8 +39113,9 @@
       "sample": "samples/D#5v12.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 623.573092,
-        "pitchErrorCents": 3.666183,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 65.920592,
         "peakDbfs": -8.270364,
         "envelopeDbfs": [
           -20.590377,
@@ -38938,8 +39238,9 @@
       "sample": "samples/D#5v13.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 623.596872,
-        "pitchErrorCents": 3.732201,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 66.942126,
         "peakDbfs": -6.581146,
         "envelopeDbfs": [
           -17.652922,
@@ -39062,8 +39363,9 @@
       "sample": "samples/D#5v14.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 623.621948,
-        "pitchErrorCents": 3.801815,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 62.909988,
         "peakDbfs": -4.891804,
         "envelopeDbfs": [
           -15.765256,
@@ -39186,8 +39488,9 @@
       "sample": "samples/D#5v15.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 623.692008,
-        "pitchErrorCents": 3.996297,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 64.772895,
         "peakDbfs": -2.318987,
         "envelopeDbfs": [
           -15.049325,
@@ -39310,8 +39613,9 @@
       "sample": "samples/D#5v16.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 623.692006,
-        "pitchErrorCents": 3.996292,
+        "fundamentalHz": 623.693342,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 64.707756,
         "peakDbfs": -1.549361,
         "envelopeDbfs": [
           -13.994757,
@@ -39436,6 +39740,7 @@
         "onsetMs": 10,
         "fundamentalHz": 741.847745,
         "pitchErrorCents": 4.343519,
+        "fundamentalPeakProminence": 108.51557,
         "peakDbfs": -23.754064,
         "envelopeDbfs": [
           -34.409624,
@@ -39558,8 +39863,9 @@
       "sample": "samples/F#5v2.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 741.787012,
-        "pitchErrorCents": 4.201781,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 113.931376,
         "peakDbfs": -19.351025,
         "envelopeDbfs": [
           -29.063978,
@@ -39682,8 +39988,9 @@
       "sample": "samples/F#5v3.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 741.77416,
-        "pitchErrorCents": 4.171785,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 107.735513,
         "peakDbfs": -16.740481,
         "envelopeDbfs": [
           -27.392986,
@@ -39806,8 +40113,9 @@
       "sample": "samples/F#5v4.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 741.757326,
-        "pitchErrorCents": 4.132497,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 103.855382,
         "peakDbfs": -14.682762,
         "envelopeDbfs": [
           -26.092312,
@@ -39930,8 +40238,9 @@
       "sample": "samples/F#5v5.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 741.756414,
-        "pitchErrorCents": 4.130367,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 105.472857,
         "peakDbfs": -13.854607,
         "envelopeDbfs": [
           -23.828497,
@@ -40054,8 +40363,9 @@
       "sample": "samples/F#5v6.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 741.747786,
-        "pitchErrorCents": 4.11023,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 97.820951,
         "peakDbfs": -12.682911,
         "envelopeDbfs": [
           -23.537736,
@@ -40178,8 +40488,9 @@
       "sample": "samples/F#5v7.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 741.743463,
-        "pitchErrorCents": 4.100139,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 93.216311,
         "peakDbfs": -12.005736,
         "envelopeDbfs": [
           -23.334017,
@@ -40302,8 +40613,9 @@
       "sample": "samples/F#5v8.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 741.745834,
-        "pitchErrorCents": 4.105674,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 92.587174,
         "peakDbfs": -11.165641,
         "envelopeDbfs": [
           -20.780418,
@@ -40426,8 +40738,9 @@
       "sample": "samples/F#5v9.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 741.742651,
-        "pitchErrorCents": 4.098245,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 94.309432,
         "peakDbfs": -10.831126,
         "envelopeDbfs": [
           -20.905377,
@@ -40550,8 +40863,9 @@
       "sample": "samples/F#5v10.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 741.73392,
-        "pitchErrorCents": 4.077867,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 91.986088,
         "peakDbfs": -9.331769,
         "envelopeDbfs": [
           -20.446609,
@@ -40674,8 +40988,9 @@
       "sample": "samples/F#5v11.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 741.726169,
-        "pitchErrorCents": 4.059776,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 91.730161,
         "peakDbfs": -8.478831,
         "envelopeDbfs": [
           -19.050971,
@@ -40798,8 +41113,9 @@
       "sample": "samples/F#5v12.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 741.725374,
-        "pitchErrorCents": 4.05792,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 86.757988,
         "peakDbfs": -7.45599,
         "envelopeDbfs": [
           -17.074919,
@@ -40922,8 +41238,9 @@
       "sample": "samples/F#5v13.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 741.717953,
-        "pitchErrorCents": 4.040599,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 88.386077,
         "peakDbfs": -5.794218,
         "envelopeDbfs": [
           -16.265627,
@@ -41046,8 +41363,9 @@
       "sample": "samples/F#5v14.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 741.710442,
-        "pitchErrorCents": 4.023068,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 87.730542,
         "peakDbfs": -4.958143,
         "envelopeDbfs": [
           -16.079858,
@@ -41170,8 +41488,9 @@
       "sample": "samples/F#5v15.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 741.711123,
-        "pitchErrorCents": 4.024656,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 83.226847,
         "peakDbfs": -2.532754,
         "envelopeDbfs": [
           -14.15445,
@@ -41294,8 +41613,9 @@
       "sample": "samples/F#5v16.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 741.711085,
-        "pitchErrorCents": 4.024567,
+        "fundamentalHz": 741.700559,
+        "pitchErrorCents": 4,
+        "fundamentalPeakProminence": 83.55532,
         "peakDbfs": -1.517949,
         "envelopeDbfs": [
           -13.000214,
@@ -41420,6 +41740,7 @@
         "onsetMs": 2,
         "fundamentalHz": 884.165283,
         "pitchErrorCents": 8.175077,
+        "fundamentalPeakProminence": 151.194195,
         "peakDbfs": -31.39063,
         "envelopeDbfs": [
           -56.622501,
@@ -41542,8 +41863,9 @@
       "sample": "samples/A5v2.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 884.197025,
-        "pitchErrorCents": 8.237228,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 145.051167,
         "peakDbfs": -27.003695,
         "envelopeDbfs": [
           -37.789365,
@@ -41666,8 +41988,9 @@
       "sample": "samples/A5v3.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 884.213109,
-        "pitchErrorCents": 8.26872,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 136.407548,
         "peakDbfs": -23.784779,
         "envelopeDbfs": [
           -34.643356,
@@ -41790,8 +42113,9 @@
       "sample": "samples/A5v4.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 884.177877,
-        "pitchErrorCents": 8.199736,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 100.267963,
         "peakDbfs": -17.72919,
         "envelopeDbfs": [
           -49.353309,
@@ -41914,8 +42238,9 @@
       "sample": "samples/A5v5.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 884.222056,
-        "pitchErrorCents": 8.286237,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 120.201876,
         "peakDbfs": -16.986569,
         "envelopeDbfs": [
           -26.45109,
@@ -42038,8 +42363,9 @@
       "sample": "samples/A5v6.flac",
       "metrics": {
         "onsetMs": 20,
-        "fundamentalHz": 884.209814,
-        "pitchErrorCents": 8.262268,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 128.048448,
         "peakDbfs": -14.226679,
         "envelopeDbfs": [
           -23.357977,
@@ -42162,8 +42488,9 @@
       "sample": "samples/A5v7.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 884.21094,
-        "pitchErrorCents": 8.264473,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 113.904152,
         "peakDbfs": -12.129331,
         "envelopeDbfs": [
           -20.932976,
@@ -42286,8 +42613,9 @@
       "sample": "samples/A5v8.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 884.203637,
-        "pitchErrorCents": 8.250175,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 111.30787,
         "peakDbfs": -11.248052,
         "envelopeDbfs": [
           -19.313719,
@@ -42410,8 +42738,9 @@
       "sample": "samples/A5v9.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 884.195068,
-        "pitchErrorCents": 8.233397,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 115.651105,
         "peakDbfs": -10.412191,
         "envelopeDbfs": [
           -19.273395,
@@ -42534,8 +42863,9 @@
       "sample": "samples/A5v10.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 884.185553,
-        "pitchErrorCents": 8.214765,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 119.714553,
         "peakDbfs": -9.413244,
         "envelopeDbfs": [
           -18.444242,
@@ -42658,8 +42988,9 @@
       "sample": "samples/A5v11.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 884.177031,
-        "pitchErrorCents": 8.19808,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 120.213667,
         "peakDbfs": -8.453432,
         "envelopeDbfs": [
           -16.581539,
@@ -42782,8 +43113,9 @@
       "sample": "samples/A5v12.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 884.177219,
-        "pitchErrorCents": 8.198448,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 123.415727,
         "peakDbfs": -7.539478,
         "envelopeDbfs": [
           -15.783246,
@@ -42906,8 +43238,9 @@
       "sample": "samples/A5v13.flac",
       "metrics": {
         "onsetMs": 18,
-        "fundamentalHz": 884.200008,
-        "pitchErrorCents": 8.243069,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 119.892177,
         "peakDbfs": -5.954526,
         "envelopeDbfs": [
           -14.11204,
@@ -43030,8 +43363,9 @@
       "sample": "samples/A5v14.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 884.190313,
-        "pitchErrorCents": 8.224086,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 118.964167,
         "peakDbfs": -4.829058,
         "envelopeDbfs": [
           -13.077418,
@@ -43154,8 +43488,9 @@
       "sample": "samples/A5v15.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 884.207499,
-        "pitchErrorCents": 8.257734,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 114.441476,
         "peakDbfs": -3.509858,
         "envelopeDbfs": [
           -12.448352,
@@ -43278,8 +43613,9 @@
       "sample": "samples/A5v16.flac",
       "metrics": {
         "onsetMs": 30,
-        "fundamentalHz": 884.213936,
-        "pitchErrorCents": 8.270339,
+        "fundamentalHz": 884.075873,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 125.390679,
         "peakDbfs": -1.54365,
         "envelopeDbfs": [
           -10.480045,
@@ -43402,8 +43738,9 @@
       "sample": "samples/C6v1.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 1051.379257,
-        "pitchErrorCents": 8.049298,
+        "fundamentalHz": 1051.349319,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 42.676638,
         "peakDbfs": -21.575623,
         "envelopeDbfs": [
           -54.292525,
@@ -43526,8 +43863,9 @@
       "sample": "samples/C6v2.flac",
       "metrics": {
         "onsetMs": 16,
-        "fundamentalHz": 1051.311249,
-        "pitchErrorCents": 7.93731,
+        "fundamentalHz": 1051.349319,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 35.150714,
         "peakDbfs": -18.412277,
         "envelopeDbfs": [
           -52.540523,
@@ -43650,8 +43988,9 @@
       "sample": "samples/C6v3.flac",
       "metrics": {
         "onsetMs": 18,
-        "fundamentalHz": 1051.333795,
-        "pitchErrorCents": 7.974437,
+        "fundamentalHz": 1051.349319,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 41.45044,
         "peakDbfs": -15.254678,
         "envelopeDbfs": [
           -44.030301,
@@ -43774,8 +44113,9 @@
       "sample": "samples/C6v4.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 1051.3354,
-        "pitchErrorCents": 7.97708,
+        "fundamentalHz": 1051.349319,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 29.298065,
         "peakDbfs": -15.185789,
         "envelopeDbfs": [
           -25.711163,
@@ -43898,8 +44238,9 @@
       "sample": "samples/C6v5.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1051.301224,
-        "pitchErrorCents": 7.920801,
+        "fundamentalHz": 1051.349319,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 24.28878,
         "peakDbfs": -17.208039,
         "envelopeDbfs": [
           -27.506988,
@@ -44022,8 +44363,9 @@
       "sample": "samples/C6v6.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 1051.256357,
-        "pitchErrorCents": 7.846914,
+        "fundamentalHz": 1051.349319,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 21.643797,
         "peakDbfs": -13.376574,
         "envelopeDbfs": [
           -23.217352,
@@ -44146,8 +44488,9 @@
       "sample": "samples/C6v7.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1051.162408,
-        "pitchErrorCents": 7.692191,
+        "fundamentalHz": 1051.349319,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 21.006786,
         "peakDbfs": -12.549887,
         "envelopeDbfs": [
           -22.40959,
@@ -44270,8 +44613,9 @@
       "sample": "samples/C6v8.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 1051.181384,
-        "pitchErrorCents": 7.723443,
+        "fundamentalHz": 1051.349319,
+        "pitchErrorCents": 8,
+        "fundamentalPeakProminence": 25.844531,
         "peakDbfs": -10.644982,
         "envelopeDbfs": [
           -20.913964,
@@ -44394,8 +44738,9 @@
       "sample": "samples/C6v9.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 1051.174955,
-        "pitchErrorCents": 7.712855,
+        "fundamentalHz": 1051.956778,
+        "pitchErrorCents": 9,
+        "fundamentalPeakProminence": 21.985914,
         "peakDbfs": -8.632309,
         "envelopeDbfs": [
           -19.796029,
@@ -44518,8 +44863,9 @@
       "sample": "samples/C6v10.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1051.160838,
-        "pitchErrorCents": 7.689605,
+        "fundamentalHz": 1051.956778,
+        "pitchErrorCents": 9,
+        "fundamentalPeakProminence": 20.00235,
         "peakDbfs": -7.750162,
         "envelopeDbfs": [
           -17.409914,
@@ -44642,8 +44988,9 @@
       "sample": "samples/C6v11.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 1051.064259,
-        "pitchErrorCents": 7.530534,
+        "fundamentalHz": 1051.956778,
+        "pitchErrorCents": 9,
+        "fundamentalPeakProminence": 18.437942,
         "peakDbfs": -6.782755,
         "envelopeDbfs": [
           -15.301781,
@@ -44766,8 +45113,9 @@
       "sample": "samples/C6v12.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1051.006557,
-        "pitchErrorCents": 7.43549,
+        "fundamentalHz": 1051.956778,
+        "pitchErrorCents": 9,
+        "fundamentalPeakProminence": 17.481662,
         "peakDbfs": -5.756663,
         "envelopeDbfs": [
           -15.527431,
@@ -44890,8 +45238,9 @@
       "sample": "samples/C6v13.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 1051.002118,
-        "pitchErrorCents": 7.428177,
+        "fundamentalHz": 1051.956778,
+        "pitchErrorCents": 9,
+        "fundamentalPeakProminence": 17.250227,
         "peakDbfs": -5.953046,
         "envelopeDbfs": [
           -14.331673,
@@ -45014,8 +45363,9 @@
       "sample": "samples/C6v14.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 1050.956873,
-        "pitchErrorCents": 7.353647,
+        "fundamentalHz": 1051.956778,
+        "pitchErrorCents": 9,
+        "fundamentalPeakProminence": 15.388988,
         "peakDbfs": -4.675668,
         "envelopeDbfs": [
           -15.408669,
@@ -45138,8 +45488,9 @@
       "sample": "samples/C6v15.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 1050.95724,
-        "pitchErrorCents": 7.354251,
+        "fundamentalHz": 1051.956778,
+        "pitchErrorCents": 9,
+        "fundamentalPeakProminence": 16.351493,
         "peakDbfs": -3.415818,
         "envelopeDbfs": [
           -11.908583,
@@ -45262,8 +45613,9 @@
       "sample": "samples/C6v16.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1050.937131,
-        "pitchErrorCents": 7.321126,
+        "fundamentalHz": 1051.956778,
+        "pitchErrorCents": 9,
+        "fundamentalPeakProminence": 15.866457,
         "peakDbfs": -1.497721,
         "envelopeDbfs": [
           -11.757608,
@@ -45386,8 +45738,9 @@
       "sample": "samples/D#6v1.flac",
       "metrics": {
         "onsetMs": 2,
-        "fundamentalHz": 1253.178024,
-        "pitchErrorCents": 12.019136,
+        "fundamentalHz": 1253.164172,
+        "pitchErrorCents": 12,
+        "fundamentalPeakProminence": 36.775437,
         "peakDbfs": -26.683362,
         "envelopeDbfs": [
           -52.53867,
@@ -45510,8 +45863,9 @@
       "sample": "samples/D#6v2.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1253.264458,
-        "pitchErrorCents": 12.138538,
+        "fundamentalHz": 1253.164172,
+        "pitchErrorCents": 12,
+        "fundamentalPeakProminence": 55.253321,
         "peakDbfs": -23.205687,
         "envelopeDbfs": [
           -35.401081,
@@ -45634,8 +45988,9 @@
       "sample": "samples/D#6v3.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 1253.108028,
-        "pitchErrorCents": 11.922435,
+        "fundamentalHz": 1253.164172,
+        "pitchErrorCents": 12,
+        "fundamentalPeakProminence": 62.173552,
         "peakDbfs": -19.289535,
         "envelopeDbfs": [
           -28.43651,
@@ -45758,8 +46113,9 @@
       "sample": "samples/D#6v4.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1252.895992,
-        "pitchErrorCents": 11.629473,
+        "fundamentalHz": 1253.164172,
+        "pitchErrorCents": 12,
+        "fundamentalPeakProminence": 67.791315,
         "peakDbfs": -16.213405,
         "envelopeDbfs": [
           -25.587318,
@@ -45882,8 +46238,9 @@
       "sample": "samples/D#6v5.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1252.591954,
-        "pitchErrorCents": 11.209305,
+        "fundamentalHz": 1252.440525,
+        "pitchErrorCents": 11,
+        "fundamentalPeakProminence": 65.132,
         "peakDbfs": -13.347575,
         "envelopeDbfs": [
           -22.256755,
@@ -46006,8 +46363,9 @@
       "sample": "samples/D#6v6.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1252.419661,
-        "pitchErrorCents": 10.971159,
+        "fundamentalHz": 1252.440525,
+        "pitchErrorCents": 11,
+        "fundamentalPeakProminence": 54.592533,
         "peakDbfs": -11.546742,
         "envelopeDbfs": [
           -20.723146,
@@ -46130,8 +46488,9 @@
       "sample": "samples/D#6v7.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1252.354208,
-        "pitchErrorCents": 10.88068,
+        "fundamentalHz": 1251.717296,
+        "pitchErrorCents": 10,
+        "fundamentalPeakProminence": 48.774085,
         "peakDbfs": -10.050238,
         "envelopeDbfs": [
           -19.236359,
@@ -46254,8 +46613,9 @@
       "sample": "samples/D#6v8.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 1252.26627,
-        "pitchErrorCents": 10.759113,
+        "fundamentalHz": 1251.717296,
+        "pitchErrorCents": 10,
+        "fundamentalPeakProminence": 51.555778,
         "peakDbfs": -9.244125,
         "envelopeDbfs": [
           -18.408488,
@@ -46378,8 +46738,9 @@
       "sample": "samples/D#6v9.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1252.235958,
-        "pitchErrorCents": 10.717206,
+        "fundamentalHz": 1251.717296,
+        "pitchErrorCents": 10,
+        "fundamentalPeakProminence": 52.640671,
         "peakDbfs": -8.668286,
         "envelopeDbfs": [
           -17.857434,
@@ -46502,8 +46863,9 @@
       "sample": "samples/D#6v10.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1252.204927,
-        "pitchErrorCents": 10.674305,
+        "fundamentalHz": 1251.717296,
+        "pitchErrorCents": 10,
+        "fundamentalPeakProminence": 51.972312,
         "peakDbfs": -7.842656,
         "envelopeDbfs": [
           -16.693058,
@@ -46626,8 +46988,9 @@
       "sample": "samples/D#6v11.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1252.117076,
-        "pitchErrorCents": 10.552842,
+        "fundamentalHz": 1251.717296,
+        "pitchErrorCents": 10,
+        "fundamentalPeakProminence": 50.947619,
         "peakDbfs": -7.450558,
         "envelopeDbfs": [
           -16.19876,
@@ -46750,8 +47113,9 @@
       "sample": "samples/D#6v12.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 1252.092452,
-        "pitchErrorCents": 10.518796,
+        "fundamentalHz": 1251.717296,
+        "pitchErrorCents": 10,
+        "fundamentalPeakProminence": 47.659132,
         "peakDbfs": -6.651753,
         "envelopeDbfs": [
           -15.598111,
@@ -46874,8 +47238,9 @@
       "sample": "samples/D#6v13.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1252.01301,
-        "pitchErrorCents": 10.408949,
+        "fundamentalHz": 1251.717296,
+        "pitchErrorCents": 10,
+        "fundamentalPeakProminence": 41.266977,
         "peakDbfs": -5.250676,
         "envelopeDbfs": [
           -14.079935,
@@ -46998,8 +47363,9 @@
       "sample": "samples/D#6v14.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 1251.973782,
-        "pitchErrorCents": 10.354706,
+        "fundamentalHz": 1251.717296,
+        "pitchErrorCents": 10,
+        "fundamentalPeakProminence": 40.022685,
         "peakDbfs": -3.579519,
         "envelopeDbfs": [
           -12.494824,
@@ -47122,8 +47488,9 @@
       "sample": "samples/D#6v15.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 1251.897695,
-        "pitchErrorCents": 10.24949,
+        "fundamentalHz": 1251.717296,
+        "pitchErrorCents": 10,
+        "fundamentalPeakProminence": 37.219242,
         "peakDbfs": -2.243797,
         "envelopeDbfs": [
           -11.249177,
@@ -47246,8 +47613,9 @@
       "sample": "samples/D#6v16.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 1251.846416,
-        "pitchErrorCents": 10.178575,
+        "fundamentalHz": 1251.717296,
+        "pitchErrorCents": 10,
+        "fundamentalPeakProminence": 33.046229,
         "peakDbfs": -1.475387,
         "envelopeDbfs": [
           -10.204229,
@@ -47372,6 +47740,7 @@
         "onsetMs": 8,
         "fundamentalHz": 1492.202568,
         "pitchErrorCents": 14.241561,
+        "fundamentalPeakProminence": 44.858769,
         "peakDbfs": -28.838412,
         "envelopeDbfs": [
           -44.415037,
@@ -47496,6 +47865,7 @@
         "onsetMs": 8,
         "fundamentalHz": 1492.055726,
         "pitchErrorCents": 14.071188,
+        "fundamentalPeakProminence": 48.60198,
         "peakDbfs": -21.682452,
         "envelopeDbfs": [
           -36.586949,
@@ -47620,6 +47990,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1491.996779,
         "pitchErrorCents": 14.002791,
+        "fundamentalPeakProminence": 44.984978,
         "peakDbfs": -19.483607,
         "envelopeDbfs": [
           -31.560034,
@@ -47744,6 +48115,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1491.971961,
         "pitchErrorCents": 13.973993,
+        "fundamentalPeakProminence": 44.313814,
         "peakDbfs": -18.125668,
         "envelopeDbfs": [
           -29.735346,
@@ -47868,6 +48240,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1491.936094,
         "pitchErrorCents": 13.932374,
+        "fundamentalPeakProminence": 43.169469,
         "peakDbfs": -16.154017,
         "envelopeDbfs": [
           -28.444458,
@@ -47992,6 +48365,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1491.876778,
         "pitchErrorCents": 13.863543,
+        "fundamentalPeakProminence": 45.132214,
         "peakDbfs": -14.907615,
         "envelopeDbfs": [
           -26.382658,
@@ -48116,6 +48490,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1491.849141,
         "pitchErrorCents": 13.831471,
+        "fundamentalPeakProminence": 46.807275,
         "peakDbfs": -13.607356,
         "envelopeDbfs": [
           -24.834987,
@@ -48240,6 +48615,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1491.838215,
         "pitchErrorCents": 13.818792,
+        "fundamentalPeakProminence": 43.98803,
         "peakDbfs": -12.360009,
         "envelopeDbfs": [
           -24.187082,
@@ -48364,6 +48740,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1491.839546,
         "pitchErrorCents": 13.820336,
+        "fundamentalPeakProminence": 41.929376,
         "peakDbfs": -11.102635,
         "envelopeDbfs": [
           -22.567555,
@@ -48488,6 +48865,7 @@
         "onsetMs": 14,
         "fundamentalHz": 1491.783684,
         "pitchErrorCents": 13.755509,
+        "fundamentalPeakProminence": 47.936136,
         "peakDbfs": -10.109596,
         "envelopeDbfs": [
           -22.194014,
@@ -48612,6 +48990,7 @@
         "onsetMs": 10,
         "fundamentalHz": 1491.859584,
         "pitchErrorCents": 13.84359,
+        "fundamentalPeakProminence": 41.427447,
         "peakDbfs": -8.549163,
         "envelopeDbfs": [
           -20.443836,
@@ -48736,6 +49115,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1491.824711,
         "pitchErrorCents": 13.80312,
+        "fundamentalPeakProminence": 42.3404,
         "peakDbfs": -7.039449,
         "envelopeDbfs": [
           -18.551402,
@@ -48860,6 +49240,7 @@
         "onsetMs": 10,
         "fundamentalHz": 1491.833484,
         "pitchErrorCents": 13.813301,
+        "fundamentalPeakProminence": 51.954987,
         "peakDbfs": -6.033953,
         "envelopeDbfs": [
           -18.069493,
@@ -48984,6 +49365,7 @@
         "onsetMs": 10,
         "fundamentalHz": 1491.79867,
         "pitchErrorCents": 13.7729,
+        "fundamentalPeakProminence": 48.839874,
         "peakDbfs": -4.342941,
         "envelopeDbfs": [
           -16.74355,
@@ -49108,6 +49490,7 @@
         "onsetMs": 10,
         "fundamentalHz": 1491.814766,
         "pitchErrorCents": 13.79158,
+        "fundamentalPeakProminence": 44.354161,
         "peakDbfs": -3.360849,
         "envelopeDbfs": [
           -15.515373,
@@ -49232,6 +49615,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1491.877266,
         "pitchErrorCents": 13.864109,
+        "fundamentalPeakProminence": 41.247266,
         "peakDbfs": -1.507476,
         "envelopeDbfs": [
           -12.747361,
@@ -49356,6 +49740,7 @@
         "onsetMs": 6,
         "fundamentalHz": 1775.310461,
         "pitchErrorCents": 14.995094,
+        "fundamentalPeakProminence": 19.612257,
         "peakDbfs": -25.829594,
         "envelopeDbfs": [
           -51.636496,
@@ -49480,6 +49865,7 @@
         "onsetMs": 10,
         "fundamentalHz": 1775.124398,
         "pitchErrorCents": 14.813641,
+        "fundamentalPeakProminence": 22.134108,
         "peakDbfs": -22.13224,
         "envelopeDbfs": [
           -37.006527,
@@ -49604,6 +49990,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1774.933038,
         "pitchErrorCents": 14.627003,
+        "fundamentalPeakProminence": 19.139624,
         "peakDbfs": -20.356187,
         "envelopeDbfs": [
           -32.450735,
@@ -49728,6 +50115,7 @@
         "onsetMs": 10,
         "fundamentalHz": 1774.985716,
         "pitchErrorCents": 14.678383,
+        "fundamentalPeakProminence": 19.347296,
         "peakDbfs": -18.400194,
         "envelopeDbfs": [
           -31.664069,
@@ -49852,6 +50240,7 @@
         "onsetMs": 10,
         "fundamentalHz": 1774.900092,
         "pitchErrorCents": 14.594868,
+        "fundamentalPeakProminence": 20.236293,
         "peakDbfs": -16.942183,
         "envelopeDbfs": [
           -28.997306,
@@ -49976,6 +50365,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1774.925845,
         "pitchErrorCents": 14.619987,
+        "fundamentalPeakProminence": 20.320735,
         "peakDbfs": -17.103981,
         "envelopeDbfs": [
           -29.193328,
@@ -50100,6 +50490,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1770.14195,
         "pitchErrorCents": 9.947553,
+        "fundamentalPeakProminence": 21.496942,
         "peakDbfs": -15.433146,
         "envelopeDbfs": [
           -28.586123,
@@ -50224,6 +50615,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1770.177856,
         "pitchErrorCents": 9.982669,
+        "fundamentalPeakProminence": 20.218654,
         "peakDbfs": -14.211575,
         "envelopeDbfs": [
           -25.414662,
@@ -50348,6 +50740,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1769.912327,
         "pitchErrorCents": 9.722963,
+        "fundamentalPeakProminence": 20.404384,
         "peakDbfs": -12.650299,
         "envelopeDbfs": [
           -24.404454,
@@ -50472,6 +50865,7 @@
         "onsetMs": 10,
         "fundamentalHz": 1769.835779,
         "pitchErrorCents": 9.648086,
+        "fundamentalPeakProminence": 20.381467,
         "peakDbfs": -11.577821,
         "envelopeDbfs": [
           -23.029865,
@@ -50596,6 +50990,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1769.827254,
         "pitchErrorCents": 9.639747,
+        "fundamentalPeakProminence": 23.866712,
         "peakDbfs": -10.379723,
         "envelopeDbfs": [
           -22.06463,
@@ -50720,6 +51115,7 @@
         "onsetMs": 10,
         "fundamentalHz": 1769.798587,
         "pitchErrorCents": 9.611705,
+        "fundamentalPeakProminence": 26.782238,
         "peakDbfs": -8.382532,
         "envelopeDbfs": [
           -20.42726,
@@ -50844,6 +51240,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1769.837278,
         "pitchErrorCents": 9.649552,
+        "fundamentalPeakProminence": 23.392213,
         "peakDbfs": -6.92992,
         "envelopeDbfs": [
           -17.978354,
@@ -50968,6 +51365,7 @@
         "onsetMs": 14,
         "fundamentalHz": 1769.823352,
         "pitchErrorCents": 9.63593,
+        "fundamentalPeakProminence": 29.322633,
         "peakDbfs": -5.475237,
         "envelopeDbfs": [
           -16.641295,
@@ -51092,6 +51490,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1769.937773,
         "pitchErrorCents": 9.747853,
+        "fundamentalPeakProminence": 24.820657,
         "peakDbfs": -4.077527,
         "envelopeDbfs": [
           -14.970504,
@@ -51216,6 +51615,7 @@
         "onsetMs": 12,
         "fundamentalHz": 1769.938256,
         "pitchErrorCents": 9.748325,
+        "fundamentalPeakProminence": 24.862664,
         "peakDbfs": -1.517287,
         "envelopeDbfs": [
           -12.336676,
@@ -51340,6 +51740,7 @@
         "onsetMs": 6,
         "fundamentalHz": 2119.863383,
         "pitchErrorCents": 22.075035,
+        "fundamentalPeakProminence": 14.158415,
         "peakDbfs": -29.61217,
         "envelopeDbfs": [
           -43.34589,
@@ -51464,6 +51865,7 @@
         "onsetMs": 8,
         "fundamentalHz": 2119.544364,
         "pitchErrorCents": 21.814482,
+        "fundamentalPeakProminence": 13.766008,
         "peakDbfs": -28.401634,
         "envelopeDbfs": [
           -46.357738,
@@ -51588,6 +51990,7 @@
         "onsetMs": 6,
         "fundamentalHz": 2119.277826,
         "pitchErrorCents": 21.596761,
+        "fundamentalPeakProminence": 13.819076,
         "peakDbfs": -23.597866,
         "envelopeDbfs": [
           -42.427191,
@@ -51712,6 +52115,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2119.621235,
         "pitchErrorCents": 21.877268,
+        "fundamentalPeakProminence": 14.462266,
         "peakDbfs": -20.715435,
         "envelopeDbfs": [
           -29.852442,
@@ -51836,6 +52240,7 @@
         "onsetMs": 8,
         "fundamentalHz": 2119.487969,
         "pitchErrorCents": 21.768418,
+        "fundamentalPeakProminence": 14.426761,
         "peakDbfs": -19.543918,
         "envelopeDbfs": [
           -29.736063,
@@ -51960,6 +52365,7 @@
         "onsetMs": 12,
         "fundamentalHz": 2119.31646,
         "pitchErrorCents": 21.62832,
+        "fundamentalPeakProminence": 13.783653,
         "peakDbfs": -16.732473,
         "envelopeDbfs": [
           -27.159233,
@@ -52084,6 +52490,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2119.385917,
         "pitchErrorCents": 21.685058,
+        "fundamentalPeakProminence": 13.248538,
         "peakDbfs": -15.903609,
         "envelopeDbfs": [
           -25.766362,
@@ -52208,6 +52615,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2119.137743,
         "pitchErrorCents": 21.482324,
+        "fundamentalPeakProminence": 13.061158,
         "peakDbfs": -13.764431,
         "envelopeDbfs": [
           -23.874616,
@@ -52332,6 +52740,7 @@
         "onsetMs": 12,
         "fundamentalHz": 2119.151567,
         "pitchErrorCents": 21.493617,
+        "fundamentalPeakProminence": 12.752205,
         "peakDbfs": -13.442065,
         "envelopeDbfs": [
           -22.5171,
@@ -52456,6 +52865,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2118.87563,
         "pitchErrorCents": 21.268176,
+        "fundamentalPeakProminence": 11.806282,
         "peakDbfs": -11.720772,
         "envelopeDbfs": [
           -22.094668,
@@ -52580,6 +52990,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2118.640803,
         "pitchErrorCents": 21.0763,
+        "fundamentalPeakProminence": 11.486532,
         "peakDbfs": -9.938223,
         "envelopeDbfs": [
           -20.456278,
@@ -52704,6 +53115,7 @@
         "onsetMs": 12,
         "fundamentalHz": 2118.602139,
         "pitchErrorCents": 21.044705,
+        "fundamentalPeakProminence": 11.86892,
         "peakDbfs": -8.991595,
         "envelopeDbfs": [
           -18.601753,
@@ -52828,6 +53240,7 @@
         "onsetMs": 14,
         "fundamentalHz": 2118.084916,
         "pitchErrorCents": 20.622001,
+        "fundamentalPeakProminence": 12.045038,
         "peakDbfs": -5.609697,
         "envelopeDbfs": [
           -14.994187,
@@ -52952,6 +53365,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2117.96386,
         "pitchErrorCents": 20.523052,
+        "fundamentalPeakProminence": 11.240287,
         "peakDbfs": -4.450916,
         "envelopeDbfs": [
           -14.755552,
@@ -53076,6 +53490,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2117.530552,
         "pitchErrorCents": 20.168828,
+        "fundamentalPeakProminence": 9.917747,
         "peakDbfs": -2.844113,
         "envelopeDbfs": [
           -12.784518,
@@ -53200,6 +53615,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2117.555234,
         "pitchErrorCents": 20.189007,
+        "fundamentalPeakProminence": 10.181532,
         "peakDbfs": -1.52236,
         "envelopeDbfs": [
           -11.248736,
@@ -53324,6 +53740,7 @@
         "onsetMs": 4,
         "fundamentalHz": 2513.219673,
         "pitchErrorCents": 16.753619,
+        "fundamentalPeakProminence": 10.939522,
         "peakDbfs": -34.151219,
         "envelopeDbfs": [
           -49.201012,
@@ -53448,6 +53865,7 @@
         "onsetMs": 8,
         "fundamentalHz": 2519.634206,
         "pitchErrorCents": 21.166648,
+        "fundamentalPeakProminence": 9.905036,
         "peakDbfs": -26.896363,
         "envelopeDbfs": [
           -39.477626,
@@ -53572,6 +53990,7 @@
         "onsetMs": 8,
         "fundamentalHz": 2519.538615,
         "pitchErrorCents": 21.100966,
+        "fundamentalPeakProminence": 11.054155,
         "peakDbfs": -25.955311,
         "envelopeDbfs": [
           -38.453099,
@@ -53696,6 +54115,7 @@
         "onsetMs": 6,
         "fundamentalHz": 2519.560104,
         "pitchErrorCents": 21.115732,
+        "fundamentalPeakProminence": 10.880722,
         "peakDbfs": -24.472156,
         "envelopeDbfs": [
           -40.94478,
@@ -53820,6 +54240,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2519.216676,
         "pitchErrorCents": 20.87974,
+        "fundamentalPeakProminence": 11.44261,
         "peakDbfs": -22.961837,
         "envelopeDbfs": [
           -32.874254,
@@ -53944,6 +54365,7 @@
         "onsetMs": 8,
         "fundamentalHz": 2519.158352,
         "pitchErrorCents": 20.839659,
+        "fundamentalPeakProminence": 12.329473,
         "peakDbfs": -22.665223,
         "envelopeDbfs": [
           -31.264806,
@@ -54068,6 +54490,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2519.089268,
         "pitchErrorCents": 20.792182,
+        "fundamentalPeakProminence": 10.414075,
         "peakDbfs": -18.90167,
         "envelopeDbfs": [
           -28.643326,
@@ -54192,6 +54615,7 @@
         "onsetMs": 14,
         "fundamentalHz": 2519.00855,
         "pitchErrorCents": 20.736708,
+        "fundamentalPeakProminence": 9.785834,
         "peakDbfs": -16.563549,
         "envelopeDbfs": [
           -25.988631,
@@ -54316,6 +54740,7 @@
         "onsetMs": 12,
         "fundamentalHz": 2518.974224,
         "pitchErrorCents": 20.713116,
+        "fundamentalPeakProminence": 9.381884,
         "peakDbfs": -15.154295,
         "envelopeDbfs": [
           -24.683773,
@@ -54440,6 +54865,7 @@
         "onsetMs": 14,
         "fundamentalHz": 2518.843463,
         "pitchErrorCents": 20.623245,
+        "fundamentalPeakProminence": 8.046007,
         "peakDbfs": -13.082848,
         "envelopeDbfs": [
           -22.539157,
@@ -54564,6 +54990,7 @@
         "onsetMs": 14,
         "fundamentalHz": 2513.167502,
         "pitchErrorCents": 16.717681,
+        "fundamentalPeakProminence": 7.029721,
         "peakDbfs": -12.278108,
         "envelopeDbfs": [
           -21.79595,
@@ -54688,6 +55115,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2512.82413,
         "pitchErrorCents": 16.481128,
+        "fundamentalPeakProminence": 6.906039,
         "peakDbfs": -10.031848,
         "envelopeDbfs": [
           -19.835683,
@@ -54812,6 +55240,7 @@
         "onsetMs": 10,
         "fundamentalHz": 2512.776615,
         "pitchErrorCents": 16.448391,
+        "fundamentalPeakProminence": 5.835494,
         "peakDbfs": -8.730759,
         "envelopeDbfs": [
           -18.175431,
@@ -54934,8 +55363,9 @@
       "sample": "samples/D#7v14.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 2518.784972,
-        "pitchErrorCents": 20.583043,
+        "fundamentalHz": 2514.52009,
+        "pitchErrorCents": 17.649182,
+        "fundamentalPeakProminence": 4.982623,
         "peakDbfs": -6.76925,
         "envelopeDbfs": [
           -15.845134,
@@ -55058,8 +55488,9 @@
       "sample": "samples/D#7v15.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 2511.956736,
-        "pitchErrorCents": 15.883426,
+        "fundamentalHz": 2514.188211,
+        "pitchErrorCents": 17.42067,
+        "fundamentalPeakProminence": 3.816801,
         "peakDbfs": -4.24338,
         "envelopeDbfs": [
           -13.658369,
@@ -55182,8 +55613,9 @@
       "sample": "samples/D#7v16.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 2511.956058,
-        "pitchErrorCents": 15.882958,
+        "fundamentalHz": 2514.204809,
+        "pitchErrorCents": 17.432098,
+        "fundamentalPeakProminence": 3.818953,
         "peakDbfs": -1.51625,
         "envelopeDbfs": [
           -10.664793,
@@ -55308,6 +55740,7 @@
         "onsetMs": 2,
         "fundamentalHz": 3007.151298,
         "pitchErrorCents": 27.386432,
+        "fundamentalPeakProminence": 9.035089,
         "peakDbfs": -25.723983,
         "envelopeDbfs": [
           -54.184905,
@@ -55432,6 +55865,7 @@
         "onsetMs": 8,
         "fundamentalHz": 3007.123199,
         "pitchErrorCents": 27.370256,
+        "fundamentalPeakProminence": 8.467539,
         "peakDbfs": -21.911948,
         "envelopeDbfs": [
           -32.024436,
@@ -55556,6 +55990,7 @@
         "onsetMs": 8,
         "fundamentalHz": 3006.831298,
         "pitchErrorCents": 27.202197,
+        "fundamentalPeakProminence": 8.10016,
         "peakDbfs": -19.23714,
         "envelopeDbfs": [
           -32.165937,
@@ -55680,6 +56115,7 @@
         "onsetMs": 8,
         "fundamentalHz": 3006.72303,
         "pitchErrorCents": 27.139858,
+        "fundamentalPeakProminence": 8.369113,
         "peakDbfs": -18.271837,
         "envelopeDbfs": [
           -32.918465,
@@ -55804,6 +56240,7 @@
         "onsetMs": 8,
         "fundamentalHz": 3006.582396,
         "pitchErrorCents": 27.058881,
+        "fundamentalPeakProminence": 8.507661,
         "peakDbfs": -17.087779,
         "envelopeDbfs": [
           -30.183744,
@@ -55928,6 +56365,7 @@
         "onsetMs": 12,
         "fundamentalHz": 3006.535983,
         "pitchErrorCents": 27.032155,
+        "fundamentalPeakProminence": 8.380601,
         "peakDbfs": -16.080348,
         "envelopeDbfs": [
           -26.893251,
@@ -56052,6 +56490,7 @@
         "onsetMs": 12,
         "fundamentalHz": 3006.430928,
         "pitchErrorCents": 26.971661,
+        "fundamentalPeakProminence": 8.394255,
         "peakDbfs": -14.774975,
         "envelopeDbfs": [
           -25.044625,
@@ -56176,6 +56615,7 @@
         "onsetMs": 14,
         "fundamentalHz": 3006.409407,
         "pitchErrorCents": 26.959269,
+        "fundamentalPeakProminence": 7.633464,
         "peakDbfs": -14.259489,
         "envelopeDbfs": [
           -23.847947,
@@ -56300,6 +56740,7 @@
         "onsetMs": 10,
         "fundamentalHz": 3006.301617,
         "pitchErrorCents": 26.897197,
+        "fundamentalPeakProminence": 7.303358,
         "peakDbfs": -12.373305,
         "envelopeDbfs": [
           -22.652663,
@@ -56424,6 +56865,7 @@
         "onsetMs": 10,
         "fundamentalHz": 3006.146355,
         "pitchErrorCents": 26.807784,
+        "fundamentalPeakProminence": 7.244433,
         "peakDbfs": -11.23182,
         "envelopeDbfs": [
           -22.017069,
@@ -56548,6 +56990,7 @@
         "onsetMs": 16,
         "fundamentalHz": 3006.077023,
         "pitchErrorCents": 26.767855,
+        "fundamentalPeakProminence": 6.736632,
         "peakDbfs": -10.725147,
         "envelopeDbfs": [
           -20.3237,
@@ -56672,6 +57115,7 @@
         "onsetMs": 12,
         "fundamentalHz": 3005.971297,
         "pitchErrorCents": 26.706965,
+        "fundamentalPeakProminence": 6.732693,
         "peakDbfs": -8.678604,
         "envelopeDbfs": [
           -18.053173,
@@ -56796,6 +57240,7 @@
         "onsetMs": 10,
         "fundamentalHz": 3005.852886,
         "pitchErrorCents": 26.638767,
+        "fundamentalPeakProminence": 6.556972,
         "peakDbfs": -7.746852,
         "envelopeDbfs": [
           -17.761879,
@@ -56920,6 +57365,7 @@
         "onsetMs": 12,
         "fundamentalHz": 3005.968624,
         "pitchErrorCents": 26.705426,
+        "fundamentalPeakProminence": 6.604572,
         "peakDbfs": -7.33918,
         "envelopeDbfs": [
           -16.349899,
@@ -57044,6 +57490,7 @@
         "onsetMs": 10,
         "fundamentalHz": 3005.73743,
         "pitchErrorCents": 26.572269,
+        "fundamentalPeakProminence": 6.164559,
         "peakDbfs": -4.595784,
         "envelopeDbfs": [
           -13.00257,
@@ -57166,8 +57613,9 @@
       "sample": "samples/F#7v16.flac",
       "metrics": {
         "onsetMs": 14,
-        "fundamentalHz": 3005.598526,
-        "pitchErrorCents": 26.492261,
+        "fundamentalHz": 3004.95272,
+        "pitchErrorCents": 26.120235,
+        "fundamentalPeakProminence": 4.982277,
         "peakDbfs": -1.525963,
         "envelopeDbfs": [
           -10.662162,
@@ -57292,6 +57740,7 @@
         "onsetMs": 6,
         "fundamentalHz": 3600.321542,
         "pitchErrorCents": 39.060395,
+        "fundamentalPeakProminence": 3.941186,
         "peakDbfs": -41.530862,
         "envelopeDbfs": [
           -66.975052,
@@ -57414,8 +57863,9 @@
       "sample": "samples/A7v2.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 3599.468203,
-        "pitchErrorCents": 38.650014,
+        "fundamentalHz": 3627.224642,
+        "pitchErrorCents": 51.948802,
+        "fundamentalPeakProminence": 3.849069,
         "peakDbfs": -32.282472,
         "envelopeDbfs": [
           -48.897346,
@@ -57538,8 +57988,9 @@
       "sample": "samples/A7v3.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 3599.384465,
-        "pitchErrorCents": 38.609738,
+        "fundamentalHz": 3613.27738,
+        "pitchErrorCents": 45.279098,
+        "fundamentalPeakProminence": 3.747367,
         "peakDbfs": -29.412938,
         "envelopeDbfs": [
           -45.642104,
@@ -57662,8 +58113,9 @@
       "sample": "samples/A7v4.flac",
       "metrics": {
         "onsetMs": 6,
-        "fundamentalHz": 3599.088492,
-        "pitchErrorCents": 38.467375,
+        "fundamentalHz": 3604.449964,
+        "pitchErrorCents": 41.044432,
+        "fundamentalPeakProminence": 3.221459,
         "peakDbfs": -24.886021,
         "envelopeDbfs": [
           -44.890651,
@@ -57786,8 +58238,9 @@
       "sample": "samples/A7v5.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 3598.86024,
-        "pitchErrorCents": 38.357578,
+        "fundamentalHz": 3601.459633,
+        "pitchErrorCents": 39.607566,
+        "fundamentalPeakProminence": 3.492149,
         "peakDbfs": -22.341232,
         "envelopeDbfs": [
           -32.735319,
@@ -57910,8 +58363,9 @@
       "sample": "samples/A7v6.flac",
       "metrics": {
         "onsetMs": 10,
-        "fundamentalHz": 3598.853497,
-        "pitchErrorCents": 38.354334,
+        "fundamentalHz": 3601.244703,
+        "pitchErrorCents": 39.504245,
+        "fundamentalPeakProminence": 3.700993,
         "peakDbfs": -21.507269,
         "envelopeDbfs": [
           -32.626121,
@@ -58034,8 +58488,9 @@
       "sample": "samples/A7v7.flac",
       "metrics": {
         "onsetMs": 8,
-        "fundamentalHz": 3598.761319,
-        "pitchErrorCents": 38.309991,
+        "fundamentalHz": 3600.682639,
+        "pitchErrorCents": 39.234022,
+        "fundamentalPeakProminence": 3.692217,
         "peakDbfs": -20.320015,
         "envelopeDbfs": [
           -35.289328,
@@ -58158,8 +58613,9 @@
       "sample": "samples/A7v8.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 3598.657522,
-        "pitchErrorCents": 38.260057,
+        "fundamentalHz": 3599.521485,
+        "pitchErrorCents": 38.675641,
+        "fundamentalPeakProminence": 4.396829,
         "peakDbfs": -18.550809,
         "envelopeDbfs": [
           -29.079029,
@@ -58282,8 +58738,9 @@
       "sample": "samples/A7v9.flac",
       "metrics": {
         "onsetMs": 12,
-        "fundamentalHz": 3598.526162,
-        "pitchErrorCents": 38.196862,
+        "fundamentalHz": 3598.266657,
+        "pitchErrorCents": 38.072011,
+        "fundamentalPeakProminence": 4.863653,
         "peakDbfs": -16.22904,
         "envelopeDbfs": [
           -27.218572,
@@ -58408,6 +58865,7 @@
         "onsetMs": 12,
         "fundamentalHz": 3598.419887,
         "pitchErrorCents": 38.145732,
+        "fundamentalPeakProminence": 5.392349,
         "peakDbfs": -14.77636,
         "envelopeDbfs": [
           -25.242258,
@@ -58532,6 +58990,7 @@
         "onsetMs": 12,
         "fundamentalHz": 3598.322846,
         "pitchErrorCents": 38.099045,
+        "fundamentalPeakProminence": 5.867735,
         "peakDbfs": -12.751435,
         "envelopeDbfs": [
           -23.110594,
@@ -58656,6 +59115,7 @@
         "onsetMs": 12,
         "fundamentalHz": 3598.237107,
         "pitchErrorCents": 38.057793,
+        "fundamentalPeakProminence": 6.254811,
         "peakDbfs": -11.291992,
         "envelopeDbfs": [
           -22.039105,
@@ -58780,6 +59240,7 @@
         "onsetMs": 10,
         "fundamentalHz": 3598.10031,
         "pitchErrorCents": 37.991974,
+        "fundamentalPeakProminence": 6.025487,
         "peakDbfs": -8.489682,
         "envelopeDbfs": [
           -19.235698,
@@ -58904,6 +59365,7 @@
         "onsetMs": 12,
         "fundamentalHz": 3598.016993,
         "pitchErrorCents": 37.951886,
+        "fundamentalPeakProminence": 5.56839,
         "peakDbfs": -6.678904,
         "envelopeDbfs": [
           -17.440892,
@@ -59028,6 +59490,7 @@
         "onsetMs": 12,
         "fundamentalHz": 3597.842866,
         "pitchErrorCents": 37.8681,
+        "fundamentalPeakProminence": 5.366649,
         "peakDbfs": -4.090969,
         "envelopeDbfs": [
           -14.683114,
@@ -59152,6 +59615,7 @@
         "onsetMs": 12,
         "fundamentalHz": 3597.842707,
         "pitchErrorCents": 37.868024,
+        "fundamentalPeakProminence": 5.368655,
         "peakDbfs": -1.567348,
         "envelopeDbfs": [
           -11.521916,
@@ -59276,6 +59740,7 @@
         "onsetMs": 6,
         "fundamentalHz": 4091.557961,
         "pitchErrorCents": -39.510167,
+        "fundamentalPeakProminence": 4.68886,
         "peakDbfs": -27.459669,
         "envelopeDbfs": [
           -43.264407,
@@ -59399,6 +59864,7 @@
         "onsetMs": 8,
         "fundamentalHz": 4091.419865,
         "pitchErrorCents": -39.5686,
+        "fundamentalPeakProminence": 4.960942,
         "peakDbfs": -23.862868,
         "envelopeDbfs": [
           -37.426965,
@@ -59522,6 +59988,7 @@
         "onsetMs": 10,
         "fundamentalHz": 4091.435923,
         "pitchErrorCents": -39.561806,
+        "fundamentalPeakProminence": 5.295501,
         "peakDbfs": -22.032726,
         "envelopeDbfs": [
           -32.650914,
@@ -59645,6 +60112,7 @@
         "onsetMs": 10,
         "fundamentalHz": 4271.841249,
         "pitchErrorCents": 35.139126,
+        "fundamentalPeakProminence": 2.715086,
         "peakDbfs": -20.609641,
         "envelopeDbfs": [
           -31.935293,
@@ -59768,6 +60236,7 @@
         "onsetMs": 10,
         "fundamentalHz": 4091.401704,
         "pitchErrorCents": -39.576285,
+        "fundamentalPeakProminence": 5.543028,
         "peakDbfs": -20.203222,
         "envelopeDbfs": [
           -31.220613,
@@ -59891,6 +60360,7 @@
         "onsetMs": 4,
         "fundamentalHz": 4091.560983,
         "pitchErrorCents": -39.508889,
+        "fundamentalPeakProminence": 5.094774,
         "peakDbfs": -19.391892,
         "envelopeDbfs": [
           -39.67802,
@@ -60014,6 +60484,7 @@
         "onsetMs": 10,
         "fundamentalHz": 4091.441844,
         "pitchErrorCents": -39.5593,
+        "fundamentalPeakProminence": 5.342007,
         "peakDbfs": -18.321053,
         "envelopeDbfs": [
           -27.947238,
@@ -60137,6 +60608,7 @@
         "onsetMs": 4,
         "fundamentalHz": 4091.562927,
         "pitchErrorCents": -39.508066,
+        "fundamentalPeakProminence": 5.748522,
         "peakDbfs": -17.508723,
         "envelopeDbfs": [
           -53.029068,
@@ -60260,6 +60732,7 @@
         "onsetMs": 8,
         "fundamentalHz": 4091.393425,
         "pitchErrorCents": -39.579788,
+        "fundamentalPeakProminence": 5.779092,
         "peakDbfs": -15.981334,
         "envelopeDbfs": [
           -26.663319,
@@ -60383,6 +60856,7 @@
         "onsetMs": 12,
         "fundamentalHz": 4091.359969,
         "pitchErrorCents": -39.593945,
+        "fundamentalPeakProminence": 6.430428,
         "peakDbfs": -14.799572,
         "envelopeDbfs": [
           -23.723896,
@@ -60506,6 +60980,7 @@
         "onsetMs": 10,
         "fundamentalHz": 4091.437605,
         "pitchErrorCents": -39.561094,
+        "fundamentalPeakProminence": 7.215657,
         "peakDbfs": -13.432318,
         "envelopeDbfs": [
           -23.328124,
@@ -60629,6 +61104,7 @@
         "onsetMs": 10,
         "fundamentalHz": 4091.339458,
         "pitchErrorCents": -39.602624,
+        "fundamentalPeakProminence": 6.276558,
         "peakDbfs": -11.110873,
         "envelopeDbfs": [
           -21.439709,
@@ -60752,6 +61228,7 @@
         "onsetMs": 12,
         "fundamentalHz": 4091.348613,
         "pitchErrorCents": -39.59875,
+        "fundamentalPeakProminence": 6.437699,
         "peakDbfs": -8.700565,
         "envelopeDbfs": [
           -19.23848,
@@ -60875,6 +61352,7 @@
         "onsetMs": 10,
         "fundamentalHz": 4091.387372,
         "pitchErrorCents": -39.582349,
+        "fundamentalPeakProminence": 7.086175,
         "peakDbfs": -6.19947,
         "envelopeDbfs": [
           -17.173933,
@@ -60998,6 +61476,7 @@
         "onsetMs": 12,
         "fundamentalHz": 4091.279675,
         "pitchErrorCents": -39.627921,
+        "fundamentalPeakProminence": 5.186126,
         "peakDbfs": -3.231855,
         "envelopeDbfs": [
           -14.333479,
@@ -61121,6 +61600,7 @@
         "onsetMs": 14,
         "fundamentalHz": 4091.445975,
         "pitchErrorCents": -39.557552,
+        "fundamentalPeakProminence": 5.701773,
         "peakDbfs": -1.508165,
         "envelopeDbfs": [
           -12.413607,
