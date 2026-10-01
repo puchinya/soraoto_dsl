@@ -73,3 +73,14 @@ v1の3音響アンカーを変更・再レンダーせずに再利用し、Stage
 - 同anchorのL1→L3では0015 buzzが0.119004から0.121478へ上がり、0.12制約を超える。post-attackとdynamic-spanの違反も残るためL3は不適格。0016 L3もbuzz 0.120214で上限を超え、post-attack/dynamic-span違反が残る。各比較にはpitch、buzz、tail2、peak、guard、finite/release/stuck、および全32制約を列挙し、トレードオフを隠さない。
 - v1保存identityと現HEADの差はsourceRevisionのみ。保存identityでv1の3結果、全32制約、参照result hashを検証し、現HEAD loaderはstrict guardにより `BLOCKED_ANCHOR_EVIDENCE_IDENTITY: ... sourceRevision` を返すことを確認。runner/production guardは変更していない。
 - 合成identity/focusテスト、tuning全体、WASM build、Stage2F dry-run、既存analyzer、privacy scan、diff checkの結果はPR #8のStage2G更新に記録する。full CTest、Web Player、Stage3/4、manual listeningは未実行。Issue #7は`phase:implementation` + `blocked`のまま。
+
+## Stage2H — C8 window / velocity-span attribution — 2026-10-02
+
+- 判定: `COMPLETE_NUMERIC_WINDOW_SPAN_AUDIT`。既存Stage2F v2の21候補を読み取り専用で再構成し、C8の(108,14)を21件、保存subset内の4 control keyを各21件、計105セルを記録した。指定10本のvelocity-span曲線は16層すべてを再計算した。追加render 0、Stage3/4未実行。
+- identity: Salamander V3 fixture 480/480 unique cells、subset fixture SHA、一意subset key、pinned source archive SHAを確認。protected evidence 61ファイルのSHA-256は解析前後で不変。
+- C8 window: 21/21候補でlate residualは−12.033〜−29.454 dB、shape violationは+2.033〜+19.454 dB。従ってこの監査対象候補ではC8 post-attack shape gateが全件未達。S3は−57.669〜−86.380 dBFS、再構成S4は−73.317〜−118.981 dBFS。R3/R4はそれぞれ−50.878/−54.323 dBFS。−240 dBFS sentinelは対象105セルに0件。小さい絶対レベルは削除・丸めずprivate出力に保持し、これだけから原因や合否閾値を推定していない。
+- velocity span: 10曲線中8曲線が既存8 dB span-error limitを超過。absolute span errorは6.178〜12.075 dB。pitch 45では0015/L1と0016/L1の両方でsynth spanがreferenceより大きく、それぞれ+11.496 / +11.529 dB。per-layer valuesと極値velocityはprivate outputに保存。
+- 元音源再解析: `NOT_AVAILABLE`。`SUPERSYNTH_V9_SALAMANDER_REF` が未設定のためFLAC decodeは0件。従ってこれはcommitted fixtureに対する再構成結果であり、元音源からの独立再測定ではない。
+- 数値診断は保存済みセルの窓別・span別差を示すのみで、physical causeや修正案を確定しない。Stage2F feasibility、Stage3/4、親Issue #7のacceptance完了を意味しない。Issue #7は`phase:implementation` + `blocked`を維持する。
+- 検証: Stage2H合成テスト6件、tuning unittest全80件、WASM build、Stage2F dry-run、Salamander fixture test、Stage2H analyzer、diff checkはPASS。full CTest、Web Player、Stage3/4、元音源decode、manual listeningは未実行。
+- private詳細: `.agent-state/issues/7/calibration-optuna/stage2h/window-span-attribution.json`。合成テスト: `wasm/plugins/dsp/super-synth/test/tuning/tests/test_stage2h_window_span.py`。
