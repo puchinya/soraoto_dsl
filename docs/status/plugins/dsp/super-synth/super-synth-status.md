@@ -45,3 +45,17 @@
 The pre-delta full-range report used a shared gain offset of +4.7693 dB. Direct-cell absolute level error was P50 4.2236 dB / P95 11.8864 dB / maximum 19.1777 dB; peak reached +1.5836 dBFS against the old +1.6 dBFS gate. Those baseline results had no failures under the old checks, but fail the new contract's strict peak limit and do not prove per-cell pitch/release or output-guard behavior. Centroid checks below 0.1% power above 2 kHz remain low-energy diagnostics; one baseline cell and five adjacent pairs fell below that energy floor. Velocity brightness evolved for 83/88 pitches (94.32%) under the aggregate check; the delta requires direct-pitch checks, including MIDI 21/24/27.
 
 The Studio Piano and fuhton references are excluded from the active calibration plan. Raw Salamander audio remains in the user's private Drive and is not included in the repository or distributed plugin.
+
+## 2026-10-02 Stage2H Corrective Review and Stage2I Loss-Authority Audit
+
+| Item | Status | Evidence |
+|---|---|---|
+| Stage2H fixture binding (A1) | PASS | Fixture test now requires schemaVersion 3 and preserves the 480 direct-cell / 641 referenced-audio coverage. Fixture data was not regenerated or edited. |
+| Stage2H source comparison (A2) | PASS | Optional source comparison now uses only `envelopeDbfs[5]`, `envelope20msDbfs[18]`, and `peakDbfs`; onset is not required. Mock coverage verifies missing required metrics fail and a hash mismatch prevents decode. |
+| Stage2H numeric reconstruction | PASS (diagnostic) | 21 candidates, 105 C8/control cells and 10 span curves reconcile from saved Stage2F evidence; 0 renders. All 105 C8 late residuals are negative; all 21 candidates have at least one C8 shape-limit failure; 8/10 velocity-span curves exceed the existing 8 dB limit. Original audio reanalysis is NOT AVAILABLE. |
+| Stage2I loss-authority mapping | PASS (mathematical audit) | Current equations/config were evaluated against the preserved Stage2H probes. At MIDI 108 the register gate and `ref_loss` are exactly 0 at every requested velocity; at MIDI 45 the gate is 0.8980842912 and `ref_loss` falls from 0.0021746651 (velocity 14) to 0.0012816724 (velocity 124). |
+| Evidence identity | QUALIFIED | Stage2F results identify sourceRevision `6f4ab32bf20f9267eeb368aa4d7809e0fe846329`; current HEAD at analysis was `f7a1050ec59c132960d5c46f944d57ab4d02673f`. The audit preserves both identities and makes no causal claim or acoustic-equivalence claim. |
+| Focused verification | PASS | Fixture test; Stage2H tests 8/8; Stage2I tests 6/6; full tuning suite 88/88 in the Issue #7 calibration venv; Stage2F dry-run reports 0 builds / 0 renders; Stage2H and Stage2I analyses each report 0 renders; `git diff --check`. |
+| Issue #7 acceptance | BLOCKED / NOT RUN | This audit does not unlock Stage 3/4 or change physical tuning. Full 480, 1,408, 1,392, CTest, Web Player and listening acceptance were not run. Issue remains `phase:implementation` + `blocked`; PR #8 remains open. |
+
+Copyable report: `.agent-state/issues/7/reports/2026-10-02-stage2h-stage2i-loss-authority.md`. No production DSP, preset coefficient, threshold, source equation, or physical-candidate slot was changed.
