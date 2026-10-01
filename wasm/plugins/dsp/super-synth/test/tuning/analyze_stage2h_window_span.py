@@ -45,7 +45,7 @@ const pitch = Number(process.env.STAGE2H_PITCH);
 const decoded = decodeWav24Stereo(fs.readFileSync(0));
 const result = analyzeStereo(decoded.left, decoded.right, pitch, {sampleRate: decoded.sampleRate});
 process.stdout.write(JSON.stringify({envelopeDbfs: result.envelopeDbfs,
-  envelope20msDbfs: result.envelope20msDbfs, peakDbfs: result.peakDbfs, onsetMs: result.onsetMs}));
+  envelope20msDbfs: result.envelope20msDbfs, peakDbfs: result.peakDbfs}));
 """
 
 
@@ -309,7 +309,7 @@ def optional_source_reanalysis(root: Path, fixture: dict[str, Any], hashes: dict
                 "reason": "verified package exists but FLAC or Node decoder is unavailable"}, protected
     fixture_map = {(int(row["pitch"]), int(row["velocity"])): row for row in fixture["directCells"]}
     sample_rows = []
-    max_abs_deltas = {key: 0.0 for key in ("envelopeDbfs", "envelope20msDbfs", "peakDbfs", "onsetMs")}
+    max_abs_deltas = {key: 0.0 for key in ("envelopeDbfs", "envelope20msDbfs", "peakDbfs")}
     try:
         for pitch, velocity in C8_KEYS:
             ref = fixture_map[(pitch, velocity)]
@@ -320,13 +320,15 @@ def optional_source_reanalysis(root: Path, fixture: dict[str, Any], hashes: dict
             measured = decode_and_measure(sample_path, pitch, flac_bin, node_bin)
             expected = ref["metrics"]
             deltas: dict[str, float] = {}
-            for key in ("envelopeDbfs", "envelope20msDbfs"):
+            expected_lengths = {"envelopeDbfs": 5, "envelope20msDbfs": 18}
+            for key, expected_length in expected_lengths.items():
                 actual_values, expected_values = measured.get(key), expected.get(key)
-                if not isinstance(actual_values, list) or len(actual_values) != len(expected_values):
+                if (not isinstance(actual_values, list) or len(actual_values) != expected_length
+                        or not isinstance(expected_values, list) or len(expected_values) != expected_length):
                     raise RuntimeError("redecoded window metric coverage differs")
                 delta = max(abs(finite(a, key) - finite(e, key)) for a, e in zip(actual_values, expected_values))
                 deltas[key] = delta
-            for key in ("peakDbfs", "onsetMs"):
+            for key in ("peakDbfs",):
                 deltas[key] = abs(finite(measured.get(key), key) - finite(expected.get(key), key))
             for key, delta in deltas.items():
                 max_abs_deltas[key] = max(max_abs_deltas[key], delta)

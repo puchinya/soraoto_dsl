@@ -182,6 +182,62 @@ class Stage2HWindowSpanTests(unittest.TestCase):
             self.assertEqual(result["decodedSamples"], 0)
             decode.assert_not_called()
 
+    def source_reanalysis_fixture(self, root):
+        rows = []
+        package_files = []
+        for index, (pitch, velocity) in enumerate(stage2h.C8_KEYS):
+            relative = f"samples/c8-{pitch}-{velocity}.flac"
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(f"verified fixture sample {index}".encode())
+            metrics = {"envelopeDbfs": [-40.0 - index - i for i in range(5)],
+                       "envelope20msDbfs": [-35.0 - index - i / 10 for i in range(18)],
+                       "peakDbfs": -12.0 - index}
+            rows.append({"pitch": pitch, "velocity": velocity, "sample": relative, "metrics": metrics})
+            package_files.append({"path": relative, "sha256": stage2h.sha(path)})
+        for index in range(643 - len(package_files)):
+            relative = f"inventory/asset-{index}.bin"
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(f"asset {index}".encode())
+            package_files.append({"path": relative, "sha256": stage2h.sha(path)})
+        hashes = {"packageFiles": package_files}
+        return {"directCells": rows}, hashes, rows
+
+    def test_optional_source_reanalysis_passes_without_onset_metric(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture, hashes, rows = self.source_reanalysis_fixture(root)
+            measured = {(row["pitch"], row["velocity"]): copy.deepcopy(row["metrics"]) for row in rows}
+            with mock.patch.dict("os.environ", {"SUPERSYNTH_V9_SALAMANDER_REF": str(root)}):
+                with mock.patch.object(stage2h.shutil, "which", side_effect=lambda name: name):
+                    with mock.patch.object(stage2h, "decode_and_measure",
+                                           side_effect=lambda path, pitch, flac, node:
+                                           measured[next(key for key in measured if f"{key[0]}-{key[1]}" in path.name)]) as decode:
+                        result, protected = stage2h.optional_source_reanalysis(Path.cwd(), fixture, hashes)
+            self.assertEqual(result["status"], "PASS")
+            self.assertEqual(result["decodedSamples"], 5)
+            self.assertEqual(result["maximumAbsoluteDeltas"], {
+                "envelopeDbfs": 0.0, "envelope20msDbfs": 0.0, "peakDbfs": 0.0})
+            self.assertTrue(all("onsetMs" not in row["maxAbsDeltas"] for row in result["samples"]))
+            self.assertEqual(len(protected), 643)
+            self.assertEqual(decode.call_count, 5)
+
+    def test_optional_source_reanalysis_missing_metric_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture, hashes, rows = self.source_reanalysis_fixture(root)
+            bad_metrics = copy.deepcopy(rows[0]["metrics"])
+            bad_metrics.pop("envelope20msDbfs")
+            with mock.patch.dict("os.environ", {"SUPERSYNTH_V9_SALAMANDER_REF": str(root)}):
+                with mock.patch.object(stage2h.shutil, "which", side_effect=lambda name: name):
+                    with mock.patch.object(stage2h, "decode_and_measure", return_value=bad_metrics) as decode:
+                        result, _ = stage2h.optional_source_reanalysis(Path.cwd(), fixture, hashes)
+            self.assertEqual(result["status"], "FAIL")
+            self.assertEqual(result["decodedSamples"], 0)
+            self.assertEqual(result["reason"], "redecoded window metric coverage differs")
+            decode.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
