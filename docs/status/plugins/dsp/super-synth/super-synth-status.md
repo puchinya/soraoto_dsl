@@ -72,3 +72,16 @@ Copyable report: `.agent-state/issues/7/reports/2026-10-02-stage2h-stage2i-loss-
 | Budget / protected evidence | BLOCKED AT LIMIT | Physical count is 25/25. All 75 protected input hashes match before/after. No further candidate, Stage 3, or Stage 4 was run. |
 | Focused verification | PASS | Stage2J tests 13/13; full tuning suite 101/101; current-HEAD production-SIMD WASM preflight build; fixture test; Node syntax and `git diff --check`. Current dry-run correctly fails closed on partial provenance mismatch with 0 build / 0 render. |
 | Issue #7 acceptance | BLOCKED / NOT RUN | Need a new requirements/design decision and explicit budget approval before any further candidate evaluation. Stage 3/4, full CTest, Web Player and manual listening remain unrun. Issue remains `phase:implementation` + `blocked`; PR #8 remains open. |
+
+## 2026-10-02 Stage2K — Candidate-25 evidence completion
+
+| Item | Status | Evidence |
+|---|---|---|
+| Acoustic artifact identity | PASS | Candidate `stage2j-2ddddab0412a5324`, source revision `3cd14834…`, exact parameter/config/subset identity; production-SIMD WASM SHA `0f8bc8c387df520c54abe7d26e73c83457610a9f6519542d9a0c362d9ec0612b` matched before and after all supplementary measurements. |
+| Budget | PASS | 25/25 before and after; candidate count delta 0. Seven supplementary renders only: two held/release and five C8 variants. |
+| Held / release | PASS (measured) | heldDecayRatio 0.748930; release tails 0.002176740 / 0.000561672 / 0.000030691; tail3/tail2 0.054642; finiteRelease=true; stuckVoiceCount=0; guard=0. |
+| 32 Stage2E constraints | FAIL | Existing `stage2e_constraints` produced 32/32 finite values. Positive independent constraints: post-attack shape +2.101440 dB, MIDI 45 dynamic span +3.528952 dB. `stage2b_violation` repeats the max as an aggregate. |
+| C8 path diagnostics | PASS (diagnostic) | Five required variants completed on the same WASM. All finite, guard=0. Normal mix=1; board-off mix=0; masks 0/0/1/2/4. Board-off shifted late residual by −0.0385 dB; dry-transverse ablation reduced peak by about 17.26 dB while relative shape error shifted about −0.0894 dB. Diagnostic differences do not prove physical root cause. |
+| Protected inputs | PASS | 75/75 protected SHA-256 values unchanged; no production source, preset, fixture, threshold, or WASM modification. |
+| Verification | PASS | Stage2K tests 7/7; full tuning suite 108/108; candidate export checks; preflight dry-run; reference fixture 480/480 cells / 641 samples; scoped privacy and diff checks. Existing candidate artifact was reused; no rebuild was needed. |
+| Issue #7 acceptance | BLOCKED | Candidate 25 fails Stage2B shape/span constraints. Budget is exhausted, so further acoustic tuning requires a separate requirements/design contract and explicit budget approval. Stage 3/4, full CTest, Web Player, source-audio decode, and manual listening remain NOT RUN. Issue remains `phase:implementation` + `blocked`; PR #8 remains open. |

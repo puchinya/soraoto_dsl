@@ -95,3 +95,12 @@ v1の3音響アンカーを変更・再レンダーせずに再利用し、Stage
 - C8 path variantsはレンダーしていない。最初のcapture invocationはbuild-root解決でrender前に失敗し、capture pathは修正したが、その後のevaluator identityが変わった。既存のpartial manifestとは一致しないため再利用せずfail-closedとした。board/dry-transverse/dry-bridge/dry-contactのpath authorityやphysical root causeは未判定。
 - protected input 75ファイルのbefore/after SHA-256一致。Stage2J専用test 13/13、tuning suite 101/101、production-SIMD WASM preflight build、fixture test、Node syntax check、diff checkはPASS。current post-run dry-runはpartial evidence provenance mismatchでBLOCKされ、build/renderは0。
 - Stage3 (480 cells)、Stage4 (1,408 lifecycle + 1,392 adjacent)、CTest、Web Player、manual listening、original Salamander audio decodeはNOT RUN。physical budget 25/25のため、追加の音響候補評価には新しいrequirements/design decisionと明示的なbudget承認が必要。Issue #7は`phase:implementation` + `blocked`を維持する。
+
+## Stage2K — Candidate-25 evidence completion — 2026-10-02
+
+- Stage2Jの未完held/release証拠は、独立したStage2K extractorで補完した。candidate 25のimmutable production-SIMD WASM SHA-256は、Stage2J record・Stage2K preflight・測定後の全てで `0f8bc8c387df520c54abe7d26e73c83457610a9f6519542d9a0c362d9ec0612b` と一致。source revision `3cd14834f224358b1a279f349b7055dbab97a3d4`、config/subset identity、8値candidate vectorも一致。
+- 補助renderは held/release 2回 + C8 5 variant、計7回のみ。candidate count delta 0、budgetは前後25/25。Stage2F/GP/QMCへ観測を追加していない。
+- Held/release: heldDecayRatio `0.7489299991`; tails `0.0021767400 / 0.0005616718 / 0.0000306907`; tail3/tail2 `0.0546416256`; finiteRelease=true; stuckVoiceCount=0; guard=0。
+- `stage2e_constraints`で32/32有限制約を既存関数から再計算。最終判定 `STAGE2_CURRENT_HEAD_FAIL`。正の独立制約は `post_attack_shape_violation_db=+2.101440` と `dynamic_span_violation_db=+3.528952`; duplicate aggregate `stage2b_violation=+3.528952`。
+- C8: normal mix 1, mask 0; board_off mix 0, mask 0; transverse/bridge/contact ablation masksはそれぞれ1/2/4。全variantがfinite、guard=0。EARLY/LATE residualとshape errorはprivate Stage2K artifactに全値を保存。board_offはlate residualを約−0.0385 dB動かした。個別dry transverse ablationは出力peakを約17.26 dB低下させた一方、相対shape errorの変化は約−0.0894 dB。これらは測定出力のpath authority/directionの観察に限り、physical root-causeとは断定しない。
+- protected inputs 75/75のSHA-256不変。Stage2Jに記載したheld/release blockerはStage2K測定で解消したが、Stage2B shape/span違反が残るためStage2全体はFAIL。Stage3/4、CTest、Web Player、manual listening、元音源decodeはNOT RUN。Issue #7は`phase:implementation` + `blocked`を維持する。
