@@ -5,6 +5,7 @@ Stage2Mは診断専用です。係数変更、Stage 3/4、候補昇格の根拠�
 - Candidate: `stage2l-r2-candidate-01` (Stage2L semantic vector)
 - Source revision: `b2ca766235378c33e47185c8b185f09dbe005b98`
 - Candidate budget: 1/12 (Stage2M candidate delta 0; GPSampler trials 0)
+- Capture accounting: 593 diagnostic note renders across five attempts; only the final validated 144-cell matrix is used below. The earlier 449 calls were incomplete or superseded after evaluator/preflight fixes, preserved privately, and did not create candidate identities.
 - 111 equivalence: PASS
 
 ## Factor combinations

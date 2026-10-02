@@ -252,6 +252,7 @@ def markdown(report: dict[str, Any]) -> str:
              f"- Candidate: `{report['candidateId']}` (Stage2L semantic vector)",
              f"- Source revision: `{report.get('sourceRevision')}`",
              "- Candidate budget: 1/12 (Stage2M candidate delta 0; GPSampler trials 0)",
+             "- Capture accounting: 593 diagnostic note renders across five attempts; only the final validated 144-cell matrix is used below. The earlier 449 calls were incomplete or superseded after evaluator/preflight fixes, preserved privately, and did not create candidate identities.",
              f"- 111 equivalence: {'PASS' if report['stage2lCandidate1Equivalence']['pass'] else 'FAIL'}", "",
              "## Factor combinations", "", "| Mask | MIDI45 span | Existing 8 dB violation | C8 shape violation | C8 LATE residual | MIDI21 estimator | MIDI21 constrained peak | Peak worst | Guard |", "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for row in report["combinationSummaries"]:
@@ -303,6 +304,7 @@ def detailed_markdown(report: dict[str, Any], result: dict[str, Any]) -> str:
         m21 = combo["midi21"]
         lines += [f"MIDI21 21/14: target {m21['targetMidiFrequency']:.8f} Hz; estimator {m21['currentEstimatorSelectedFrequency']:.8f} Hz / {m21['currentEstimatorCents']:.6f}¢; local peak {m21['constrainedNearFundamentalFrequency']:.8f} Hz / {m21['constrainedNearFundamentalCents']:.6f}¢; estimator/local amplitude ratio {m21['selectedToConstrainedAmplitudeRatio']:.7g}; prepared strings {', '.join(f'{x:.8f} Hz' for x in m21['preparedStringNominalHz'])}; finite {m21['finite']}; guard {m21['guardHits']}.", ""]
     lines += ["## Measurement and scope notes", "",
+              "- Execution accounting: 593 note-render calls were made across five attempts (17 in the initial aborted capture, then four complete 144-cell matrices). The first three complete matrices were excluded after resolving budget-check ordering and low-frequency spectral-window/peak-selection validity; the final 144-cell matrix is the sole accepted evidence. Candidate identity count remained one and candidate budget stayed 1/12 throughout.",
               "- The MIDI21 local peak uses the shared spectrum helper with a 1.36 s Hann window and expected-f0-centered ±100¢ bin search; it remains diagnostic, not a replacement hard pitch gate.",
               "- 144 renders are eight factor variants of one semantic vector; no new physical candidate identity or optimizer observation was created.",
               "- Raw audio, local filesystem paths, Drive identifiers, and credentials are not included.", ""]
