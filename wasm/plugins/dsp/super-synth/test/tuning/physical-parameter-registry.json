@@ -210,14 +210,13 @@
         "string.reference_loss_base",
         "string.reference_loss_register_start",
         "string.reference_loss_register_width",
-        "string.reference_loss_velocity_base",
-        "string.reference_loss_velocity_scale",
+        "string.decay_reference_midi",
         "string.release_loss_base",
         "string.release_loss_damping_scale",
         "string.release_loss_key_scale"
       ],
-      "boundBasis": "Retain existing loss mappings; piano_string_damping is the semantic Level-1 loss/decay axis.",
-      "rationale": "Do not tune low-level loss coefficients independently of their semantic control."
+      "boundBasis": "Passive boundary loss is velocity-independent and per-second decay is time-normalized against string.decay_reference_midi; piano_string_damping remains the semantic loss/decay axis.",
+      "rationale": "Do not tune low-level loss coefficients independently of their semantic control or introduce strike-velocity dependence into passive boundary decay."
     },
     {
       "id": "string-dispersion-mapping",

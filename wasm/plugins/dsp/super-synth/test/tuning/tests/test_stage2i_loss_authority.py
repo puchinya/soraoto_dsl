@@ -18,6 +18,8 @@ class Stage2ILossAuthorityTests(unittest.TestCase):
     def setUpClass(cls):
         presets = json.loads((ROOT / stage2i.PRESETS_REL).read_text(encoding="utf-8"))
         preset = presets["concert_grand"]
+        if preset["engine_config"].get("revision") != 1:
+            raise unittest.SkipTest("Stage2I authority math is archived for revision 1; Stage2L revision 2 has velocity-independent loss")
         cls.values = stage2i.config_values(preset["engine_config"]["string"])
         cls.damping = preset["piano_string_damping"]
 

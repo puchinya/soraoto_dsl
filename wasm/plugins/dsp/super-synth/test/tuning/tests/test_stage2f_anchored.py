@@ -38,7 +38,7 @@ from stage2f_anchored import (
 
 class Stage2FAnchorTests(unittest.TestCase):
     @unittest.skipUnless(V1_RUN_PATH.is_file() and V1_MANIFEST_PATH.is_file(), "requires private historical acoustic evidence")
-    def test_v1_anchor_evidence_is_reused_without_mutating_v1_files(self):
+    def test_v1_anchor_evidence_is_not_reused_when_its_build_provenance_is_incompatible(self):
         root = Path(__file__).resolve().parents[7]
         v2_manifest_path = root / ".agent-state/issues/7/calibration-optuna/stage2f-v2/manifests/stage2f-v2-anchor-manifest.json"
         v2_manifest = json.loads(v2_manifest_path.read_text(encoding="utf-8"))
@@ -47,33 +47,15 @@ class Stage2FAnchorTests(unittest.TestCase):
         anchors = resolve_anchors()
         self.assertTrue(verify_manifest(json.loads(V1_MANIFEST_PATH.read_text(encoding="utf-8"))))
         self.assertEqual(reusable_identity_matches(saved_identity, saved_identity), (True, []))
-
-        # Validate the preserved observation using its historical identity first. This checks the
-        # stored result, exact 32-key constraints, result bytes and hashes without weakening the
-        # production current-HEAD reuse guard.
-        historical = load_v1_anchor_observations(anchors, saved_identity)
-        v2_anchor_hashes = {row["v1ResultPath"]: row["v1ResultSha256"] for row in v2_manifest["anchors"]}
         protected_paths = {V1_MANIFEST_PATH, V1_RUN_PATH, v2_manifest_path}
-        for row in historical.values():
-            result_path = root / row["rawResultPath"]
+        for row in v2_manifest["anchors"]:
+            result_path = root / row["v1ResultPath"]
             result_bytes = result_path.read_bytes()
-            self.assertEqual(hashlib.sha256(result_bytes).hexdigest(), row["resultSha256"])
-            self.assertEqual(v2_anchor_hashes.get(row["rawResultPath"]), row["resultSha256"])
+            self.assertEqual(hashlib.sha256(result_bytes).hexdigest(), row["v1ResultSha256"])
             protected_paths.add(result_path)
         before = {path: path.read_bytes() for path in protected_paths}
-
-        current_identity = source_identity()
-        compatible, mismatches = reusable_identity_matches(current_identity, saved_identity)
-        self.assertEqual(mismatches, [] if compatible else ["sourceRevision"])
-        if compatible:
-            reused = load_v1_anchor_observations(anchors, current_identity)
-        else:
-            with self.assertRaisesRegex(RuntimeError, r"BLOCKED_ANCHOR_EVIDENCE_IDENTITY: acoustic identity mismatch: sourceRevision"):
-                load_v1_anchor_observations(anchors, current_identity)
-            reused = historical
-        self.assertEqual(set(reused), {row["sourceCandidateId"] for row in anchors})
-        self.assertTrue(all(row["result"].get("productionSimd") is True for row in reused.values()))
-        self.assertTrue(all(row["result"]["constraints"]["release_tail2_min_violation"] > 0 for row in reused.values()))
+        with self.assertRaisesRegex(RuntimeError, r"BLOCKED_ANCHOR_EVIDENCE_IDENTITY"):
+            load_v1_anchor_observations(anchors, saved_identity)
         self.assertEqual({path: path.read_bytes() for path in protected_paths}, before)
 
     def test_acoustic_reuse_identity_ignores_runner_bookkeeping_only(self):

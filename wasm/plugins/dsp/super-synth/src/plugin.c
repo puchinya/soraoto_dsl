@@ -1,6 +1,7 @@
 #ifdef __wasm_simd128__
 #include <wasm_simd128.h>
 #endif
+#include "grand_loss_math.h"
 
 #if defined(__wasm_simd128__) && !defined(SORAOTO_FORCE_SCALAR_GRAND)
 #define SORAOTO_GRAND_SIMD 1
@@ -80,7 +81,7 @@ typedef struct {
   float wound_reference_midi,wound_transition_width_midi;
   float reference_pitches[GRAND_REFERENCE_PITCH_COUNT],inharmonicity_b[GRAND_REFERENCE_PITCH_COUNT];
   float reference_loss_base,reference_loss_register_start,reference_loss_register_width;
-  float reference_loss_velocity_base,reference_loss_velocity_scale;
+  float decay_reference_midi;
   float release_loss_base,release_loss_damping_scale,release_loss_key_scale;
   float dispersion_base,dispersion_inharmonicity_base,dispersion_inharmonicity_key_scale;
   GrandAgraffeConfig agraffe;
@@ -539,6 +540,10 @@ typedef struct {
   float grand_fd_b2h_x[3],grand_fd_b2h_y[3];
   float grand_fd_h2b_x[3],grand_fd_h2b_y[3];
   float grand_bridge_radiation_prev;
+  float grand_string_prepared_pitch;
+  float grand_agraffe_held_gain;
+  float grand_bridge_held_gain;
+  float grand_bridge_released_gain;
   float lfo1_phase;
   float lfo2_phase;
   float drift_phase;
@@ -586,6 +591,7 @@ static float grand_hsum_f32x4(v128_t v);
 #endif
 static void grand_update_board_cache(float rate);
 static void grand_update_symp_cache(float rate);
+static void grand_refresh_string_loss_cache(Voice* q);
 static void grand_clear_sympathetic_state(void);
 static void grand_prepare_longitudinal(Voice* q,float pitch);
 static void grand_sympathetic_step(const float drive[3],float rate);
@@ -756,6 +762,9 @@ void dsp_set_parameter(int id,float value,int sample_offset){
   g_params[id]=value;
   if(id==P_PIANO_SOUNDBOARD_SIZE && old_value!=value)g_grand_sb_cache_dirty=1;
   if((id==P_PIANO_STRING_DAMPING||id==P_PIANO_INHARMONICITY)&&old_value!=value)g_grand_symp_cache_dirty=1;
+  if(id==P_PIANO_STRING_DAMPING&&old_value!=value){
+    for(int i=0;i<MAX_VOICES;i++)if(g_voices[i].active&&g_voices[i].engine_model==9)grand_refresh_string_loss_cache(&g_voices[i]);
+  }
   if(id==P_PIANO_SYMPATHETIC){if(value<=0.0f&&old_value>0.0f)g_grand_symp_clear_pending=1;g_grand_symp_mask_dirty=1;}
   if(id==P_SOSTENUTO_PEDAL && old_value<0.5f && value>=0.5f){for(int i=0;i<MAX_VOICES;i++)if(g_voices[i].active&&g_voices[i].key_down)g_voices[i].sostenuto_latched=1;g_grand_symp_mask_dirty=1;}
   if(id==P_SOSTENUTO_PEDAL && old_value>=0.5f && value<0.5f){for(int i=0;i<MAX_VOICES;i++)g_voices[i].sostenuto_latched=0;if(g_params[P_SUSTAIN_PEDAL]<0.5f)release_unheld_voices();g_grand_symp_mask_dirty=1;}
@@ -832,14 +841,7 @@ static float grand_contact_power(float normalized,float exponent){
 static inline float grand_effective_felt_hardness(float base_hardness,float velocity,float amount){
   const float h=clampf(base_hardness,0.0f,1.0f);
   const float v=clampf(velocity,0.0f,1.0f);
-  if(amount==0.0f)return h;
-  const float pivot=61.0f/127.0f;
-  if(v<=pivot){
-    const float t=(pivot-v)/pivot;
-    return h*(1.0f-amount*t);
-  }
-  const float t=(v-pivot)/(1.0f-pivot);
-  return h+(1.0f-h)*amount*t;
+  return clampf(h+amount*(v-61.0f/127.0f),0.0f,1.0f);
 }
 
 static void grand_zone_weights(float key,float* bass,float* tenor,float* treble){
@@ -857,8 +859,26 @@ static void grand_zone_weights(float key,float* bass,float* tenor,float* treble)
   *bass=b;*tenor=m;*treble=t;
 }
 
+static void grand_refresh_string_loss_cache(Voice* q){
+  const GrandStringConfig* s=&g_grand_config.string;
+  const GrandAgraffeConfig* ag=&s->agraffe;
+  const GrandBridgeTerminationConfig* bt=&s->bridge_termination;
+  float pitch=q->grand_string_prepared_pitch;
+  float key=clampf((pitch-21.0f)/87.0f,0.0f,1.0f);
+  float damping=g_params[P_PIANO_STRING_DAMPING];
+  float ref_loss=s->reference_loss_base*clampf((s->reference_loss_register_start-key)/s->reference_loss_register_width,0.0f,1.0f);
+  float agraffe=clampf(ag->reflection_loss_base-(ag->key_loss_base+ag->key_loss_coefficient*key)*(ag->damping_base+ag->damping_coefficient*damping)-ref_loss*ag->reference_loss_multiplier,ag->passive_min,ag->passive_max);
+  float bridge=clampf(bt->reflection_loss_base-(bt->key_loss_base+bt->key_loss_coefficient*key)*(bt->damping_base+bt->damping_coefficient*damping)-ref_loss*bt->reference_loss_multiplier,bt->passive_min,bt->passive_max);
+  float release=s->release_loss_base+s->release_loss_damping_scale*damping+s->release_loss_key_scale*key;
+  float bridge_released=clampf(bt->reflection_loss_base-(bt->key_loss_base+bt->key_loss_coefficient*key)*(bt->damping_base+bt->damping_coefficient*damping)-release*bt->release_loss_multiplier-ref_loss*bt->reference_loss_multiplier,bt->passive_min,bt->passive_max);
+  q->grand_agraffe_held_gain=grand_loss_time_normalize(agraffe,pitch,s->decay_reference_midi);
+  q->grand_bridge_held_gain=grand_loss_time_normalize(bridge,pitch,s->decay_reference_midi);
+  q->grand_bridge_released_gain=grand_loss_time_normalize(bridge_released,pitch,s->decay_reference_midi);
+}
+
 static void prepare_grand_strings(Voice* q,float pitch){
   const GrandStringConfig* s=&g_grand_config.string;
+  q->grand_string_prepared_pitch=pitch;
   int vi=voice_index(q);
   int osm=clampi((int)(g_params[45]+0.5f),0,2);
   float rate=(float)g_sr*(float)(1<<osm);
@@ -895,6 +915,7 @@ static void prepare_grand_strings(Voice* q,float pitch){
     for(int i=0;i<bl;i++){g_grand_h2b[st][vi][i]=0.0f;g_grand_b2h[st][vi][i]=0.0f;}
   }
   q->grand_bridge_radiation_prev=0.0f;
+  grand_refresh_string_loss_cache(q);
 }
 
 /* Four-segment transverse string plus explicit dynamic hammer and shared
@@ -907,7 +928,6 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
   float key=clampf((q->glide_pitch-21.0f)/87.0f,0.0f,1.0f);
   float damping=g_params[P_PIANO_STRING_DAMPING],inh=g_params[P_PIANO_INHARMONICITY];
   float wound=clampf((s->wound_reference_midi-q->glide_pitch)/s->wound_transition_width_midi,0.0f,1.0f);
-  float ref_loss=s->reference_loss_base*clampf((s->reference_loss_register_start-key)/s->reference_loss_register_width,0.0f,1.0f)*(s->reference_loss_velocity_base-s->reference_loss_velocity_scale*q->velocity);
   float zb,zm,zt;grand_zone_weights(key,&zb,&zm,&zt);
   float body_fb=g_grand_board_feedback[0]*zb+g_grand_board_feedback[1]*zm+g_grand_board_feedback[2]*zt;
   float in_a[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
@@ -921,7 +941,6 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
   float impedance[4] __attribute__((aligned(16)))={s->characteristic_impedance[0],s->characteristic_impedance[1],s->characteristic_impedance[2],0.0f};
   float active_lanes[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
   float zsum=0.0f,contact_weighted=0.0f,string_sum=0.0f;
-  float release=q->amp_stage==3?(s->release_loss_base+s->release_loss_damping_scale*damping+s->release_loss_key_scale*key):0.0f;
   float disp=s->dispersion_base+inh*(s->dispersion_inharmonicity_base+s->dispersion_inharmonicity_key_scale*key);
   /* A. Gather every delay-line value before changing any string state. */
   for(int st=0;st<count;st++){
@@ -951,7 +970,7 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
   const GrandAgraffeConfig* ag=&s->agraffe;
   float aa=clampf(ag->lowpass_base-ag->lowpass_damping_coefficient*damping-ag->lowpass_key_coefficient*key,ag->passive_min,ag->passive_max);
   float hf_a=ag->high_frequency_loss_base+ag->high_frequency_loss_damping_coefficient*damping+ag->high_frequency_loss_key_coefficient*key+wound*ag->high_frequency_loss_wound_coefficient;
-  float loss_a=clampf(ag->reflection_loss_base-(ag->key_loss_base+ag->key_loss_coefficient*key)*(ag->damping_base+ag->damping_coefficient*damping)-ref_loss*ag->reference_loss_multiplier,ag->passive_min,ag->passive_max);
+  float loss_a=q->grand_agraffe_held_gain;
 #if SORAOTO_GRAND_SIMD
   v128_t v_active=wasm_f32x4_eq(wasm_v128_load(active_lanes),wasm_f32x4_splat(1.0f));
   v128_t v_at_a=wasm_v128_load(at_a);
@@ -1038,7 +1057,7 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
      shared junction; all dissipative gains remain in [0,1]. */
   float ab=clampf(bt->lowpass_base-bt->lowpass_damping_coefficient*damping-bt->lowpass_key_coefficient*key,bt->passive_min,bt->passive_max);
   float hf_b=bt->high_frequency_loss_base+bt->high_frequency_loss_damping_coefficient*damping+bt->high_frequency_loss_key_coefficient*key+wound*bt->high_frequency_loss_wound_coefficient;
-  float loss_b=clampf(bt->reflection_loss_base-(bt->key_loss_base+bt->key_loss_coefficient*key)*(bt->damping_base+bt->damping_coefficient*damping)-release*bt->release_loss_multiplier-ref_loss*bt->reference_loss_multiplier,bt->passive_min,bt->passive_max);
+  float loss_b=q->amp_stage==3?q->grand_bridge_released_gain:q->grand_bridge_held_gain;
 #if SORAOTO_GRAND_SIMD
   v128_t v_at_b=wasm_v128_load(at_b);
   v128_t v_lp_b=wasm_f32x4_make(q->grand_bridge_lp[0],q->grand_bridge_lp[1],q->grand_bridge_lp[2],0.0f);
@@ -1125,7 +1144,7 @@ static void init_voice(Voice* q,int note_id,float pitch,float velocity){
   q->phase_sub=wrap01(rnd()*0.5f*randamt);
   prepare_waveguide(q,pitch,q->velocity);
   if(engine==9){
-    float hard=g_params[P_PIANO_HAMMER_HARDNESS];
+    float hard=grand_effective_felt_hardness(g_params[P_PIANO_HAMMER_HARDNESS],q->velocity,g_grand_config.hammer.velocity_hardness_amount);
     const GrandHammerConfig* h=&g_grand_config.hammer;
     q->grand_hammer_velocity=grand_hammer_launch_velocity(h,q->velocity,hard);
     q->grand_hammer_contact=1;
@@ -1156,7 +1175,7 @@ static void retarget_voice(Voice* q,int note_id,float pitch,float velocity,int r
   int engine=clampi((int)(g_params[P_ENGINE]+0.5f),0,9);
   if(engine==1)prepare_waveguide(q,pitch,q->velocity);
   else if(engine==9){
-    float hard=g_params[P_PIANO_HAMMER_HARDNESS];
+    float hard=grand_effective_felt_hardness(g_params[P_PIANO_HAMMER_HARDNESS],q->velocity,g_grand_config.hammer.velocity_hardness_amount);
     const GrandHammerConfig* h=&g_grand_config.hammer;
     q->grand_hammer_velocity=grand_hammer_launch_velocity(h,q->velocity,hard);
     q->grand_hammer_compression=q->grand_hammer_force=q->grand_hammer_force_prev=0.0f;

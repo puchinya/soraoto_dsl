@@ -343,7 +343,7 @@
     "piano_sympathetic": 1,
     "engine_config": {
       "kind": "grand_piano_v1",
-      "revision": 1,
+      "revision": 2,
       "hammer": {
         "force_scale": 300,
         "initial_velocity_base": 0.42,
@@ -466,11 +466,10 @@
           0,
           0.017716
         ],
-        "reference_loss_base": 0.0014,
+        "reference_loss_base": 0.0019965984251968504,
         "reference_loss_register_start": 0.68,
         "reference_loss_register_width": 0.45,
-        "reference_loss_velocity_base": 1.82,
-        "reference_loss_velocity_scale": 0.82,
+        "decay_reference_midi": 60.0,
         "release_loss_base": 0.00006,
         "release_loss_damping_scale": 0.00025,
         "release_loss_key_scale": 0.00008,

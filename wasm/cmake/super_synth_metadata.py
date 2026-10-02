@@ -12,7 +12,7 @@ ABI=0x00010000
 PRESETS=json.loads((PLUGIN/'presets.json').read_text(encoding='utf-8'))
 
 GRAND_PROFILE_KIND='grand_piano_v1'
-GRAND_PROFILE_REVISION=1
+GRAND_PROFILE_REVISION=2
 GRAND_SB_MODE_COUNT=24
 GRAND_PROFILE_HEADER=SHARED/'generated'/'super-synth_grand_profiles.h'
 
@@ -58,8 +58,8 @@ _GRAND_PROFILE_SCHEMA={
     'wound_reference_midi':'number','wound_transition_width_midi':'number',
     'reference_pitches':_array(30,'number'),'inharmonicity_b':_array(30,'number'),
     'reference_loss_base':'number','reference_loss_register_start':'number',
-    'reference_loss_register_width':'number','reference_loss_velocity_base':'number',
-    'reference_loss_velocity_scale':'number','release_loss_base':'number',
+    'reference_loss_register_width':'number','decay_reference_midi':'number',
+    'release_loss_base':'number',
     'release_loss_damping_scale':'number','release_loss_key_scale':'number',
     'dispersion_base':'number','dispersion_inharmonicity_base':'number',
     'dispersion_inharmonicity_key_scale':'number','agraffe':_TERMINATION_SCHEMA,

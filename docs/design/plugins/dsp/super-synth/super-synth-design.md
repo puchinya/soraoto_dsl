@@ -2,21 +2,22 @@
 
 **Issue:** [#7](https://github.com/puchinya/soraoto_dsl/issues/7)
 **Product contract:** [`../../../../specs/plugins/dsp/super-synth/super-synth-spec.md`](../../../../specs/plugins/dsp/super-synth/super-synth-spec.md)
-**Review state:** Revised physical-model and WASM SIMD design approved by the user on 2026-09-26 through the supplied Issue #7 contract; implementation pending.
+**Review state:** Preset-owned grand-piano physical configuration approved by the user on 2026-09-27 through the supplied Issue #7 contract; implementation pending.
 
 ## 1. Scope and decisions
 
-This design covers the in-place SuperSynth release identity update and evidence-driven calibration
-of the native concert-grand model, including the approved physical-model and SIMD delta. It preserves
-Plugin ABI 1.0, the existing plugin ID, public parameter and factory-preset compatibility, and the
-existing plugin runtime architecture.
+This design covers the preset-owned physical-configuration refactor and subsequent evidence-driven
+calibration of the native concert-grand model. It retains Plugin ABI 1.0 and the existing Plugin ID.
+The project DSL is the sole persistent source of plugin configuration; there is no plugin state
+schema or state restore operation. The prior implementation contracts remain in task-private evidence.
 The complete current engine family inventory and non-piano renderer ownership are split into
 [`super-synth-engine-models-design.md`](super-synth-engine-models-design.md).
 
-The model remains in `wasm/plugins/dsp/super-synth/src/plugin.c`. The Web Player continues to select
-the plugin's `concert_grand` engine model for its ordinary piano instrument and does not implement
-DSP. `soft_piano` remains mapped to the existing `piano` engine model. No replacement plugin,
-compatibility alias, public parameter, state migration, ABI change, or JavaScript DSP is introduced.
+The model remains in `wasm/plugins/dsp/super-synth/src/plugin.c`; the Web Player continues to select
+`concert_grand` and does not implement DSP. `soft_piano` remains mapped to `piano`. This refactor adds
+no construction controls to the public parameter catalog and no preset inheritance. All grand
+sound-affecting values move to complete preset-owned profiles. Old opaque plugin-state data is not
+supported or migrated.
 
 ## 2. Metadata ownership and generation path
 
@@ -25,10 +26,12 @@ Keep each field at its existing source of truth:
 | Data | Owner / responsibility |
 |---|---|
 | Plugin parameter schema and engine-model enum | `interface.soraoto` |
-| Factory preset authoring | `presets.json` |
+| Factory preset authoring and complete grand physical profiles | `presets.json` |
 | Plugin identity and capabilities | `descriptor.json` |
-| SuperSynth lowering and fallback metadata | `wasm/cmake/super_synth_metadata.py` |
+| Strict profile validation and generated grand profile table | `wasm/cmake/super_synth_metadata.py` |
 | Generic metadata generation | `wasm/cmake/generate_plugin_metadata.py` |
+| Generated immutable profiles, preset-ID mapping, and default profile | `wasm/shared/generated/super-synth_grand_profiles.h` |
+| Active fixed-size physical config and real-time DSP | `wasm/plugins/dsp/super-synth/src/plugin.c` |
 | Runtime descriptor/interface truth | Embedded `soraoto.plugin.v1` and byte-identical source `soraoto.interface` |
 
 Update derived metadata through the established generators. Keep generated artifacts under
@@ -37,9 +40,12 @@ Update derived metadata through the established generators. Keep generated artif
 `9.0.0`, and keep `compatible_plugin_ids` empty. Update the existing source and generated metadata
 regression expectations together so source, embedded descriptor, and interface cannot drift.
 
-Keep parameter IDs, paths, types, ranges, enum values, preset identities/order, and serialized state
-schema unchanged. Regenerate only metadata derived from the plugin version, including
-`soraoto.preset_version`.
+Keep public parameter IDs/paths/types/ranges, enum values, and preset identities/order unchanged
+unless a concrete required change is documented. Add a generic optional factory-preset hook to the
+ABI runtime; do not add SuperSynth-specific shared-runtime symbols or extra-state hooks. Keep Plugin
+ABI 1.0 and all DSL/preset version numbers unchanged. Store the active factory preset ID only in the
+project DSL. Old opaque state blobs are not supported and are not migrated. Regenerate metadata
+derived from the plugin version, including `soraoto.preset_version`.
 
 ## 3. Runtime and real-time boundaries
 
@@ -68,9 +74,32 @@ allocation-free processing path and existing reset, voice initialization/retarge
 pedal, and voice-stealing behavior. Do not introduce a second piano implementation in Web Player
 JavaScript.
 
-Use `soundboard_mix=0` as a diagnostic bypass to isolate the soundboard contribution. Calibrate the
-model's gain and spectral shape at the source stages; do not compensate for a flawed model with a
-master gain adjustment.
+`presets.json` is the sole authored source for every sound-affecting grand-piano coefficient and
+table. Each factory preset whose `engine_model` is `concert_grand` has a complete independent
+`grand_piano_v1` revision-2 `engine_config`; it cannot inherit from another preset or rely on C
+defaults for missing fields. The generator rejects missing, unknown, malformed, non-finite,
+wrong-length, and out-of-range fields, then emits immutable profiles plus stable preset-ID mapping
+and default-profile identity. DSP reads one statically allocated `g_grand_config`; the generated
+profile layout may contain fixed arrays but no runtime allocation or JSON parsing.
+
+Factory preset and `LOAD_PROGRAM` use the same central application path and ordering: apply public
+values, call the generic optional profile hook, resolve/copy the selected profile, invalidate or
+rebuild config-dependent caches, and clear old grand physical/resonant state if profile identity
+changed. A non-grand preset selects the default `concert_grand` profile for deterministic later manual
+engine changes. Public piano controls remain high-level modifiers over the active baseline.
+
+The Host applies the factory preset ID and typed parameter values from the project DSL. The runtime
+resolves the selected preset's physical profile, rebuilds dependent caches, and clears incompatible
+transient physical audio state. No active preset ID is duplicated in plugin-owned persistence; there
+is no state schema, snapshot, load, or migration path.
+
+Use `soundboard_mix=0` as a diagnostic bypass of the additive left/right board-radiation output. It
+does not mute dry transverse, bridge, or contact output, and it does not stop board state or
+bridge/body feedback. Verify bypass by measuring raw pre-radiation and applied board-radiation
+signals directly; total output RMS may rise or fall as board radiation is added because dry and board
+signals can reinforce or cancel. Test non-zero mix effectiveness independently from the zero-mix
+bypass. Calibrate the model's gain and spectral shape at the source stages; do not compensate for a
+flawed model with a master gain adjustment.
 
 ## 4. Calibration inputs and measurements
 
@@ -142,12 +171,143 @@ Tune in this order and retain before/after measurements at every stage:
 14. `concert_grand` preset defaults, only after physical-model calibration.
 15. Output gain last.
 
-After each material calibration stage, rerun all 480 direct-reference cells. The final model must
-also pass all 1,408 full-range renders and all 1,392 adjacent-key/layer comparisons. Do not accept a
+### 5.1 Current residual-failure order
+
+Do not begin acoustic coefficient changes during presetization. First copy the baseline
+`6f4ab32bf20f9267eeb368aa4d7809e0fe846329` values into `engine_config`, generate the runtime profile,
+and prove migration equivalence at the contract's keys, velocities, and sustain states. Only after
+that gate passes, use the following fixed residual-failure sequence; every tuned value is then changed
+in `presets.json` and regenerated.
+
+The user fixed the following order for resolving the remaining physical-model failures:
+
+1. Re-measure pitch for both Salamander and SuperSynth with an expected-f0-constrained harmonic-comb estimator. Only change string delay length, fractional delay, or dispersion if the revised measurements still exceed the normative pitch tolerance.
+2. Separate hammer force from board radiation. Hold `engine_config.hammer.force_scale` at 300 if the velocity-brightness result remains better, and sweep only `engine_config.soundboard.radiation_scale` with the ordinary 480-cell renderer. Target a maximum peak near −3 dBFS and zero output-guard hits. Do not use master gain before the board scale is fixed.
+3. Measure C4 H3–H5 over 0–30 ms, 30–80 ms, and 80–200 ms. If only the attack is weak, tune contact duration, felt hardness, strike position, or the force-linked transient. If the later windows remain weak, inspect string propagation, bridge termination, dispersion, and board transfer. Keep `contact_transient` limited to attack support; add no dedicated harmonic correction terms.
+4. Measure note-held decay separately from post-note-off release tail. Attribute the first to string/bridge loss and modal Q, and the second to damper, board feedback, and sympathetic decay. The already-maximum preset controls cannot be used for further compensation.
+5. In a `soundboard_mix=0` bypass, remove board radiation only. Longitudinal modes radiate through bridge/body drive; the direct dry longitudinal path is disabled by the fixed architecture value `engine_config.radiation.dry_longitudinal_gain = 0.0`. Do not tune this field or weaken the bypass test to compensate for its removal.
+6. Re-fit key-position to radiation-position mapping from Salamander for `engine_config.soundboard.zone_pan` and the generated excitation-pan values. Do not raise preset stereo width.
+
+Do not adjust hammer force and board radiation scale in the same sweep. Any coefficient change invalidates the affected 480-cell, lifecycle, and acoustic evidence.
+
+#### Velocity-dependent felt hardness
+
+The private `concert_grand.engine_config.hammer.velocity_hardness_amount` is the single calibration
+axis for changing felt hardness with note velocity. It is preset-owned and constrained to `[0,1]`.
+Revision 2 maps effective hardness as
+`clamp(base_hardness + velocity_hardness_amount * (normalized_velocity - 61/127), 0, 1)`.
+Use this same result for felt exponent, stiffness, passive contact loss, hammer mass, and the hardness
+factor in initial hammer velocity. Keep the initial launch intercept/slope fixed at `0.42 / 1.05`.
+Hammer-noise scaling remains based on base hardness and independent of this coefficient. Do not tune
+hammer force, compression endpoints, contact endpoints, or output gain to emulate velocity-dependent
+felt behavior.
+
+### 5.3 Stage2L revision-2 string-loss and velocity-response model
+
+Stage2L is a new internal `grand_piano_v1` profile revision, not a public Plugin or product version.
+Keep Plugin ABI 1.0, Plugin ID, public parameter catalog/ranges, preset identities, and DSL behavior
+unchanged. Set the internal profile schema and generated `GRAND_PROFILE_REVISION` to 2. The strict
+preset-owned schema adds `string.decay_reference_midi = 60.0` and removes
+`string.reference_loss_velocity_base` / `string.reference_loss_velocity_scale`. At MIDI 61/127 pivot
+velocity, set `string.reference_loss_base = 0.0019965984251968504`; preserve the existing register
+start/width (`0.68 / 0.45`) and agraffe/bridge reference-loss multipliers.
+
+Passive reference loss is velocity-independent:
+
+```text
+reference_loss = reference_loss_base * register_gate
+cycle_exponent = 2 ^ ((decay_reference_midi - prepared_pitch) / 12)
+time_normalized_gain = clamped_passive_gain ^ cycle_exponent
+```
+
+`clamped_passive_gain` is the scalar agraffe or bridge gain after its existing passive formula and
+existing `[passive_min, passive_max]` clamp. At MIDI 60 the normalized gain equals the existing gain;
+above MIDI 60 it moves toward 1; below MIDI 60 it decreases. Every result remains within `[0,1]`.
+Do not time-normalize low-pass/HF filters, dispersion, bridge impedance, soundboard, or radiation.
+
+The per-voice cache stores the prepared string pitch, agraffe held gain, bridge held gain, and bridge
+released gain. Refresh it in `prepare_grand_strings(q, pitch)` and when
+`P_PIANO_STRING_DAMPING` changes for active concert-grand voices. Use the pitch used for delay-line
+geometry; do not follow glide/LFO/drift pitch. `grand_strings_step` selects the held or released cached
+bridge gain without logarithm/exponential work. Refreshing a cache does not clear string or body state.
+No allocation is permitted in `dsp_process`, and scalar/SIMD topology remains the same.
+
+Implement the power operation without libc/libm using a bounded near-unity log/exp polynomial helper.
+Call it only while preparing or refreshing a per-voice cache. The helper must be checked against host
+`pow` over gains `[0.93, 0.9998]`, MIDI 21–108, and reference MIDI 60 with maximum absolute error
+`<= 5e-5`.
+
+### 5.4 Stage2L model-revision search and promotion
+
+The old Stage2F/J candidate budget remains frozen at 25/25. Stage2L creates an independent revision-2
+budget of at most 12 acoustic candidate identities. Candidate 1 deterministically ports Stage2K's
+semantic vector, excluding `termination_loss_floor_scale`. Candidates 2–12 may use sequential
+`GPSampler(seed=7)` evaluations in one job, searching only the seven approved semantic dimensions:
+strike position `[0.13,0.17]`, compression `[0.0005,0.002]`, base hammer hardness `[0,1]`,
+inharmonicity `[0,1]`, string damping `[0,1]`, string unison `[0.4,1]`, and velocity hardness amount
+`[0,1]`. Do not include soundboard/radiation values, termination-loss coefficients, or other
+low-level architecture parameters.
+
+Before spending candidate 2 or later, candidate 1 must improve both C8 post-attack violation from
+`+2.101440 dB` and MIDI 45 span violation from `+3.528952 dB`, and introduce no positive independent
+safety constraint. Otherwise stop with `BLOCKED_STAGE2L_MODEL_DIRECTION`. Stop immediately on the
+first candidate with all 32 current Stage2E constraints `<= 0`. A feasible revision-2 candidate may be
+baked only through the authoritative preset/generator path, then Stage 1, Stage 2, Stage2B, and
+held/release must be rerun on the ordinary production artifact. Stage 3 and Stage 4 remain out of scope.
+
+Within one material calibration stage, individual scalar or grid candidate trials may use the C4
+regression and the 24-cell sentinel matrix to reject failures before running the full direct-reference
+matrix. After selecting a candidate for that material stage, rerun all 480 direct-reference cells
+before proceeding to the next material stage. The final candidate must pass all 1,408 full-range
+lifecycle renders and all 1,392 adjacent-key/layer comparisons. Run that final evidence again whenever
+a change can plausibly affect global pitch, output safety, or lifecycle behavior. Do not accept a
 better global average if it creates a severe individual key/layer failure. Velocity response must
 evolve in level and contact/brightness, with plausible harmonics, transient and decay behavior,
-stable high notes, controlled bass, and finite release. Preserve existing plugin safety,
-voice-stealing, and pedal regressions.
+ stable high notes, controlled bass, and finite release. Preserve existing plugin safety,
+ voice-stealing, and pedal regressions.
+
+### 5.2 Absolute pitch measurement
+
+For `concert_grand`, absolute pitch is measured against the equal-tempered frequency of the
+rendered MIDI note. The hard limit is inclusive ±15 cents. Stage 2's 24-cell sentinel matrix and
+Stage 4's full-range lifecycle evaluator use the same test-only, expected-f0-centered,
+inharmonicity-aware multi-partial estimator as their sole pitch authority. For each analysis window,
+the estimator searches expected MIDI f0 ±100 cents and the existing approved inharmonicity range,
+tracks local partial peaks, and robustly fits `f_n = n*f0*sqrt(1+B*n^2)`. The estimator uses at
+least two independent stable windows; it reports per-partial inferred f0, fit residual, uncertainty,
+window spread, and local peak evidence. A search-boundary result is invalid.
+
+Below 1 kHz, a stable pitch measurement requires two coherent usable partials shared across both
+windows; no exact harmonic pair is required. From 1–3 kHz, prefer three or more, while two may
+establish a stable measurement when they are locally unambiguous and pass the existing residual and
+uncertainty checks. Above 3 kHz, use the expected-f0 local fundamental and any supporting partials
+that are present; do not require a fixed harmonic count. If every analysis window independently
+has valid partial-fit evidence but the measured pitch moves beyond the approved window-spread limit,
+classify that as a physical pitch-instability `FAIL` and report the worst absolute window offset.
+Do not average the movement into a passing pitch or label it `MEASUREMENT_INVALID`. A confidently
+measured pitch outside ±15 cents is likewise a physical-pitch failure, not `MEASUREMENT_INVALID`.
+
+Stage 2 and Stage 4 must not use different estimators or shift the synth result by a Salamander
+source offset.
+
+Autocorrelation, the single-peak `fundamentalHz` estimate, and the Salamander source pitch offset
+are diagnostics only. Best-to-competitor score ratio is diagnostic and is not the sole confidence
+gate. Measurement validity depends on coherent within-window partials, robust-fit residual and
+uncertainty, and local peak evidence. Cross-window pitch movement remains a reported physical
+constraint; a result without adequate per-window evidence is `MEASUREMENT_INVALID`, neither a pass
+nor a reason to fall back to autocorrelation. Re-evaluate the measurement rather than widening ±15
+cents. Do not proceed to Stage 3 while Stage 2 has no passing candidate; if the existing Stage 1
+candidates still produce no Stage 2 passer, report the failing cells and metrics before making any
+new physical-model change.
+
+The soundboard-control regression is an independent acceptance blocker. Keep the control and
+bypass checks substantive; do not lower their limits to conceal an ineffective radiation path. A
+zero-mix bypass gate measures applied board radiation itself, not the total piano output RMS; retain
+the dry output and mechanical feedback paths at zero mix.
+Diagnose dry/board interaction using same-state polarity renders, energy identity, covariance,
+correlation, and bounded lag analysis before changing the radiation path or scale. Measure low-
+register buzz at `soundboard_mix=0`, the preset default, and `1`; a buzz above its existing limit at
+zero mix belongs to a non-radiation source and cannot be compensated by increasing board scale.
 
 The full-range evaluator uses one shared gain offset: the median source-minus-rendered level across
 the 480 direct cells in the 80–200 ms window. This preserves register and velocity relationships.
@@ -156,7 +316,7 @@ Hard limits are ±20 dB for direct-cell level, centroid ratio 8, absolute >2 kHz
 render has at least 0.1% of total power above 2 kHz; below that floor, centroid remains visible as a
 diagnostic because near-zero high-frequency energy can dominate a magnitude-weighted centroid.
 Every rendered cell must stay between
-−90 dBFS and +1.6 dBFS peak. Adjacent pairs are limited to 10 dB level jump, centroid ratio 4.5,
+−90 dBFS and strictly below 0 dBFS peak. Adjacent pairs are limited to 10 dB level jump, centroid ratio 4.5,
 0.5 absolute >2 kHz ratio delta, 8 dB late-decay-shape jump, and 0.3 stereo-pan change. Across
 velocity layers, no adjacent representative may fall by more than 1 dB, every key must span at least
 6 dB, and at least 75% of keys must brighten by centroid or >2 kHz energy. These broad gates are
@@ -187,7 +347,9 @@ silently substituting a different identity.
 | Risk / acceptance area | Evidence |
 |---|---|
 | Identity and metadata drift | Identity regression; compare authoring files, generated metadata, and embedded descriptors |
-| Parameter, preset, and state compatibility | Existing interface/preset/state regression coverage and byte-level schema comparison |
+| Profile schema and generated data | Positive/negative profile validation fixtures; two generation runs compare descriptor and grand-profile header byte-for-byte |
+| Preset/program/profile selection | Runtime checks for shared factory/program path, profile-switch clearing/cache rebuild, non-grand default, DSL preset-ID roundtrip, and rejection of incomplete/unknown profiles |
+| Migration behavior | Baseline comparison across eight pitches, three velocities, sustain off/on with the contract's lifecycle, peak, envelope, pitch, and spectral deltas |
 | DSP reference fit | Numeric derived-metric fixture for all 480 direct-reference cells; no raw audio or private Drive data; broad thresholds grounded in the source and measurement windows |
 | Full-range piano behavior | 1,408 renders over MIDI 21–108 and 1,392 adjacent-key/layer continuity comparisons; per-cell failures remain visible |
 | Plugin regressions | Existing concert-grand, safety, voice-steal, click, calibration, realism, and pedal coverage; full CTest suite |
@@ -201,9 +363,12 @@ checks do not substitute for direct audio comparison or browser-interaction evid
 
 ## 8. Physical-model and WASM SIMD delta
 
-The approved architecture delta is preserved in
-`.agent-state/issues/7/implementation-contract-pr8-physical-model-wasm-simd-delta.txt`. It changes
-only the native `concert_grand` renderer and its owned evidence/tooling. The signal path is:
+The approved physical-model, preset-ownership, and ephemeral-Project architecture is preserved in
+`.agent-state/issues/7/implementation-contract-physical-model-simd-cpu.txt`,
+`.agent-state/issues/7/implementation-contract-preset-physical-config.txt`, and
+`.agent-state/issues/7/delta-implementation-contract-ephemeral-project.txt`. It changes the native
+`concert_grand` tuning ownership and runtime preset/configuration path, without changing the physical topology.
+The signal path is:
 
 ```text
 dynamic hammer mass and nonlinear felt
@@ -217,22 +382,22 @@ dynamic hammer mass and nonlinear felt
 transverse low-register energy -> nonlinear longitudinal modes -> bridge/body radiation
 ```
 
-### 8.1 Compatibility and state ownership
+### 8.1 Compatibility and runtime ownership
 
-Keep Plugin ABI 1.0, Plugin ID `net.puchinya.soraotodsl.super-synth-v8`, all 157 public parameter
-identities and ranges, factory preset identities, and serialized state unchanged. Add no public
-parameters and no allocation or dynamic containers in `dsp_process()`. Continue to own per-note
-string, hammer, and longitudinal state in the fixed-size `Voice` records. Own the 88-key × 2-mode
-sympathetic register and the 24-mode, three-zone soundboard state once in shared concert-grand state.
-Reset all new fixed-size state in the existing reset path; a repeated strike or voice steal replaces
-only the selected voice state and never clears shared body energy.
+Keep Plugin ABI 1.0 and Plugin ID `net.puchinya.soraotodsl.super-synth-v8`. Keep the existing public
+control catalog and factory-preset identities unless implementation evidence requires a reviewed
+change. Store active preset selection only in the project DSL; do not serialize plugin-owned state.
+Add no construction parameters and no allocation or dynamic containers in `dsp_process()`. Keep per-note
+string, hammer, and longitudinal state in fixed-size `Voice` records; own the sympathetic and board
+state once in shared grand state. A profile switch clears incompatible grand resonant state and
+rebuilds dependent caches.
 
-Reuse existing controls: hammer hardness controls felt stiffness/exponent/contact loss; hammer noise
-controls only contact-gated acoustic/radiation noise; string damping controls passive string loss;
-unison controls detuning/coupling spread; inharmonicity controls transverse dispersion and calibrated
-low-register coupling; board size scales fitted modal frequencies; board mix remains a true radiation
-bypass; sympathetic amount controls passive-register coupling/return; stereo width remains the final
-keyboard radiation control.
+Reuse existing controls as high-level modifiers over the selected profile: hammer hardness controls
+felt response; hammer noise controls contact-gated noise; string damping controls passive loss; unison
+controls detuning/coupling; inharmonicity modifies transverse dispersion and calibrated coupling;
+board size scales fitted modal frequencies; board mix remains a true radiation bypass; sympathetic
+amount controls passive-register coupling/return; stereo width remains the final keyboard radiation
+control. Internal construction/tuning coefficients live only in the selected profile.
 
 ### 8.2 Waveguide, hammer, and shared bridge
 
@@ -300,7 +465,10 @@ derived from transverse velocity/bridge-force energy, such as AC-coupled squared
 separate MIDI-triggered oscillator. They are full strength through MIDI 45, fade smoothly over MIDI
 45–57, and are absent at and above MIDI 57. Frequencies, gains, and Q values come from Salamander-
 derived low-register non-harmonic resonance analysis, are interpolated between reference centers,
-and radiate through the bridge/body path rather than a large dry oscillator.
+and radiate through the bridge/body path rather than a large dry oscillator. The preset-owned
+`radiation.dry_longitudinal_gain` is fixed at exactly `0.0`: this disables only direct dry
+longitudinal output. The resonators and their bridge/body drive remain active. Schema validation
+rejects any nonzero value, and the field is excluded from QMC, PED-ANOVA, and Optuna.
 
 ### 8.5 SIMD layout, caches, and CPU behavior
 
@@ -339,18 +507,16 @@ radiation bypass. Sympathetic amount zero leaves unrelated transverse strings un
 network uses negative impedance or unstable poles; no normal string path relies on clipping. An
 instability is a design conflict, not permission to restore clipping.
 
-Require scalar/SIMD equivalence with no topology/lifecycle or NaN/Inf difference, pitch delta ≤0.1
-cent, peak delta ≤0.05 dB, RMS/envelope delta ≤0.05 dB, and derived spectral metric change ≤0.5%
-where the reference metric is non-negligible. Performance runs use the same runtime, sample rate,
-block size, and event stream, with at least three warm-ups and ten measured runs using
-`process.hrtime.bigint()`; report median and P90 wall-clock render time.
+The current production standard SIMD128 topology is accepted for this calibration delivery. Scalar/SIMD
+numerical equivalence, PR #8-relative CPU ratios, and SIMD-versus-scalar kernel/full-render speedups are
+non-blocking diagnostics; report any available measurements without using them as completion gates.
 
-Production SIMD median CPU must be ≤0.90× PR #8 baseline for one sustain-off voice; ≤0.85× for 8 and
-32 sustain-off voices; ≤1.00× for 32 sustain-on voices and dense sustain/release. Against the final
-scalar-reference build, the soundboard kernel must be ≥1.8× faster, sympathetic kernel ≥2.0×,
-32-voice sustain-off render ≥1.20×, and 32-voice sustain-on render ≥1.35×. Do not lower these gates
-without returning to design. Record compact machine-readable evidence at
-`docs/status/plugins/dsp/super-synth/metrics/performance-simd-summary.json`.
+The production SIMD build is the sole full-range lifecycle and acoustic gate. For each of the 1,408
+key/layer cells it must show finite output, direct pitch within the normative tolerance, peak below
+0 dBFS, zero final output-guard hits, finite note-off/release, and no stuck voice. All 1,392 adjacent
+comparisons and production-SIMD acoustic regressions must pass. `supersynth-v9-lifecycle-differential.json`
+is diagnostic only because its `pass:false` combines production checks with scalar/SIMD comparisons.
+Record production-gate evidence separately from any scalar/performance diagnostics.
 
 ### 8.7 Provenance and validation sequence
 
@@ -361,9 +527,10 @@ analysis. Extend numeric-only analysis for low-register non-harmonic peaks, log-
 bands, direct per-pitch brightness direction, and per-pitch dynamic span. Keep raw audio and private
 Drive identifiers/paths out of Git.
 
-Capture PR #8 baseline evidence at `28113fa0a6ee33a5366b8da8a8851d2d35d2d5ac` before DSP edits.
+Capture PR #8 baseline evidence at `6f4ab32bf20f9267eeb368aa4d7809e0fe846329` before DSP edits.
 Record baseline, hammer, bridge, longitudinal, sympathetic, soundboard, and final preset/gain stages
 with direct-reference distributions, dynamic-span error, brightness failures, full-range and adjacent
-failures, peak/guard hits, and CPU ratio. Fit the board only after earlier physical stages are stable.
-Then run the direct 480 cells, 1,408 lifecycle cells, and 1,392 adjacent comparisons; tune preset and
-output gain last. Any later relevant source or document change invalidates its affected evidence.
+failures, peak/guard hits, and CPU ratio as informational data. Fit the board only after earlier physical
+stages are stable. Then run the direct 480 cells, the production-SIMD 1,408-cell lifecycle gate, and
+1,392 adjacent comparisons; tune preset and output gain last. Any later relevant source or document
+change invalidates its affected evidence.
