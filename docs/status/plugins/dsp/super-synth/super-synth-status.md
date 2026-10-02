@@ -59,3 +59,16 @@ The Studio Piano and fuhton references are excluded from the active calibration 
 | Issue #7 acceptance | BLOCKED / NOT RUN | This audit does not unlock Stage 3/4 or change physical tuning. Full 480, 1,408, 1,392, CTest, Web Player and listening acceptance were not run. Issue remains `phase:implementation` + `blocked`; PR #8 remains open. |
 
 Copyable report: `.agent-state/issues/7/reports/2026-10-02-stage2h-stage2i-loss-authority.md`. No production DSP, preset coefficient, threshold, source equation, or physical-candidate slot was changed.
+
+## 2026-10-02 Stage2J final-budget C8 path diagnostic
+
+| Item | Status | Evidence |
+|---|---|---|
+| Candidate selection | PASS | Validated Stage2F v2 + Stage2H/I evidence; selected `stage2f-split-v3-s2-0016-L1` by the required ranking tuple. `0001-L1` was filtered by positive independent pitch/buzz constraints; `0015-L1` ranked second. |
+| Current-HEAD ordinary measurement | PARTIAL | One candidate identity `stage2j-2ddddab0412a5324` consumed the final budget slot. Stage2B direct proxy completed 284 cells: loss 0.413571, peak −6.168758 dBFS, guard 0, finite, invalid 0/25. It recorded one direct pitch failure, post-attack violation +2.10144 dB, and MIDI 45 span violation +3.528952 dB. |
+| Held/release and 32-constraint result | BLOCKED | Required held/release-only mode and `HELD_RELEASE_METRICS` marker are absent from the contract-mandated PR HEAD regression. The full regression stopped at C4 H3 plausibility 1.7520574688; no complete constraint vector or Stage2 feasible result exists. |
+| MIDI 45 velocity span | FAIL | 16/16 layers reconstructed from the completed Stage2B subset: synth 31.201901 dB vs reference 19.672949 dB; signed error +11.528952 dB, exceeding the existing 8 dB bound by +3.528952 dB. Synth min/max velocities 14/77; reference 14/124. |
+| C8 output-path variants | NOT RUN | The first capture call failed before rendering due to a build-root path issue. The path fix changed diagnostic identity, so the partial attempt cannot be resumed under exact provenance. No path-authority or physical-cause conclusion is made. |
+| Budget / protected evidence | BLOCKED AT LIMIT | Physical count is 25/25. All 75 protected input hashes match before/after. No further candidate, Stage 3, or Stage 4 was run. |
+| Focused verification | PASS | Stage2J tests 13/13; full tuning suite 101/101; current-HEAD production-SIMD WASM preflight build; fixture test; Node syntax and `git diff --check`. Current dry-run correctly fails closed on partial provenance mismatch with 0 build / 0 render. |
+| Issue #7 acceptance | BLOCKED / NOT RUN | Need a new requirements/design decision and explicit budget approval before any further candidate evaluation. Stage 3/4, full CTest, Web Player and manual listening remain unrun. Issue remains `phase:implementation` + `blocked`; PR #8 remains open. |

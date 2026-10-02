@@ -84,3 +84,14 @@ v1の3音響アンカーを変更・再レンダーせずに再利用し、Stage
 - 数値診断は保存済みセルの窓別・span別差を示すのみで、physical causeや修正案を確定しない。Stage2F feasibility、Stage3/4、親Issue #7のacceptance完了を意味しない。Issue #7は`phase:implementation` + `blocked`を維持する。
 - 検証: Stage2H合成テスト6件、tuning unittest全80件、WASM build、Stage2F dry-run、Salamander fixture test、Stage2H analyzer、diff checkはPASS。full CTest、Web Player、Stage3/4、元音源decode、manual listeningは未実行。
 - private詳細: `.agent-state/issues/7/calibration-optuna/stage2h/window-span-attribution.json`。合成テスト: `wasm/plugins/dsp/super-synth/test/tuning/tests/test_stage2h_window_span.py`。
+
+## Stage2J — Final-budget C8 path diagnostic — 2026-10-02
+
+- 判定: `BLOCKED_INCOMPLETE_HELD_RELEASE_MODE`。開始HEADはPR #8の指定値 `3cd14834f224358b1a279f349b7055dbab97a3d4`。Stage2F v2、Stage2H canonical evidence、Stage2I inputを候補選択前に検証し、L1候補3件を指定の独立制約フィルタと辞書式tupleで順位付けした。
+- 選択: `stage2f-split-v3-s2-0016-L1`。tupleは`[1, 3.528952, 1, 2.10144, candidateId]`。0001-L1は独立制約`stage1_buzz_violation`, `stage1_pitch_violation`, `stage2_buzz_violation`, `stage2_pitch_violation`が正値のため除外。0015-L1は`[3, 3.49619, 1, 2.217588, candidateId]`で次点。集約summary制約は独立判定に使っていない。
+- 物理枠: dry-runはbuild/render 0で24/25を維持。Stage2J候補`stage2j-2ddddab0412a5324`のcurrent-HEAD production-SIMD Stage1/Stage2/Stage2B測定を1回開始し、枠は25/25として消費済み。Stage2B direct proxyは284セル完了、measurement invalid 0/25、finite、peak worst −6.168758 dBFS、guard 0。reference-fit loss 0.41357142196。post-attack shape violation +2.10144 dB、pitch 45 dynamic-span violation +3.528952 dB、direct pitch failure 1件を記録した。
+- MIDI 45の16層span再構成: synth 31.201901 dB、reference 19.672949 dB、signed difference +11.528952 dB、既存8 dB gateに対する違反 +3.528952 dB。synth min/max velocityは14/77、reference min/maxは14/124。
+- 完了を阻むrepository不整合: 指定HEADの`concert-grand-regression.test.js`にStage2Fが要求するheld/release-only実行modeと`HELD_RELEASE_METRICS`出力がない。代わりに通常回帰を起動し、契約外のC4 H3 plausibility failure（1.7520574688）で停止したため32制約とfully measured Stage2 resultを作れない。したがって`STAGE2_CURRENT_HEAD_PASS`または`STAGE2_CURRENT_HEAD_FAIL`は確定できず、Stage3 eligibleではない。
+- C8 path variantsはレンダーしていない。最初のcapture invocationはbuild-root解決でrender前に失敗し、capture pathは修正したが、その後のevaluator identityが変わった。既存のpartial manifestとは一致しないため再利用せずfail-closedとした。board/dry-transverse/dry-bridge/dry-contactのpath authorityやphysical root causeは未判定。
+- protected input 75ファイルのbefore/after SHA-256一致。Stage2J専用test 13/13、tuning suite 101/101、production-SIMD WASM preflight build、fixture test、Node syntax check、diff checkはPASS。current post-run dry-runはpartial evidence provenance mismatchでBLOCKされ、build/renderは0。
+- Stage3 (480 cells)、Stage4 (1,408 lifecycle + 1,392 adjacent)、CTest、Web Player、manual listening、original Salamander audio decodeはNOT RUN。physical budget 25/25のため、追加の音響候補評価には新しいrequirements/design decisionと明示的なbudget承認が必要。Issue #7は`phase:implementation` + `blocked`を維持する。
