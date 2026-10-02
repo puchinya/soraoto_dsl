@@ -48,6 +48,9 @@ function(soraoto_add_wasm_plugin group plugin)
     option(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS
       "Expose SuperSynth guard, voice-count and kernel-benchmark hooks in local diagnostics"
       ${SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS_DEFAULT})
+    option(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS
+      "Build test-only Stage2M factor attribution controls for SuperSynth"
+      OFF)
     target_compile_options(${target} PRIVATE -msimd128 -fvectorize -fslp-vectorize)
     if(SORAOTO_SUPERSYNTH_SIMD_DIAGNOSTICS)
       target_compile_options(${target} PRIVATE
@@ -62,6 +65,12 @@ function(soraoto_add_wasm_plugin group plugin)
     endif()
     if(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
       target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=1)
+    endif()
+    if(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+      if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+        message(FATAL_ERROR "Stage2M diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON")
+      endif()
+      target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=1)
     endif()
   elseif(plugin STREQUAL "reverb")
     target_compile_options(${target} PRIVATE -O2)
@@ -88,6 +97,13 @@ function(soraoto_add_wasm_plugin group plugin)
     list(APPEND link_options "-Wl,--export=soraoto_supersynth_soundboard_diag_peak")
     list(APPEND link_options "-Wl,--export=soraoto_supersynth_soundboard_diag_frames")
     list(APPEND link_options "-Wl,--export=soraoto_supersynth_diagnostic_set_ablation_mask")
+    if(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+      list(APPEND link_options
+        "-Wl,--export=soraoto_supersynth_stage2m_set_factor_mask"
+        "-Wl,--export=soraoto_supersynth_stage2m_get_factor_mask"
+        "-Wl,--export=soraoto_supersynth_stage2m_hammer_diag_reset"
+        "-Wl,--export=soraoto_supersynth_stage2m_hammer_diag_value")
+    endif()
   endif()
   target_link_options(${target} PRIVATE ${link_options})
 

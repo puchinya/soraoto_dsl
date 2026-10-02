@@ -446,4 +446,4 @@ function toneMag(signal, frequencyHz, startSeconds=0.08, endSeconds=0.65, sample
   return Math.hypot(real,imaginary)/Math.max(1e-12,windowSum);
 }
 
-module.exports = {FFT_SIZE, WINDOWS_MS, analyzeStereo, estimateExpectedPitch, spectrum, peakNear, decodeWav24Stereo, toneMag};
+module.exports = {FFT_SIZE, WINDOWS_MS, analyzeStereo, estimateExpectedPitch, spectrum, peakNear, peakNearExpected, decodeWav24Stereo, toneMag};

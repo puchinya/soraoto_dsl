@@ -244,6 +244,125 @@ def candidate_evaluator_sha256() -> str:
     return candidate_evaluator.hexdigest()
 
 
+def validate_v1_anchor_historical_evidence(
+    anchors: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Validate saved V1 observations under their recorded identity only.
+
+    This read-only historical check deliberately does not hash the current
+    evaluator or compare the saved identity to the current source. Its result
+    can never authorize reuse by a current candidate run.
+    """
+    if not V1_RUN_PATH.is_file() or not V1_MANIFEST_PATH.is_file():
+        raise RuntimeError("BLOCKED_HISTORICAL_EVIDENCE: v1 manifest or run is missing")
+    manifest = read_json(V1_MANIFEST_PATH)
+    if (not verify_manifest(manifest)
+            or manifest.get("canonicalSha256") != "17a8a88df8b8644bfb497808383c910478544e5939c03a44688f775a420d43e6"):
+        raise RuntimeError("BLOCKED_HISTORICAL_EVIDENCE: saved v1 manifest hash is invalid")
+    run = read_json(V1_RUN_PATH)
+    claimed_run_sha = run.get("runSha256")
+    if claimed_run_sha != sha256(canonical_json({key: value for key, value in run.items() if key != "runSha256"})):
+        raise RuntimeError("BLOCKED_HISTORICAL_EVIDENCE: saved v1 run hash is invalid")
+    if run.get("anchorManifestSha256") != manifest.get("canonicalSha256"):
+        raise RuntimeError("BLOCKED_HISTORICAL_EVIDENCE: saved v1 run does not bind its manifest")
+    if run.get("physicalRenderCount") != PRIOR_PHYSICAL_RENDERS:
+        raise RuntimeError("BLOCKED_HISTORICAL_EVIDENCE: saved v1 render accounting differs from 3")
+
+    if not V2_MANIFEST_PATH.is_file():
+        raise RuntimeError("BLOCKED_HISTORICAL_EVIDENCE: v2 anchor manifest is missing")
+    v2_manifest = read_json(V2_MANIFEST_PATH)
+    if not verify_manifest(v2_manifest) or v2_manifest.get("parentV1ManifestSha256") != manifest.get("canonicalSha256"):
+        raise RuntimeError("BLOCKED_HISTORICAL_EVIDENCE: v2 manifest does not validate its saved v1 parent")
+
+    saved_identity = run.get("sourceIdentity")
+    if not isinstance(saved_identity, dict) or not saved_identity.get("sourceRevision"):
+        raise RuntimeError("BLOCKED_HISTORICAL_EVIDENCE: saved v1 source identity is incomplete")
+    requested = anchors if anchors is not None else manifest.get("anchors", [])
+    manifest_by_id = {row.get("sourceCandidateId"): row for row in manifest.get("anchors", [])}
+    run_by_id = {row.get("sourceCandidateId"): row for row in run.get("anchorRequalification", [])}
+    v2_by_id = {row.get("historicalResultId"): row for row in v2_manifest.get("anchors", [])}
+    expected_ids = {row.get("sourceCandidateId") for row in requested}
+    if expected_ids != set(manifest_by_id) or expected_ids != set(run_by_id):
+        raise RuntimeError("BLOCKED_HISTORICAL_EVIDENCE: saved v1 anchor set differs")
+
+    observations: dict[str, dict[str, Any]] = {}
+    for anchor in requested:
+        source_id = anchor["sourceCandidateId"]
+        saved_anchor = manifest_by_id[source_id]
+        row = run_by_id[source_id]
+        result = row.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeError(f"BLOCKED_HISTORICAL_EVIDENCE: {source_id} result is missing")
+        expected_params = dict(saved_anchor["parameters"])
+        expected_params["hammer.velocity_hardness_amount"] = 0.0
+        expected_params["termination_loss_floor_scale"] = 1.0
+        if result.get("parameters") != expected_params or anchor.get("parameters") != saved_anchor.get("parameters"):
+            raise RuntimeError(f"BLOCKED_HISTORICAL_EVIDENCE: {source_id} candidate vector differs")
+        v2_anchor = v2_by_id.get(saved_anchor.get("historicalResultId"))
+        if (result.get("result") != "COMPLETE" or result.get("productionSimd") is not True
+                or result.get("sourceRevision") != saved_identity.get("sourceRevision")
+                or result.get("sourceTreeSha256") != saved_identity.get("sourceTreeSha256")
+                or result.get("sourceRevision") != saved_anchor.get("sourceRevision")
+                or not v2_anchor
+                or result.get("evaluatorSha256") != v2_anchor.get("evaluatorSha256")
+                or result.get("configSha256") != v2_anchor.get("configSha256")
+                or result.get("wasmSha256") != v2_anchor.get("wasmSha256")):
+            raise RuntimeError(f"BLOCKED_HISTORICAL_EVIDENCE: {source_id} saved source/config/WASM/evaluator identity differs")
+        if result.get("stage1Result") != "PASS" or result.get("stage2Result") != "PASS":
+            raise RuntimeError(f"BLOCKED_HISTORICAL_EVIDENCE: {source_id} Stage1/2 result is not PASS")
+        if result.get("constraintSchema") != list(STAGE2E_CONSTRAINT_KEYS):
+            raise RuntimeError(f"BLOCKED_HISTORICAL_EVIDENCE: {source_id} constraint schema differs")
+        recomputed = stage2e_constraints(
+            result["stage1Metrics"], result["stage2Metrics"], result["metrics"]["directProxy"],
+            result["heldRelease"], result["localTopology"],
+        )
+        recorded = result.get("constraints", {})
+        if tuple(recomputed) != STAGE2E_CONSTRAINT_KEYS or tuple(recorded) != STAGE2E_CONSTRAINT_KEYS:
+            raise RuntimeError(f"BLOCKED_HISTORICAL_EVIDENCE: {source_id} constraint vector shape differs")
+        if any(not math.isclose(float(recomputed[key]), float(recorded[key]), rel_tol=0.0, abs_tol=1e-12)
+               for key in STAGE2E_CONSTRAINT_KEYS):
+            raise RuntimeError(f"BLOCKED_HISTORICAL_EVIDENCE: {source_id} constraints do not reproduce from saved metrics")
+
+        result_path = ROOT / row.get("resultPath", "")
+        if not result_path.is_file() or read_json(result_path) != result:
+            raise RuntimeError(f"BLOCKED_HISTORICAL_EVIDENCE: {source_id} saved result file differs")
+        result_sha = sha256(result_path.read_bytes())
+        v2_anchor = v2_by_id.get(saved_anchor.get("historicalResultId"))
+        if (not v2_anchor or v2_anchor.get("v1ResultPath") != str(result_path.relative_to(ROOT))
+                or v2_anchor.get("v1ResultSha256") != result_sha
+                or v2_anchor.get("configSha256") != result.get("configSha256")
+                or v2_anchor.get("wasmSha256") != result.get("wasmSha256")
+                or v2_anchor.get("evaluatorSha256") != result.get("evaluatorSha256")):
+            raise RuntimeError(f"BLOCKED_HISTORICAL_EVIDENCE: {source_id} v2 saved result hash/provenance differs")
+
+        for path_key, hash_key in (("historicalResultPath", "historicalResultSha256"),
+                                   ("sourceCandidatePath", "sourceCandidateSha256"),
+                                   ("sourceStage2ResultPath", "sourceStage2ResultSha256")):
+            evidence_path = ROOT / saved_anchor.get(path_key, "")
+            if (not saved_anchor.get(path_key) or not evidence_path.is_file()
+                    or sha256(evidence_path.read_bytes()) != saved_anchor.get(hash_key)):
+                raise RuntimeError(f"BLOCKED_HISTORICAL_EVIDENCE: {source_id} {path_key} hash differs")
+        historical_result = read_json(ROOT / saved_anchor["historicalResultPath"])
+        historical_candidate = read_json(ROOT / saved_anchor["sourceCandidatePath"])
+        historical_stage2 = read_json(ROOT / saved_anchor["sourceStage2ResultPath"])
+        historical_stage2_result = historical_stage2.get("result", {})
+        if (historical_candidate.get("parameters") != saved_anchor.get("parameters")
+                or historical_result.get("parameters") != saved_anchor.get("parameters")
+                or historical_result.get("sourceRevision") != saved_anchor.get("sourceRevision")
+                or historical_result.get("sourceTreeSha256") != saved_anchor.get("historicalSourceTreeSha256")
+                or historical_result.get("evaluatorSha256") != saved_anchor.get("historicalEvaluatorSha256")
+                or historical_result.get("configSha256") != saved_anchor.get("historicalConfigSha256")
+                or historical_result.get("wasmSha256") != saved_anchor.get("historicalWasmSha256")
+                or historical_stage2_result.get("candidateId") != source_id
+                or historical_stage2_result.get("parameters") != saved_anchor.get("parameters")
+                or historical_stage2_result.get("sourceRevision") != saved_anchor.get("sourceRevision")):
+            raise RuntimeError(f"BLOCKED_HISTORICAL_EVIDENCE: {source_id} original source evidence identity differs")
+        observations[source_id] = {"result": result, "resultSha256": result_sha,
+                                   "historicalStatus": "HISTORICAL_EVIDENCE_VALID"}
+    return {"status": "HISTORICAL_EVIDENCE_VALID", "sourceIdentity": saved_identity,
+            "observations": observations}
+
+
 def load_v1_anchor_observations(
     anchors: list[dict[str, Any]], identity: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:

@@ -326,6 +326,16 @@ static unsigned int g_grand_diag_ablation_mask=0u;
 void soraoto_supersynth_diagnostic_set_ablation_mask(unsigned int mask){
   g_grand_diag_ablation_mask=mask&15u;
 }
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+enum {
+  STAGE2M_EFFECTIVE_HARDNESS=0,STAGE2M_INITIAL_HAMMER_VELOCITY=1,
+  STAGE2M_CONTACT_DURATION_SAMPLES=2,STAGE2M_PEAK_FORCE=3,
+  STAGE2M_MAX_COMPRESSION=4,STAGE2M_POST_CONTACT_TRANSVERSE_ENERGY=5,
+  STAGE2M_HAMMER_DIAG_COUNT=6
+};
+static unsigned int g_stage2m_factor_mask=7u;
+static float g_stage2m_hammer_diag[STAGE2M_HAMMER_DIAG_COUNT]={0};
+#endif
 static float g_sb_diag_sum_sq[SB_DIAG_COUNT]={0};
 static float g_sb_diag_peak[SB_DIAG_COUNT]={0};
 static unsigned int g_sb_diag_frames=0;
@@ -722,6 +732,25 @@ void dsp_reset(void){
   grand_clear_sympathetic_state();g_grand_symp_mask_dirty=1;g_grand_symp_clear_pending=0;g_grand_symp_was_enabled=0;
 }
 
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+int soraoto_supersynth_stage2m_set_factor_mask(unsigned int mask){
+  if(mask&~7u)return -1;
+  if(mask!=g_stage2m_factor_mask){
+    g_stage2m_factor_mask=mask;
+    dsp_reset();
+  }
+  for(int i=0;i<STAGE2M_HAMMER_DIAG_COUNT;i++)g_stage2m_hammer_diag[i]=0.0f;
+  return 0;
+}
+unsigned int soraoto_supersynth_stage2m_get_factor_mask(void){return g_stage2m_factor_mask;}
+void soraoto_supersynth_stage2m_hammer_diag_reset(void){
+  for(int i=0;i<STAGE2M_HAMMER_DIAG_COUNT;i++)g_stage2m_hammer_diag[i]=0.0f;
+}
+float soraoto_supersynth_stage2m_hammer_diag_value(unsigned int index){
+  return index<STAGE2M_HAMMER_DIAG_COUNT?g_stage2m_hammer_diag[index]:-1.0f;
+}
+#endif
+
 void dsp_set_parameter(int id,float value,int sample_offset){
   (void)sample_offset;
   if(id<0||id>=PARAM_COUNT)return;
@@ -841,6 +870,18 @@ static float grand_contact_power(float normalized,float exponent){
 static inline float grand_effective_felt_hardness(float base_hardness,float velocity,float amount){
   const float h=clampf(base_hardness,0.0f,1.0f);
   const float v=clampf(velocity,0.0f,1.0f);
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+  if((g_stage2m_factor_mask&4u)==0u){
+    if(amount==0.0f)return h;
+    const float pivot=61.0f/127.0f;
+    if(v<=pivot){
+      const float t=(pivot-v)/pivot;
+      return h*(1.0f-amount*t);
+    }
+    const float t=(v-pivot)/(1.0f-pivot);
+    return h+(1.0f-h)*amount*t;
+  }
+#endif
   return clampf(h+amount*(v-61.0f/127.0f),0.0f,1.0f);
 }
 
@@ -866,14 +907,28 @@ static void grand_refresh_string_loss_cache(Voice* q){
   float pitch=q->grand_string_prepared_pitch;
   float key=clampf((pitch-21.0f)/87.0f,0.0f,1.0f);
   float damping=g_params[P_PIANO_STRING_DAMPING];
-  float ref_loss=s->reference_loss_base*clampf((s->reference_loss_register_start-key)/s->reference_loss_register_width,0.0f,1.0f);
+  float register_gate=clampf((s->reference_loss_register_start-key)/s->reference_loss_register_width,0.0f,1.0f);
+  float ref_loss=s->reference_loss_base*register_gate;
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+  if((g_stage2m_factor_mask&2u)==0u)ref_loss=0.0014f*register_gate*(1.82f-0.82f*q->velocity);
+#endif
   float agraffe=clampf(ag->reflection_loss_base-(ag->key_loss_base+ag->key_loss_coefficient*key)*(ag->damping_base+ag->damping_coefficient*damping)-ref_loss*ag->reference_loss_multiplier,ag->passive_min,ag->passive_max);
   float bridge=clampf(bt->reflection_loss_base-(bt->key_loss_base+bt->key_loss_coefficient*key)*(bt->damping_base+bt->damping_coefficient*damping)-ref_loss*bt->reference_loss_multiplier,bt->passive_min,bt->passive_max);
   float release=s->release_loss_base+s->release_loss_damping_scale*damping+s->release_loss_key_scale*key;
   float bridge_released=clampf(bt->reflection_loss_base-(bt->key_loss_base+bt->key_loss_coefficient*key)*(bt->damping_base+bt->damping_coefficient*damping)-release*bt->release_loss_multiplier-ref_loss*bt->reference_loss_multiplier,bt->passive_min,bt->passive_max);
-  q->grand_agraffe_held_gain=grand_loss_time_normalize(agraffe,pitch,s->decay_reference_midi);
-  q->grand_bridge_held_gain=grand_loss_time_normalize(bridge,pitch,s->decay_reference_midi);
-  q->grand_bridge_released_gain=grand_loss_time_normalize(bridge_released,pitch,s->decay_reference_midi);
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+  if((g_stage2m_factor_mask&1u)!=0u){
+#endif
+    q->grand_agraffe_held_gain=grand_loss_time_normalize(agraffe,pitch,s->decay_reference_midi);
+    q->grand_bridge_held_gain=grand_loss_time_normalize(bridge,pitch,s->decay_reference_midi);
+    q->grand_bridge_released_gain=grand_loss_time_normalize(bridge_released,pitch,s->decay_reference_midi);
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+  }else{
+    q->grand_agraffe_held_gain=agraffe;
+    q->grand_bridge_held_gain=bridge;
+    q->grand_bridge_released_gain=bridge_released;
+  }
+#endif
 }
 
 static void prepare_grand_strings(Voice* q,float pitch){
@@ -1004,9 +1059,15 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
      exponent continuously between the required p=2 and p=4 limits. */
   float force=0.0f;
   if(q->grand_hammer_contact){
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+    g_stage2m_hammer_diag[STAGE2M_CONTACT_DURATION_SAMPLES]+=1.0f;
+#endif
     const GrandHammerConfig* h=&cfg->hammer;
     float base_hardness=clampf(g_params[P_PIANO_HAMMER_HARDNESS],0.0f,1.0f);
     float felt_hardness=grand_effective_felt_hardness(base_hardness,q->velocity,h->velocity_hardness_amount);
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+    g_stage2m_hammer_diag[STAGE2M_EFFECTIVE_HARDNESS]=felt_hardness;
+#endif
     float dt=1.0f/rate;
     float delta_dot=q->grand_hammer_velocity-v_string;
     float predicted=q->grand_hammer_compression+dt*delta_dot;
@@ -1021,12 +1082,19 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
     float contact_noise=1.0f+(noise-q->physical_aux)*g_params[P_PIANO_HAMMER_NOISE]*(h->noise_gain_base+h->noise_gain_hardness_scale*base_hardness);
     if(contact_noise<0.0f)contact_noise=0.0f;
     force*=contact_noise;
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+    if(force>g_stage2m_hammer_diag[STAGE2M_PEAK_FORCE])g_stage2m_hammer_diag[STAGE2M_PEAK_FORCE]=force;
+#endif
     float mass=lerpf(h->mass_soft,h->mass_hard,felt_hardness);
     q->grand_hammer_velocity-=dt*force/mass;
     float next=q->grand_hammer_compression+dt*(q->grand_hammer_velocity-v_string);
     if(next<=0.0f && q->grand_hammer_velocity<=v_string){
       q->grand_hammer_compression=0.0f;q->grand_hammer_velocity=0.0f;q->grand_hammer_contact=0;force=0.0f;
     }else q->grand_hammer_compression=next>0.0f?next:0.0f;
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+    if(q->grand_hammer_compression>g_stage2m_hammer_diag[STAGE2M_MAX_COMPRESSION])
+      g_stage2m_hammer_diag[STAGE2M_MAX_COMPRESSION]=q->grand_hammer_compression;
+#endif
   }
   q->grand_hammer_force_prev=q->grand_hammer_force;q->grand_hammer_force=force;
   float delta_v=force/(2.0f*(zsum>0.0f?zsum:1.0f));
@@ -1097,6 +1165,10 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
     q->grand_a_pos[st]=ap;q->grand_b_pos[st]=bp;
   }
   *bridge_out=bridge_force;*transverse_out=transverse;
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+  if(!q->grand_hammer_contact)
+    g_stage2m_hammer_diag[STAGE2M_POST_CONTACT_TRANSVERSE_ENERGY]+=transverse*transverse;
+#endif
   return transverse;
 }
 
@@ -1147,6 +1219,10 @@ static void init_voice(Voice* q,int note_id,float pitch,float velocity){
     float hard=grand_effective_felt_hardness(g_params[P_PIANO_HAMMER_HARDNESS],q->velocity,g_grand_config.hammer.velocity_hardness_amount);
     const GrandHammerConfig* h=&g_grand_config.hammer;
     q->grand_hammer_velocity=grand_hammer_launch_velocity(h,q->velocity,hard);
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+    g_stage2m_hammer_diag[STAGE2M_EFFECTIVE_HARDNESS]=hard;
+    g_stage2m_hammer_diag[STAGE2M_INITIAL_HAMMER_VELOCITY]=q->grand_hammer_velocity;
+#endif
     q->grand_hammer_contact=1;
     prepare_grand_strings(q,pitch);
     grand_prepare_longitudinal(q,pitch);
@@ -1178,6 +1254,10 @@ static void retarget_voice(Voice* q,int note_id,float pitch,float velocity,int r
     float hard=grand_effective_felt_hardness(g_params[P_PIANO_HAMMER_HARDNESS],q->velocity,g_grand_config.hammer.velocity_hardness_amount);
     const GrandHammerConfig* h=&g_grand_config.hammer;
     q->grand_hammer_velocity=grand_hammer_launch_velocity(h,q->velocity,hard);
+#if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+    g_stage2m_hammer_diag[STAGE2M_EFFECTIVE_HARDNESS]=hard;
+    g_stage2m_hammer_diag[STAGE2M_INITIAL_HAMMER_VELOCITY]=q->grand_hammer_velocity;
+#endif
     q->grand_hammer_compression=q->grand_hammer_force=q->grand_hammer_force_prev=0.0f;
     q->grand_hammer_contact=1;q->grand_long_ac_lp=0.0f;
     prepare_grand_strings(q,pitch);grand_prepare_longitudinal(q,pitch);

@@ -21,6 +21,7 @@ from run_stage2f_anchored_recovery import (
     no_feasible_classification,
     reusable_identity_matches,
     source_identity,
+    validate_v1_anchor_historical_evidence,
 )
 from stage2f_anchored import (
     ALL_ORIGINAL_AXES,
@@ -37,6 +38,19 @@ from stage2f_anchored import (
 
 
 class Stage2FAnchorTests(unittest.TestCase):
+    @unittest.skipUnless(V1_RUN_PATH.is_file() and V1_MANIFEST_PATH.is_file(), "requires private historical acoustic evidence")
+    def test_historical_validity_does_not_grant_current_reuse(self):
+        anchors = resolve_anchors()
+        historical = validate_v1_anchor_historical_evidence(anchors)
+        self.assertEqual(historical["status"], "HISTORICAL_EVIDENCE_VALID")
+        self.assertEqual(len(historical["observations"]), 3)
+        self.assertTrue(all(row["historicalStatus"] == "HISTORICAL_EVIDENCE_VALID"
+                            for row in historical["observations"].values()))
+
+        current = source_identity()
+        with self.assertRaisesRegex(RuntimeError, r"BLOCKED_ANCHOR_EVIDENCE_IDENTITY"):
+            load_v1_anchor_observations(anchors, current)
+
     @unittest.skipUnless(V1_RUN_PATH.is_file() and V1_MANIFEST_PATH.is_file(), "requires private historical acoustic evidence")
     def test_v1_anchor_evidence_is_not_reused_when_its_build_provenance_is_incompatible(self):
         root = Path(__file__).resolve().parents[7]

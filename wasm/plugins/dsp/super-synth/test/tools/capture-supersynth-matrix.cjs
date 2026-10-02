@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const {execFileSync} = require('node:child_process');
 const {performance} = require('node:perf_hooks');
 const {PluginHarness} = require('../../../../../test/helpers/plugin-harness.cjs');
-const {analyzeStereo,toneMag} = require('./salamander-metrics.cjs');
+const {analyzeStereo,toneMag,spectrum,peakNearExpected} = require('./salamander-metrics.cjs');
 const {estimatePianoPitch,getPianoPitchAnalysisPlan} = require('./piano-pitch-estimator.cjs');
 
 const REPO = path.resolve(__dirname,'../../../../../../');
@@ -58,6 +58,19 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
     harness.applyPreset('concert_grand');
     for (const [name,value] of [['voice_drift',0],['lfo1_pitch',0],['chorus_mix',0]]) harness.setPlain(name,value);
     for (const [name,value] of Object.entries(parameters)) harness.setPlain(name,value);
+    if(options.stage2mFactorMask!==undefined){
+      const e=harness.e;
+      if(typeof e.soraoto_supersynth_stage2m_set_factor_mask!=='function'
+          ||typeof e.soraoto_supersynth_stage2m_get_factor_mask!=='function'
+          ||typeof e.soraoto_supersynth_stage2m_hammer_diag_reset!=='function'
+          ||typeof e.soraoto_supersynth_stage2m_hammer_diag_value!=='function')
+        throw new Error('Stage2M capture requires a test-only Stage2M diagnostic WASM');
+      if((e.soraoto_supersynth_stage2m_set_factor_mask(options.stage2mFactorMask)>>>0)!==0)
+        throw new Error(`Stage2M factor mask rejected: ${options.stage2mFactorMask}`);
+      if((e.soraoto_supersynth_stage2m_get_factor_mask()>>>0)!==options.stage2mFactorMask)
+        throw new Error(`Stage2M factor mask did not persist: ${options.stage2mFactorMask}`);
+      e.soraoto_supersynth_stage2m_hammer_diag_reset();
+    }
     if(options.includeSoundboardDiagnostics){
       if(typeof harness.e.soraoto_supersynth_soundboard_diag_reset!=='function'
           ||typeof harness.e.soraoto_supersynth_soundboard_diag_sum_squares!=='function'
@@ -95,6 +108,43 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
       }
       metrics.pitchCapture={durationFrames:count,durationMs:pitchPlan.requiredDurationMs,extensionFrames:count-analysisCount,sampleRate:SAMPLE_RATE,renderBlockFrames:BLOCK,alignmentMarginFrames:pitchPlan.alignmentMarginFrames,windowsMs:pitchPlan.windows};
     }
+    if(options.stage2mFactorMask!==undefined){
+      const e=harness.e;
+      metrics.stage2mFactorMask=options.stage2mFactorMask;
+      metrics.stage2mHammer={effectiveHardness:e.soraoto_supersynth_stage2m_hammer_diag_value(0),
+        initialHammerVelocity:e.soraoto_supersynth_stage2m_hammer_diag_value(1),
+        contactDurationSamples:e.soraoto_supersynth_stage2m_hammer_diag_value(2),
+        peakForce:e.soraoto_supersynth_stage2m_hammer_diag_value(3),
+        maxCompression:e.soraoto_supersynth_stage2m_hammer_diag_value(4),
+        postContactTransverseEnergy:e.soraoto_supersynth_stage2m_hammer_diag_value(5)};
+      if(pitch===21){
+        const expectedHz=440*2**((pitch-69)/12);
+        const onsetIndex=Math.max(0,Math.floor((metrics.onsetMs??0)*SAMPLE_RATE/1000));
+        const spec=spectrum(left,right,SAMPLE_RATE,onsetIndex,20,65536);
+        if(!spec)throw new Error('Stage2M MIDI21 spectrum window is incomplete');
+        const nearPeak=peakNearExpected(spec.magnitude,spec.binHz,expectedHz,100);
+        const selectedHz=metrics.pitchMeasurement?.estimated_f0??metrics.pitchMeasurement?.candidate_estimated_f0??null;
+        const selectedPeak=selectedHz?peakNearExpected(spec.magnitude,spec.binHz,selectedHz,100):null;
+        const config=CONCERT_GRAND.engine_config.string;
+        const key=Math.max(0,Math.min(1,(pitch-21)/87));
+        const unison=Math.max(0,Math.min(1,CONCERT_GRAND.piano_string_unison
+          *Math.max(0,Math.min(1,(pitch-config.unison_activation_start_midi)/config.unison_activation_width_midi))));
+        const cents=(config.unison_detune_base_cents+config.unison_detune_amount*unison)
+          *(config.unison_detune_key_base+config.unison_detune_key_scale*key);
+        const count=pitch<config.one_to_two_string_midi?1:(pitch<config.two_to_three_string_midi?2:3);
+        const preparedStringNominalHz=Array.from({length:count},(_,index)=>
+          440*2**((pitch+config.unison_offsets[index]*cents/100-69)/12));
+        metrics.stage2mPitchProbe={targetMidiFrequency:expectedHz,
+          currentEstimatorCents:metrics.pitchMeasurement?.pitch_error_cents??null,
+          currentEstimatorSelectedFrequency:selectedHz,
+          constrainedNearFundamentalFrequency:nearPeak?.hz??null,
+          constrainedNearFundamentalCents:nearPeak?1200*Math.log2(nearPeak.hz/expectedHz):null,
+          estimatorSelectedPeakAmplitude:selectedPeak?.amplitude??null,
+          constrainedNearFundamentalAmplitude:nearPeak?.amplitude??null,
+          selectedToConstrainedAmplitudeRatio:selectedPeak&&nearPeak?selectedPeak.amplitude/Math.max(1e-30,nearPeak.amplitude):null,
+          preparedStringNominalHz};
+      }
+    }
     if(options.includePitchSparsity){
       const f0=261.625565;
       const h1=toneMag(left,f0,.08,.65,SAMPLE_RATE),h2=toneMag(left,f0*2,.08,.65,SAMPLE_RATE),h3=toneMag(left,f0*3,.08,.65,SAMPLE_RATE);
@@ -114,7 +164,7 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
   } finally { harness.close(); }
 }
 
-function captureMatrix({onProgress=()=>{},pitches=Array.from({length:88},(_,i)=>i+21),velocities=VELOCITIES,parameters={},includePitchHealth=false,includeSoundboardDiagnostics=false,includeCalibrationDiagnostics=false,cells=null}={}) {
+function captureMatrix({onProgress=()=>{},pitches=Array.from({length:88},(_,i)=>i+21),velocities=VELOCITIES,parameters={},includePitchHealth=false,includeSoundboardDiagnostics=false,includeCalibrationDiagnostics=false,stage2mFactorMask=undefined,cells=null}={}) {
   const rows=[];
   const requestedCells=cells??pitches.flatMap(pitch=>velocities.map(velocity=>({pitch,velocity})));
   const seenCells=new Set();
@@ -124,7 +174,7 @@ function captureMatrix({onProgress=()=>{},pitches=Array.from({length:88},(_,i)=>
     const cellKey=`${pitch}:${velocity}`;
     if(seenCells.has(cellKey))throw new Error(`duplicate requested matrix cell ${cellKey}`);
     seenCells.add(cellKey);
-    rows.push({pitch,velocity,velocityNormalized:velocity/127,metrics:render(pitch,velocity,parameters,{includePitchHealth,includeSoundboardDiagnostics})});
+    rows.push({pitch,velocity,velocityNormalized:velocity/127,metrics:render(pitch,velocity,parameters,{includePitchHealth,includeSoundboardDiagnostics,stage2mFactorMask})});
     onProgress(pitch,rows.length);
   }
   if (rows.length!==requestedCells.length) throw new Error(`expected ${requestedCells.length} render cases, got ${rows.length}`);
