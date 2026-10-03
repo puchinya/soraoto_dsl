@@ -21,6 +21,7 @@ const DIAGNOSTIC_WASM = path.join(ROOT, 'build/wasm-stage3a/plugins/dsp/super-sy
 const EXPECTED_WASM_SHA256 = '9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2';
 const EXPECTED_CONFIG_SHA256 = '792c563e3ae6ffbf6bef72b18a6c841a24598e1bc20ad5ec7dd39a4c0832513d';
 const EXPECTED_STAGE3A_HEAD = '27be3eaa6bbba168a7c0830b5acc23ebcba77988';
+const RECOVERY_BASELINE_HEAD = '90dac1247560c16b274eadbde3977baacdc5f149';
 const EXPECTED_PRESETS_SHA256 = 'cbe58468911ee583d535c7d3ce09bd40199aeb93183def0a8204d591feac4431';
 const EXPECTED_PROFILE_SHA256 = 'cf3d4adabd055b1b9895820bcaeee95b4a4999d6a245bea06c07fb14eeb7eb66';
 const EXPECTED_FIXTURE_SHA256 = '5d27b6beae2a3c478e21ef0e260e588fdfd22bd1fea4181c74c0d00520a08cd7';
@@ -30,13 +31,21 @@ const MATRIX_PITCHES = [33,36,39,42,45,48,51,54,57,93,96,99];
 const VELOCITIES = [14,31,36,40,45,49,54,61,69,77,85,93,101,109,117,124];
 const MIDI41_NORMALIZED = [0.25,0.55,0.90];
 const DIAGNOSTIC_SIGNALS = [
-  'dry_transverse','dry_bridge','dry_contact','dry_longitudinal','dry_mix',
   'bridge_b','bridge_m','bridge_t','board_drive_b','board_drive_m','board_drive_t',
-  'modal_l','modal_r','pre_radiation_l','pre_radiation_r','post_radiation_l','post_radiation_r',
-  'longitudinal_bridge_drive'
+  'modal_l','modal_r','residual_l','residual_r','pre_radiation_l','pre_radiation_r',
+  'post_radiation_l','post_radiation_r','dry_transverse','dry_bridge','dry_contact',
+  'dry_longitudinal','dry_mix','longitudinal_bridge_drive'
 ];
 const CLOSE = 1e-6;
 const MIDI41_EXPECTED_DERIVATIVE = [0.06299055264228781,0.05389008449437237,0.24231471764008602];
+const RECOVERY_ROOT = path.join(PRIVATE_ROOT,'recovery');
+const RECOVERY_LEDGER_PATH = path.join(RECOVERY_ROOT,'recovery-ledger.json');
+const RECOVERY_AUTHORIZED_CELLS = MATRIX_PITCHES.flatMap(pitch=>VELOCITIES.map(velocity=>({pitch,velocity,
+  velocityNormalized:velocity/127,factorMask:MASK})));
+const RECOVERY_CANDIDATE_ID = 'stage2n-r3-candidate-01';
+// Frozen from the verified recovery dry-run before the first Stage3A recovery render.
+// Later edits in final-table assembly do not change the render/metric evaluator.
+const RECOVERY_EVALUATOR_SHA256 = '725ba1bedfae0824277095b5a88cbc0bc8c6c77b6956efc531a1a923e9bfc95c';
 
 function assertSupplementalCells(cells) {
   const expected = MIDI41_NORMALIZED.map(velocityNormalized=>`41:${velocityNormalized}`);
@@ -251,12 +260,319 @@ function makeDiagnosticTables(capture, evaluation, fixture, rows, midRows) {
     return {pitch,synthSpanDb:actualSpanDb,preOutputGainEquivalentSpanDb:preOutputSpanDb,referenceSpanDb,
       stage3SpanErrorDb:Math.abs(actualSpanDb-referenceSpanDb),explicitVelocityGainSpanDb:
         gainDecomposition(-100,124/127,0.7,0.3).velocityGainDb-gainDecomposition(-100,14/127,0.7,0.3).velocityGainDb,
-      adjacentLayerDeltasDb:layerRows.slice(1).map((row,i)=>({from:row.velocity,to:layerRows[i+1].velocity,
-        synthDb:row.synthLevelDbfs-layerRows[i].synthLevelDbfs,
-        preGainDb:row.preOutputGainEquivalentDb-layerRows[i].preOutputGainEquivalentDb,
-        referenceDb:row.referenceLevelDbfs-layerRows[i].referenceLevelDbfs})),originalCapturedSpanDb:Math.max(...orig)-Math.min(...orig)};
+      adjacentLayerDeltasDb:layerRows.slice(0,-1).map((row,i)=>({from:row.velocity,to:layerRows[i+1].velocity,
+        synthDb:layerRows[i+1].synthLevelDbfs-row.synthLevelDbfs,
+        preGainDb:layerRows[i+1].preOutputGainEquivalentDb-row.preOutputGainEquivalentDb,
+        referenceDb:layerRows[i+1].referenceLevelDbfs-row.referenceLevelDbfs})),originalCapturedSpanDb:Math.max(...orig)-Math.min(...orig)};
   });
   return {pitchRows,spanRows,midRows};
+}
+
+function recoveryPaths(root=ROOT){
+  const base=path.join(root,'.agent-state/issues/7/stage3a/recovery');
+  return {base,ledger:path.join(base,'recovery-ledger.json'),cells:path.join(base,'cells'),pitches:path.join(base,'pitches'),
+    final:path.join(root,'.agent-state/issues/7/stage3a/velocity-diagnostic.json')};
+}
+
+function assertRecoveryAuthorization(cells){
+  const actual=cells.map(cell=>`${cell.pitch}:${cell.velocity}:${cell.factorMask}`).sort();
+  const expected=RECOVERY_AUTHORIZED_CELLS.map(cell=>`${cell.pitch}:${cell.velocity}:${cell.factorMask}`).sort();
+  if(actual.length!==192||new Set(actual).size!==192||JSON.stringify(actual)!==JSON.stringify(expected))
+    throw new Error('BLOCKED_STAGE3A_RECOVERY_EVIDENCE_INCONSISTENT: authorization must be exactly the 192 contracted cells with factor mask 3');
+  if(cells.some(cell=>!MATRIX_PITCHES.includes(cell.pitch)||!VELOCITIES.includes(cell.velocity)||cell.factorMask!==MASK))
+    throw new Error('BLOCKED_STAGE3A_RECOVERY_EVIDENCE_INCONSISTENT: unauthorized diagnostic identity');
+  return true;
+}
+
+function assertRecoveryCell(row,identity){
+  if(!row||row.schemaVersion!==1||row.candidateId!==RECOVERY_CANDIDATE_ID)
+    throw new Error('BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: cell schema/candidate identity mismatch');
+  const authorized=RECOVERY_AUTHORIZED_CELLS.find(cell=>cell.pitch===row.pitch&&cell.velocity===row.velocity);
+  if(!authorized||row.velocityNormalized!==authorized.velocityNormalized||row.factorMask!==MASK)
+    throw new Error('BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: cell identity is outside the authorized matrix');
+  for(const key of ['diagnosticWasmSha256','productionWasmSha256','configSha256','profileSha256','presetsSha256','referenceFixtureSha256'])
+    if(row[key]!==identity[key])throw new Error(`BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: cell ${key} mismatch`);
+  const m=row.metrics;
+  if(!m||m.stage2mFactorMask!==MASK||!m.stage2mHammer||m.finite!==true||m.outputGuardHits!==0
+      ||!Array.isArray(m.envelopeDbfs)||m.envelopeDbfs.length!==5||m.envelopeDbfs.some(value=>!Number.isFinite(value))
+      ||!Number.isFinite(m.envelopeDbfs[3])||!Number.isFinite(m.spectralCentroidHz)
+      ||!Number.isFinite(m.above2kPowerRatio)||!Number.isFinite(m.peakDbfs)
+      ||(m.fullRenderPeakDbfs!==null&&!Number.isFinite(m.fullRenderPeakDbfs))
+      ||!Number.isFinite(m.velocityDerivative)||!Array.isArray(m.velocityDerivativeWindowMs)
+      ||m.velocityDerivativeWindowMs.length!==2||m.velocityDerivativeWindowMs.some(value=>!Number.isFinite(value)))
+    throw new Error('BLOCKED_STAGE3A_RECOVERY_EVIDENCE_INCONSISTENT: required acoustic or safety evidence is invalid');
+  for(const field of ['effectiveHardness','initialHammerVelocity','contactDurationSamples','peakForce','maxCompression','postContactTransverseEnergy'])
+    if(!Number.isFinite(m.stage2mHammer[field]))throw new Error(`BLOCKED_STAGE3A_RECOVERY_EVIDENCE_INCONSISTENT: missing hammer field ${field}`);
+  for(const name of DIAGNOSTIC_SIGNALS){
+    const signal=m.soundboardDiagnostics?.signals?.[name];
+    if(!signal||!Number.isFinite(signal.rms)||!Number.isFinite(signal.peak))
+      throw new Error(`BLOCKED_STAGE3A_RECOVERY_EVIDENCE_INCONSISTENT: missing path RMS/peak ${name}`);
+  }
+  return row;
+}
+
+function makeRecoveryLedger(identity){
+  const cells=Object.fromEntries(RECOVERY_AUTHORIZED_CELLS.map(cell=>[cellKey(cell.pitch,cell.velocity),{
+    pitch:cell.pitch,velocity:cell.velocity,velocityNormalized:cell.velocityNormalized,factorMask:MASK,state:'PENDING'}]));
+  return {schemaVersion:1,baselineHead:RECOVERY_BASELINE_HEAD,candidateId:RECOVERY_CANDIDATE_ID,
+    authorizedIdentityCount:192,identity,cells,pitchAggregates:{},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+}
+
+function recoveryCounts(ledger){
+  const counts={PENDING:0,IN_PROGRESS:0,COMPLETE:0};
+  for(const item of Object.values(ledger.cells))counts[item.state]=(counts[item.state]||0)+1;
+  return counts;
+}
+
+function assertRecoveryLedgerIdentity(ledger,identity){
+  if(!ledger||ledger.schemaVersion!==1||ledger.baselineHead!==RECOVERY_BASELINE_HEAD
+      ||ledger.candidateId!==RECOVERY_CANDIDATE_ID||ledger.authorizedIdentityCount!==192
+      ||JSON.stringify(ledger.identity)!==JSON.stringify(identity)
+      ||JSON.stringify(Object.keys(ledger.cells||{}).sort())!==JSON.stringify(RECOVERY_AUTHORIZED_CELLS.map(c=>cellKey(c.pitch,c.velocity)).sort()))
+    throw new Error('BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: recovery ledger identity/authorization mismatch');
+  for(const cell of RECOVERY_AUTHORIZED_CELLS){
+    const item=ledger.cells[cellKey(cell.pitch,cell.velocity)];
+    if(item.pitch!==cell.pitch||item.velocity!==cell.velocity||item.velocityNormalized!==cell.velocityNormalized||item.factorMask!==MASK
+        ||!['PENDING','IN_PROGRESS','COMPLETE'].includes(item.state))
+      throw new Error('BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: malformed ledger cell');
+  }
+  return ledger;
+}
+
+function cellFilePath(paths,pitch,velocity){
+  return path.join(paths.cells,`midi-${String(pitch).padStart(3,'0')}-velocity-${String(velocity).padStart(3,'0')}.json`);
+}
+
+function loadCompletedCell(paths,ledger,cell){
+  const key=cellKey(cell.pitch,cell.velocity),item=ledger.cells[key];
+  if(item.state!=='COMPLETE')throw new Error('BLOCKED_STAGE3A_DIAGNOSTIC_EVIDENCE_INCOMPLETE: required recovery cell is not COMPLETE');
+  const file=cellFilePath(paths,cell.pitch,cell.velocity);
+  if(!fs.existsSync(file))throw new Error(`BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: COMPLETE cell missing ${key}`);
+  const actualHash=sha256(file);
+  if(item.path!==path.relative(path.dirname(paths.ledger),file)||item.sha256!==actualHash)
+    throw new Error(`BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: COMPLETE cell hash/path mismatch ${key}`);
+  try{return readJson(file);}catch(error){throw new Error(`BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: invalid cell JSON ${key}: ${error.message}`);}
+}
+
+function rowsForPitch(paths,ledger,identity,pitch){
+  return VELOCITIES.map(velocity=>assertRecoveryCell(loadCompletedCell(paths,ledger,{pitch,velocity}),identity));
+}
+
+function writePitchAggregate(paths,ledger,identity,pitch){
+  const rows=rowsForPitch(paths,ledger,identity,pitch);
+  const output=path.join(paths.pitches,`midi-${String(pitch).padStart(3,'0')}.json`);
+  const aggregate={schemaVersion:1,pitch,candidateId:RECOVERY_CANDIDATE_ID,identity,cells:rows};
+  writeJsonAtomic(output,aggregate);
+  ledger.pitchAggregates[String(pitch)]={path:path.relative(path.dirname(paths.ledger),output),sha256:sha256(output),cellCount:16};
+  ledger.updatedAt=new Date().toISOString();
+  writeJsonAtomic(paths.ledger,ledger);
+}
+
+function validatePitchAggregates(paths,ledger,identity,{allowCreateMissing=false}={}){
+  for(const pitch of MATRIX_PITCHES){
+    const entry=ledger.pitchAggregates?.[String(pitch)];
+    const file=path.join(paths.pitches,`midi-${String(pitch).padStart(3,'0')}.json`);
+    if(!entry){
+      const pitchComplete=VELOCITIES.every(velocity=>ledger.cells[cellKey(pitch,velocity)].state==='COMPLETE');
+      if(!pitchComplete)continue;
+      if(!allowCreateMissing)continue;
+      writePitchAggregate(paths,ledger,identity,pitch);continue;
+    }
+    if(!fs.existsSync(file)||entry.path!==path.relative(path.dirname(paths.ledger),file)||entry.sha256!==sha256(file))
+      throw new Error(`BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: pitch aggregate hash/path mismatch ${pitch}`);
+    const aggregate=readJson(file);
+    if(aggregate.pitch!==pitch||aggregate.identity?.diagnosticWasmSha256!==identity.diagnosticWasmSha256
+        ||aggregate.cells?.length!==16)throw new Error(`BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: malformed pitch aggregate ${pitch}`);
+    for(const row of aggregate.cells)assertRecoveryCell(row,identity);
+  }
+}
+
+function assertSupplementalRecoveryEvidence(root=ROOT){
+  const resultPath=path.join(root,'.agent-state/issues/7/stage3a/supplemental-3-render-result.json');
+  if(!fs.existsSync(resultPath))throw new Error('BLOCKED_STAGE3A_DIAGNOSTIC_EVIDENCE_INCOMPLETE: valid supplemental MIDI41 evidence is missing');
+  const result=readJson(resultPath);
+  if(result.decision!=='SUPPLEMENTAL_RENDERS_VALID'||result.acceptedReplacementCount!==3||result.authorizedRenderCount!==3
+      ||result.identity?.productionWasmSha256!==EXPECTED_WASM_SHA256
+      ||result.identity?.diagnosticWasmSha256!=='59d661e4e435298baf8f097fc1d85bfc8c517c2af1c23f391963a125cb3328b3'
+      ||result.identity?.configSha256!==EXPECTED_CONFIG_SHA256
+      ||result.identity?.candidateId!==RECOVERY_CANDIDATE_ID
+      ||result.identity?.profileSha256!==EXPECTED_PROFILE_SHA256
+      ||result.identity?.presetsSha256!==EXPECTED_PRESETS_SHA256
+      ||result.mask!==MASK||result.rows?.length!==3)
+    throw new Error('BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: supplemental MIDI41 result provenance is invalid');
+  const rows=result.rows.map((row,index)=>validateSupplementalRow(row,index));
+  if(rows.some(row=>!row.equivalencePass))throw new Error('BLOCKED_STAGE3A_DIAGNOSTIC_BUILD_NON_EQUIVALENT: supplemental MIDI41 evidence failed equivalence');
+  return {result,rows};
+}
+
+function assertRecoveryIdentity(root=ROOT){
+  const head=gitHead(root);
+  if(head!==RECOVERY_BASELINE_HEAD)throw new Error(`BLOCKED_STAGE3A_BASELINE_CHANGED: recovery requires ${RECOVERY_BASELINE_HEAD}, got ${head}`);
+  const production=path.join(root,'build/wasm/plugins/dsp/super-synth/plugin.wasm');
+  const diagnostic=path.join(root,'build/wasm-stage3a/plugins/dsp/super-synth/plugin.wasm');
+  const files={production,diagnostic,presets:path.join(root,'wasm/plugins/dsp/super-synth/presets.json'),
+    profile:path.join(root,'wasm/shared/generated/super-synth_grand_profiles.h'),
+    fixture:path.join(root,'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json'),
+    capture:path.join(root,'.agent-state/issues/7/calibration-optuna/stage3/direct-capture.json'),
+    evaluation:path.join(root,'.agent-state/issues/7/calibration-optuna/stage3/direct-evaluation.json'),
+    cache:path.join(root,'build/wasm-stage3a/CMakeCache.txt'),plugin:path.join(root,'wasm/plugins/dsp/super-synth/src/plugin.c')};
+  for(const file of Object.values(files))if(!fs.existsSync(file))throw new Error(`BLOCKED_STAGE3A_DIAGNOSTIC_EVIDENCE_INCOMPLETE: missing ${path.relative(root,file)}`);
+  const hashes={productionWasmSha256:sha256(files.production),diagnosticWasmSha256:sha256(files.diagnostic),
+    presetsSha256:sha256(files.presets),profileSha256:sha256(files.profile),referenceFixtureSha256:sha256(files.fixture),
+    pluginSourceSha256:sha256(files.plugin)};
+  if(hashes.productionWasmSha256!==EXPECTED_WASM_SHA256||hashes.diagnosticWasmSha256!=='59d661e4e435298baf8f097fc1d85bfc8c517c2af1c23f391963a125cb3328b3'
+      ||hashes.presetsSha256!==EXPECTED_PRESETS_SHA256||hashes.profileSha256!==EXPECTED_PROFILE_SHA256
+      ||hashes.referenceFixtureSha256!==EXPECTED_FIXTURE_SHA256)
+    throw new Error(`BLOCKED_STAGE3A_PRODUCTION_IDENTITY: protected hash mismatch ${JSON.stringify(hashes)}`);
+  const cache=fs.readFileSync(files.cache,'utf8');
+  for(const option of ['SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS:BOOL=ON','SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS:BOOL=ON'])
+    if(!cache.includes(option))throw new Error(`BLOCKED_STAGE3A_DIAGNOSTIC_BUILD_IDENTITY_CHANGED: missing ${option}`);
+  const exports=WebAssembly.Module.exports(new WebAssembly.Module(fs.readFileSync(files.diagnostic))).map(item=>item.name);
+  for(const name of ['soraoto_supersynth_stage2m_set_factor_mask','soraoto_supersynth_stage2m_get_factor_mask',
+    'soraoto_supersynth_stage2m_hammer_diag_reset','soraoto_supersynth_stage2m_hammer_diag_value',
+    'soraoto_supersynth_soundboard_diag_reset','soraoto_supersynth_soundboard_diag_sum_squares',
+    'soraoto_supersynth_soundboard_diag_peak','soraoto_supersynth_soundboard_diag_frames'])
+    if(!exports.includes(name))throw new Error(`BLOCKED_STAGE3A_DIAGNOSTIC_BUILD_IDENTITY_CHANGED: missing export ${name}`);
+  const capture=readJson(files.capture),evaluation=readJson(files.evaluation);
+  if(capture.render.wasmSha256!==EXPECTED_WASM_SHA256||capture.matrix.length!==480||evaluation.coverage?.captured!==480
+      ||evaluation.identity?.candidateId!==RECOVERY_CANDIDATE_ID||evaluation.identity?.wasmSha256!==EXPECTED_WASM_SHA256
+      ||evaluation.identity?.configSha256!==EXPECTED_CONFIG_SHA256||evaluation.identity?.profileSha256!==EXPECTED_PROFILE_SHA256
+      ||evaluation.capture?.stage3CandidateDelta!==0||evaluation.capture?.stage4Renders!==0)
+    throw new Error('BLOCKED_STAGE3A_DIAGNOSTIC_EVIDENCE_INCOMPLETE: saved Stage3 production evidence is incompatible');
+  const supplemental=assertSupplementalRecoveryEvidence(root);
+  const identity={sourceRevision:head,candidateId:RECOVERY_CANDIDATE_ID,productionSimd:true,diagnosticFlags:{guard:true,stage2m:true},
+    productionWasmSha256:hashes.productionWasmSha256,diagnosticWasmSha256:hashes.diagnosticWasmSha256,
+    configSha256:evaluation.identity.configSha256,profileSha256:hashes.profileSha256,presetsSha256:hashes.presetsSha256,
+    referenceFixtureSha256:hashes.referenceFixtureSha256,pluginSourceSha256:hashes.pluginSourceSha256,
+    productionCaptureSha256:sha256(files.capture),productionEvaluationSha256:sha256(files.evaluation),
+    evaluatorSha256:RECOVERY_EVALUATOR_SHA256,
+    subsetSha256:crypto.createHash('sha256').update(JSON.stringify(RECOVERY_AUTHORIZED_CELLS)).digest('hex'),
+    constraintSchemaSha256:crypto.createHash('sha256').update(JSON.stringify({requiredMetrics:DIAGNOSTIC_SIGNALS,mask:MASK})).digest('hex'),
+    supplementalResultSha256:sha256(path.join(root,'.agent-state/issues/7/stage3a/supplemental-3-render-result.json'))};
+  if(identity.configSha256!==EXPECTED_CONFIG_SHA256)throw new Error('BLOCKED_STAGE3A_PRODUCTION_IDENTITY: candidate config SHA mismatch');
+  return {identity,hashes,productionWasm:files.production,diagnosticWasm:files.diagnostic,capture,evaluation,
+    fixture:readJson(files.fixture),supplemental};
+}
+
+function inspectRecoveryState(paths,identity){
+  if(!fs.existsSync(paths.ledger))return {ledger:makeRecoveryLedger(identity),created:false,counts:{PENDING:192,IN_PROGRESS:0,COMPLETE:0}};
+  let ledger;try{ledger=readJson(paths.ledger);}catch(error){throw new Error(`BLOCKED_STAGE3A_RECOVERY_EVIDENCE_CORRUPT: invalid recovery ledger JSON: ${error.message}`);}
+  assertRecoveryLedgerIdentity(ledger,identity);
+  const counts=recoveryCounts(ledger);
+  if(counts.IN_PROGRESS>0)throw new Error(`BLOCKED_STAGE3A_RECOVERY_AMBIGUOUS_RENDER_ACCOUNTING: ${counts.IN_PROGRESS} cell(s) are IN_PROGRESS`);
+  for(const cell of RECOVERY_AUTHORIZED_CELLS)if(ledger.cells[cellKey(cell.pitch,cell.velocity)].state==='COMPLETE')
+    assertRecoveryCell(loadCompletedCell(paths,ledger,cell),identity);
+  validatePitchAggregates(paths,ledger,identity,{allowCreateMissing:false});
+  return {ledger,created:true,counts};
+}
+
+function makeRecoveryCell(pitch,velocity,metrics,identity){
+  return assertRecoveryCell({schemaVersion:1,candidateId:RECOVERY_CANDIDATE_ID,sourceRevision:identity.sourceRevision,
+    pitch,velocity,velocityNormalized:velocity/127,factorMask:MASK,productionWasmSha256:identity.productionWasmSha256,
+    diagnosticWasmSha256:identity.diagnosticWasmSha256,configSha256:identity.configSha256,profileSha256:identity.profileSha256,
+    presetsSha256:identity.presetsSha256,referenceFixtureSha256:identity.referenceFixtureSha256,
+    capturedAt:new Date().toISOString(),metrics},identity);
+}
+
+function runRecovery({root=ROOT,mode='dry-run',progress=()=>{},renderFn=null,identityOverride=null,failurePoint=null,identityCheck=null}={}){
+  assertRecoveryAuthorization(RECOVERY_AUTHORIZED_CELLS);
+  const paths=recoveryPaths(root);
+  const baseline=identityOverride?{identity:identityOverride,...(identityOverride.inputs||{})}:assertRecoveryIdentity(root);
+  const identity=baseline.identity;
+  const state=inspectRecoveryState(paths,identity);
+  if(mode==='dry-run')return {decision:'RECOVERY_DRY_RUN',builds:0,renders:0,authorizedIdentities:192,
+    counts:state.counts,identity};
+  if(mode==='finalize')return finalizeRecovery({root,paths,ledger:state.ledger,identity,baseline});
+  if(mode!=='execute')throw new Error(`unsupported recovery mode ${mode}`);
+  if(!state.created)writeJsonAtomic(paths.ledger,state.ledger);
+  const priorBuildDir=process.env.SORAOTO_WASM_BUILD_DIR;
+  const {renderNormalized}=renderFn?{}:require('./capture-supersynth-matrix.cjs');
+  const render=renderFn||((pitch,velocity)=>{
+    process.env.SORAOTO_WASM_BUILD_DIR=path.join(root,'build/wasm-stage3a');
+    return renderNormalized(pitch,velocity/127,{}, {stage2mFactorMask:MASK,includeVelocityDerivative:true,includeSoundboardDiagnostics:true});
+  });
+  let renderCalls=0;
+  try{
+    for(const cell of RECOVERY_AUTHORIZED_CELLS){
+      const key=cellKey(cell.pitch,cell.velocity),entry=state.ledger.cells[key];
+      if(entry.state==='COMPLETE')continue;
+      if(entry.state!=='PENDING')throw new Error(`BLOCKED_STAGE3A_RECOVERY_AMBIGUOUS_RENDER_ACCOUNTING: ${key} is ${entry.state}`);
+      if(identityCheck)identityCheck();else if(!identityOverride)assertRecoveryIdentity(root);
+      entry.state='IN_PROGRESS';entry.startedAt=new Date().toISOString();state.ledger.updatedAt=new Date().toISOString();
+      writeJsonAtomic(paths.ledger,state.ledger);
+      if(failurePoint)failurePoint('after-in-progress',cell);
+      const metrics=render(cell.pitch,cell.velocity);
+      renderCalls++;
+      const row=makeRecoveryCell(cell.pitch,cell.velocity,metrics,identity);
+      const file=cellFilePath(paths,cell.pitch,cell.velocity);
+      writeJsonAtomic(file,row);
+      if(failurePoint)failurePoint('after-cell-write',cell);
+      entry.state='COMPLETE';entry.path=path.relative(path.dirname(paths.ledger),file);entry.sha256=sha256(file);
+      entry.completedAt=new Date().toISOString();delete entry.startedAt;
+      state.ledger.updatedAt=new Date().toISOString();writeJsonAtomic(paths.ledger,state.ledger);
+      if(failurePoint)failurePoint('after-complete',cell);
+      const pitchDone=VELOCITIES.every(velocity=>state.ledger.cells[cellKey(cell.pitch,velocity)].state==='COMPLETE');
+      if(pitchDone)writePitchAggregate(paths,state.ledger,identity,cell.pitch);
+      progress(`recovery ${recoveryCounts(state.ledger).COMPLETE}/192 MIDI ${cell.pitch} v${cell.velocity}`);
+    }
+    for(const pitch of MATRIX_PITCHES){
+      const complete=VELOCITIES.every(velocity=>state.ledger.cells[cellKey(pitch,velocity)].state==='COMPLETE');
+      if(complete&&!state.ledger.pitchAggregates?.[String(pitch)])writePitchAggregate(paths,state.ledger,identity,pitch);
+    }
+  }finally{
+    if(priorBuildDir===undefined)delete process.env.SORAOTO_WASM_BUILD_DIR;
+    else process.env.SORAOTO_WASM_BUILD_DIR=priorBuildDir;
+  }
+  const after=identityOverride?identity:assertRecoveryIdentity(root).identity;
+  if(JSON.stringify(after)!==JSON.stringify(identity))throw new Error('BLOCKED_STAGE3A_DIAGNOSTIC_BUILD_IDENTITY_CHANGED: identity changed during recovery');
+  return {decision:'RECOVERY_EXECUTION_COMPLETE',newRenderCalls:renderCalls,counts:recoveryCounts(state.ledger),ledgerSha256:sha256(paths.ledger)};
+}
+
+function finalizeRecovery({root=ROOT,paths=recoveryPaths(root),ledger,identity,baseline=null}={}){
+  assertRecoveryLedgerIdentity(ledger,identity);
+  const counts=recoveryCounts(ledger);
+  if(counts.COMPLETE!==192)throw new Error(`BLOCKED_STAGE3A_DIAGNOSTIC_EVIDENCE_INCOMPLETE: persisted ${counts.COMPLETE}/192 cells`);
+  for(const cell of RECOVERY_AUTHORIZED_CELLS)assertRecoveryCell(loadCompletedCell(paths,ledger,cell),identity);
+  validatePitchAggregates(paths,ledger,identity,{allowCreateMissing:true});
+  const rows=RECOVERY_AUTHORIZED_CELLS.map(cell=>loadCompletedCell(paths,ledger,cell));
+  assertFixedCells(rows);
+  const capture=baseline?.capture||readJson(CAPTURE_PATH),evaluation=baseline?.evaluation||readJson(EVALUATION_PATH),
+    fixture=baseline?.fixture||readJson(FIXTURE_PATH),supplemental=baseline?.supplemental||assertSupplementalRecoveryEvidence(root);
+  const captureByCell=new Map(capture.matrix.map(row=>[cellKey(row.pitch,row.velocity),row.metrics]));
+  const equivalence=EQUIVALENCE_CELLS.map(([pitch,velocity])=>{
+    const production=captureByCell.get(cellKey(pitch,velocity));
+    const diagnostic=rows.find(row=>row.pitch===pitch&&row.velocity===velocity);
+    if(!production||!diagnostic)throw new Error(`BLOCKED_STAGE3A_RECOVERY_EVIDENCE_INCOMPLETE: equivalence row missing ${pitch}/${velocity}`);
+    return {pitch,velocity,factorMask:diagnostic.factorMask,...compareEquivalence(production,diagnostic.metrics)};
+  });
+  if(equivalence.some(row=>!row.pass))throw new Error('BLOCKED_STAGE3A_DIAGNOSTIC_BUILD_NON_EQUIVALENT: recovered six-cell equivalence failed');
+  const invariants=assertHammerInvariants(rows.map(row=>({pitch:row.pitch,velocity:row.velocity,metrics:row.metrics})));
+  const presets=readJson(PRESETS_PATH),velocityConfig=presets.concert_grand.engine_config?.velocity;
+  const gainBase=Number(velocityConfig?.output_gain_base),gainScale=Number(velocityConfig?.output_gain_velocity_scale);
+  if(gainBase!==0.7||gainScale!==0.3)throw new Error('BLOCKED_STAGE3A_RECOVERY_EVIDENCE_INCONSISTENT: profile velocity gain does not equal 0.7 + 0.3*v');
+  const midRows=supplemental.rows.map(row=>({pitch:row.pitch,velocityNormalized:row.velocityNormalized,metrics:row.metrics}));
+  const tables=makeDiagnosticTables(capture,evaluation,fixture,rows.map(row=>({pitch:row.pitch,velocity:row.velocity,metrics:row.metrics})),midRows);
+  const final={schemaVersion:2,decision:'STAGE3A_DIAGNOSTIC_COMPLETE',sourceRevision:identity.sourceRevision,candidateId:RECOVERY_CANDIDATE_ID,
+    productionSimd:true,productionWasmSha256:identity.productionWasmSha256,diagnosticWasmSha256:identity.diagnosticWasmSha256,
+    configSha256:identity.configSha256,profileSha256:identity.profileSha256,presetsSha256:identity.presetsSha256,
+    referenceFixtureSha256:identity.referenceFixtureSha256,evaluatorSha256:identity.evaluatorSha256,
+    candidateDelta:0,stage2lBudget:'1/12',stage2nBudget:'1/1',stage4Renders:0,
+    stage3:{primaryDecision:'BLOCKED_STAGE3_DIRECT_REFERENCE',measurementsChanged:false},
+    accounting:{historicalRenderCalls:198,recoveryRenderCalls:192,totalStage3aRenderCalls:390,
+      finalAcceptedEvidence:195,persistedRecoveryMatrix:192,validSupplementalMidi41:3,
+      historicalNonAuthoritative:195,nonPersistedOldMatrix:192,supersededOldWindowMidi41:3,
+      physicalCandidateDelta:0,stage4Renders:0},
+    equivalence:{cells:equivalence,pass:true,tolerance:CLOSE},
+    velocityGain:{base:gainBase,scale:gainScale,softToHardDb:gainDecomposition(-100,124/127,gainBase,gainScale).velocityGainDb-gainDecomposition(-100,14/127,gainBase,gainScale).velocityGainDb},
+    diagnosticMatrix:{pitchCount:MATRIX_PITCHES.length,velocityCount:VELOCITIES.length,cells:rows.length,rows},
+    midi41:{normalizedVelocities:MIDI41_NORMALIZED,expectedDerivative:MIDI41_EXPECTED_DERIVATIVE,
+      measuredDerivative:midRows.map(row=>row.metrics.velocityDerivative),absoluteDiff:supplemental.rows.map(row=>row.absoluteDifference),rows:midRows},
+    hammerInvariants:invariants,tables,recoveryLedgerPreFinalizeSha256:sha256(paths.ledger)};
+  writeJsonAtomic(paths.final,final);
+  ledger.finalizedAt=new Date().toISOString();ledger.finalResultSha256=sha256(paths.final);ledger.updatedAt=new Date().toISOString();
+  writeJsonAtomic(paths.ledger,ledger);
+  return {decision:final.decision,cellCount:rows.length,equivalence,invariantCount:invariants.length,
+    gainSpanDb:final.velocityGain.softToHardDb,ledgerSha256:sha256(paths.ledger),resultSha256:sha256(paths.final),resultPath:path.relative(root,paths.final)};
 }
 
 function run({root=ROOT,progress=()=>{}}={}) {
@@ -359,7 +675,17 @@ function run({root=ROOT,progress=()=>{}}={}) {
 if(require.main===module){
   try{
     const args=process.argv.slice(2);
-    if(args.length===1&&args[0]==='--dry-run'){
+    if(args.length===1&&args[0]==='--recovery-dry-run'){
+      const result=runRecovery({mode:'dry-run'});
+      process.stdout.write(JSON.stringify({decision:result.decision,builds:0,renders:0,
+        authorizedIdentities:result.authorizedIdentities,counts:result.counts,identity:result.identity})+'\n');
+    }else if(args.length===1&&args[0]==='--recovery-execute'){
+      const result=runRecovery({mode:'execute',progress:message=>process.stderr.write(`${message}\n`)});
+      process.stdout.write(JSON.stringify(result)+'\n');
+    }else if(args.length===1&&args[0]==='--recovery-finalize'){
+      const result=runRecovery({mode:'finalize'});
+      process.stdout.write(JSON.stringify(result)+'\n');
+    }else if(args.length===1&&args[0]==='--dry-run'){
       const result=runSupplemental({dryRun:true});
       process.stdout.write(JSON.stringify({decision:result.decision,builds:result.builds,renders:result.renders,
         authorizedCells:result.authorizedCells,productionWasmSha256:result.identity.productionWasmSha256})+'\n');
@@ -369,11 +695,13 @@ if(require.main===module){
         derivativeWindowMs:result.derivativeWindowMs,derivatives:result.rows.map(row=>row.metrics.velocityDerivative),
         absoluteDifferences:result.rows.map(row=>row.absoluteDifference),productionWasmSha256:result.identity.productionWasmSha256})+'\n');
     }else{
-      throw new Error('explicit mode required: use --dry-run or --supplemental-execute; the latter consumes exactly the three authorized MIDI41 renders');
+      throw new Error('explicit mode required: use --recovery-dry-run, --recovery-execute, --recovery-finalize, --dry-run, or --supplemental-execute');
     }
   }catch(error){process.stderr.write(`Stage3A velocity diagnostic ERROR: ${error.stack||error.message}\n`);process.exitCode=1;}
 }
 
 module.exports={MASK,EQUIVALENCE_CELLS,MATRIX_PITCHES,VELOCITIES,MIDI41_NORMALIZED,assertFixedCells,assertMask,
   compareEquivalence,gainDecomposition,assertHammerInvariants,assertSupplementalCells,validateSupplementalRow,
-  MIDI41_EXPECTED_DERIVATIVE,DIAGNOSTIC_SIGNALS,runSupplemental};
+  MIDI41_EXPECTED_DERIVATIVE,DIAGNOSTIC_SIGNALS,RECOVERY_BASELINE_HEAD,RECOVERY_AUTHORIZED_CELLS,
+  assertRecoveryAuthorization,assertRecoveryCell,makeRecoveryLedger,recoveryCounts,assertRecoveryLedgerIdentity,
+  recoveryPaths,cellFilePath,loadCompletedCell,validatePitchAggregates,inspectRecoveryState,runRecovery,finalizeRecovery};
