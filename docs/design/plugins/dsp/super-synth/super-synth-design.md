@@ -386,6 +386,10 @@ The Stage3B variant mask is test-only: bit 1 normalizes the active characteristi
 
 Use the persisted Stage3A mask-0 measurements as the factorial baseline; do not rerender them. Attribute each measured scalar with the two-factor main-effect and interaction equations, and report the two-string and three-string groups separately. Safety failures disqualify the affected factor. Stage3B may recommend a separate design phase, but it must not implement a selected factor in production.
 
+Before any Stage3B acoustic render, reconcile the fixed production WASM provenance against the embedded descriptor and interface sections. Prefer a byte-identical isolated rebuild; if that is unavailable, require exact descriptor-CBOR attribution to one isolated metadata variant, matching runtime metadata fingerprint and profile identity, unchanged production inputs, and an unchanged user working-tree descriptor. Keep the detailed provenance artifact under `.agent-state/issues/7/stage3b/`. Passing this preflight authorizes only a separately reviewed mask-0 equivalence gate; it does not authorize the 477-cell Stage3B matrix.
+
+Apply Stage3B selection gates to each factor independently. The six-decibel worst-pitch requirement is evaluated at the Stage3A M0 failing pitch with the greatest absolute span error (currently MIDI 51). The MIDI96/v31 level guard uses each factor's factorial main effect. The MIDI41 derivative and safety checks use the relevant factor masks only: I uses masks 1 and 3; P uses masks 2 and 3. When both factor families are safe, architecture selection also requires the stated interaction, subgroup-direction, and comparative-improvement checks; when one family is unsafe, it does not automatically disqualify the other.
+
 ## 6. Failure and blocker handling
 
 If the official Salamander package cannot be retrieved, its contents are incomplete, or its SFZ

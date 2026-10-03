@@ -4,13 +4,16 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const crypto=require('node:crypto');
+const assert=require('node:assert/strict');
 const {execFileSync}=require('node:child_process');
 const {performance}=require('node:perf_hooks');
 const {assertRecoveryCell,assertRecoveryLedgerIdentity,recoveryCounts,RECOVERY_BASELINE_HEAD,
   RECOVERY_AUTHORIZED_CELLS,cellFilePath,DIAGNOSTIC_SIGNALS}=require('./run-stage3a-velocity-diagnostic.cjs');
+const provenance=require('./stage3b-production-provenance.cjs');
 
 const ROOT=path.resolve(__dirname,'../../../../../../');
 const PRIVATE_ROOT=path.join(ROOT,'.agent-state/issues/7/stage3b');
+const PROVENANCE_FILE=path.join(ROOT,'.agent-state/issues/7/stage3b/preflight-provenance.json');
 const STAGE3A_ROOT=path.join(ROOT,'.agent-state/issues/7/stage3a');
 const STAGE3A_RECOVERY=path.join(STAGE3A_ROOT,'recovery');
 const STAGE3A_LEDGER=path.join(STAGE3A_RECOVERY,'recovery-ledger.json');
@@ -22,7 +25,7 @@ const PROFILE=path.join(ROOT,'wasm/shared/generated/super-synth_grand_profiles.h
 const PROD_WASM=path.join(ROOT,'build/wasm/plugins/dsp/super-synth/plugin.wasm');
 const STAGE3A_WASM=path.join(ROOT,'build/wasm-stage3a/plugins/dsp/super-synth/plugin.wasm');
 const STAGE3B_WASM_REL='plugins/dsp/super-synth/plugin.wasm';
-const EXPECTED_HEAD='d2bc990a9e669e4e5496d9a745d171fc0434ca99';
+const EXPECTED_HEAD='c1fd7f39b1c5d8353862169cadf7e187a7ed6eb6';
 const CANDIDATE='stage2n-r3-candidate-01';
 const EXPECTED={productionWasm:'9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2',
   stage3aWasm:'59d661e4e435298baf8f097fc1d85bfc8c517c2af1c23f391963a125cb3328b3',
@@ -170,32 +173,166 @@ function assertVariantMaskApi(root,buildRoot){
   if(!/mask&~3u/.test(setter)||!/dsp_reset\(\)/.test(setter))throw new Error('Stage3B mask setter must reject higher bits and reset DSP state on changes');
 }
 
-function assertBuildIdentity(root=ROOT){
+function assertAuthoritativeProductionIdentity(root=ROOT){
+  const required=[PROD_WASM,PRESETS,PROFILE,FIXTURE];
+  for(const file of required)if(!fs.existsSync(file))throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: missing ${path.relative(root,file)}`);
+  const hashes={productionWasmSha256:sha256(PROD_WASM),configSha256:EXPECTED.config,presetsSha256:sha256(PRESETS),profileSha256:sha256(PROFILE),
+    referenceFixtureSha256:sha256(FIXTURE)};
+  if(hashes.productionWasmSha256!==EXPECTED.productionWasm||hashes.presetsSha256!==EXPECTED.presets
+      ||hashes.profileSha256!==EXPECTED.profile||hashes.referenceFixtureSha256!==EXPECTED.fixture)
+    throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: authoritative artifact hash mismatch ${JSON.stringify(hashes)}`);
+  assertProductionStage3BAbsent(PROD_WASM);
+  return {hashes,candidateId:CANDIDATE,productionSimd:true};
+}
+
+function assertStage3AEvidenceIdentity(root=ROOT){
+  const baseline=loadStage3ABaseline(root);
+  return {identity:baseline.identity,candidateId:CANDIDATE};
+}
+
+function assertStage3BDiagnosticBuildIdentity(root=ROOT){
   const buildRoot=process.env.SORAOTO_WASM_BUILD_DIR?path.resolve(process.env.SORAOTO_WASM_BUILD_DIR):path.join(root,'build/wasm-stage3b');
   const wasm=path.join(buildRoot,STAGE3B_WASM_REL),cache=path.join(buildRoot,'CMakeCache.txt');
-  const required=[PROD_WASM,STAGE3A_WASM,PRESETS,PROFILE,FIXTURE,wasm,cache];
+  const required=[wasm,cache];
   for(const file of required)if(!fs.existsSync(file))throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: missing ${path.relative(root,file)}`);
   if(gitHead(root)!==EXPECTED_HEAD)throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: HEAD must remain ${EXPECTED_HEAD}`);
-  const hashes={productionWasmSha256:sha256(PROD_WASM),stage3aWasmSha256:sha256(STAGE3A_WASM),stage3bWasmSha256:sha256(wasm),
-    configSha256:EXPECTED.config,presetsSha256:sha256(PRESETS),profileSha256:sha256(PROFILE),referenceFixtureSha256:sha256(FIXTURE),
+  const authoritative=assertAuthoritativeProductionIdentity(root);
+  const stage3a=assertStage3AEvidenceIdentity(root);
+  const hashes={...authoritative.hashes,stage3aWasmSha256:sha256(STAGE3A_WASM),stage3bWasmSha256:sha256(wasm),
+    configSha256:EXPECTED.config,
     pluginSourceSha256:sha256(path.join(root,'wasm/plugins/dsp/super-synth/src/plugin.c')),
     cmakeSourceSha256:sha256(path.join(root,'wasm/cmake/wasm_plugin.cmake')),
     captureEvaluatorSha256:sha256(path.join(root,'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-matrix.cjs')),
     runnerSha256:sha256(__filename)};
-  if(hashes.productionWasmSha256!==EXPECTED.productionWasm||hashes.stage3aWasmSha256!==EXPECTED.stage3aWasm
-      ||hashes.presetsSha256!==EXPECTED.presets||hashes.profileSha256!==EXPECTED.profile||hashes.referenceFixtureSha256!==EXPECTED.fixture)
+  if(hashes.stage3aWasmSha256!==EXPECTED.stage3aWasm)
     throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: protected hash mismatch ${JSON.stringify(hashes)}`);
   const cmake=fs.readFileSync(cache,'utf8');
   for(const option of ['SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS:BOOL=ON','SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS:BOOL=ON','SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS:BOOL=ON'])
     if(!cmake.includes(option))throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: missing CMake option ${option}`);
   assertDiagnosticExports(wasm);
-  assertProductionStage3BAbsent(PROD_WASM);
   assertVariantMaskApi(root,buildRoot);
   const subsetHash=sha256Text(JSON.stringify(expectedSubset()));
   return {buildRoot,wasm,hashes,subsetSha256:subsetHash,constraintSchemaSha256:sha256Text(JSON.stringify({stage2mMask:3,stage3bMasks:MASKS,
     requiredMetrics:['envelopeDbfs[5]','envelopeDbfs[3]','spectralCentroidHz','above2kPowerRatio','peakDbfs','finite','outputGuardHits',
       'velocityDerivative','stage2mHammer',...DIAGNOSTIC_SIGNALS]})),sourceRevision:EXPECTED_HEAD,candidateId:CANDIDATE,productionSimd:true,
     stage2mFactorMask:3,authorizedRenderCount:CELL_COUNT};
+}
+
+function assertBuildIdentity(root=ROOT){
+  const authoritative=assertAuthoritativeProductionIdentity(root);
+  const stage3a=assertStage3AEvidenceIdentity(root);
+  const diagnostic=assertStage3BDiagnosticBuildIdentity(root);
+  return {...diagnostic,hashes:{...authoritative.hashes,stage3aWasmSha256:diagnostic.hashes.stage3aWasmSha256,
+    stage3bWasmSha256:diagnostic.hashes.stage3bWasmSha256,configSha256:EXPECTED.config,
+    pluginSourceSha256:diagnostic.hashes.pluginSourceSha256,cmakeSourceSha256:diagnostic.hashes.cmakeSourceSha256,
+    captureEvaluatorSha256:diagnostic.hashes.captureEvaluatorSha256,runnerSha256:diagnostic.hashes.runnerSha256},
+    stage3aEvidence:stage3a.identity};
+}
+
+function loadProductionProvenance(root=ROOT,file=PROVENANCE_FILE){
+  if(!fs.existsSync(file))throw new Error('BLOCKED_STAGE3B_PRODUCTION_PROVENANCE_UNRESOLVED: preflight provenance artifact is missing');
+  const artifact=readJson(file),descriptor=provenance.descriptorWorkingTreeState(root);
+  const variants=[artifact.cleanStage2qMetadata,artifact.cleanStage3bBaselineMetadata,artifact.dirtyDescriptorSnapshotMetadata];
+  const checkedClassification=provenance.classifyProvenance({embeddedDescriptorSha256:artifact.productionEmbeddedDescriptor?.sha256,
+    embeddedInterfaceMatchesStage2q:artifact.productionEmbeddedInterface?.matchesStage2qInterface,variants,
+    isolatedProductionBuildSha256:artifact.isolatedProductionBuild?.sha256,profileSha256:artifact.isolatedProductionBuild?.profileSha256,
+    productionPathsUnchanged:artifact.committedProductionPathDiff?.unchanged,
+    authoritativeWasmSha256:artifact.authoritativeProductionWasmSha256,dirtyDescriptorUnchanged:artifact.workingTreeDescriptorState?.unchanged});
+  if(artifact.stage3bStartingCommit!==EXPECTED_HEAD||artifact.authoritativeProductionWasmSha256!==EXPECTED.productionWasm
+      ||artifact.fixedIdentities?.presets!==EXPECTED.presets||artifact.fixedIdentities?.profile!==EXPECTED.profile
+      ||artifact.fixedIdentities?.referenceFixture!==EXPECTED.fixture||artifact.fixedIdentities?.config!==EXPECTED.config
+      ||artifact.workingTreeDescriptorState?.unchanged!==true
+      ||JSON.stringify(artifact.workingTreeDescriptorState?.after)!==JSON.stringify(descriptor)
+      ||artifact.committedProductionPathDiff?.unchanged!==true
+      ||artifact.productionEmbeddedInterface?.matchesStage2qInterface!==true
+      ||artifact.classificationEvidence?.matchingVariants?.length!==1
+      ||checkedClassification.classification!==artifact.classification
+      ||JSON.stringify(checkedClassification.matchingVariants)!==JSON.stringify(artifact.classificationEvidence?.matchingVariants)
+      ||artifact.preflightResult?.decision!=='STAGE3B_PREFLIGHT_READY_FOR_MASK0_EQUIVALENCE'
+      ||artifact.preflightResult?.checks?.selectionGateTests?.pass!==true
+      ||!artifact.preflightReady||!['EXACT_REBUILD_PROVENANCE','SUFFICIENT_METADATA_PROVENANCE'].includes(artifact.classification))
+    throw new Error('BLOCKED_STAGE3B_PRODUCTION_PROVENANCE_UNRESOLVED: provenance no longer matches current source/artifact state');
+  return artifact;
+}
+
+function assertPreflightReady(root=ROOT,{provenanceFile=PROVENANCE_FILE}={}){
+  const authoritative=assertAuthoritativeProductionIdentity(root),stage3a=assertStage3AEvidenceIdentity(root);
+  const diagnostic=assertStage3BDiagnosticBuildIdentity(root),production=loadProductionProvenance(root,provenanceFile);
+  return {authoritative,stage3a,diagnostic,production};
+}
+
+function gateCorrectionSelfTest(root=ROOT){
+  const sample=[36,39,51,54].map((pitch,index)=>({pitch,spanByMask:{M0:{absoluteSpanErrorDb:[12.580882,12.069386,20.696187,9.249924][index]}}}));
+  assert.equal(worstBaselineFailingPitch(sample),51);
+  const alternate=sample.map(row=>({...row,spanByMask:{M0:{absoluteSpanErrorDb:row.pitch===39?25:1}}}));
+  assert.equal(worstBaselineFailingPitch(alternate),39);
+  const base={failingImprovements:[7,4,4,1],baselineWorstPitchImprovement:5.999,controlWorsening:[0,0,0,0,0],safe:true,
+    midi96WorseningDb:3,midi41Guard:true,twoStringImprovementDb:2,threeStringImprovementDb:2};
+  assert.equal(supportGates(base).baselineWorstPitchImprovesBy6,false);
+  assert.equal(supportGates({...base,baselineWorstPitchImprovement:6}).baselineWorstPitchImprovesBy6,true);
+  assert.equal(supportGates({...base,failingImprovements:[7,6,4,4],baselineWorstPitchImprovement:5.9}).threeOfFourImproveBy4,true);
+  assert.equal(supportGates({...base,midi96WorseningDb:3.000001}).midi96v31FactorWorseningAtMost3,false);
+  assert.equal(supportGates({...base,midi96WorseningDb:3}).midi96v31FactorWorseningAtMost3,true);
+  const mid=[{velocityNormalized:.25,derivatives:{M0:.1,M1:.21,M2:.1,M3:.1}},
+    {velocityNormalized:.55,derivatives:{M0:.3,M1:.3,M2:.3,M3:.3}},
+    {velocityNormalized:.90,derivatives:{M0:.5,M1:.5,M2:.5,M3:.5}}];
+  assert.equal(midi41FactorGuard(mid,[1,3]).pass,false);
+  assert.equal(midi41FactorGuard(mid,[2,3]).pass,true);
+  const safe=iGates=>Object.fromEntries(Object.keys(iGates).map(key=>[key,true]));
+  assert.equal(selectDecision({iSafe:false,pSafe:true,iGates:safe(base),pGates:safe(base),meanAbsoluteInteractionDb:9,
+    twoI:1,threeI:-1,twoP:1,threeP:1,iMeanImprovementDb:9,pMeanImprovementDb:1}),'STAGE3B_PHASE_GEOMETRY_REQUIRES_DESIGN');
+  assert.equal(selectDecision({iSafe:true,pSafe:false,iGates:safe(base),pGates:safe(base),meanAbsoluteInteractionDb:9,
+    twoI:1,threeI:1,twoP:1,threeP:1,iMeanImprovementDb:9,pMeanImprovementDb:1}),'STAGE3B_SELECT_BUNDLE_IMPEDANCE_ARCHITECTURE');
+  assert.equal(selectDecision({iSafe:false,pSafe:false,iGates:safe(base),pGates:safe(base),meanAbsoluteInteractionDb:0,
+    twoI:1,threeI:1,twoP:1,threeP:1,iMeanImprovementDb:9,pMeanImprovementDb:1}),'BLOCKED_STAGE3B_DIAGNOSTIC_SAFETY');
+  const baseline=loadStage3ABaseline(root),reference=readReference(root),errors=FAIL_PITCHES.map(pitch=>{
+    const levels=VELOCITIES.map(velocity=>stage3aRow(baseline.baseline,{kind:'dynamic',pitch,velocity}).metrics.envelopeDbfs[3]);
+    const referenceLevels=VELOCITIES.map(velocity=>level(refFor(reference,pitch,velocity)));
+    return {pitch,absoluteSpanErrorDb:Math.abs((max(levels)-Math.min(...levels))-(max(referenceLevels)-Math.min(...referenceLevels)))};
+  });
+  const maxRow=errors.sort((a,b)=>b.absoluteSpanErrorDb-a.absoluteSpanErrorDb||a.pitch-b.pitch)[0];
+  if(maxRow.pitch!==51)throw new Error(`Stage3A actual M0 worst pitch is MIDI${maxRow.pitch}, expected MIDI51`);
+  return {pass:true,realBaselineWorstPitch:maxRow.pitch,baselineErrors:errors};
+}
+
+function runPreflight({root=ROOT,progress=()=>{},provenanceFile=PROVENANCE_FILE}={}){
+  if(gitHead(root)!==EXPECTED_HEAD)throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: HEAD must remain ${EXPECTED_HEAD}`);
+  const checks={authoritativeProduction:null,stage3aEvidence:null,stage3bDiagnosticBuild:null,selectionGateTests:null};
+  let provenanceResult=null,provenanceError=null;
+  try{checks.authoritativeProduction=assertAuthoritativeProductionIdentity(root);}catch(error){checks.authoritativeProduction={pass:false,error:String(error.message||error)};}
+  try{checks.stage3aEvidence=assertStage3AEvidenceIdentity(root);}catch(error){checks.stage3aEvidence={pass:false,error:String(error.message||error)};}
+  try{checks.selectionGateTests=gateCorrectionSelfTest(root);}catch(error){checks.selectionGateTests={pass:false,error:String(error.message||error)};}
+  try{checks.stage3bDiagnosticBuild=assertStage3BDiagnosticBuildIdentity(root);}catch(error){checks.stage3bDiagnosticBuild={pass:false,error:String(error.message||error)};}
+  try{provenanceResult=provenance.runProvenanceReconciliation({root,outputFile:provenanceFile,
+    diagnosticBuildCache:process.env.SORAOTO_WASM_BUILD_DIR?path.join(path.resolve(process.env.SORAOTO_WASM_BUILD_DIR),'CMakeCache.txt'):path.join(root,'build/wasm-stage3b/CMakeCache.txt'),
+    knownIsolatedProductionSha256:'5267226ff61d6228e91c3203bbe8f6a634c509cf73412f5dd5c827d144099b23'});}
+  catch(error){provenanceError=String(error.message||error);}
+  const provenancePass=provenanceResult?.preflightReady===true;
+  const identityPass=checks.authoritativeProduction?.hashes?.productionWasmSha256===EXPECTED.productionWasm
+    &&Boolean(checks.stage3aEvidence?.identity)&&checks.stage3bDiagnosticBuild?.hashes?.stage3bWasmSha256;
+  const gatePass=checks.selectionGateTests?.pass===true;
+  let decision='STAGE3B_PREFLIGHT_READY_FOR_MASK0_EQUIVALENCE';
+  if(!provenancePass)decision='BLOCKED_STAGE3B_PRODUCTION_PROVENANCE_UNRESOLVED';
+  else if(!identityPass)decision='BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY';
+  else if(!gatePass)decision='BLOCKED_STAGE3B_PREFLIGHT_GATE_IMPLEMENTATION';
+  const result={schemaVersion:1,decision,stage3bStartingCommit:EXPECTED_HEAD,candidateId:CANDIDATE,
+    acousticRenders:0,productionCandidateDelta:0,stage4Renders:0,stage3bAcousticLedgerCreated:false,
+    authorizedFutureRenderIdentities:CELL_COUNT,masks:MASKS,checks,provenance:provenanceResult?{
+      classification:provenanceResult.classification,preflightReady:provenanceResult.preflightReady,
+      authoritativeProductionWasmSha256:provenanceResult.authoritativeProductionWasmSha256,
+      embeddedDescriptor:provenanceResult.productionEmbeddedDescriptor,
+      embeddedInterface:provenanceResult.productionEmbeddedInterface,
+      variants:['cleanStage2qMetadata','cleanStage3bBaselineMetadata','dirtyDescriptorSnapshotMetadata'].map(key=>({
+        name:provenanceResult[key]?.name,descriptorCborSha256:provenanceResult[key]?.descriptorCborSha256,
+        descriptorCborBytes:provenanceResult[key]?.descriptorCborBytes,descriptorHeaderSha256:provenanceResult[key]?.descriptorHeaderSha256,
+        runtimeMetadataFingerprintSha256:provenanceResult[key]?.runtimeMetadataFingerprintSha256,profileSha256:provenanceResult[key]?.profileSha256})),
+      isolatedProductionBuild:provenanceResult.isolatedProductionBuild,workingTreeDescriptorState:provenanceResult.workingTreeDescriptorState,
+      committedProductionPathDiff:provenanceResult.committedProductionPathDiff,toolchain:provenanceResult.toolchain}:null,
+    provenanceError,completedAt:new Date().toISOString()};
+  if(provenanceResult){provenanceResult.preflightResult={decision,checks,acousticRenders:0};provenance.writeJsonAtomic(provenanceFile,provenanceResult);}
+  progress(JSON.stringify({decision,acousticRenders:0,builds:provenanceResult?1:0,authorizedFutureRenderIdentities:CELL_COUNT,
+    provenance:provenanceResult?.classification||'UNRESOLVED'}));
+  return result;
 }
 
 function identityDigest(identity){return sha256Text(JSON.stringify(identity));}
@@ -301,20 +438,52 @@ function normalizeActiveImpedances(raw,count){
 function mean(values){return values.length?values.reduce((a,b)=>a+b,0)/values.length:NaN;}
 function max(values){return Math.max(...values);}
 function median(values){const xs=[...values].sort((a,b)=>a-b);return xs.length%2?xs[(xs.length-1)/2]:(xs[xs.length/2-1]+xs[xs.length/2])/2;}
-function supportGates({failingImprovements,controlWorsening,safe,trebleWorseningDb,midi41Guard,beatsOtherByDb,
-  meanAbsoluteInteractionDb,twoStringImprovementDb,threeStringImprovementDb}){
+function worstBaselineFailingPitch(spanRows){
+  const rows=spanRows.filter(row=>FAIL_PITCHES.includes(row.pitch));
+  if(rows.length!==FAIL_PITCHES.length)throw new Error('baseline worst-pitch selection requires all four failing pitches');
+  return [...rows].sort((a,b)=>b.spanByMask.M0.absoluteSpanErrorDb-a.spanByMask.M0.absoluteSpanErrorDb||a.pitch-b.pitch)[0].pitch;
+}
+function supportGates({failingImprovements,baselineWorstPitchImprovement,controlWorsening,safe,midi96WorseningDb,midi41Guard,
+  twoStringImprovementDb,threeStringImprovementDb}){
   return {threeOfFourImproveBy4:failingImprovements.filter(value=>value>=4).length>=3,
-    worstFailureImprovesBy6:Math.max(...failingImprovements)>=6,
+    baselineWorstPitchImprovesBy6:baselineWorstPitchImprovement>=6,
     controlsDoNotWorsen3:controlWorsening.every(value=>value<=3),safe,
-    midi96v31DoesNotWorsen3:trebleWorseningDb<=3,midi41DerivativeGuard:midi41Guard,
-    beatsOtherBy2:beatsOtherByDb>=2,interactionBelow2:meanAbsoluteInteractionDb<2,
+    midi96v31FactorWorseningAtMost3:midi96WorseningDb<=3,midi41DerivativeGuard:midi41Guard,
     noTwoThreeDirectionReversal:twoStringImprovementDb*threeStringImprovementDb>=0};
 }
-function selectDecision({safe,iGates,pGates,meanAbsoluteInteractionDb,twoI,threeI,twoP,threeP}){
-  if(!safe)return 'BLOCKED_STAGE3B_DIAGNOSTIC_SAFETY';
-  if(meanAbsoluteInteractionDb>=2||twoI*threeI<0||twoP*threeP<0)return 'STAGE3B_CONTACT_PHASE_INTERACTION';
-  if(Object.values(iGates).every(Boolean))return 'STAGE3B_SELECT_BUNDLE_IMPEDANCE_ARCHITECTURE';
-  if(Object.values(pGates).every(Boolean))return 'STAGE3B_PHASE_GEOMETRY_REQUIRES_DESIGN';
+function midi41FactorGuard(midi41Rows,masks){
+  const byVelocity=new Map(midi41Rows.map(row=>[row.velocityNormalized,row.derivatives]));
+  const soft=byVelocity.get(0.25),mid=byVelocity.get(0.55),hard=byVelocity.get(0.90);
+  if(!soft||!mid||!hard)throw new Error('MIDI41 factor guard requires soft/mid/hard rows');
+  const rows=[];
+  for(const mask of masks){
+    const deltaByVelocity={soft:Math.abs(soft[`M${mask}`]-soft.M0),mid:Math.abs(mid[`M${mask}`]-mid.M0),hard:Math.abs(hard[`M${mask}`]-hard.M0)};
+    rows.push({mask,hardAboveMid:hard[`M${mask}`]>mid[`M${mask}`],deltaByVelocity,
+      withinPointOne:Object.values(deltaByVelocity).every(value=>value<=0.10)});
+  }
+  return {pass:rows.every(row=>row.hardAboveMid&&row.withinPointOne),rows};
+}
+function factorSafety(rows,masks){
+  const relevant=rows.filter(row=>masks.includes(row.stage3bMask));
+  const failed=relevant.filter(row=>!(row.metrics?.finite===true&&row.metrics?.outputGuardHits===0
+    &&row.metrics?.peakDbfs<0&&row.metrics?.fullRenderPeakDbfs<0));
+  return {pass:failed.length===0,checkedCells:relevant.length,failedCells:failed.map(row=>cellKey(row))};
+}
+function selectDecision({iSafe,pSafe,iGates,pGates,meanAbsoluteInteractionDb,twoI,threeI,twoP,threeP,
+  iMeanImprovementDb,pMeanImprovementDb}){
+  if(!iSafe&&!pSafe)return 'BLOCKED_STAGE3B_DIAGNOSTIC_SAFETY';
+  const iEligible=iSafe&&Object.values(iGates).every(Boolean),pEligible=pSafe&&Object.values(pGates).every(Boolean);
+  if(iSafe&&pSafe&&(meanAbsoluteInteractionDb>=2||twoI*threeI<0||twoP*threeP<0))return 'STAGE3B_CONTACT_PHASE_INTERACTION';
+  if(iSafe&&!pSafe)return iEligible?'STAGE3B_SELECT_BUNDLE_IMPEDANCE_ARCHITECTURE':'BLOCKED_STAGE3B_CONTACT_UNISON_HYPOTHESIS';
+  if(pSafe&&!iSafe)return pEligible?'STAGE3B_PHASE_GEOMETRY_REQUIRES_DESIGN':'BLOCKED_STAGE3B_CONTACT_UNISON_HYPOTHESIS';
+  if(iEligible&&!pEligible)return 'STAGE3B_SELECT_BUNDLE_IMPEDANCE_ARCHITECTURE';
+  if(pEligible&&!iEligible)return 'STAGE3B_PHASE_GEOMETRY_REQUIRES_DESIGN';
+  if(iEligible&&pEligible){
+    const difference=iMeanImprovementDb-pMeanImprovementDb;
+    if(difference>=2)return 'STAGE3B_SELECT_BUNDLE_IMPEDANCE_ARCHITECTURE';
+    if(difference<=-2)return 'STAGE3B_PHASE_GEOMETRY_REQUIRES_DESIGN';
+    return 'STAGE3B_CONTACT_PHASE_INTERACTION';
+  }
   return 'BLOCKED_STAGE3B_CONTACT_UNISON_HYPOTHESIS';
 }
 
@@ -406,29 +575,31 @@ function calculateAnalysis({root,baseline,newRows,identity,ledger}){
     const rendered=directLevel(mask,96,31),ref=level(refFor(reference,96,31));
     midi96v31[`M${mask}`]={absoluteDirectLevelErrorDb:Math.abs(rendered-ref),signedDirectLevelErrorDb:rendered-ref};
   }
-  const midi41HardRemainsAboveMiddle=[0,1,2,3].every(mask=>midi41[2].derivatives[`M${mask}`]>midi41[1].derivatives[`M${mask}`]);
-  const midi41MaxDerivativeDelta=Math.max(...midi41.flatMap(row=>[1,2,3].map(mask=>Math.abs(row.derivatives[`M${mask}`]-row.derivatives.M0))));
-  const overallSafety=newRows.every(row=>row.safety?.pass===true);
+  const baselineWorstPitch=worstBaselineFailingPitch(spans);
+  if(baselineWorstPitch!==51)throw new Error(`Stage3A baseline worst failing pitch changed: expected MIDI51, found MIDI${baselineWorstPitch}`);
+  const iWorstPitchImprovement=iReductions.find(row=>row.pitch===baselineWorstPitch)?.improvementDb;
+  const pWorstPitchImprovement=pReductions.find(row=>row.pitch===baselineWorstPitch)?.improvementDb;
+  const midi96Factorial=factorial(midi96v31.M0.absoluteDirectLevelErrorDb,midi96v31.M1.absoluteDirectLevelErrorDb,
+    midi96v31.M2.absoluteDirectLevelErrorDb,midi96v31.M3.absoluteDirectLevelErrorDb);
+  const midi41IGuard=midi41FactorGuard(midi41,[1,3]),midi41PGuard=midi41FactorGuard(midi41,[2,3]);
+  const iSafety=factorSafety(newRows,[1,3]),pSafety=factorSafety(newRows,[2,3]);
+  const overallSafety=iSafety.pass&&pSafety.pass;
   const interactionAbs=mean(failRows.map(row=>Math.abs(row.factorial.interaction)));
   const iGates=supportGates({failingImprovements:iReductions.map(row=>row.improvementDb),
-    controlWorsening:iControls.map(row=>row.worseningDb),safe:overallSafety,
-    trebleWorseningDb:mean([midi96v31.M1.absoluteDirectLevelErrorDb,midi96v31.M3.absoluteDirectLevelErrorDb])
-      -midi96v31.M0.absoluteDirectLevelErrorDb,
-    midi41Guard:midi41HardRemainsAboveMiddle&&midi41MaxDerivativeDelta<=0.10,
-    beatsOtherByDb:mean(iReductions.map(row=>row.improvementDb))-mean(pReductions.map(row=>row.improvementDb)),
-    meanAbsoluteInteractionDb:interactionAbs,twoStringImprovementDb:twoI,threeStringImprovementDb:threeI});
+    baselineWorstPitchImprovement:iWorstPitchImprovement,controlWorsening:iControls.map(row=>row.worseningDb),safe:iSafety.pass,
+    midi96WorseningDb:midi96Factorial.I_main,midi41Guard:midi41IGuard.pass,
+    twoStringImprovementDb:twoI,threeStringImprovementDb:threeI});
   const pGates=supportGates({failingImprovements:pReductions.map(row=>row.improvementDb),
-    controlWorsening:pControls.map(row=>row.worseningDb),safe:overallSafety,
-    trebleWorseningDb:mean([midi96v31.M2.absoluteDirectLevelErrorDb,midi96v31.M3.absoluteDirectLevelErrorDb])
-      -midi96v31.M0.absoluteDirectLevelErrorDb,
-    midi41Guard:midi41HardRemainsAboveMiddle&&midi41MaxDerivativeDelta<=0.10,
-    beatsOtherByDb:mean(pReductions.map(row=>row.improvementDb))-mean(iReductions.map(row=>row.improvementDb)),
-    meanAbsoluteInteractionDb:interactionAbs,twoStringImprovementDb:twoP,threeStringImprovementDb:threeP});
-  const decision=selectDecision({safe:overallSafety,iGates,pGates,meanAbsoluteInteractionDb:interactionAbs,twoI,threeI,twoP,threeP});
+    baselineWorstPitchImprovement:pWorstPitchImprovement,controlWorsening:pControls.map(row=>row.worseningDb),safe:pSafety.pass,
+    midi96WorseningDb:midi96Factorial.P_main,midi41Guard:midi41PGuard.pass,
+    twoStringImprovementDb:twoP,threeStringImprovementDb:threeP});
+  const iMeanImprovementDb=mean(iReductions.map(row=>row.improvementDb)),pMeanImprovementDb=mean(pReductions.map(row=>row.improvementDb));
+  const decision=selectDecision({iSafe:iSafety.pass,pSafe:pSafety.pass,iGates,pGates,meanAbsoluteInteractionDb:interactionAbs,
+    twoI,threeI,twoP,threeP,iMeanImprovementDb,pMeanImprovementDb});
   return {schemaVersion:1,decision,sourceRevision:identity.sourceRevision,candidateId:CANDIDATE,identity,
     accounting:{authorizedNewRenders:CELL_COUNT,completedNewRenders:newRows.length,baselineMask0Renders:0,
       stage3aHistoricalTotalCalls:390,totalStage3aAndStage3bCalls:390+newRows.length,physicalCandidateDelta:0,stage4Renders:0,
-      stage2lBudget:'1/12',stage2nBudget:'1/1'},safety:{allPass:overallSafety,failedCells:newRows.filter(row=>!row.safety?.pass).map(row=>cellKey(row)),
+    stage2lBudget:'1/12',stage2nBudget:'1/1'},safety:{allPass:overallSafety,i:iSafety,p:pSafety,failedCells:newRows.filter(row=>!row.safety?.pass).map(row=>cellKey(row)),
       finiteCount:newRows.filter(row=>row.metrics.finite).length,guardHitTotal:newRows.reduce((n,row)=>n+row.metrics.outputGuardHits,0),
       worstPeakDbfs:Math.max(...newRows.map(row=>row.metrics.fullRenderPeakDbfs))},
     spanTables:spans,trebleGuardrail:treble,midi41Brightness:midi41,scalarFactorial:pathFactorial,
@@ -436,8 +607,10 @@ function calculateAnalysis({root,baseline,newRows,identity,ledger}){
       threeString:{pitches:[51,54],I_meanImprovementDb:threeI,P_meanImprovementDb:threeP},pooledFailingPitches:{I_meanImprovementDb:mean(iReductions.map(row=>row.improvementDb)),
         P_meanImprovementDb:mean(pReductions.map(row=>row.improvementDb)),meanAbsoluteInteractionDb:interactionAbs},
       controls:{impedance:iControls,phase:pControls}},
-    guardrails:{i:iGates,p:pGates,iPitchReductions:iReductions,pPitchReductions:pReductions,midi96Velocity31:midi96v31,
-      midi41MaxDerivativeDelta,midi41HardRemainsAboveMiddle,meanAbsoluteFailingInteractionDb:interactionAbs},
+    guardrails:{i:iGates,p:pGates,iPitchReductions:iReductions,pPitchReductions:pReductions,
+      baselineWorstFailingPitch:baselineWorstPitch,iWorstPitchImprovementDb:iWorstPitchImprovement,pWorstPitchImprovementDb:pWorstPitchImprovement,
+      midi96Velocity31:{...midi96v31,factorial:midi96Factorial},midi41I:midi41IGuard,midi41P:midi41PGuard,
+      iMeanImprovementDb,pMeanImprovementDb,meanAbsoluteFailingInteractionDb:interactionAbs},
     diagnosticRows:newRows,stage3aEvidenceSha256:{ledger:sha256(STAGE3A_LEDGER),final:sha256(STAGE3A_FINAL),supplement:sha256(STAGE3A_SUPPLEMENT)}};
 }
 
@@ -454,7 +627,9 @@ function validateAggregateFiles(paths,ledger,identity){
 }
 
 function finalize({root=ROOT,paths=stage3bPaths(root),identityOverride=null}={}){
-  const identity=identityOverride||assertBuildIdentity(root),state=inspectState(paths,identity),ledger=state.ledger;
+  const identity=identityOverride||assertBuildIdentity(root);
+  if(!identityOverride)assertPreflightReady(root);
+  const state=inspectState(paths,identity),ledger=state.ledger;
   if(state.counts.PENDING!==0||state.counts.IN_PROGRESS!==0||state.counts.COMPLETE!==CELL_COUNT)
     throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_EVIDENCE: finalization requires 477 COMPLETE cells, got ${JSON.stringify(state.counts)}`);
   validateAggregateFiles(paths,ledger,identity);
@@ -472,9 +647,13 @@ function finalize({root=ROOT,paths=stage3bPaths(root),identityOverride=null}={})
 
 function run({root=ROOT,mode='dry-run',progress=()=>{},renderFn=null,identityOverride=null,failurePoint=null}={}){
   expectedSubset();
+  if(mode==='preflight')return runPreflight({root,progress});
   const identity=identityOverride||assertBuildIdentity(root),paths=stage3bPaths(root),state=inspectState(paths,identity),ledger=state.ledger;
-  if(mode==='dry-run')return {decision:'STAGE3B_DRY_RUN',builds:0,renders:0,authorizedNewRenders:CELL_COUNT,
-    masks:MASKS,mask0Renders:0,counts:state.counts,identity};
+  if(mode==='dry-run'){
+    if(!identityOverride)assertPreflightReady(root);
+    return {decision:'STAGE3B_DRY_RUN',builds:0,renders:0,acousticRenders:0,authorizedNewRenders:CELL_COUNT,
+      masks:MASKS,mask0Renders:0,counts:state.counts,identity};
+  }
   if(mode==='finalize')return finalize({root,paths,identityOverride:identity});
   if(mode!=='execute')throw new Error(`explicit mode required: --dry-run, --execute, or --finalize`);
   if(!state.created)writeJsonAtomic(paths.ledger,ledger);
@@ -524,8 +703,8 @@ function run({root=ROOT,mode='dry-run',progress=()=>{},renderFn=null,identityOve
 
 function main(){
   const args=process.argv.slice(2);
-  if(args.length!==1||!['--dry-run','--execute','--finalize'].includes(args[0]))throw new Error('explicit mode required: --dry-run, --execute, or --finalize');
-  const mode={'--dry-run':'dry-run','--execute':'execute','--finalize':'finalize'}[args[0]],started=performance.now();
+  if(args.length!==1||!['--preflight','--dry-run','--execute','--finalize'].includes(args[0]))throw new Error('explicit mode required: --preflight, --dry-run, --execute, or --finalize');
+  const mode={'--preflight':'preflight','--dry-run':'dry-run','--execute':'execute','--finalize':'finalize'}[args[0]],started=performance.now();
   const result=run({mode,progress:message=>process.stderr.write(`${message}\n`)});
   process.stdout.write(JSON.stringify({...result,elapsedSeconds:+((performance.now()-started)/1000).toFixed(2)})+'\n');
 }
@@ -534,5 +713,8 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`Stage3B
 
 module.exports={ROOT,EXPECTED_HEAD,CANDIDATE,EXPECTED,DYNAMIC_PITCHES,TREBLE_PITCHES,FAIL_PITCHES,CONTROL_PITCHES,VELOCITIES,
   TREBLE_VELOCITIES,MIDI41_NORMALIZED,MASKS,SUBSET,CELL_COUNT,DERIVATIVE_WINDOW,stage3bPaths,cellKey,cellPath,expectedSubset,
-  assertDiagnosticExports,assertProductionStage3BAbsent,assertVariantMaskApi,loadStage3ABaseline,assertBuildIdentity,makeLedger,counts,assertLedger,validateCell,inspectState,loadCell,
-  normalizeActiveImpedances,factorial,mean,supportGates,selectDecision,calculateAnalysis,validateAggregateFiles,finalize,run};
+  assertDiagnosticExports,assertProductionStage3BAbsent,assertVariantMaskApi,loadStage3ABaseline,
+  assertAuthoritativeProductionIdentity,assertStage3AEvidenceIdentity,assertStage3BDiagnosticBuildIdentity,loadProductionProvenance,assertPreflightReady,
+  assertBuildIdentity,gateCorrectionSelfTest,runPreflight,makeLedger,counts,assertLedger,validateCell,inspectState,loadCell,
+  normalizeActiveImpedances,factorial,mean,worstBaselineFailingPitch,supportGates,midi41FactorGuard,factorSafety,selectDecision,
+  calculateAnalysis,validateAggregateFiles,finalize,run};

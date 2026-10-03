@@ -7,10 +7,10 @@ const path=require('node:path');
 const {
   EXPECTED_HEAD,CANDIDATE,DYNAMIC_PITCHES,TREBLE_PITCHES,VELOCITIES,TREBLE_VELOCITIES,MIDI41_NORMALIZED,MASKS,SUBSET,CELL_COUNT,
   stage3bPaths,cellKey,cellPath,expectedSubset,makeLedger,counts,assertLedger,validateCell,inspectState,run,finalize,
-  factorial,normalizeActiveImpedances,supportGates,selectDecision,DERIVATIVE_WINDOW
+  factorial,normalizeActiveImpedances,worstBaselineFailingPitch,supportGates,midi41FactorGuard,factorSafety,selectDecision,DERIVATIVE_WINDOW
 }=require('./run-stage3b-contact-attribution.cjs');
 
-assert.equal(EXPECTED_HEAD,'d2bc990a9e669e4e5496d9a745d171fc0434ca99');
+assert.equal(EXPECTED_HEAD,'c1fd7f39b1c5d8353862169cadf7e187a7ed6eb6');
 assert.equal(CANDIDATE,'stage2n-r3-candidate-01');
 assert.deepEqual(MASKS,[1,2,3]);
 assert.equal(DYNAMIC_PITCHES.length*VELOCITIES.length*3,432);
@@ -37,31 +37,70 @@ assert.equal(f.I_main,-2.5);
 assert.equal(f.P_main,-1.5);
 assert.equal(f.interaction,1);
 
+const baselineWorst=[36,39,51,54].map((pitch,index)=>({pitch,spanByMask:{M0:{absoluteSpanErrorDb:[12.580882,12.069386,20.696187,9.249924][index]}}}));
+assert.equal(worstBaselineFailingPitch(baselineWorst),51);
+const alternateWorst=baselineWorst.map(row=>({...row,spanByMask:{M0:{absoluteSpanErrorDb:row.pitch===36?22:1}}}));
+assert.equal(worstBaselineFailingPitch(alternateWorst),36);
 function gates(overrides={}){
-  return supportGates({failingImprovements:[6,4,4,3],controlWorsening:[3,0,-1,2,3],safe:true,trebleWorseningDb:3,
-    midi41Guard:true,beatsOtherByDb:2,meanAbsoluteInteractionDb:1.9999,twoStringImprovementDb:5,threeStringImprovementDb:4,...overrides});
+  return supportGates({failingImprovements:[4,4,4,3],baselineWorstPitchImprovement:6,controlWorsening:[3,0,-1,2,3],safe:true,
+    midi96WorseningDb:3,midi41Guard:true,twoStringImprovementDb:5,threeStringImprovementDb:4,...overrides});
 }
 assert.ok(Object.values(gates()).every(Boolean));
 assert.equal(gates({failingImprovements:[4,4,4,3.999]}).threeOfFourImproveBy4,true);
 assert.equal(gates({failingImprovements:[4,4,3.999,3]}).threeOfFourImproveBy4,false);
-assert.equal(gates({failingImprovements:[6,4,4,3]}).worstFailureImprovesBy6,true);
-assert.equal(gates({failingImprovements:[5.999,4,4,3]}).worstFailureImprovesBy6,false);
+assert.equal(gates({failingImprovements:[7,4,4,3],baselineWorstPitchImprovement:5.999}).baselineWorstPitchImprovesBy6,false);
+assert.equal(gates({failingImprovements:[5,6,4,3],baselineWorstPitchImprovement:6}).baselineWorstPitchImprovesBy6,true);
 assert.equal(gates({controlWorsening:[3.001,0,0,0,0]}).controlsDoNotWorsen3,false);
-assert.equal(gates({trebleWorseningDb:3.001}).midi96v31DoesNotWorsen3,false);
+assert.equal(gates({midi96WorseningDb:3.000001}).midi96v31FactorWorseningAtMost3,false);
+assert.equal(gates({midi96WorseningDb:3}).midi96v31FactorWorseningAtMost3,true);
+const midi96Factor=factorial(10,10,13,13);
+assert.equal(midi96Factor.I_main,0,'P-only MIDI96 movement must not leak into I');
+assert.equal(midi96Factor.P_main,3);
+assert.equal(gates({midi96WorseningDb:midi96Factor.I_main}).midi96v31FactorWorseningAtMost3,true);
+assert.equal(gates({midi96WorseningDb:midi96Factor.P_main}).midi96v31FactorWorseningAtMost3,true);
 assert.equal(gates({midi41Guard:false}).midi41DerivativeGuard,false);
-assert.equal(gates({beatsOtherByDb:1.999}).beatsOtherBy2,false);
-assert.equal(gates({meanAbsoluteInteractionDb:2}).interactionBelow2,false);
 assert.equal(gates({twoStringImprovementDb:1,threeStringImprovementDb:-1}).noTwoThreeDirectionReversal,false);
-assert.equal(selectDecision({safe:false,iGates:{x:true},pGates:{x:true},meanAbsoluteInteractionDb:0,twoI:1,threeI:1,twoP:1,threeP:1}),
-  'BLOCKED_STAGE3B_DIAGNOSTIC_SAFETY');
-assert.equal(selectDecision({safe:true,iGates:{x:true},pGates:{x:true},meanAbsoluteInteractionDb:2,twoI:1,threeI:1,twoP:1,threeP:1}),
-  'STAGE3B_CONTACT_PHASE_INTERACTION');
-assert.equal(selectDecision({safe:true,iGates:{x:true},pGates:{x:false},meanAbsoluteInteractionDb:0,twoI:1,threeI:1,twoP:0,threeP:0}),
-  'STAGE3B_SELECT_BUNDLE_IMPEDANCE_ARCHITECTURE');
-assert.equal(selectDecision({safe:true,iGates:{x:false},pGates:{x:true},meanAbsoluteInteractionDb:0,twoI:0,threeI:0,twoP:1,threeP:1}),
-  'STAGE3B_PHASE_GEOMETRY_REQUIRES_DESIGN');
-assert.equal(selectDecision({safe:true,iGates:{x:false},pGates:{x:false},meanAbsoluteInteractionDb:1,twoI:1,threeI:1,twoP:1,threeP:1}),
-  'BLOCKED_STAGE3B_CONTACT_UNISON_HYPOTHESIS');
+
+const midi41Rows=[{velocityNormalized:.25,derivatives:{M0:.1,M1:.21,M2:.1,M3:.1}},
+  {velocityNormalized:.55,derivatives:{M0:.3,M1:.3,M2:.3,M3:.3}},
+  {velocityNormalized:.90,derivatives:{M0:.5,M1:.5,M2:.5,M3:.5}}];
+assert.equal(midi41FactorGuard(midi41Rows,[1,3]).pass,false,'mask1-only drift affects I family');
+assert.equal(midi41FactorGuard(midi41Rows,[2,3]).pass,true,'mask1-only drift does not leak into P family');
+const mask2Failure=midi41Rows.map(row=>({...row,derivatives:{...row.derivatives,M1:row.derivatives.M0,M2:row.velocityNormalized===.25?.21:row.derivatives.M0,M3:row.derivatives.M0}}));
+assert.equal(midi41FactorGuard(mask2Failure,[1,3]).pass,true);
+assert.equal(midi41FactorGuard(mask2Failure,[2,3]).pass,false);
+const mask3Failure=midi41Rows.map(row=>({...row,derivatives:{...row.derivatives,M1:row.derivatives.M0,M2:row.derivatives.M0,M3:row.velocityNormalized===.25?.21:row.derivatives.M0}}));
+assert.equal(midi41FactorGuard(mask3Failure,[1,3]).pass,false);
+assert.equal(midi41FactorGuard(mask3Failure,[2,3]).pass,false);
+const midi41Boundary=midi41Rows.map(row=>({...row,derivatives:{...row.derivatives,M1:row.derivatives.M0+(row.velocityNormalized===.25?.10:0)}}));
+assert.equal(midi41FactorGuard(midi41Boundary,[1,3]).pass,true,'0.10 derivative delta is inclusive');
+const midi41Outside=midi41Rows.map(row=>({...row,derivatives:{...row.derivatives,M1:row.derivatives.M0+(row.velocityNormalized===.25?.100001:0)}}));
+assert.equal(midi41FactorGuard(midi41Outside,[1,3]).pass,false,'values above 0.10 fail');
+assert.equal(midi41FactorGuard(midi41Rows,[1,3]).rows[0].withinPointOne,false);
+const safetyCells=[1,2,3].map(mask=>({stage3bMask:mask,pitch:36,velocity:14,velocityNormalized:14/127,
+  metrics:{finite:true,outputGuardHits:0,peakDbfs:-1,fullRenderPeakDbfs:-.5}}));
+assert.equal(factorSafety(safetyCells,[1,3]).pass,true);
+assert.equal(factorSafety(safetyCells,[2,3]).pass,true);
+assert.equal(factorSafety(safetyCells.map(row=>row.stage3bMask===1?{...row,metrics:{...row.metrics,peakDbfs:0}}:row),[1,3]).pass,false);
+assert.equal(factorSafety(safetyCells.map(row=>row.stage3bMask===1?{...row,metrics:{...row.metrics,peakDbfs:0}}:row),[2,3]).pass,true,
+  'mask1-only safety failure must not disqualify P family');
+
+const safeGates={x:true},failedGates={x:false};
+const decision=(overrides={})=>selectDecision({iSafe:true,pSafe:true,iGates:safeGates,pGates:safeGates,meanAbsoluteInteractionDb:1,
+  twoI:1,threeI:1,twoP:1,threeP:1,iMeanImprovementDb:5,pMeanImprovementDb:3,...overrides});
+assert.equal(decision({iMeanImprovementDb:4.999,pMeanImprovementDb:3}),'STAGE3B_CONTACT_PHASE_INTERACTION');
+assert.equal(decision({iMeanImprovementDb:5,pMeanImprovementDb:3}),'STAGE3B_SELECT_BUNDLE_IMPEDANCE_ARCHITECTURE');
+assert.equal(decision({iMeanImprovementDb:3,pMeanImprovementDb:5}),'STAGE3B_PHASE_GEOMETRY_REQUIRES_DESIGN');
+assert.equal(decision({meanAbsoluteInteractionDb:2}),'STAGE3B_CONTACT_PHASE_INTERACTION');
+assert.equal(decision({twoI:1,threeI:-1}),'STAGE3B_CONTACT_PHASE_INTERACTION');
+assert.equal(decision({iGates:safeGates,pGates:failedGates}),'STAGE3B_SELECT_BUNDLE_IMPEDANCE_ARCHITECTURE');
+assert.equal(decision({iGates:failedGates,pGates:safeGates}),'STAGE3B_PHASE_GEOMETRY_REQUIRES_DESIGN');
+assert.equal(decision({iSafe:false,pSafe:true,iGates:safeGates,pGates:safeGates,meanAbsoluteInteractionDb:9,
+  twoI:1,threeI:-1,iMeanImprovementDb:9,pMeanImprovementDb:1}),'STAGE3B_PHASE_GEOMETRY_REQUIRES_DESIGN');
+assert.equal(decision({iSafe:true,pSafe:false,iGates:safeGates,pGates:safeGates,meanAbsoluteInteractionDb:9,
+  twoI:1,threeI:1,iMeanImprovementDb:9,pMeanImprovementDb:1}),'STAGE3B_SELECT_BUNDLE_IMPEDANCE_ARCHITECTURE');
+assert.equal(decision({iSafe:false,pSafe:false}),'BLOCKED_STAGE3B_DIAGNOSTIC_SAFETY');
+assert.equal(decision({iSafe:false,pSafe:true,pGates:failedGates}),'BLOCKED_STAGE3B_CONTACT_UNISON_HYPOTHESIS');
 
 const identity={sourceRevision:EXPECTED_HEAD,candidateId:CANDIDATE,productionSimd:true,stage2mFactorMask:3,buildRoot:'/tmp/stage3b',
   hashes:{productionWasmSha256:'a'.repeat(64),stage3aWasmSha256:'b'.repeat(64),stage3bWasmSha256:'c'.repeat(64),

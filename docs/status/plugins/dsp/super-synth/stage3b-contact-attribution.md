@@ -2,34 +2,44 @@
 
 ## Decision
 
-`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY`
+`STAGE3B_PREFLIGHT_READY_FOR_MASK0_EQUIVALENCE`
 
-Stage3B instrumentation and its 477-cell plan are implemented, but no Stage3B acoustic cells were rendered. The required production-build identity gate could not be reproduced from the isolated starting revision without including a pre-existing, unrelated dirty SuperSynth descriptor change.
+This is a zero-acoustic-render preflight result. It resolves the production provenance blocker and corrects the factor-selection gates. It does not authorize mask-0 acoustic renders or the 477 Stage3B diagnostic renders.
 
-## Baseline and accounting
+## Provenance and accounting
 
-- Starting revision: `d2bc990a9e669e4e5496d9a745d171fc0434ca99`.
+- Preflight baseline: `c1fd7f39b1c5d8353862169cadf7e187a7ed6eb6`.
 - Fixed candidate: `stage2n-r3-candidate-01`.
-- The existing production artifact has the contracted SHA-256 `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`.
-- Stage3A evidence remains the mask-0 baseline; it was not rerendered.
-- Stage3B plan: masks 1, 2, and 3; 477 unique diagnostic cells; mask-0 renders: 0.
-- Stage3B renders completed: 0. Candidate delta: 0. Stage4 renders: 0.
+- Authoritative production WASM remains SHA-256 `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`.
+- Stage3A evidence validated and remains the M0 baseline; it was not rerendered.
+- Embedded plugin descriptor matches exactly one isolated metadata variant: C, generated from clean Stage2Q inputs with only a temporary copy of the existing dirty descriptor.
+- C runtime metadata fingerprint equals clean Stage2Q and clean Stage3B baseline fingerprints; fixed profile identity matches.
+- Embedded interface matches Stage2Q byte-for-byte. Stage2Q-to-Stage3A production-input diff is empty.
+- The existing dirty descriptor and authoritative production artifact were unchanged by reconciliation.
+- Isolated ordinary production build SHA-256: `eef4fb43c8df85d7840bacd258e289448d2f841c95a02157d29d45803341df47`; byte-identical rebuild was not achieved, so provenance classification is `SUFFICIENT_METADATA_PROVENANCE`.
+- Stage3B diagnostic WASM SHA-256: `2fe2919e9d903ade8e42c1eab44a081d1119bdbdc322961e9427fccc571a78d9`.
+- Stage3B acoustic renders: 0. Production candidate delta: 0. Stage4 renders: 0.
 
-## Build identity blocker
+Detailed hashes, A/B/C header and CBOR metadata, toolchain information, and descriptor working-tree integrity are recorded privately in `.agent-state/issues/7/stage3b/preflight-provenance.json`.
 
-An isolated normal build from the required starting revision, with the Stage3B option OFF, produced SHA-256 `5267226ff61d6228e91c3203bbe8f6a634c509cf73412f5dd5c827d144099b23`, which does not match the fixed production artifact. The starting worktree already contains an unrelated modification to `wasm/plugins/dsp/super-synth/descriptor.json`; its generated descriptor differs from the clean starting revision. Rebuilding with that unrelated change also does not reproduce the existing artifact. The existing descriptor/build state has not been rewritten to force a match.
+## Selection-gate corrections
 
-The Stage3B diagnostic build compiled successfully, and the dry-run reported zero builds, zero renders, 477 authorized identities, and masks 1/2/3. This does not waive the failed normal-build identity gate. No acoustic attribution result or architecture selection can be made from this status.
+- Worst failing pitch is selected from M0 span error; the persisted Stage3A measurements confirm MIDI51 at 20.696187 dB. The six-decibel gate now applies to MIDI51 for each factor.
+- MIDI96/v31 direct-level error uses I and P factorial main effects independently.
+- MIDI41 derivative checks are factor-specific: I uses masks 1/3 and P uses masks 2/3.
+- Safety checks are factor-specific. An unsafe mask family does not automatically disqualify the other family.
+- Decision precedence compares eligible safe families, and does not use comparative or interaction evidence against an unsafe family.
 
 ## Verification
 
-- Stage3B unit tests: PASS.
-- JavaScript syntax checks for the Stage3B runner and shared matrix capture tool: PASS.
-- Diagnostic Stage3B CMake build: PASS.
-- Stage3B dry-run: PASS as a planning check; 0 builds and 0 renders.
-- Existing production artifact SHA check: PASS.
-- Fresh isolated production build byte-identity check: FAIL; see blocker above.
-- Stage3B diagnostic render matrix and finalization: NOT RUN.
-- Stage3A recapture, Stage3 production acceptance, Stage4, full CTest, Web Player, and manual listening: NOT RUN by contract.
+- Provenance parser/unit tests: PASS.
+- Stage3B selection/ledger tests: PASS.
+- Gate self-check against actual Stage3A M0 evidence: PASS; worst pitch MIDI51.
+- Dedicated Stage3B CMake configure/build: PASS; diagnostics enabled, production build directory untouched.
+- `--preflight`: PASS as `STAGE3B_PREFLIGHT_READY_FOR_MASK0_EQUIVALENCE`; 0 acoustic renders; no Stage3B ledger cells created.
+- Ordinary `--dry-run`: PASS; 0 builds and 0 renders; 477 future identities reported.
+- `git diff --check`: PASS.
+- Production and Stage3A artifact hashes: PASS.
+- Stage3B mask-0 equivalence, 477-cell render matrix/finalization, Stage3 production acceptance, Stage4, full CTest, Web Player, and manual listening: NOT RUN by contract.
 
-The Issue remains in implementation and blocked. A requirements/design decision or a reproducible baseline build input set is needed before spending the 477 diagnostic renders.
+Issue #7 remains in implementation and blocked. Stage3B may proceed only under a separate contract authorizing mask-0 acoustic equivalence. No Stage3B architecture has been selected.
