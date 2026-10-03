@@ -13,7 +13,7 @@ const MAX_MEASUREMENT_UNCERTAINTY_CENTS = 8;
 const LOCAL_MATCH_RADIUS_CENTS = 32;
 const MIN_PEAK_SNR_AMPLITUDE = 3;
 const MIN_LOCAL_UNIQUENESS = 1.02;
-const PITCH_ESTIMATOR_REVISION = 2;
+const PITCH_ESTIMATOR_REVISION = 3;
 const LOW_REGISTER_FFT_SIZE = 65536;
 const LOW_REGISTER_START_MS = 20;
 const LOW_REGISTER_MAX_DEVIATION_CENTS = 100;
@@ -501,12 +501,20 @@ function getPianoPitchAnalysisPlan(expectedMidiPitch, {
     throw new RangeError('expected MIDI pitch, sample rate, block size, and minimum duration must be valid');
   }
   const windows = defaultAnalysisWindows(targetHz, startMs);
-  const lowRegisterWindow = targetHz < 100 ? {
-    startMs: LOW_REGISTER_START_MS,
-    endMs: LOW_REGISTER_START_MS + LOW_REGISTER_FFT_SIZE * 1000 / sampleRate,
-    startFrame: Math.floor(sampleRate * LOW_REGISTER_START_MS / 1000),
-    sampleCount: LOW_REGISTER_FFT_SIZE
-  } : null;
+  const lowRegisterWindows = targetHz < 100 ? (() => {
+    const halfCount = LOW_REGISTER_FFT_SIZE / 2;
+    const halfDurationMs = halfCount * 1000 / sampleRate;
+    const fullEndMs = LOW_REGISTER_START_MS + LOW_REGISTER_FFT_SIZE * 1000 / sampleRate;
+    const make = (startMs, endMs, sampleCount) => ({startMs, endMs, sampleCount,
+      startFrame: Math.floor(sampleRate * startMs / 1000),
+      endFrame: Math.floor(sampleRate * endMs / 1000)});
+    return {
+      full: make(LOW_REGISTER_START_MS, fullEndMs, LOW_REGISTER_FFT_SIZE),
+      early: make(LOW_REGISTER_START_MS, LOW_REGISTER_START_MS + halfDurationMs, halfCount),
+      late: make(LOW_REGISTER_START_MS + halfDurationMs, fullEndMs, halfCount)
+    };
+  })() : null;
+  const lowRegisterWindow = lowRegisterWindows?.full ?? null;
   const maximumWindowEndMs = Math.max(...windows.map(window => window[1]), lowRegisterWindow?.endMs ?? 0);
   const alignmentMarginFrames = blockSize;
   const requiredWindowFrames = lowRegisterWindow
@@ -524,6 +532,7 @@ function getPianoPitchAnalysisPlan(expectedMidiPitch, {
     blockSize,
     windows,
     lowRegisterWindow,
+    lowRegisterWindows,
     maximumWindowEndMs,
     alignmentMarginFrames,
     requiredFrames,
@@ -689,34 +698,75 @@ function peakInPhysicalBand(magnitude, binHz, expectedHz, lowHz, highHz) {
   return peak && peak.hz >= lowHz && peak.hz <= highHz ? peak : null;
 }
 
+function classifyLowRegisterWindows(windows) {
+  const names = ['full', 'early', 'late'];
+  const validNames = names.filter(name => windows[name]?.measurement_valid === true
+    && Number.isFinite(windows[name].pitch_error_cents));
+  const values = validNames.map(name => windows[name].pitch_error_cents);
+  const spread = values.length >= 2 ? Math.max(...values) - Math.min(...values) : null;
+  const trajectoryFailure = validNames.length === 3 && spread > LOW_REGISTER_AGREEMENT_CENTS;
+  if (trajectoryFailure) {
+    const worstName = validNames.reduce((worst, name) =>
+      Math.abs(windows[name].pitch_error_cents) > Math.abs(windows[worst].pitch_error_cents) ? name : worst, validNames[0]);
+    return {measurement_valid: true, result: 'FAIL', reason: 'analysis-window-pitch-instability',
+      pitch_error_cents: windows[worstName].pitch_error_cents, estimated_f0: windows[worstName].estimated_f0,
+      fitted_B: windows[worstName].fitted_B, valid_window_names: validNames, stable_cluster_names: [],
+      stable_cluster_spread_cents: null, overall_valid_window_spread_cents: spread,
+      measurement_basis: 'low-register-multi-window-pitch-trajectory', physical_instability: true};
+  }
+  if (validNames.length < 2) return {measurement_valid: false, result: 'MEASUREMENT_INVALID',
+    reason: 'insufficient-valid-low-register-windows', pitch_error_cents: null, estimated_f0: null,
+    fitted_B: null, valid_window_names: validNames, stable_cluster_names: [],
+    stable_cluster_spread_cents: null, overall_valid_window_spread_cents: spread,
+    measurement_basis: null, physical_instability: false};
+  if (spread > LOW_REGISTER_AGREEMENT_CENTS) return {measurement_valid: false, result: 'MEASUREMENT_INVALID',
+    reason: 'low-register-window-disagreement', pitch_error_cents: null, estimated_f0: null,
+    fitted_B: null, valid_window_names: validNames, stable_cluster_names: [],
+    stable_cluster_spread_cents: null, overall_valid_window_spread_cents: spread,
+    measurement_basis: null, physical_instability: false};
+  const cents = median(values);
+  const selectedFits = validNames.map(name => windows[name]);
+  const bValues = selectedFits.map(fit => fit.fitted_B).filter(Number.isFinite);
+  const expectedF0 = selectedFits.find(fit => Number.isFinite(fit.expected_f0))?.expected_f0;
+  const estimatedF0 = Number.isFinite(expectedF0) ? expectedF0 * 2 ** (cents / 1200)
+    : median(selectedFits.map(fit => fit.estimated_f0).filter(Number.isFinite));
+  return {measurement_valid: true, result: Math.abs(cents) <= 15 ? 'PASS' : 'FAIL', reason: null,
+    pitch_error_cents: cents, estimated_f0: estimatedF0,
+    fitted_B: bValues.length ? median(bValues) : null, valid_window_names: validNames,
+    stable_cluster_names: validNames, stable_cluster_spread_cents: spread,
+    overall_valid_window_spread_cents: spread,
+    measurement_basis: 'low-register-multi-window-inharmonic-comb', physical_instability: false};
+}
+
 function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, onset) {
   const legacy = estimatePianoPitchLegacy(left, right, {...options, sampleRate});
-  const endMs = LOW_REGISTER_START_MS + LOW_REGISTER_FFT_SIZE * 1000 / sampleRate;
+  const fullEndMs = LOW_REGISTER_START_MS + LOW_REGISTER_FFT_SIZE * 1000 / sampleRate;
+  const halfSampleCount = LOW_REGISTER_FFT_SIZE / 2;
+  const halfDurationMs = halfSampleCount * 1000 / sampleRate;
   const startIndex = onset + Math.floor(sampleRate * LOW_REGISTER_START_MS / 1000);
   const requiredEndIndex = startIndex + LOW_REGISTER_FFT_SIZE;
   const enoughSamples = requiredEndIndex <= left.length && requiredEndIndex <= right.length;
-  const invalidResult = (reason, sources, fit, cluster) => ({
-    ...legacy,
-    estimated_f0: null,
-    pitch_error_cents: null,
-    fitted_B: fit?.fitted_B ?? fit?.candidate_fitted_B ?? null,
-    autocorrelation_pitch_cents: sources[1]?.cents ?? null,
-    estimator_disagreement_cents: null,
-    measurement_valid: false,
-    result: 'MEASUREMENT_INVALID',
-    reason,
-    pitch_estimator_revision: PITCH_ESTIMATOR_REVISION,
-    low_register_diagnostics: {
-      estimator_revision: PITCH_ESTIMATOR_REVISION,
-      window: {startMs: LOW_REGISTER_START_MS, endMs, sampleCount: LOW_REGISTER_FFT_SIZE,
-        startIndex, endIndex: requiredEndIndex, available: enoughSamples},
-      sources,
-      agreement_cluster: cluster,
-      final_cents: null,
-      legacy_diagnostic: legacy
-    }
-  });
-  if (!enoughSamples) return invalidResult('insufficient-exact-low-register-window', [], null, {valid: false, sources: [], spreadCents: null, medianCents: null});
+  const windowPlans = [
+    {name: 'full', startMs: LOW_REGISTER_START_MS, endMs: fullEndMs, sampleCount: LOW_REGISTER_FFT_SIZE},
+    {name: 'early', startMs: LOW_REGISTER_START_MS, endMs: LOW_REGISTER_START_MS + halfDurationMs, sampleCount: halfSampleCount},
+    {name: 'late', startMs: LOW_REGISTER_START_MS + halfDurationMs, endMs: fullEndMs, sampleCount: halfSampleCount}
+  ];
+  const fits = {};
+  for (const plan of windowPlans) {
+    const fit = estimateSingleWindow(left, right, sampleRate, targetHz, onset, plan.startMs, plan.endMs);
+    const exactWindow = Number.isInteger(fit.analysis_start_index) && Number.isInteger(fit.analysis_end_index)
+      && fit.analysis_end_index - fit.analysis_start_index === plan.sampleCount;
+    fits[plan.name] = {
+      ...fit,
+      start_ms: plan.startMs,
+      end_ms: plan.endMs,
+      sample_count: plan.sampleCount,
+      exact_window: exactWindow,
+      measurement_valid: fit.measurement_valid && exactWindow,
+      result: !exactWindow ? 'MEASUREMENT_INVALID' : fit.result,
+      reason: !exactWindow ? 'non-exact-low-register-window' : fit.reason
+    };
+  }
 
   const spectralWindow = spectrum(left, right, sampleRate, onset, LOW_REGISTER_START_MS,
     LOW_REGISTER_FFT_SIZE);
@@ -745,7 +795,7 @@ function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, on
   const autocorrelation = estimateExpectedPitch(left, right, targetHz, sampleRate, {
     onset,
     startMs: LOW_REGISTER_START_MS,
-    endMs,
+    endMs: fullEndMs,
     maxDeviationCents: 85
   });
   const autocorrelationSource = {
@@ -756,7 +806,7 @@ function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, on
     score: autocorrelation?.score ?? null
   };
 
-  const harmonicFit = estimateSingleWindow(left, right, sampleRate, targetHz, onset, LOW_REGISTER_START_MS, endMs);
+  const harmonicFit = fits.full;
   const harmonicCents = harmonicFit.measurement_valid ? harmonicFit.pitch_error_cents : harmonicFit.candidate_pitch_error_cents;
   const harmonicComb = {
     name: 'harmonicComb',
@@ -773,39 +823,76 @@ function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, on
   const sources = [spectralFundamental, autocorrelationSource, harmonicComb];
   const sourceSpread = spectralFundamental.eligible && harmonicComb.eligible
     ? Math.abs(spectralFundamental.cents - harmonicComb.cents) : null;
-  const consensusValid = spectralFundamental.eligible && harmonicComb.eligible
+  const revision2Valid = spectralFundamental.eligible && harmonicComb.eligible
     && sourceSpread <= LOW_REGISTER_AGREEMENT_CENTS;
-  const consensus = {valid: consensusValid, sources: consensusValid ? ['spectralBaseF0', 'harmonicComb'] : [], spreadCents: sourceSpread};
-  if (!consensusValid) return invalidResult('low-register-spectral-comb-disagreement', sources, harmonicFit, consensus);
-
-  const cents = harmonicFit.pitch_error_cents;
-  const estimatedF0 = harmonicFit.estimated_f0;
+  const revision2Diagnostic = {
+    estimator_revision: 2,
+    measurement_valid: revision2Valid,
+    result: !revision2Valid ? 'MEASUREMENT_INVALID'
+      : Math.abs(harmonicFit.pitch_error_cents) <= 15 ? 'PASS' : 'FAIL',
+    reason: revision2Valid ? null : 'low-register-spectral-comb-disagreement',
+    pitch_error_cents: revision2Valid ? harmonicFit.pitch_error_cents : null,
+    source_agreement_cents: sourceSpread
+  };
+  const classification = classifyLowRegisterWindows(Object.fromEntries(Object.entries(fits).map(([name, fit]) =>
+    [name, {...fit, expected_f0: targetHz}])));
+  const {measurement_valid: measurementValid, result, reason, pitch_error_cents: cents,
+    estimated_f0: estimatedF0, fitted_B: selectedB, valid_window_names: validWindows,
+    stable_cluster_names: stableClusterNames, stable_cluster_spread_cents: stableClusterSpread,
+    overall_valid_window_spread_cents: overallSpread, measurement_basis: measurementBasis,
+    physical_instability: trajectoryFailure} = classification;
+  const diagnostic = {
+    estimator_revision: PITCH_ESTIMATOR_REVISION,
+    windows: fits,
+    valid_window_names: validWindows,
+    stable_cluster_names: stableClusterNames,
+    stable_cluster_spread_cents: stableClusterSpread,
+    overall_valid_window_spread_cents: overallSpread,
+    authoritative_cents: cents,
+    measurement_basis: measurementBasis,
+    physical_instability: trajectoryFailure,
+    window_plan: Object.fromEntries(windowPlans.map(plan => [plan.name, {
+      startMs: plan.startMs, endMs: plan.endMs, sampleCount: plan.sampleCount,
+      startFrame: Math.floor(sampleRate * plan.startMs / 1000),
+      endFrame: Math.floor(sampleRate * plan.endMs / 1000)
+    }])),
+    diagnostic_only: {
+      stage2o_source_A: spectralFundamental,
+      stage2o_autocorrelation: autocorrelationSource,
+      revision2_result: revision2Diagnostic,
+      legacy_short_window_result: legacy
+    }
+  };
   return {
     ...legacy,
     estimated_f0: estimatedF0,
     pitch_error_cents: cents,
-    fitted_B: harmonicFit.fitted_B ?? harmonicFit.candidate_fitted_B ?? null,
-    usable_partial_count: harmonicFit.usable_partial_count ?? 0,
-    usable_partials: harmonicFit.usable_partials ?? [],
-    partial_peak_frequencies_hz: harmonicFit.inferred_f0_by_partial ?? [],
-    best_score: harmonicFit.best_score ?? legacy.best_score,
-    confidence_ratio: harmonicFit.confidence_ratio ?? legacy.confidence_ratio,
-    confidence_components: harmonicFit.confidence_components ?? legacy.confidence_components,
+    fitted_B: selectedB,
+    usable_partial_count: measurementValid ? Math.max(...validWindows.map(name => fits[name].usable_partial_count)) : 0,
+    usable_partials: measurementValid ? validWindows.flatMap(name => fits[name].usable_partials) : [],
+    partial_peak_frequencies_hz: Object.fromEntries(Object.entries(fits).map(([name, fit]) => [name, fit.inferred_f0_by_partial])),
+    best_score: fits.full.best_score ?? legacy.best_score,
+    confidence_ratio: fits.full.confidence_ratio ?? legacy.confidence_ratio,
+    confidence_components: fits.full.confidence_components ?? legacy.confidence_components,
     autocorrelation_pitch_cents: autocorrelationSource.cents,
-    estimator_disagreement_cents: sourceSpread,
-    measurement_valid: true,
-    result: Math.abs(cents) <= 15 ? 'PASS' : 'FAIL',
-    reason: null,
+    estimator_disagreement_cents: overallSpread,
+    window_pitch_errors_cents: Object.values(fits).map(fit => fit.pitch_error_cents),
+    measurement_valid: measurementValid,
+    result,
+    reason,
     pitch_estimator_revision: PITCH_ESTIMATOR_REVISION,
-    measurement_basis: 'low-register-base-f0-spectral-comb-consensus',
+    measurement_basis: measurementBasis,
     low_register_diagnostics: {
-      estimator_revision: PITCH_ESTIMATOR_REVISION,
-      window: {startMs: LOW_REGISTER_START_MS, endMs, sampleCount: LOW_REGISTER_FFT_SIZE,
-        startIndex, endIndex: requiredEndIndex, available: true},
+      ...diagnostic,
+      window: {startMs: LOW_REGISTER_START_MS, endMs: fullEndMs, sampleCount: LOW_REGISTER_FFT_SIZE,
+        startIndex, endIndex: requiredEndIndex, available: enoughSamples},
       sources,
-      agreement_cluster: consensus,
-      clusterSpreadCents: sourceSpread,
+      agreement_cluster: {valid: stableClusterNames.length >= 2, sources: stableClusterNames,
+        spreadCents: stableClusterSpread, medianCents: stableClusterNames.length >= 2
+          ? median(validWindows.map(name => fits[name].pitch_error_cents)) : null},
+      clusterSpreadCents: stableClusterSpread,
       final_cents: cents,
+      revision2_diagnostic: revision2Diagnostic,
       legacy_diagnostic: legacy
     }
   };
@@ -840,6 +927,7 @@ module.exports = {
   LOW_REGISTER_AGREEMENT_CENTS,
   LOW_REGISTER_MIN_FUNDAMENTAL_PROMINENCE,
   recoverSpectralBaseF0,
+  classifyLowRegisterWindows,
   estimatePianoPitch,
   midiToHz,
   defaultAnalysisWindows,

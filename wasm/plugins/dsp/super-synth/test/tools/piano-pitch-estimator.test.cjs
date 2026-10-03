@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const {estimatePianoPitch, midiToHz, getPianoPitchAnalysisPlan,
   PITCH_ESTIMATOR_REVISION, LOW_REGISTER_FFT_SIZE, LOW_REGISTER_AGREEMENT_CENTS,
-  recoverSpectralBaseF0} = require('./piano-pitch-estimator.cjs');
+  recoverSpectralBaseF0, classifyLowRegisterWindows} = require('./piano-pitch-estimator.cjs');
 const {spectrum, peakNearExpected, spectralPeakProminence} = require('./salamander-metrics.cjs');
 
 const SAMPLE_RATE = 48000;
@@ -76,7 +76,7 @@ function pitchTrajectoryFixture(pitch, earlyCents, lateCents, B) {
   return {left, right};
 }
 
-function lowRegisterFixture(pitch, offsetCents, B, weakFundamental, phaseMode='zero') {
+function lowRegisterFixture(pitch, offsetCents, B, weakFundamental, phaseMode='zero', profile={}) {
   const frameCount=Math.floor(SAMPLE_RATE*(20/1000+LOW_REGISTER_FFT_SIZE/SAMPLE_RATE))+4096;
   const left=new Float64Array(frameCount),right=new Float64Array(frameCount);
   const expectedHz=midiToHz(pitch),injectedHz=expectedHz*2**(offsetCents/1200);
@@ -95,9 +95,13 @@ function lowRegisterFixture(pitch, offsetCents, B, weakFundamental, phaseMode='z
       if(weakFundamental&&n===3)amplitude=0.74;
       phases[n]+=2*Math.PI*hz/SAMPLE_RATE;
       sample+=amplitude*Math.cos(phases[n])*Math.exp(-time*(0.12+0.025*n));
+      if(n===1&&Number.isFinite(profile.h1SideToneCents)){
+        const sideHz=hz*2**(profile.h1SideToneCents/1200);
+        sample+=(profile.h1SideToneAmplitude??0)*Math.cos(2*Math.PI*sideHz*time)*Math.exp(-time*0.145);
+      }
     }
     seed=(1664525*seed+1013904223)>>>0;
-    const noise=((seed/0x100000000)-0.5)*1e-6;
+    const noise=((seed/0x100000000)-0.5)*(profile.noiseAmplitude??1e-6);
     left[i]=right[i]=(sample+noise)*0.5;
   }
   return {left,right,expectedHz,injectedHz};
@@ -177,7 +181,13 @@ const pitchTrajectoryAudio = pitchTrajectoryFixture(21, -8.8, 23.5, 0.015);
 const pitchTrajectory = estimatePianoPitch(pitchTrajectoryAudio.left, pitchTrajectoryAudio.right, {
   sampleRate: SAMPLE_RATE, expectedMidiPitch: 21, onsetIndex: 0
 });
-const worstTrajectoryError = pitchTrajectory.window_pitch_errors_cents
+assert.equal(pitchTrajectory.measurement_valid,true,
+  `all-window pitch trajectory must be physical evidence: ${pitchTrajectory.reason}`);
+assert.equal(pitchTrajectory.result,'FAIL');
+assert.equal(pitchTrajectory.reason,'analysis-window-pitch-instability');
+assert.deepEqual(pitchTrajectory.low_register_diagnostics.valid_window_names,['full','early','late']);
+assert.ok(pitchTrajectory.low_register_diagnostics.overall_valid_window_spread_cents>8);
+const worstTrajectoryError = pitchTrajectory.low_register_diagnostics.legacy_diagnostic.window_pitch_errors_cents
   .reduce((worst, cents) => Math.abs(cents) > Math.abs(worst) ? cents : worst);
 assert.equal(pitchTrajectory.low_register_diagnostics.legacy_diagnostic.measurement_valid, true,
   'the prior short-window estimator must remain available for diagnostics');
@@ -222,7 +232,7 @@ const ambiguous = estimatePianoPitch(ambiguousLeft, ambiguousRight, {
 assert.equal(ambiguous.result, 'MEASUREMENT_INVALID', 'ambiguous pitch must not fall through to PASS/FAIL');
 assert.ok(ambiguous.reason, 'ambiguous pitch must report why its measurement is invalid');
 
-assert.equal(PITCH_ESTIMATOR_REVISION,2,'Stage2O evaluator provenance must identify pitch estimator revision 2');
+assert.equal(PITCH_ESTIMATOR_REVISION,3,'Stage2P evaluator provenance must identify pitch estimator revision 3');
 assert.equal(LOW_REGISTER_FFT_SIZE,65536);
 assert.equal(LOW_REGISTER_AGREEMENT_CENTS,8);
 
@@ -230,6 +240,12 @@ const lowPlan=getPianoPitchAnalysisPlan(21,{sampleRate:SAMPLE_RATE,blockSize:204
 assert.equal(lowPlan.lowRegisterWindow.sampleCount,65536);
 assert.equal(lowPlan.lowRegisterWindow.startMs,20);
 assert.equal(lowPlan.lowRegisterWindow.endMs,20+65536*1000/SAMPLE_RATE);
+assert.deepEqual(lowPlan.lowRegisterWindows,{
+  full:{startMs:20,endMs:20+65536*1000/SAMPLE_RATE,sampleCount:65536,startFrame:960,endFrame:66496},
+  early:{startMs:20,endMs:20+32768*1000/SAMPLE_RATE,sampleCount:32768,startFrame:960,endFrame:33728},
+  late:{startMs:20+32768*1000/SAMPLE_RATE,endMs:20+65536*1000/SAMPLE_RATE,
+    sampleCount:32768,startFrame:33728,endFrame:66496}
+});
 assert.ok(lowPlan.requiredFrames>=lowPlan.lowRegisterWindow.startFrame+65536+2048,
   'low-register capture plan must include all exact-window frames and a full block alignment margin');
 for(const pitch of [48,60,84,108]){
@@ -275,15 +291,23 @@ for(let pitchIndex=0;pitchIndex<LOW_PITCHES.length;pitchIndex++){
       const B=LOW_B[bIndex];
       const audio=lowRegisterFixture(pitch,offset,B,(pitchIndex+offsetIndex+bIndex)%2===1);
       const result=estimatePianoPitch(audio.left,audio.right,{sampleRate:SAMPLE_RATE,expectedF0:audio.expectedHz,onsetIndex:0});
-      assert.equal(result.pitch_estimator_revision,2,`pitch ${pitch} offset ${offset} B ${B} revision`);
+      assert.equal(result.pitch_estimator_revision,3,`pitch ${pitch} offset ${offset} B ${B} revision`);
       assert.ok(result.low_register_diagnostics.legacy_diagnostic,
         'the prior two-short-window result must remain available as a diagnostic');
+      assert.ok(result.low_register_diagnostics.revision2_diagnostic,
+        'the Stage2O decision must remain diagnostic-only');
+      assert.deepEqual(Object.keys(result.low_register_diagnostics.windows),['full','early','late']);
+      for(const [name,window] of Object.entries(result.low_register_diagnostics.windows)){
+        assert.equal(window.sample_count,name==='full'?65536:32768,`${name} window sample count`);
+        assert.equal(window.exact_window,true,`${name} window must use exact frame coverage`);
+      }
       const row={pitch,offset,B,result:result.result,measurementValid:result.measurement_valid,
         reason:result.reason,sources:result.low_register_diagnostics.sources};
       lowMatrix.push(row);
       if(!result.measurement_valid) continue;
-      assert.deepEqual(result.low_register_diagnostics.agreement_cluster.sources,
-        ['spectralBaseF0','harmonicComb'],`pitch ${pitch} offset ${offset} B ${B} must use A/C authority`);
+      assert.ok(result.low_register_diagnostics.valid_window_names.length>=2,
+        `pitch ${pitch} offset ${offset} B ${B} needs two valid windows`);
+      assert.equal(result.measurement_basis,'low-register-multi-window-inharmonic-comb');
       const knownError=1200*Math.log2(result.estimated_f0/audio.injectedHz);
       row.knownError=knownError;
       validLowRows.push(row);
@@ -293,8 +317,12 @@ for(let pitchIndex=0;pitchIndex<LOW_PITCHES.length;pitchIndex++){
       assert.equal(result.result,expectedOutcome,`pitch ${pitch} offset ${offset} B ${B} must retain the ±15-cent gate`);
       assert.ok(Math.abs(result.pitch_error_cents-offset)<=2,
         `pitch ${pitch} offset ${offset} B ${B} reported offset ${result.pitch_error_cents}`);
-      assert.equal(result.pitch_error_cents,result.low_register_diagnostics.sources[2].cents,
-        'valid low-register pitch authority must equal Source C without averaging');
+      const stableCents=result.low_register_diagnostics.valid_window_names.map(name=>
+        result.low_register_diagnostics.windows[name].pitch_error_cents).sort((a,b)=>a-b);
+      const medianStableCents=stableCents.length%2?stableCents[Math.floor(stableCents.length/2)]
+        :(stableCents[stableCents.length/2-1]+stableCents[stableCents.length/2])/2;
+      assert.equal(result.pitch_error_cents,medianStableCents,
+        'valid low-register authority must be the median stable window estimate');
     }
   }
 }
@@ -305,13 +333,59 @@ for(const offset of LOW_OFFSETS){
   const expected=Math.abs(offset)<=14?'PASS':'FAIL';
   assert.ok(valid.every(row=>row.result===expected),`offset ${offset} has a false PASS/FAIL classification`);
 }
+assert.equal(lowMatrix.filter(row=>!row.measurementValid).length,0,
+  'all nominally measurable synthetic low-register fixtures must yield valid multi-window estimates');
 const blockingAudio=lowRegisterFixture(21,-30,0.01,true,'seeded');
 const blocking=estimatePianoPitch(blockingAudio.left,blockingAudio.right,{sampleRate:SAMPLE_RATE,expectedF0:blockingAudio.expectedHz,onsetIndex:0});
 assert.equal(blocking.measurement_valid,true,`blocking MIDI21/-30/B=.01 fixture invalid: ${blocking.reason}`);
 assert.equal(blocking.result,'FAIL','blocking fixture must remain a physical pitch failure');
-assert.ok(Math.abs(blocking.low_register_diagnostics.sources[0].cents_A-blocking.low_register_diagnostics.sources[2].cents_C)<=8,
-  'blocking fixture Source A base-f0 must agree with Source C');
 assert.ok(Math.abs(blocking.pitch_error_cents+30)<=2,'blocking fixture Source C must recover the true -30 cent base-f0');
+assert.ok(blocking.low_register_diagnostics.valid_window_names.length>=2,
+  'former Stage2O blocker needs at least two valid multi-partial windows');
+assert.ok(blocking.low_register_diagnostics.sources[0],
+  'the former blocker retains Source A as diagnostic evidence');
+
+const weakLowAudio=lowRegisterFixture(21,0,0.01,true,'seeded',{noiseAmplitude:3});
+const weakLow=estimatePianoPitch(weakLowAudio.left,weakLowAudio.right,
+  {sampleRate:SAMPLE_RATE,expectedF0:weakLowAudio.expectedHz,onsetIndex:0});
+assert.equal(weakLow.measurement_valid,true,'weak H1 must not invalidate stable multi-window comb evidence');
+assert.equal(weakLow.result,'PASS');
+assert.ok(weakLow.low_register_diagnostics.sources[0],
+  'weak-H1 Source A diagnostics must remain available without controlling validity');
+assert.ok(weakLow.low_register_diagnostics.sources[0].h1Prominence < 3,
+  `weak-H1 fixture must fall below Source A's former prominence gate: ${weakLow.low_register_diagnostics.sources[0].h1Prominence}`);
+assert.ok(weakLow.low_register_diagnostics.valid_window_names.some(name =>
+  weakLow.low_register_diagnostics.windows[name].usable_partials.some(partial => partial >= 2)),
+'weak-H1 fixture must remain supported by higher partials');
+
+const negativeBA=lowMatrix.find(row=>row.measurementValid&&row.sources[0].B_A<0);
+assert.ok(negativeBA,'the synthetic matrix must include a negative diagnostic B_A case');
+assert.ok(negativeBA.measurementValid,'negative diagnostic B_A must not invalidate comb authority');
+
+const classifierWindow=(cents,valid=true)=>({measurement_valid:valid,pitch_error_cents:cents,
+  estimated_f0:midiToHz(21)*2**(cents/1200),fitted_B:0.01,expected_f0:midiToHz(21)});
+const stableThree=classifyLowRegisterWindows({full:classifierWindow(1),early:classifierWindow(2),late:classifierWindow(3)});
+assert.equal(stableThree.result,'PASS');
+assert.equal(stableThree.pitch_error_cents,2);
+assert.deepEqual(stableThree.stable_cluster_names,['full','early','late']);
+const stableTwo=classifyLowRegisterWindows({full:classifierWindow(0),early:classifierWindow(4),late:classifierWindow(99,false)});
+assert.equal(stableTwo.measurement_valid,true,'two coherent windows must establish validity');
+assert.equal(stableTwo.pitch_error_cents,2);
+const unstableThree=classifyLowRegisterWindows({full:classifierWindow(-2),early:classifierWindow(0),late:classifierWindow(12)});
+assert.equal(unstableThree.measurement_valid,true);
+assert.equal(unstableThree.result,'FAIL');
+assert.equal(unstableThree.reason,'analysis-window-pitch-instability');
+assert.equal(unstableThree.pitch_error_cents,12);
+const disagreeingTwo=classifyLowRegisterWindows({full:classifierWindow(-10),early:classifierWindow(1),late:classifierWindow(0,false)});
+assert.equal(disagreeingTwo.result,'MEASUREMENT_INVALID');
+assert.equal(disagreeingTwo.reason,'low-register-window-disagreement');
+const insufficient=classifyLowRegisterWindows({full:classifierWindow(0),early:classifierWindow(1,false),late:classifierWindow(2,false)});
+assert.equal(insufficient.result,'MEASUREMENT_INVALID');
+assert.equal(insufficient.reason,'insufficient-valid-low-register-windows');
+for(const [offset,expected] of [[-30,'FAIL'],[-16,'FAIL'],[-14,'PASS'],[0,'PASS'],[14,'PASS'],[16,'FAIL'],[30,'FAIL']]){
+  const result=classifyLowRegisterWindows({full:classifierWindow(offset),early:classifierWindow(offset+0.2),late:classifierWindow(offset-0.2)});
+  assert.equal(result.result,expected,`cross-window classifier changed ±15-cent rule at ${offset}`);
+}
 
 function highGoldenFixture(pitch){
   const expectedHz=midiToHz(pitch),B=0.003,left=new Float64Array(FRAME_COUNT),right=new Float64Array(FRAME_COUNT);
@@ -334,7 +408,7 @@ const HIGH_GOLDENS=[
 ];
 for(const golden of HIGH_GOLDENS){
   const result=highGoldenFixture(golden.pitch);
-  assert.equal(result.pitch_estimator_revision,2);
+  assert.equal(result.pitch_estimator_revision,3);
   assert.equal(result.result,'PASS');
   assert.equal(result.measurement_valid,true);
   assert.ok(Math.abs(result.estimated_f0-golden.f0)<=1e-8,`MIDI ${golden.pitch} f0 changed: ${result.estimated_f0}`);

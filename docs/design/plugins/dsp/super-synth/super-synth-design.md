@@ -309,28 +309,27 @@ fundamental and available supporting partials. A valid measured pitch movement b
 window-spread limit remains a physical pitch-instability `FAIL`, and a confident result outside
 ±15 cents remains a pitch `FAIL`.
 
-For expected fundamentals below 100 Hz, estimator revision 2 measures the stiff-string model's base
-`f0`, not the raw first-partial frequency. It uses an exact 65,536-sample Hann window beginning 20 ms
-after onset; the capture plan must include all samples plus its block-alignment margin. Source A finds
-H1 and H2 within the physical bands implied by base-f0 ±100 cents and `B` in [0, 0.02], using the
-shared spectral helpers and prominence definition. Both peaks must have prominence >=3. From the
-observed partial frequencies `p1` and `p2`, calculate `r2=(p2/(2*p1))^2`, `B_A=(r2-1)/(4-r2)`, and
-`f0_A=p1/sqrt(1+B_A)`. An invalid denominator or `B_A` outside [0, 0.02] makes Source A ineligible;
-do not clamp `B_A` or move its result toward expected pitch.
+For expected fundamentals below 100 Hz, estimator revision 3 measures the stiff-string model's base
+`f0`, not raw H1. The capture plan exposes three exact Hann windows beginning 20 ms after onset:
+FULL uses 65,536 samples, EARLY uses the first 32,768, and LATE uses the following 32,768. The
+capture must include the FULL end plus its block-alignment margin. All three windows call the same
+single-window inharmonic-comb fit with unchanged ±100-cent base-f0 search, `B` range [0, 0.02],
+local-peak evidence, robust fit, and partial-spread, residual, uncertainty, and search-boundary gates.
 
-Source C runs the existing full inharmonic single-window harmonic-comb fit over that same exact
-interval, preserving its ±100-cent base-f0 search, inharmonicity range, local-peak evidence, robust
-fit, and validity gates. It is eligible only when that fit is valid. Source B continues to calculate
-the existing expected-lag autocorrelation estimate over the same interval for diagnostics, but it is
-not an authority below 100 Hz: it cannot veto or rescue Source A/C agreement.
+The low-register measurement requires at least two individually valid window fits. When all valid
+window estimates span no more than 8 cents, the measurement is valid and its pitch is the median of
+those estimates; apply the unchanged inclusive ±15-cent limit. Exactly two valid windows separated by
+more than 8 cents produce `MEASUREMENT_INVALID`. If all three windows are individually valid but
+their total spread exceeds 8 cents, report a valid physical `FAIL` with reason
+`analysis-window-pitch-instability` and use the estimate with the greatest absolute cents error. Fewer
+than two valid fits are `MEASUREMENT_INVALID`; do not fall back to expected pitch or another estimator.
 
-A low-register measurement is valid only when both Source A and Source C are eligible and their
-base-f0 estimates agree within 8 cents. The authoritative estimate is Source C's fitted base `f0`; do
-not average A and C. Otherwise report `MEASUREMENT_INVALID` with reason
-`low-register-spectral-comb-disagreement`. For a valid measurement, apply the unchanged inclusive
-±15-cent limit to Source C: within the limit is `PASS`, and outside it is a physical pitch `FAIL`.
-Record raw H1, H2, `B_A`, `f0_A`, Source B diagnostics, `B_C`, `f0_C`, A/C spread, validity, and
-estimator revision. This rule is selected by expected frequency, never by MIDI note number.
+The Stage2O H1/H2 inversion, including its `B_A` and `f0_A` diagnostics, is retained as diagnostic-only:
+weak H1 or an invalid two-partial inversion cannot invalidate or classify a multi-window comb result.
+Expected-lag autocorrelation is also diagnostic-only below 100 Hz. Neither source can create a PASS,
+FAIL, or rescue an invalid comb result. Record all per-window fit diagnostics, cross-window spread and
+cluster, Stage2O source diagnostics, autocorrelation, revision-2 result, and the original short-window
+legacy result. Select this rule by expected frequency, never by MIDI note number.
 
 Stage 2 and Stage 4 must not use different estimators or shift the synth result by a Salamander
 source offset.
