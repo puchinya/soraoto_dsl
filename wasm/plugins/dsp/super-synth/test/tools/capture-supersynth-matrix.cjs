@@ -134,7 +134,7 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
         const count=pitch<config.one_to_two_string_midi?1:(pitch<config.two_to_three_string_midi?2:3);
         const preparedStringNominalHz=Array.from({length:count},(_,index)=>
           440*2**((pitch+config.unison_offsets[index]*cents/100-69)/12));
-        metrics.stage2mPitchProbe={targetMidiFrequency:expectedHz,
+      metrics.stage2mPitchProbe={targetMidiFrequency:expectedHz,
           currentEstimatorCents:metrics.pitchMeasurement?.pitch_error_cents??null,
           currentEstimatorSelectedFrequency:selectedHz,
           constrainedNearFundamentalFrequency:nearPeak?.hz??null,
@@ -143,7 +143,20 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
           constrainedNearFundamentalAmplitude:nearPeak?.amplitude??null,
           selectedToConstrainedAmplitudeRatio:selectedPeak&&nearPeak?selectedPeak.amplitude/Math.max(1e-30,nearPeak.amplitude):null,
           preparedStringNominalHz};
-      }
+    }
+    }
+    if(options.includeNearFundamentalProbe&&pitch===21){
+      const expectedHz=440*2**((pitch-69)/12);
+      const onsetIndex=Math.max(0,Math.floor((metrics.onsetMs??0)*SAMPLE_RATE/1000));
+      const spec=spectrum(left,right,SAMPLE_RATE,onsetIndex,20,65536);
+      if(!spec)throw new Error('near-fundamental probe spectrum window is incomplete');
+      const nearPeak=peakNearExpected(spec.magnitude,spec.binHz,expectedHz,100);
+      if(!nearPeak)throw new Error('near-fundamental probe did not find an expected-f0 peak');
+      metrics.nearFundamentalProbe={targetMidiFrequency:expectedHz,
+        frequencyHz:nearPeak.hz,
+        cents:1200*Math.log2(nearPeak.hz/expectedHz),
+        amplitude:nearPeak.amplitude,
+        estimatorCents:metrics.pitchMeasurement?.pitch_error_cents??null};
     }
     if(options.includePitchSparsity){
       const f0=261.625565;
@@ -164,7 +177,7 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
   } finally { harness.close(); }
 }
 
-function captureMatrix({onProgress=()=>{},pitches=Array.from({length:88},(_,i)=>i+21),velocities=VELOCITIES,parameters={},includePitchHealth=false,includeSoundboardDiagnostics=false,includeCalibrationDiagnostics=false,stage2mFactorMask=undefined,cells=null}={}) {
+function captureMatrix({onProgress=()=>{},pitches=Array.from({length:88},(_,i)=>i+21),velocities=VELOCITIES,parameters={},includePitchHealth=false,includeSoundboardDiagnostics=false,includeCalibrationDiagnostics=false,includeNearFundamentalProbe=false,stage2mFactorMask=undefined,cells=null}={}) {
   const rows=[];
   const requestedCells=cells??pitches.flatMap(pitch=>velocities.map(velocity=>({pitch,velocity})));
   const seenCells=new Set();
@@ -174,7 +187,7 @@ function captureMatrix({onProgress=()=>{},pitches=Array.from({length:88},(_,i)=>
     const cellKey=`${pitch}:${velocity}`;
     if(seenCells.has(cellKey))throw new Error(`duplicate requested matrix cell ${cellKey}`);
     seenCells.add(cellKey);
-    rows.push({pitch,velocity,velocityNormalized:velocity/127,metrics:render(pitch,velocity,parameters,{includePitchHealth,includeSoundboardDiagnostics,stage2mFactorMask})});
+    rows.push({pitch,velocity,velocityNormalized:velocity/127,metrics:render(pitch,velocity,parameters,{includePitchHealth,includeSoundboardDiagnostics,includeNearFundamentalProbe,stage2mFactorMask})});
     onProgress(pitch,rows.length);
   }
   if (rows.length!==requestedCells.length) throw new Error(`expected ${requestedCells.length} render cases, got ${rows.length}`);

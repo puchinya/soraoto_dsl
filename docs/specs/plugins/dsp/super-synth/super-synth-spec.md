@@ -26,13 +26,9 @@ conflict in implementation. The model catalog and model-level requirements are s
 - `compatible_plugin_ids` remains empty. This is an in-place release, not a replacement plugin or
   a migration release.
 - The current 157 parameter IDs, paths, types, ranges, and enum values remain unchanged.
-- Factory preset IDs, names, and order remain unchanged. Every factory preset selecting
-  `concert_grand` owns a complete internal physical profile; this does not add host parameters.
-- The project DSL stores the selected factory preset ID and parameter values. The Plugin owns no
-  separate persistent state, and the active preset ID is never duplicated in a Plugin state blob.
-- Keep Plugin ABI 1.0 and all DSL/preset version numbers unchanged. The shared ABI 1.0 contract is
-  updated to remove state snapshot/load and opaque data services. Old opaque state blobs are not
-  supported and are not migrated.
+- Factory preset IDs, names, and order remain unchanged. Preset selection and parameter values are
+  persisted through the shared DSL PluginConfigurationV1 contract; SuperSynth defines no separate
+  persistent snapshot format.
 - Metadata derived from product version, including `soraoto.preset_version`, is regenerated for
   `9.0.0`.
 
@@ -103,36 +99,37 @@ proxy identified from derived Salamander metrics; the microphone recordings are 
 bridge-force/bridge-velocity measurements and must not be described as the piano's measured
 mechanical admittance.
 
-Each `concert_grand` factory preset is a complete standalone `grand_piano_v1` revision-2 instrument
+Each `concert_grand` factory preset is a complete standalone `grand_piano_v1` revision-3 instrument
 definition in `engine_config`. No piano-profile inheritance, partial configuration, missing-field C
 fallback, runtime JSON parsing, or realtime allocation is used. Construction and calibration values
 remain internal; existing public piano controls are high-level modifiers over the selected profile.
-Loading a factory preset or program applies public parameters and the corresponding physical profile
-through the same path. A profile change clears incompatible grand voice/body resonant state and
-rebuilds dependent caches. Selecting a non-grand preset resets the latent grand profile to the
-generated default `concert_grand` profile.
+The Host applies DSL configuration, including factory preset and public parameters; SuperSynth
+resolves the selected generated profile and rebuilds transient DSP caches/state as required. The
+selected profile identity and `g_grand_config`, voice state, and soundboard state are runtime-derived
+data, not Plugin-owned persistence.
 
 The private preset-owned `engine_config.hammer.velocity_hardness_amount` controls how the validated
 base hammer-hardness parameter changes effective felt hardness with note velocity. Let `h` be the
 clamped public base hardness, `v` the clamped normalized note velocity, and `a` the profile-owned
-amount in `[0,1]`. Revision 2 uses the continuous centered mapping
-`effective_hardness = clamp(h + a * (v - 61/127), 0, 1)`. The pivot remains invariant; the effective
-value controls felt exponent, stiffness, passive contact loss, hammer mass, and the initial hammer
-velocity hardness factor. The fixed launch intercept/slope remain `0.42 / 1.05`, and hammer-noise
-scaling continues to use base hardness. The field is private preset configuration, not a public
-parameter, Plugin state, or DSL field.
+amount in `[0,1]`; set `pivot = 61/127`. Revision 3 uses the historical piecewise mapping:
+`h * (1 - a * ((pivot - v) / pivot))` when `v <= pivot`, and
+`h + (1 - h) * a * ((v - pivot) / (1 - pivot))` when `v > pivot`; when `a == 0`, return `h`.
+The mapping is continuous at the pivot and bounded in `[0,1]`. Its output controls felt exponent,
+stiffness, passive contact loss, hammer mass, and the initial hammer velocity hardness factor. The
+fixed launch intercept/slope remain `0.42 / 1.05`, and hammer-noise scaling continues to use base
+hardness. The field is private preset configuration, not a public parameter or DSL field.
 
-In revision 2, passive string termination loss does not directly depend on note velocity. Velocity
+Revision 3 retains the velocity-independent passive string termination loss introduced in revision 2. Velocity
 affects hammer excitation/hardness and the existing final velocity gain, while passive boundary decay
 depends on pitch and the semantic string-damping control. Applying the same per-circulation scalar loss
 at every pitch must not cause faster decay per second solely because higher notes have shorter string
 periods. This decay-time normalization does not alter low-pass/HF filters, dispersion, bridge impedance,
 soundboard, or radiation behavior.
 
-The project DSL stores the selected factory preset ID and public parameter values. The selected ID
-resolves the complete physical profile; the Plugin does not store a second preset ID or opaque state.
-A test-only second complete grand profile demonstrates that a new piano can be authored and
-generated without changing C source.
+On reload, the Host reapplies the persisted DSL PluginConfigurationV1; SuperSynth resolves the
+factory profile and rebuilds transient caches and DSP state from that configuration. Plugin-owned
+persistent snapshot/load state is absent. A test-only second complete grand profile demonstrates
+that a new piano can be authored and generated without changing C source.
 
 Changes for this V9 task target the `concert_grand` implementation and its behavior. Other engine
 families remain documented and covered by their existing compatibility/regression evidence; do not
@@ -245,9 +242,8 @@ measured evidence and design review.
 ## 8. Versioning and change control
 
 A product version bump does not by itself require a Plugin ID change. This approved Issue does not
-bump ABI or DSL/preset version numbers. The shared ABI 1.0 contract is updated in place to remove
-Plugin-owned persistent state; previous opaque state blobs are unsupported and are not migrated.
-Other public Plugin identity, ABI, parameter, enum, or preset-identity changes require
+bump Plugin ABI or DSL/preset version numbers; internal grand profile revision 3 is not a product
+version or ABI change. Other public Plugin identity, ABI, parameter, enum, or preset-identity changes require
 requirements/design review. A change to an engine's product role must update this product spec and
 its model-specific spec before implementation. A conflict with the shared normative Plugin contract
 blocks the conflicting work until design/specification resolution.

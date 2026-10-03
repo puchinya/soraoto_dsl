@@ -23,7 +23,7 @@ class Stage2LModelRevisionTests(unittest.TestCase):
     def test_profile_revision_and_preset_schema_match_contract(self):
         config = json.loads(PRESETS.read_text(encoding="utf-8"))["concert_grand"]["engine_config"]
         self.assertEqual(config["kind"], "grand_piano_v1")
-        self.assertEqual(config["revision"], 2)
+        self.assertEqual(config["revision"], 3)
         string = config["string"]
         self.assertEqual(string["decay_reference_midi"], 60.0)
         self.assertEqual(string["reference_loss_base"], 0.0019965984251968504)
@@ -34,7 +34,7 @@ class Stage2LModelRevisionTests(unittest.TestCase):
         self.assertIn("'decay_reference_midi'", schema)
         self.assertNotIn("reference_loss_velocity_base", schema)
         self.assertNotIn("reference_loss_velocity_scale", schema)
-        self.assertIn("GRAND_PROFILE_REVISION=2", metadata)
+        self.assertIn("GRAND_PROFILE_REVISION=3", metadata)
 
     def test_candidate_budget_and_search_dimensions_are_frozen(self):
         search = json.loads(SPACE.read_text(encoding="utf-8"))
@@ -94,7 +94,9 @@ int main(void) {
 
     def test_velocity_hardness_uses_continuous_pivot_mapping(self):
         source = SOURCE.read_text(encoding="utf-8")
-        self.assertIn("clampf(h+amount*(v-61.0f/127.0f),0.0f,1.0f)", source)
+        self.assertIn("if(v<=pivot){", source)
+        self.assertIn("return h*(1.0f-amount*t);", source)
+        self.assertIn("return h+(1.0f-h)*amount*t;", source)
         self.assertIn("grand_effective_felt_hardness(g_params[P_PIANO_HAMMER_HARDNESS],q->velocity,g_grand_config.hammer.velocity_hardness_amount)", source)
 
     def test_candidate1_direction_gate_requires_both_improvements_and_no_new_safety(self):

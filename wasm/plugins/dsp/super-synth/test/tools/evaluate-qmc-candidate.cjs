@@ -270,4 +270,4 @@ if (require.main===module) {
   catch(error) {process.stderr.write(`QMC candidate evaluation failed: ${error.stack||error.message}\n`);process.exitCode=1;}
 }
 
-module.exports={evaluate,referenceFit,summarizeMatrix};
+module.exports={evaluate,referenceFit,summarizeMatrix,hashFiles,hashTree,EVALUATOR_FILES};

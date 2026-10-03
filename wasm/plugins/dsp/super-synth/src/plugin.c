@@ -870,19 +870,17 @@ static float grand_contact_power(float normalized,float exponent){
 static inline float grand_effective_felt_hardness(float base_hardness,float velocity,float amount){
   const float h=clampf(base_hardness,0.0f,1.0f);
   const float v=clampf(velocity,0.0f,1.0f);
+  const float pivot=61.0f/127.0f;
 #if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
-  if((g_stage2m_factor_mask&4u)==0u){
-    if(amount==0.0f)return h;
-    const float pivot=61.0f/127.0f;
-    if(v<=pivot){
-      const float t=(pivot-v)/pivot;
-      return h*(1.0f-amount*t);
-    }
-    const float t=(v-pivot)/(1.0f-pivot);
-    return h+(1.0f-h)*amount*t;
-  }
+  if((g_stage2m_factor_mask&4u)!=0u)return clampf(h+amount*(v-pivot),0.0f,1.0f);
 #endif
-  return clampf(h+amount*(v-61.0f/127.0f),0.0f,1.0f);
+  if(amount==0.0f)return h;
+  if(v<=pivot){
+    const float t=(pivot-v)/pivot;
+    return h*(1.0f-amount*t);
+  }
+  const float t=(v-pivot)/(1.0f-pivot);
+  return h+(1.0f-h)*amount*t;
 }
 
 static void grand_zone_weights(float key,float* bass,float* tenor,float* treble){

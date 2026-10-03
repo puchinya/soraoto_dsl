@@ -12,7 +12,7 @@ ABI=0x00010000
 PRESETS=json.loads((PLUGIN/'presets.json').read_text(encoding='utf-8'))
 
 GRAND_PROFILE_KIND='grand_piano_v1'
-GRAND_PROFILE_REVISION=2
+GRAND_PROFILE_REVISION=3
 GRAND_SB_MODE_COUNT=24
 GRAND_PROFILE_HEADER=SHARED/'generated'/'super-synth_grand_profiles.h'
 

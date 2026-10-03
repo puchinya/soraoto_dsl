@@ -6,18 +6,22 @@
 
 ## 1. Scope and decisions
 
-This design covers the preset-owned physical-configuration refactor and subsequent evidence-driven
-calibration of the native concert-grand model. It retains Plugin ABI 1.0 and the existing Plugin ID.
-The project DSL is the sole persistent source of plugin configuration; there is no plugin state
-schema or state restore operation. The prior implementation contracts remain in task-private evidence.
+This design covers the evidence-driven calibration of the native concert-grand model. It retains
+Plugin ABI 1.0 and the existing Plugin ID. Persisted Plugin configuration is owned by the project DSL
+through the shared `PluginConfigurationV1` contract. SuperSynth has no Plugin-owned persistent
+snapshot/load state.
 The complete current engine family inventory and non-piano renderer ownership are split into
 [`super-synth-engine-models-design.md`](super-synth-engine-models-design.md).
 
 The model remains in `wasm/plugins/dsp/super-synth/src/plugin.c`; the Web Player continues to select
-`concert_grand` and does not implement DSP. `soft_piano` remains mapped to `piano`. This refactor adds
-no construction controls to the public parameter catalog and no preset inheritance. All grand
-sound-affecting values move to complete preset-owned profiles. Old opaque plugin-state data is not
-supported or migrated.
+`concert_grand` and does not implement DSP. `soft_piano` remains mapped to `piano`. `presets.json`
+authors grand physical profiles without adding public construction controls or preset inheritance.
+On reload, the Host applies DSL configuration, including preset and public parameters; SuperSynth
+resolves the generated profile and rebuilds transient caches and DSP state as required. Runtime
+profile selection, `g_grand_config`, voice state, and soundboard state are derived transient state.
+The reload flow is: read DSL `PluginConfigurationV1` -> instantiate or reuse the Plugin -> apply the
+factory preset, public parameters, and profile selection -> rebuild transient profile caches and DSP
+state as required. Plugin-owned persistent snapshot/load is none.
 
 ## 2. Metadata ownership and generation path
 
@@ -40,12 +44,10 @@ Update derived metadata through the established generators. Keep generated artif
 `9.0.0`, and keep `compatible_plugin_ids` empty. Update the existing source and generated metadata
 regression expectations together so source, embedded descriptor, and interface cannot drift.
 
-Keep public parameter IDs/paths/types/ranges, enum values, and preset identities/order unchanged
-unless a concrete required change is documented. Add a generic optional factory-preset hook to the
-ABI runtime; do not add SuperSynth-specific shared-runtime symbols or extra-state hooks. Keep Plugin
-ABI 1.0 and all DSL/preset version numbers unchanged. Store the active factory preset ID only in the
-project DSL. Old opaque state blobs are not supported and are not migrated. Regenerate metadata
-derived from the plugin version, including `soraoto.preset_version`.
+Keep public parameter IDs/paths/types/ranges, enum values, preset identities/order, Plugin ABI 1.0,
+and DSL/preset version numbers unchanged. Follow the existing shared DSL/ABI contract for persistence
+and preset application; Stage2N makes no shared ABI changes. Regenerate metadata derived from the
+plugin version, including `soraoto.preset_version`.
 
 ## 3. Runtime and real-time boundaries
 
@@ -76,22 +78,18 @@ JavaScript.
 
 `presets.json` is the sole authored source for every sound-affecting grand-piano coefficient and
 table. Each factory preset whose `engine_model` is `concert_grand` has a complete independent
-`grand_piano_v1` revision-2 `engine_config`; it cannot inherit from another preset or rely on C
+`grand_piano_v1` revision-3 `engine_config`; it cannot inherit from another preset or rely on C
 defaults for missing fields. The generator rejects missing, unknown, malformed, non-finite,
 wrong-length, and out-of-range fields, then emits immutable profiles plus stable preset-ID mapping
 and default-profile identity. DSP reads one statically allocated `g_grand_config`; the generated
 profile layout may contain fixed arrays but no runtime allocation or JSON parsing.
 
-Factory preset and `LOAD_PROGRAM` use the same central application path and ordering: apply public
-values, call the generic optional profile hook, resolve/copy the selected profile, invalidate or
-rebuild config-dependent caches, and clear old grand physical/resonant state if profile identity
-changed. A non-grand preset selects the default `concert_grand` profile for deterministic later manual
-engine changes. Public piano controls remain high-level modifiers over the active baseline.
-
-The Host applies the factory preset ID and typed parameter values from the project DSL. The runtime
-resolves the selected preset's physical profile, rebuilds dependent caches, and clears incompatible
-transient physical audio state. No active preset ID is duplicated in plugin-owned persistence; there
-is no state schema, snapshot, load, or migration path.
+Factory preset and `LOAD_PROGRAM` apply public values, resolve/copy the generated profile, rebuild
+config-dependent caches, and clear incompatible transient grand physical/resonant state when profile
+identity changes. A non-grand preset selects the default `concert_grand` profile for deterministic
+later manual engine changes. Public piano controls remain high-level modifiers over the active
+baseline. The Host reapplies DSL `PluginConfigurationV1` on reload; no separate SuperSynth persistence
+or migration layer exists.
 
 Use `soundboard_mix=0` as a diagnostic bypass of the additive left/right board-radiation output. It
 does not mute dry transverse, bridge, or contact output, and it does not stop board state or
@@ -194,20 +192,22 @@ Do not adjust hammer force and board radiation scale in the same sweep. Any coef
 
 The private `concert_grand.engine_config.hammer.velocity_hardness_amount` is the single calibration
 axis for changing felt hardness with note velocity. It is preset-owned and constrained to `[0,1]`.
-Revision 2 maps effective hardness as
-`clamp(base_hardness + velocity_hardness_amount * (normalized_velocity - 61/127), 0, 1)`.
-Use this same result for felt exponent, stiffness, passive contact loss, hammer mass, and the hardness
-factor in initial hammer velocity. Keep the initial launch intercept/slope fixed at `0.42 / 1.05`.
-Hammer-noise scaling remains based on base hardness and independent of this coefficient. Do not tune
-hammer force, compression endpoints, contact endpoints, or output gain to emulate velocity-dependent
-felt behavior.
+Revision 3 uses the historical piecewise mapping with `pivot = 61/127`. Let `h` be clamped base
+hardness, `v` clamped normalized velocity, and `a` the profile amount in `[0,1]`. If `a == 0`, return
+`h`; if `v <= pivot`, return `h * (1 - a * ((pivot - v) / pivot))`; otherwise return
+`h + (1 - h) * a * ((v - pivot) / (1 - pivot))`. This is continuous at the pivot and remains in
+`[0,1]`. Use the result for felt exponent, stiffness, passive contact loss, hammer mass, and the
+hardness factor in initial hammer velocity. Keep the initial launch intercept/slope fixed at
+`0.42 / 1.05`. Hammer-noise scaling remains based on base hardness. Do not tune hammer force,
+compression endpoints, contact endpoints, or output gain to emulate velocity-dependent felt behavior.
 
-### 5.3 Stage2L revision-2 string-loss and velocity-response model
+### 5.3 Stage2L revision-2 string-loss and velocity-response model carried by Stage2N revision 3
 
-Stage2L is a new internal `grand_piano_v1` profile revision, not a public Plugin or product version.
-Keep Plugin ABI 1.0, Plugin ID, public parameter catalog/ranges, preset identities, and DSL behavior
-unchanged. Set the internal profile schema and generated `GRAND_PROFILE_REVISION` to 2. The strict
-preset-owned schema adds `string.decay_reference_midi = 60.0` and removes
+Stage2L introduced the internal revision-2 `grand_piano_v1` model; Stage2N carries its N/V equations
+forward in revision 3 while restoring the historical H mapping. These are internal profile revisions,
+not public Plugin or product versions. Keep Plugin ABI 1.0, Plugin ID, public parameter catalog/ranges,
+preset identities, and DSL behavior unchanged. The strict preset-owned schema adds
+`string.decay_reference_midi = 60.0` and removes
 `string.reference_loss_velocity_base` / `string.reference_loss_velocity_scale`. At MIDI 61/127 pivot
 velocity, set `string.reference_loss_base = 0.0019965984251968504`; preserve the existing register
 start/width (`0.68 / 0.45`) and agraffe/bridge reference-loss multipliers.
@@ -264,7 +264,31 @@ a change can plausibly affect global pitch, output safety, or lifecycle behavior
 better global average if it creates a severe individual key/layer failure. Velocity response must
 evolve in level and contact/brightness, with plausible harmonics, transient and decay behavior,
  stable high notes, controlled bass, and finite release. Preserve existing plugin safety,
- voice-stealing, and pedal regressions.
+voice-stealing, and pedal regressions.
+
+### 5.5 Stage2N revision-3 production gate
+
+Stage2N is a one-candidate production model gate, independent of the frozen Stage2L revision-2
+budget. Revision 3 reproduces Stage2M mask `011`: preserve N/time-normalized scalar passive loss and
+V/velocity-independent passive reference loss from revision 2, and use the exact historical
+piecewise hardness mapping in §5.1. The profile kind remains `grand_piano_v1`; the authored
+`engine_config.revision` and generated `GRAND_PROFILE_REVISION` are both 3.
+
+For N, retain `cycleExponent = 2^((decay_reference_midi - prepared_pitch) / 12)` and
+`normalizedGain = clampedScalarGain ^ cycleExponent`, with `decay_reference_midi = 60.0`. Preserve
+the prepared-pitch cache and refresh it on string preparation and string-damping changes; do not add
+power/log work to the per-sample string loop. For V, retain
+`reference_loss = reference_loss_base * register_gate` and the existing base/register parameters
+`0.0019965984251968504 / 0.68 / 0.45`.
+
+The single Stage2N semantic candidate is `stage2n-r3-candidate-01`, using exactly Stage2L candidate
+1's parameter vector. First reproduce the fixed 18-cell Stage2M `011` subset from the revision-3
+candidate artifact within existing serialization/evaluator tolerances. Only after equivalence passes,
+run one complete Stage2E evaluation covering Stage 1, Stage 2, direct-reference proxy, held/release,
+and the fixed ordered 32 constraints. This does not extend or decrement Stage2L's 1/12 budget. Do not
+run GPSampler, change thresholds or the pitch estimator, or run Stage 3/4 under this gate. A fully
+feasible baked ordinary production artifact may be declared ready for a separate Stage 3 contract;
+Stage 3 remains locked here.
 
 ### 5.2 Absolute pitch measurement
 
