@@ -62,6 +62,13 @@ function writeJsonAtomic(file,value){
   fs.renameSync(temporary,file);
 }
 function gitHead(root=ROOT){return execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();}
+function assertStage3BHeadLineage(root=ROOT,base=EXPECTED_HEAD){
+  const current=gitHead(root),ancestor=provenance.rtkStatus(['git','merge-base','--is-ancestor',base,current],{cwd:root});
+  if(ancestor.status!==0)throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: current HEAD ${current} is not descended from ${base}`);
+  const protectedDiff=provenance.rtkStatus(['git','diff','--exit-code',base,current,'--',...provenance.PRODUCTION_PATHS],{cwd:root});
+  if(protectedDiff.status!==0)throw new Error('BLOCKED_STAGE3B_PRODUCTION_PROVENANCE_UNRESOLVED: committed production inputs changed after preflight baseline');
+  return current;
+}
 function cellKey(cell){
   const velocity=cell.velocity===null?`n${Math.round(cell.velocityNormalized*100)}`:`v${String(cell.velocity).padStart(3,'0')}`;
   return `mask-${cell.stage3bMask}:midi-${String(cell.pitch).padStart(3,'0')}:${velocity}`;
@@ -195,7 +202,7 @@ function assertStage3BDiagnosticBuildIdentity(root=ROOT){
   const wasm=path.join(buildRoot,STAGE3B_WASM_REL),cache=path.join(buildRoot,'CMakeCache.txt');
   const required=[wasm,cache];
   for(const file of required)if(!fs.existsSync(file))throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: missing ${path.relative(root,file)}`);
-  if(gitHead(root)!==EXPECTED_HEAD)throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: HEAD must remain ${EXPECTED_HEAD}`);
+  const currentHead=assertStage3BHeadLineage(root);
   const authoritative=assertAuthoritativeProductionIdentity(root);
   const stage3a=assertStage3AEvidenceIdentity(root);
   const hashes={...authoritative.hashes,stage3aWasmSha256:sha256(STAGE3A_WASM),stage3bWasmSha256:sha256(wasm),
@@ -215,7 +222,7 @@ function assertStage3BDiagnosticBuildIdentity(root=ROOT){
   return {buildRoot,wasm,hashes,subsetSha256:subsetHash,constraintSchemaSha256:sha256Text(JSON.stringify({stage2mMask:3,stage3bMasks:MASKS,
     requiredMetrics:['envelopeDbfs[5]','envelopeDbfs[3]','spectralCentroidHz','above2kPowerRatio','peakDbfs','finite','outputGuardHits',
       'velocityDerivative','stage2mHammer',...DIAGNOSTIC_SIGNALS]})),sourceRevision:EXPECTED_HEAD,candidateId:CANDIDATE,productionSimd:true,
-    stage2mFactorMask:3,authorizedRenderCount:CELL_COUNT};
+    stage2mFactorMask:3,authorizedRenderCount:CELL_COUNT,sourceRevision:currentHead};
 }
 
 function assertBuildIdentity(root=ROOT){
@@ -232,6 +239,7 @@ function assertBuildIdentity(root=ROOT){
 function loadProductionProvenance(root=ROOT,file=PROVENANCE_FILE){
   if(!fs.existsSync(file))throw new Error('BLOCKED_STAGE3B_PRODUCTION_PROVENANCE_UNRESOLVED: preflight provenance artifact is missing');
   const artifact=readJson(file),descriptor=provenance.descriptorWorkingTreeState(root);
+  const currentHead=assertStage3BHeadLineage(root,artifact.preflightCheckedHead||EXPECTED_HEAD);
   const variants=[artifact.cleanStage2qMetadata,artifact.cleanStage3bBaselineMetadata,artifact.dirtyDescriptorSnapshotMetadata];
   const checkedClassification=provenance.classifyProvenance({embeddedDescriptorSha256:artifact.productionEmbeddedDescriptor?.sha256,
     embeddedInterfaceMatchesStage2q:artifact.productionEmbeddedInterface?.matchesStage2qInterface,variants,
@@ -245,6 +253,7 @@ function loadProductionProvenance(root=ROOT,file=PROVENANCE_FILE){
       ||JSON.stringify(artifact.workingTreeDescriptorState?.after)!==JSON.stringify(descriptor)
       ||artifact.committedProductionPathDiff?.unchanged!==true
       ||artifact.productionEmbeddedInterface?.matchesStage2qInterface!==true
+      ||artifact.postBaselineProductionPathDiff?.unchanged!==true
       ||artifact.classificationEvidence?.matchingVariants?.length!==1
       ||checkedClassification.classification!==artifact.classification
       ||JSON.stringify(checkedClassification.matchingVariants)!==JSON.stringify(artifact.classificationEvidence?.matchingVariants)
@@ -252,12 +261,15 @@ function loadProductionProvenance(root=ROOT,file=PROVENANCE_FILE){
       ||artifact.preflightResult?.checks?.selectionGateTests?.pass!==true
       ||!artifact.preflightReady||!['EXACT_REBUILD_PROVENANCE','SUFFICIENT_METADATA_PROVENANCE'].includes(artifact.classification))
     throw new Error('BLOCKED_STAGE3B_PRODUCTION_PROVENANCE_UNRESOLVED: provenance no longer matches current source/artifact state');
-  return artifact;
+  return {...artifact,currentCheckedHead:currentHead};
 }
 
 function assertPreflightReady(root=ROOT,{provenanceFile=PROVENANCE_FILE}={}){
   const authoritative=assertAuthoritativeProductionIdentity(root),stage3a=assertStage3AEvidenceIdentity(root);
   const diagnostic=assertStage3BDiagnosticBuildIdentity(root),production=loadProductionProvenance(root,provenanceFile);
+  const recorded=production.preflightResult?.checks?.stage3bDiagnosticBuild?.hashes;
+  for(const key of ['stage3bWasmSha256','pluginSourceSha256','cmakeSourceSha256','captureEvaluatorSha256','runnerSha256'])
+    if(!recorded||recorded[key]!==diagnostic.hashes[key])throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: preflight ${key} no longer matches`);
   return {authoritative,stage3a,diagnostic,production};
 }
 
@@ -296,7 +308,7 @@ function gateCorrectionSelfTest(root=ROOT){
 }
 
 function runPreflight({root=ROOT,progress=()=>{},provenanceFile=PROVENANCE_FILE}={}){
-  if(gitHead(root)!==EXPECTED_HEAD)throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: HEAD must remain ${EXPECTED_HEAD}`);
+  assertStage3BHeadLineage(root);
   const checks={authoritativeProduction:null,stage3aEvidence:null,stage3bDiagnosticBuild:null,selectionGateTests:null};
   let provenanceResult=null,provenanceError=null;
   try{checks.authoritativeProduction=assertAuthoritativeProductionIdentity(root);}catch(error){checks.authoritativeProduction={pass:false,error:String(error.message||error)};}

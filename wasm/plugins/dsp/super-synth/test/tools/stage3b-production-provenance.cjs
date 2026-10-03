@@ -215,7 +215,10 @@ function writeJsonAtomic(file,value){
 function runProvenanceReconciliation({root,outputFile,diagnosticBuildCache=null,knownIsolatedProductionSha256=null}={}){
   if(!root||!outputFile)throw new Error('root and private outputFile are required');
   const head=rtk(['git','rev-parse','HEAD'],{cwd:root}).toString('utf8').trim();
-  if(head!==STAGE3B)throw new Error(`expected Stage3B preflight HEAD ${STAGE3B}, got ${head}`);
+  const ancestor=rtkStatus(['git','merge-base','--is-ancestor',STAGE3B,head],{cwd:root});
+  const postBaselineDiff=rtkStatus(['git','diff','--exit-code',STAGE3B,head,'--',...PRODUCTION_PATHS],{cwd:root});
+  if(ancestor.status!==0||postBaselineDiff.status!==0)
+    throw new Error(`Stage3B HEAD must descend from ${STAGE3B} without production-input changes, got ${head}`);
   const before=descriptorWorkingTreeState(root),prod=path.join(root,'build/wasm/plugins/dsp/super-synth/plugin.wasm');
   if(!fs.existsSync(prod)||sha256File(prod)!==AUTHORITATIVE_WASM)
     throw new Error('authoritative production artifact is missing or changed');
@@ -276,7 +279,8 @@ function runProvenanceReconciliation({root,outputFile,diagnosticBuildCache=null,
   const artifact={schemaVersion:1,generatedAt:new Date().toISOString(),authoritativeProductionWasmSha256:sha256File(prod),
     fixedIdentities:{productionWasm:AUTHORITATIVE_WASM,presets:FIXED_PRESETS,profile:FIXED_PROFILE,referenceFixture:FIXED_REFERENCE,
       config:'792c563e3ae6ffbf6bef72b18a6c841a24598e1bc20ad5ec7dd39a4c0832513d'},
-    stage2qCommit:STAGE2Q,stage3bStartingCommit:head,committedProductionPathDiff:pathDiff,
+    stage2qCommit:STAGE2Q,stage3bStartingCommit:STAGE3B,preflightCheckedHead:head,
+    postBaselineProductionPathDiff:{from:STAGE3B,to:head,unchanged:postBaselineDiff.status===0},committedProductionPathDiff:pathDiff,
     workingTreeDescriptorState:{before,after,unchanged:dirtyDescriptorUnchanged},
     productionEmbeddedDescriptor:{...embeddedDescriptor,matchedVariants:cborMatches},
     productionEmbeddedInterface:embeddedInterface,cleanStage2qMetadata:variants[0],cleanStage3bBaselineMetadata:variants[1],
@@ -290,5 +294,5 @@ function runProvenanceReconciliation({root,outputFile,diagnosticBuildCache=null,
 }
 
 module.exports={STAGE2Q,STAGE3A,STAGE3B,AUTHORITATIVE_WASM,FIXED_PROFILE,FIXED_PRESETS,FIXED_REFERENCE,PRODUCTION_PATHS,RUNTIME_ARRAYS,
-  sha256,sha256File,extractNamedCustomSections,cArrayDeclarations,runtimeMetadataFingerprint,classifyProvenance,
+  sha256,sha256File,rtkStatus,extractNamedCustomSections,cArrayDeclarations,runtimeMetadataFingerprint,classifyProvenance,
   cmakeCacheMetadata,captureToolchain,descriptorWorkingTreeState,committedProductionPathDiff,runProvenanceReconciliation,writeJsonAtomic};
