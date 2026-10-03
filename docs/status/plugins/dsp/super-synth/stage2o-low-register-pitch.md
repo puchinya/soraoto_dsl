@@ -35,7 +35,7 @@ Detailed per-cell diagnostics remain private and are not committed.
 ## Verification
 
 - Pitch estimator synthetic conformance: PASS; 84 low-register fixtures, 11 invalid rows where
-  Source A's measured `B_A` was outside range, 72 valid rows, worst valid base-f0 error `0.02304`
+  Source A's evidence did not qualify, remaining measurable cases classified, worst valid base-f0 error `0.02304`
   cents. The mandatory MIDI 21 / −30-cent / B=0.01 fixture is a valid physical FAIL.
 - Above-100-Hz golden regression: PASS for MIDI 48/60/84/108.
 - Salamander fixture: PASS, 480 direct cells / 641 referenced audio items.
