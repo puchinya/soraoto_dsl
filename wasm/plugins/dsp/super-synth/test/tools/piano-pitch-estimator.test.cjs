@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const {estimatePianoPitch, midiToHz, getPianoPitchAnalysisPlan,
   PITCH_ESTIMATOR_REVISION, LOW_REGISTER_FFT_SIZE, LOW_REGISTER_AGREEMENT_CENTS,
-  recoverSpectralBaseF0, classifyLowRegisterWindows} = require('./piano-pitch-estimator.cjs');
+  recoverSpectralBaseF0, classifyLowRegisterWindows, estimateSingleWindow} = require('./piano-pitch-estimator.cjs');
 const {spectrum, peakNearExpected, spectralPeakProminence} = require('./salamander-metrics.cjs');
 
 const SAMPLE_RATE = 48000;
@@ -93,6 +93,9 @@ function lowRegisterFixture(pitch, offsetCents, B, weakFundamental, phaseMode='z
       if(weakFundamental&&n===1)amplitude=0.018;
       if(weakFundamental&&n===2)amplitude=0.82;
       if(weakFundamental&&n===3)amplitude=0.74;
+      if(time>=0.72){
+        amplitude*=profile.latePartialScales?.[n]??profile.lateAmplitudeScale??1;
+      }
       phases[n]+=2*Math.PI*hz/SAMPLE_RATE;
       sample+=amplitude*Math.cos(phases[n])*Math.exp(-time*(0.12+0.025*n));
       if(n===1&&Number.isFinite(profile.h1SideToneCents)){
@@ -101,7 +104,7 @@ function lowRegisterFixture(pitch, offsetCents, B, weakFundamental, phaseMode='z
       }
     }
     seed=(1664525*seed+1013904223)>>>0;
-    const noise=((seed/0x100000000)-0.5)*(profile.noiseAmplitude??1e-6);
+    const noise=((seed/0x100000000)-0.5)*(time>=0.72?(profile.lateNoiseAmplitude??profile.noiseAmplitude??1e-6):(profile.noiseAmplitude??1e-6));
     left[i]=right[i]=(sample+noise)*0.5;
   }
   return {left,right,expectedHz,injectedHz};
@@ -232,7 +235,7 @@ const ambiguous = estimatePianoPitch(ambiguousLeft, ambiguousRight, {
 assert.equal(ambiguous.result, 'MEASUREMENT_INVALID', 'ambiguous pitch must not fall through to PASS/FAIL');
 assert.ok(ambiguous.reason, 'ambiguous pitch must report why its measurement is invalid');
 
-assert.equal(PITCH_ESTIMATOR_REVISION,3,'Stage2P evaluator provenance must identify pitch estimator revision 3');
+assert.equal(PITCH_ESTIMATOR_REVISION,4,'Stage2Q evaluator provenance must identify pitch estimator revision 4');
 assert.equal(LOW_REGISTER_FFT_SIZE,65536);
 assert.equal(LOW_REGISTER_AGREEMENT_CENTS,8);
 
@@ -269,6 +272,33 @@ for(const B of [0,0.003,0.01,0.02]){
   assert.ok(Math.abs(recovered.B_A-B)<=1e-10,`B=${B} recovered ${recovered.B_A}`);
   assert.ok(Math.abs(recovered.f0_A/f0-1)<=1e-10,`B=${B} relative f0 error ${recovered.f0_A/f0-1}`);
 }
+for(const B of [0,0.003,0.01,0.02]){
+  for(const offset of [-30,0,30]){
+    const audio=lowRegisterFixture(21,offset,B,true,'seeded');
+    const fit=estimateSingleWindow(audio.left,audio.right,SAMPLE_RATE,audio.expectedHz,0,20,
+      20+LOW_REGISTER_FFT_SIZE*1000/SAMPLE_RATE,{fixedInharmonicity:B});
+    assert.equal(fit.measurement_valid,true,`fixed B=${B} offset=${offset} invalid: ${fit.reason}`);
+    assert.equal(fit.fitted_B,B,'fixed-B fitter must preserve the exact supplied B');
+    assert.equal(fit.inharmonicity_basis,'fixed-note-level');
+    assert.ok(Math.abs(fit.pitch_error_cents-offset)<=0.5,
+      `fixed-B recovery B=${B}, offset=${offset}: ${fit.pitch_error_cents} cents`);
+  }
+}
+const fixedInvalidB=estimateSingleWindow(lowWindowAudio.left,lowWindowAudio.right,SAMPLE_RATE,
+  lowWindowAudio.expectedHz,0,20,20+LOW_REGISTER_FFT_SIZE*1000/SAMPLE_RATE,{fixedInharmonicity:0.020001});
+assert.equal(fixedInvalidB.measurement_valid,false);
+assert.equal(fixedInvalidB.reason,'fixed-inharmonicity-out-of-range');
+const fixedOutlierAudio=fixture(60,0,0.001,1,{outlier:{partial:5,cents:20}});
+const fixedOutlier=estimateSingleWindow(fixedOutlierAudio.left,fixedOutlierAudio.right,SAMPLE_RATE,
+  fixedOutlierAudio.expectedHz,0,20,550,{fixedInharmonicity:0.001});
+assert.equal(fixedOutlier.fitted_B,0.001,'fixed-B outlier refit must not change B');
+assert.ok(fixedOutlier.rejected_partials.includes(5),'fixed-B robust refit must reject the injected partial outlier');
+const unrestrictedAudio=lowRegisterFixture(21,0,0.003,false);
+const unrestrictedA=estimateSingleWindow(unrestrictedAudio.left,unrestrictedAudio.right,SAMPLE_RATE,
+  unrestrictedAudio.expectedHz,0,20,20+LOW_REGISTER_FFT_SIZE*1000/SAMPLE_RATE);
+const unrestrictedB=estimateSingleWindow(unrestrictedAudio.left,unrestrictedAudio.right,SAMPLE_RATE,
+  unrestrictedAudio.expectedHz,0,20,20+LOW_REGISTER_FFT_SIZE*1000/SAMPLE_RATE,{});
+assert.deepEqual(unrestrictedB,unrestrictedA,'omitting fixedInharmonicity must preserve unrestricted behavior');
 assert.equal(recoverSpectralBaseF0(100,400,100,5,5).reason,'invalid-inharmonicity-denominator');
 assert.equal(recoverSpectralBaseF0(100,190,100,5,5).reason,'inharmonicity-out-of-range');
 const bOverLimit=0.03,f0OverLimit=100;
@@ -291,11 +321,21 @@ for(let pitchIndex=0;pitchIndex<LOW_PITCHES.length;pitchIndex++){
       const B=LOW_B[bIndex];
       const audio=lowRegisterFixture(pitch,offset,B,(pitchIndex+offsetIndex+bIndex)%2===1);
       const result=estimatePianoPitch(audio.left,audio.right,{sampleRate:SAMPLE_RATE,expectedF0:audio.expectedHz,onsetIndex:0});
-      assert.equal(result.pitch_estimator_revision,3,`pitch ${pitch} offset ${offset} B ${B} revision`);
+      assert.equal(result.pitch_estimator_revision,4,`pitch ${pitch} offset ${offset} B ${B} revision`);
       assert.ok(result.low_register_diagnostics.legacy_diagnostic,
         'the prior two-short-window result must remain available as a diagnostic');
       assert.ok(result.low_register_diagnostics.revision2_diagnostic,
         'the Stage2O decision must remain diagnostic-only');
+      assert.ok(result.low_register_diagnostics.diagnostic_only.revision3_result,
+        'Stage2P free-B classification must remain diagnostic-only');
+      assert.equal(result.low_register_diagnostics.note_level_B_source,'full-window-free-fit');
+      assert.equal(result.low_register_diagnostics.note_level_B_valid,true,
+        `pitch ${pitch} offset ${offset} B ${B} must resolve note-level B from FULL`);
+      const Bnote=result.low_register_diagnostics.note_level_B;
+      assert.equal(result.low_register_diagnostics.windows.full.fitted_B,Bnote);
+      assert.equal(result.low_register_diagnostics.windows.early.fitted_B,Bnote);
+      assert.equal(result.low_register_diagnostics.windows.late.fitted_B,Bnote);
+      assert.equal(result.low_register_diagnostics.windows.full.inharmonicity_basis,'fixed-note-level');
       assert.deepEqual(Object.keys(result.low_register_diagnostics.windows),['full','early','late']);
       for(const [name,window] of Object.entries(result.low_register_diagnostics.windows)){
         assert.equal(window.sample_count,name==='full'?65536:32768,`${name} window sample count`);
@@ -307,7 +347,7 @@ for(let pitchIndex=0;pitchIndex<LOW_PITCHES.length;pitchIndex++){
       if(!result.measurement_valid) continue;
       assert.ok(result.low_register_diagnostics.valid_window_names.length>=2,
         `pitch ${pitch} offset ${offset} B ${B} needs two valid windows`);
-      assert.equal(result.measurement_basis,'low-register-multi-window-inharmonic-comb');
+      assert.equal(result.measurement_basis,'low-register-fixed-B-multi-window');
       const knownError=1200*Math.log2(result.estimated_f0/audio.injectedHz);
       row.knownError=knownError;
       validLowRows.push(row);
@@ -362,6 +402,35 @@ const negativeBA=lowMatrix.find(row=>row.measurementValid&&row.sources[0].B_A<0)
 assert.ok(negativeBA,'the synthetic matrix must include a negative diagnostic B_A case');
 assert.ok(negativeBA.measurementValid,'negative diagnostic B_A must not invalidate comb authority');
 
+const identifiabilityAudio=lowRegisterFixture(21,0,0.01,true,'seeded',
+  {lateAmplitudeScale:0.05,lateNoiseAmplitude:0.005});
+const identifiability=estimatePianoPitch(identifiabilityAudio.left,identifiabilityAudio.right,
+  {sampleRate:SAMPLE_RATE,expectedF0:identifiabilityAudio.expectedHz,onsetIndex:0});
+const identifiabilityDiagnostics=identifiability.low_register_diagnostics;
+const freeFull=identifiabilityDiagnostics.free_windows.full;
+const freeLate=identifiabilityDiagnostics.free_windows.late;
+assert.equal(freeFull.measurement_valid,true,'constant-f0 identifiability fixture needs a valid FULL free fit');
+assert.equal(freeLate.measurement_valid,true,'weakened LATE spectrum must still have a valid free fit');
+assert.ok(Math.abs(freeLate.candidate_fitted_B-freeFull.candidate_fitted_B)>=0.0002,
+  `weakened LATE spectrum must reproduce free-B drift: FULL=${freeFull.candidate_fitted_B}, LATE=${freeLate.candidate_fitted_B}`);
+assert.ok(Math.abs(freeLate.candidate_pitch_error_cents-freeFull.candidate_pitch_error_cents)>=3,
+  'the free f0/B pair must show a measurable alternate solution');
+assert.equal(identifiability.measurement_valid,true,
+  `fixed note-level B must resolve the constant-pitch note: ${identifiability.reason}`);
+assert.equal(identifiability.result,'PASS');
+assert.ok(identifiabilityDiagnostics.windows.full.measurement_valid
+  && identifiabilityDiagnostics.windows.early.measurement_valid
+  && identifiabilityDiagnostics.windows.late.measurement_valid);
+assert.ok(identifiabilityDiagnostics.overall_valid_window_spread_cents<=8);
+assert.ok(Math.abs(identifiability.pitch_error_cents)<=0.5,
+  `fixed-B final pitch must follow the injected constant f0: ${identifiability.pitch_error_cents}`);
+const unresolvedAudio={left:new Float64Array(FRAME_COUNT),right:new Float64Array(FRAME_COUNT)};
+const unresolved=estimatePianoPitch(unresolvedAudio.left,unresolvedAudio.right,
+  {sampleRate:SAMPLE_RATE,expectedMidiPitch:21,onsetIndex:0});
+assert.equal(unresolved.measurement_valid,false,'invalid FULL free fit must not fall back to another window');
+assert.equal(unresolved.reason,'note-level-inharmonicity-unresolved');
+assert.equal(unresolved.low_register_diagnostics.note_level_B,null);
+
 const classifierWindow=(cents,valid=true)=>({measurement_valid:valid,pitch_error_cents:cents,
   estimated_f0:midiToHz(21)*2**(cents/1200),fitted_B:0.01,expected_f0:midiToHz(21)});
 const stableThree=classifyLowRegisterWindows({full:classifierWindow(1),early:classifierWindow(2),late:classifierWindow(3)});
@@ -408,7 +477,7 @@ const HIGH_GOLDENS=[
 ];
 for(const golden of HIGH_GOLDENS){
   const result=highGoldenFixture(golden.pitch);
-  assert.equal(result.pitch_estimator_revision,3);
+  assert.equal(result.pitch_estimator_revision,4);
   assert.equal(result.result,'PASS');
   assert.equal(result.measurement_valid,true);
   assert.ok(Math.abs(result.estimated_f0-golden.f0)<=1e-8,`MIDI ${golden.pitch} f0 changed: ${result.estimated_f0}`);
@@ -441,6 +510,13 @@ console.log('PASS piano pitch estimator conformance', JSON.stringify({
   lowRegisterInvalidFixtures:lowMatrix.filter(row=>!row.measurementValid).map(row=>({pitch:row.pitch,offset:row.offset,B:row.B,
     reason:row.reason,sourceAEligible:row.sources[0].eligible,sourceCEligible:row.sources[2].eligible})),
   lowRegisterWorstKnownPitchErrorCents:worstLowKnownError,
+  identifiabilityRegression:{
+    freeBDelta:Math.abs(freeLate.candidate_fitted_B-freeFull.candidate_fitted_B),
+    freeCentsDelta:Math.abs(freeLate.candidate_pitch_error_cents-freeFull.candidate_pitch_error_cents),
+    fixedB:identifiabilityDiagnostics.note_level_B,
+    fixedWindowSpread:identifiabilityDiagnostics.overall_valid_window_spread_cents,
+    result:identifiability.result
+  },
   highRegisterGoldenCount:HIGH_GOLDENS.length,
   estimatorRevision:PITCH_ESTIMATOR_REVISION
 }));

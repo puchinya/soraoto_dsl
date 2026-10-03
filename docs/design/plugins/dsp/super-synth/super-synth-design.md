@@ -309,20 +309,27 @@ fundamental and available supporting partials. A valid measured pitch movement b
 window-spread limit remains a physical pitch-instability `FAIL`, and a confident result outside
 ±15 cents remains a pitch `FAIL`.
 
-For expected fundamentals below 100 Hz, estimator revision 3 measures the stiff-string model's base
+For expected fundamentals below 100 Hz, estimator revision 4 measures the stiff-string model's base
 `f0`, not raw H1. The capture plan exposes three exact Hann windows beginning 20 ms after onset:
 FULL uses 65,536 samples, EARLY uses the first 32,768, and LATE uses the following 32,768. The
-capture must include the FULL end plus its block-alignment margin. All three windows call the same
-single-window inharmonic-comb fit with unchanged ±100-cent base-f0 search, `B` range [0, 0.02],
-local-peak evidence, robust fit, and partial-spread, residual, uncertainty, and search-boundary gates.
+capture must include the FULL end plus its block-alignment margin. First, estimate note-level `B`
+exactly once from the unrestricted FULL-window inharmonic-comb fit. That FULL fit must pass every
+existing validity gate and produce finite `B` in [0, 0.02]; otherwise return
+`MEASUREMENT_INVALID` with `note-level-inharmonicity-unresolved`, without fallback. Then hold this
+`B_note` fixed and independently refit base `f0` in FULL, EARLY, and LATE. The fixed-B fitter uses the
+same partial extraction, cents grid (−100…+100 by 4, then best ±4 by 0.25, then best ±0.25 by 0.05),
+local-peak evidence, robust inlier rejection, and existing partial-spread, residual, uncertainty, and
+search-boundary gates. Per-window free-B estimates remain diagnostic-only; they never determine
+temporal pitch classification.
 
-The low-register measurement requires at least two individually valid window fits. When all valid
+The low-register measurement requires at least two individually valid fixed-B window fits. When all valid
 window estimates span no more than 8 cents, the measurement is valid and its pitch is the median of
 those estimates; apply the unchanged inclusive ±15-cent limit. Exactly two valid windows separated by
 more than 8 cents produce `MEASUREMENT_INVALID`. If all three windows are individually valid but
 their total spread exceeds 8 cents, report a valid physical `FAIL` with reason
-`analysis-window-pitch-instability` and use the estimate with the greatest absolute cents error. Fewer
-than two valid fits are `MEASUREMENT_INVALID`; do not fall back to expected pitch or another estimator.
+`analysis-window-pitch-instability` and use the fixed-B estimate with the greatest absolute cents
+error. Fewer than two valid fixed-B fits are `MEASUREMENT_INVALID`; do not fall back to expected pitch
+or another estimator. The Stage2P free-B temporal classification remains diagnostic evidence only.
 
 The Stage2O H1/H2 inversion, including its `B_A` and `f0_A` diagnostics, is retained as diagnostic-only:
 weak H1 or an invalid two-partial inversion cannot invalidate or classify a multi-window comb result.

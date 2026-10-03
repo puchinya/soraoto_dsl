@@ -13,7 +13,7 @@ const MAX_MEASUREMENT_UNCERTAINTY_CENTS = 8;
 const LOCAL_MATCH_RADIUS_CENTS = 32;
 const MIN_PEAK_SNR_AMPLITUDE = 3;
 const MIN_LOCAL_UNIQUENESS = 1.02;
-const PITCH_ESTIMATOR_REVISION = 3;
+const PITCH_ESTIMATOR_REVISION = 4;
 const LOW_REGISTER_FFT_SIZE = 65536;
 const LOW_REGISTER_START_MS = 20;
 const LOW_REGISTER_MAX_DEVIATION_CENTS = 100;
@@ -367,6 +367,60 @@ function robustFit(matches, expectedHz, initialB) {
       Math.max(1e-30, finalResiduals.reduce((sum, item) => sum + item.weight, 0))), uncertainty};
 }
 
+function robustFitFixedInharmonicity(matches, expectedHz, fixedB) {
+  if (!matches.length || !Number.isFinite(fixedB) || fixedB < 0 || fixedB > 0.02) return null;
+  let fit = fitAtInharmonicity(matches, expectedHz, fixedB);
+  if (!fit) return null;
+  let retained = matches;
+  const inliers = matches.filter(item => Math.abs(1200 * Math.log2(
+    item.frequency / modelFrequency(fit.f0, item.partial, fixedB)
+  )) <= MAX_PARTIAL_FIT_RESIDUAL_CENTS);
+  if (inliers.length >= 2 && inliers.length < matches.length) {
+    const refit = fitAtInharmonicity(inliers, expectedHz, fixedB);
+    if (refit) {
+      retained = inliers;
+      fit = refit;
+    }
+  }
+  const finalResiduals = retained.map(item => ({
+    item,
+    residual: 1200 * Math.log2(item.frequency / modelFrequency(fit.f0, item.partial, fixedB)),
+    weight: Math.max(0.02, item.strength) / item.partial
+  }));
+  const residualMedian = weightedMedian(finalResiduals.map(item => ({
+    value: Math.abs(item.residual), weight: item.weight
+  }))) ?? 0;
+  const partialF0s = retained.map(item => ({
+    partial: item.partial,
+    f0: item.frequency / (item.partial * Math.sqrt(1 + fixedB * item.partial * item.partial)),
+    frequency: item.frequency,
+    residualCents: 1200 * Math.log2(item.frequency / modelFrequency(fit.f0, item.partial, fixedB)),
+    weight: Math.max(0.02, item.strength) / item.partial,
+    snrAmplitude: item.snrAmplitude,
+    uniquenessRatio: item.uniquenessRatio,
+    amplitudeRatio: item.amplitudeRatio,
+    usable: item.usable
+  }));
+  const weightedCenter = weightedMedian(partialF0s.map(item => ({value: item.f0, weight: item.weight})));
+  const totalWeight = Math.max(1e-30, partialF0s.reduce((sum, item) => sum + item.weight, 0));
+  const spread = Math.sqrt(partialF0s.reduce((sum, item) => sum + item.weight *
+    (1200 * Math.log2(item.f0 / weightedCenter)) ** 2, 0) / totalWeight);
+  const binHz = matches[0]?.binHz ?? 0.5;
+  const binUncertaintyCents = 1200 * Math.log2(1 + (binHz / Math.sqrt(12)) / fit.f0);
+  const uncertainty = Math.max(binUncertaintyCents,
+    residualMedian * 1.4826 / Math.sqrt(Math.max(1, retained.length)));
+  const residualWeight = Math.max(1e-30, finalResiduals.reduce((sum, item) => sum + item.weight, 0));
+  return {
+    fit,
+    matches: retained,
+    rejectedPartials: matches.filter(item => !retained.includes(item)).map(item => item.partial),
+    partialF0s,
+    spread,
+    residual: Math.sqrt(finalResiduals.reduce((sum, item) => sum + item.weight * item.residual ** 2, 0) / residualWeight),
+    uncertainty
+  };
+}
+
 function describePartial(partial, used) {
   return {
     partial: partial.n,
@@ -382,7 +436,20 @@ function describePartial(partial, used) {
   };
 }
 
-function estimateSingleWindow(left, right, sampleRate, targetHz, onset, startMs, endMs) {
+function gridSearchFixedInharmonicity(partials, expectedHz, centsValues, fixedB, records) {
+  let best = null;
+  for (const cents of centsValues) {
+    const measurement = candidateScore(partials, expectedHz, cents, fixedB);
+    const candidate = {cents, inharmonicity: fixedB, ...measurement};
+    records.push(candidate);
+    if (!best || candidate.score > best.score) best = candidate;
+  }
+  return best;
+}
+
+function estimateSingleWindow(left, right, sampleRate, targetHz, onset, startMs, endMs, options = {}) {
+  const hasFixedB = Object.prototype.hasOwnProperty.call(options, 'fixedInharmonicity');
+  const fixedB = options.fixedInharmonicity;
   const spectrum = makeSpectrum(left, right, sampleRate, onset, startMs, endMs, targetHz);
   const invalid = (reason, details = {}) => ({
     estimated_f0: null, pitch_error_cents: null, fitted_B: null,
@@ -403,20 +470,37 @@ function estimateSingleWindow(left, right, sampleRate, targetHz, onset, startMs,
     analysis_start_index: spectrum?.start ?? null, analysis_end_index: spectrum?.end ?? null
   });
   if (!spectrum) return invalid('insufficient-analysis-window');
+  if (hasFixedB && (!Number.isFinite(fixedB) || fixedB < 0 || fixedB > 0.02)) {
+    return invalid('fixed-inharmonicity-out-of-range', {candidateFittedB: fixedB});
+  }
   const partials = makePartialPeaks(spectrum, targetHz);
   const candidatePartials = partials.filter(partial => partial.peaks.length > 0);
   if (!candidatePartials.length) return invalid('no-trustworthy-local-partial-peaks', {partials});
 
   const records = [];
-  let best = gridSearch(partials, targetHz, values(-100, 100, 4), values(0, 0.02, 0.0002), records);
-  for (const stage of [
-    {centsRadius: 4, centsStep: 0.25, bRadius: 0.0004, bStep: 0.00002},
-    {centsRadius: 0.25, centsStep: 0.05, bRadius: 0.00004, bStep: 0.000002}
-  ]) {
-    const next = gridSearch(partials, targetHz,
-      values(Math.max(-100, best.cents - stage.centsRadius), Math.min(100, best.cents + stage.centsRadius), stage.centsStep),
-      values(Math.max(0, best.inharmonicity - stage.bRadius), Math.min(0.02, best.inharmonicity + stage.bRadius), stage.bStep), records);
-    if (next.score >= best.score) best = next;
+  let best;
+  if (hasFixedB) {
+    best = gridSearchFixedInharmonicity(partials, targetHz, values(-100, 100, 4), fixedB, records);
+    for (const stage of [
+      {centsRadius: 4, centsStep: 0.25},
+      {centsRadius: 0.25, centsStep: 0.05}
+    ]) {
+      const next = gridSearchFixedInharmonicity(partials, targetHz,
+        values(Math.max(-100, best.cents - stage.centsRadius),
+          Math.min(100, best.cents + stage.centsRadius), stage.centsStep), fixedB, records);
+      if (next.score >= best.score) best = next;
+    }
+  } else {
+    best = gridSearch(partials, targetHz, values(-100, 100, 4), values(0, 0.02, 0.0002), records);
+    for (const stage of [
+      {centsRadius: 4, centsStep: 0.25, bRadius: 0.0004, bStep: 0.00002},
+      {centsRadius: 0.25, centsStep: 0.05, bRadius: 0.00004, bStep: 0.000002}
+    ]) {
+      const next = gridSearch(partials, targetHz,
+        values(Math.max(-100, best.cents - stage.centsRadius), Math.min(100, best.cents + stage.centsRadius), stage.centsStep),
+        values(Math.max(0, best.inharmonicity - stage.bRadius), Math.min(0.02, best.inharmonicity + stage.bRadius), stage.bStep), records);
+      if (next.score >= best.score) best = next;
+    }
   }
   let competingScore = 0;
   for (const candidate of records) {
@@ -425,7 +509,9 @@ function estimateSingleWindow(left, right, sampleRate, targetHz, onset, startMs,
   const confidenceRatio = Math.min(1e6, best.score / Math.max(competingScore, 1e-12));
   const searchBoundaryHit = Math.abs(best.cents) >= 99.95;
   const matched = candidateScore(partials, targetHz, best.cents, best.inharmonicity).matches;
-  const robust = robustFit(matched, targetHz, best.inharmonicity);
+  const robust = hasFixedB
+    ? robustFitFixedInharmonicity(matched, targetHz, fixedB)
+    : robustFit(matched, targetHz, best.inharmonicity);
   if (!robust) return invalid(searchBoundaryHit ? 'pitch-search-boundary' : 'robust-partial-fit-failed', {best, competingScore, confidenceRatio, partials, searchBoundaryHit});
   const fittedCents = robust.fit.cents;
   const used = robust.partialF0s;
@@ -455,8 +541,9 @@ function estimateSingleWindow(left, right, sampleRate, targetHz, onset, startMs,
     pitch_error_cents: measurementValid ? fittedCents : null,
     candidate_estimated_f0: robust.fit.f0,
     candidate_pitch_error_cents: fittedCents,
-    candidate_fitted_B: robust.fit.inharmonicity,
-    fitted_B: measurementValid ? robust.fit.inharmonicity : null,
+    candidate_fitted_B: hasFixedB ? fixedB : robust.fit.inharmonicity,
+    fitted_B: measurementValid ? (hasFixedB ? fixedB : robust.fit.inharmonicity) : null,
+    inharmonicity_basis: hasFixedB ? 'fixed-note-level' : 'free-single-window',
     usable_partial_count: used.length,
     usable_partials: used.map(item => item.partial),
     partial_f0_spread_cents: robust.spread,
@@ -698,7 +785,7 @@ function peakInPhysicalBand(magnitude, binHz, expectedHz, lowHz, highHz) {
   return peak && peak.hz >= lowHz && peak.hz <= highHz ? peak : null;
 }
 
-function classifyLowRegisterWindows(windows) {
+function classifyLowRegisterWindows(windows, {measurementBasis = 'low-register-multi-window-inharmonic-comb'} = {}) {
   const names = ['full', 'early', 'late'];
   const validNames = names.filter(name => windows[name]?.measurement_valid === true
     && Number.isFinite(windows[name].pitch_error_cents));
@@ -712,7 +799,8 @@ function classifyLowRegisterWindows(windows) {
       pitch_error_cents: windows[worstName].pitch_error_cents, estimated_f0: windows[worstName].estimated_f0,
       fitted_B: windows[worstName].fitted_B, valid_window_names: validNames, stable_cluster_names: [],
       stable_cluster_spread_cents: null, overall_valid_window_spread_cents: spread,
-      measurement_basis: 'low-register-multi-window-pitch-trajectory', physical_instability: true};
+      measurement_basis: measurementBasis === 'low-register-fixed-B-multi-window'
+        ? 'low-register-fixed-B-pitch-trajectory' : 'low-register-multi-window-pitch-trajectory', physical_instability: true};
   }
   if (validNames.length < 2) return {measurement_valid: false, result: 'MEASUREMENT_INVALID',
     reason: 'insufficient-valid-low-register-windows', pitch_error_cents: null, estimated_f0: null,
@@ -735,7 +823,7 @@ function classifyLowRegisterWindows(windows) {
     fitted_B: bValues.length ? median(bValues) : null, valid_window_names: validNames,
     stable_cluster_names: validNames, stable_cluster_spread_cents: spread,
     overall_valid_window_spread_cents: spread,
-    measurement_basis: 'low-register-multi-window-inharmonic-comb', physical_instability: false};
+    measurement_basis: measurementBasis, physical_instability: false};
 }
 
 function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, onset) {
@@ -751,12 +839,12 @@ function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, on
     {name: 'early', startMs: LOW_REGISTER_START_MS, endMs: LOW_REGISTER_START_MS + halfDurationMs, sampleCount: halfSampleCount},
     {name: 'late', startMs: LOW_REGISTER_START_MS + halfDurationMs, endMs: fullEndMs, sampleCount: halfSampleCount}
   ];
-  const fits = {};
+  const freeFits = {};
   for (const plan of windowPlans) {
     const fit = estimateSingleWindow(left, right, sampleRate, targetHz, onset, plan.startMs, plan.endMs);
     const exactWindow = Number.isInteger(fit.analysis_start_index) && Number.isInteger(fit.analysis_end_index)
       && fit.analysis_end_index - fit.analysis_start_index === plan.sampleCount;
-    fits[plan.name] = {
+    freeFits[plan.name] = {
       ...fit,
       start_ms: plan.startMs,
       end_ms: plan.endMs,
@@ -766,6 +854,57 @@ function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, on
       result: !exactWindow ? 'MEASUREMENT_INVALID' : fit.result,
       reason: !exactWindow ? 'non-exact-low-register-window' : fit.reason
     };
+  }
+  const fullFreeFit = freeFits.full;
+  const BnoteValid = fullFreeFit.measurement_valid === true
+    && Number.isFinite(fullFreeFit.fitted_B) && fullFreeFit.fitted_B >= 0 && fullFreeFit.fitted_B <= 0.02;
+  const Bnote = BnoteValid ? fullFreeFit.fitted_B : null;
+  const fixedFits = {};
+  if (BnoteValid) {
+    for (const plan of windowPlans) {
+      const fit = estimateSingleWindow(left, right, sampleRate, targetHz, onset,
+        plan.startMs, plan.endMs, {fixedInharmonicity: Bnote});
+      const exactWindow = Number.isInteger(fit.analysis_start_index) && Number.isInteger(fit.analysis_end_index)
+        && fit.analysis_end_index - fit.analysis_start_index === plan.sampleCount;
+      fixedFits[plan.name] = {
+        ...fit,
+        start_ms: plan.startMs,
+        end_ms: plan.endMs,
+        sample_count: plan.sampleCount,
+        exact_window: exactWindow,
+        expected_f0: targetHz,
+        measurement_valid: fit.measurement_valid && exactWindow,
+        result: !exactWindow ? 'MEASUREMENT_INVALID' : fit.result,
+        reason: !exactWindow ? 'non-exact-low-register-window' : fit.reason,
+        inharmonicity_basis: 'fixed-note-level'
+      };
+    }
+  } else {
+    for (const plan of windowPlans) {
+      fixedFits[plan.name] = {
+        ...freeFits[plan.name],
+        estimated_f0: null,
+        pitch_error_cents: null,
+        candidate_estimated_f0: null,
+        candidate_pitch_error_cents: null,
+        fitted_B: null,
+        candidate_fitted_B: null,
+        best_score: null,
+        competing_score: null,
+        confidence_ratio: null,
+        confidence_components: null,
+        usable_partial_count: 0,
+        usable_partials: [],
+        inferred_f0_by_partial: [],
+        rejected_partials: [],
+        partial_candidates: [],
+        inharmonicity_basis: 'fixed-note-level',
+        measurement_valid: false,
+        result: 'MEASUREMENT_INVALID',
+        reason: 'note-level-inharmonicity-unresolved',
+        expected_f0: targetHz
+      };
+    }
   }
 
   const spectralWindow = spectrum(left, right, sampleRate, onset, LOW_REGISTER_START_MS,
@@ -806,7 +945,7 @@ function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, on
     score: autocorrelation?.score ?? null
   };
 
-  const harmonicFit = fits.full;
+  const harmonicFit = fullFreeFit;
   const harmonicCents = harmonicFit.measurement_valid ? harmonicFit.pitch_error_cents : harmonicFit.candidate_pitch_error_cents;
   const harmonicComb = {
     name: 'harmonicComb',
@@ -834,16 +973,31 @@ function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, on
     pitch_error_cents: revision2Valid ? harmonicFit.pitch_error_cents : null,
     source_agreement_cents: sourceSpread
   };
-  const classification = classifyLowRegisterWindows(Object.fromEntries(Object.entries(fits).map(([name, fit]) =>
+  const revision3Classification = classifyLowRegisterWindows(Object.fromEntries(Object.entries(freeFits).map(([name, fit]) =>
     [name, {...fit, expected_f0: targetHz}])));
+  const classification = BnoteValid
+    ? classifyLowRegisterWindows(fixedFits, {measurementBasis: 'low-register-fixed-B-multi-window'})
+    : {measurement_valid: false, result: 'MEASUREMENT_INVALID', reason: 'note-level-inharmonicity-unresolved',
+      pitch_error_cents: null, estimated_f0: null, fitted_B: null, valid_window_names: [],
+      stable_cluster_names: [], stable_cluster_spread_cents: null, overall_valid_window_spread_cents: null,
+      measurement_basis: null, physical_instability: false};
   const {measurement_valid: measurementValid, result, reason, pitch_error_cents: cents,
     estimated_f0: estimatedF0, fitted_B: selectedB, valid_window_names: validWindows,
     stable_cluster_names: stableClusterNames, stable_cluster_spread_cents: stableClusterSpread,
     overall_valid_window_spread_cents: overallSpread, measurement_basis: measurementBasis,
     physical_instability: trajectoryFailure} = classification;
+  const freeBValues = Object.values(freeFits).map(fit => fit.candidate_fitted_B ?? fit.fitted_B)
+    .filter(Number.isFinite);
+  const freeBSpread = freeBValues.length >= 2 ? Math.max(...freeBValues) - Math.min(...freeBValues) : null;
   const diagnostic = {
     estimator_revision: PITCH_ESTIMATOR_REVISION,
-    windows: fits,
+    note_level_B: Bnote,
+    note_level_B_valid: BnoteValid,
+    note_level_B_source: 'full-window-free-fit',
+    full_free_fit: fullFreeFit,
+    free_windows: freeFits,
+    free_B_spread: freeBSpread,
+    windows: fixedFits,
     valid_window_names: validWindows,
     stable_cluster_names: stableClusterNames,
     stable_cluster_spread_cents: stableClusterSpread,
@@ -860,6 +1014,7 @@ function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, on
       stage2o_source_A: spectralFundamental,
       stage2o_autocorrelation: autocorrelationSource,
       revision2_result: revision2Diagnostic,
+      revision3_result: revision3Classification,
       legacy_short_window_result: legacy
     }
   };
@@ -868,15 +1023,15 @@ function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, on
     estimated_f0: estimatedF0,
     pitch_error_cents: cents,
     fitted_B: selectedB,
-    usable_partial_count: measurementValid ? Math.max(...validWindows.map(name => fits[name].usable_partial_count)) : 0,
-    usable_partials: measurementValid ? validWindows.flatMap(name => fits[name].usable_partials) : [],
-    partial_peak_frequencies_hz: Object.fromEntries(Object.entries(fits).map(([name, fit]) => [name, fit.inferred_f0_by_partial])),
-    best_score: fits.full.best_score ?? legacy.best_score,
-    confidence_ratio: fits.full.confidence_ratio ?? legacy.confidence_ratio,
-    confidence_components: fits.full.confidence_components ?? legacy.confidence_components,
+    usable_partial_count: measurementValid ? Math.max(...validWindows.map(name => fixedFits[name].usable_partial_count)) : 0,
+    usable_partials: measurementValid ? validWindows.flatMap(name => fixedFits[name].usable_partials) : [],
+    partial_peak_frequencies_hz: Object.fromEntries(Object.entries(fixedFits).map(([name, fit]) => [name, fit.inferred_f0_by_partial])),
+    best_score: fixedFits.full.best_score ?? legacy.best_score,
+    confidence_ratio: fixedFits.full.confidence_ratio ?? legacy.confidence_ratio,
+    confidence_components: fixedFits.full.confidence_components ?? legacy.confidence_components,
     autocorrelation_pitch_cents: autocorrelationSource.cents,
     estimator_disagreement_cents: overallSpread,
-    window_pitch_errors_cents: Object.values(fits).map(fit => fit.pitch_error_cents),
+    window_pitch_errors_cents: Object.values(fixedFits).map(fit => fit.pitch_error_cents),
     measurement_valid: measurementValid,
     result,
     reason,
@@ -884,15 +1039,18 @@ function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, on
     measurement_basis: measurementBasis,
     low_register_diagnostics: {
       ...diagnostic,
+      note_level_inharmonicity: {value: Bnote, valid: BnoteValid, source: 'full-window-free-fit',
+        reason: BnoteValid ? null : 'note-level-inharmonicity-unresolved', fullFreeFit, freeBSpread},
       window: {startMs: LOW_REGISTER_START_MS, endMs: fullEndMs, sampleCount: LOW_REGISTER_FFT_SIZE,
         startIndex, endIndex: requiredEndIndex, available: enoughSamples},
       sources,
       agreement_cluster: {valid: stableClusterNames.length >= 2, sources: stableClusterNames,
         spreadCents: stableClusterSpread, medianCents: stableClusterNames.length >= 2
-          ? median(validWindows.map(name => fits[name].pitch_error_cents)) : null},
+          ? median(validWindows.map(name => fixedFits[name].pitch_error_cents)) : null},
       clusterSpreadCents: stableClusterSpread,
       final_cents: cents,
       revision2_diagnostic: revision2Diagnostic,
+      revision3_diagnostic: revision3Classification,
       legacy_diagnostic: legacy
     }
   };
@@ -927,6 +1085,7 @@ module.exports = {
   LOW_REGISTER_AGREEMENT_CENTS,
   LOW_REGISTER_MIN_FUNDAMENTAL_PROMINENCE,
   recoverSpectralBaseF0,
+  estimateSingleWindow,
   classifyLowRegisterWindows,
   estimatePianoPitch,
   midiToHz,
