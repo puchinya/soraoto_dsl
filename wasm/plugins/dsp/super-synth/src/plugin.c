@@ -336,6 +336,9 @@ enum {
 static unsigned int g_stage2m_factor_mask=7u;
 static float g_stage2m_hammer_diag[STAGE2M_HAMMER_DIAG_COUNT]={0};
 #endif
+#if defined(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
+static unsigned int g_stage3b_variant_mask=0u;
+#endif
 static float g_sb_diag_sum_sq[SB_DIAG_COUNT]={0};
 static float g_sb_diag_peak[SB_DIAG_COUNT]={0};
 static unsigned int g_sb_diag_frames=0;
@@ -749,6 +752,17 @@ void soraoto_supersynth_stage2m_hammer_diag_reset(void){
 float soraoto_supersynth_stage2m_hammer_diag_value(unsigned int index){
   return index<STAGE2M_HAMMER_DIAG_COUNT?g_stage2m_hammer_diag[index]:-1.0f;
 }
+#if defined(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
+int soraoto_supersynth_stage3b_set_variant_mask(unsigned int mask){
+  if(mask&~3u)return -1;
+  if(mask!=g_stage3b_variant_mask){
+    g_stage3b_variant_mask=mask;
+    dsp_reset();
+  }
+  return 0;
+}
+unsigned int soraoto_supersynth_stage3b_get_variant_mask(void){return g_stage3b_variant_mask;}
+#endif
 #endif
 
 void dsp_set_parameter(int id,float value,int sample_offset){
@@ -943,6 +957,12 @@ static void prepare_grand_strings(Voice* q,float pitch){
   float uni=g_params[P_PIANO_STRING_UNISON]*clampf((pitch-s->unison_activation_start_midi)/s->unison_activation_width_midi,0.0f,1.0f);
   float cents=(s->unison_detune_base_cents+s->unison_detune_amount*uni)*(s->unison_detune_key_base+s->unison_detune_key_scale*key);
   int count=grand_string_count(pitch);
+#if defined(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
+  int coherent_unison=(g_stage3b_variant_mask&2u)!=0u;
+  float coherent_hz=midi_hz(pitch+s->unison_offsets[0]*cents/100.0f);
+  float coherent_strike_delta=(s->strike_offset_base+s->strike_offset_unison_scale*uni)*s->strike_offsets[0];
+  float coherent_strike=clampf(strike+coherent_strike_delta,s->strike_position_min,s->strike_position_max);
+#endif
   for(int st=0;st<3;st++){
     float hz=midi_hz(pitch+(st<count?s->unison_offsets[st]*cents/100.0f:0.0f));
     /* A real unison is not three geometrically identical strings.  Tiny strike-
@@ -951,6 +971,9 @@ static void prepare_grand_strings(Voice* q,float pitch){
        upper-partial envelope without adding an oscillator. */
     float strike_delta=(s->strike_offset_base+s->strike_offset_unison_scale*uni)*s->strike_offsets[st];
     float strike_st=clampf(strike+strike_delta,s->strike_position_min,s->strike_position_max);
+#if defined(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
+    if(coherent_unison&&st<count){hz=coherent_hz;strike_st=coherent_strike;}
+#endif
     /* Boundary filters/all-pass sections contribute about one internal sample
        of phase delay, so shorten the geometric delay by that termination delay. */
     float one_way=rate/(2.0f*(hz>8.0f?hz:8.0f))-s->geometric_phase_delay_samples;
@@ -1004,6 +1027,14 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
     at_a[st]=grand_delay_read_ap(g_grand_h2a[st][vi],ap,al,q->grand_a_frac[st],&q->grand_fd_h2a_x[st],&q->grand_fd_h2a_y[st]);
     at_b[st]=grand_delay_read_ap(g_grand_h2b[st][vi],bp,bl,q->grand_b_frac[st],&q->grand_fd_h2b_x[st],&q->grand_fd_h2b_y[st]);
   }
+#if defined(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
+  if((g_stage3b_variant_mask&1u)!=0u){
+    float raw_sum=0.0f;
+    for(int st=0;st<count;st++)raw_sum+=impedance[st];
+    float scale=raw_sum>0.0f?1.0f/raw_sum:0.0f;
+    for(int st=0;st<4;st++)impedance[st]=st<count?impedance[st]*scale:0.0f;
+  }
+#endif
 #if SORAOTO_GRAND_SIMD
   v128_t v_impedance=wasm_f32x4_mul(wasm_v128_load(impedance),wasm_v128_load(active_lanes));
   v128_t pair=wasm_f32x4_mul(wasm_f32x4_add(wasm_v128_load(in_a),wasm_v128_load(in_b)),wasm_f32x4_splat(.5f));

@@ -71,6 +71,16 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
         throw new Error(`Stage2M factor mask did not persist: ${options.stage2mFactorMask}`);
       e.soraoto_supersynth_stage2m_hammer_diag_reset();
     }
+    if(options.stage3bVariantMask!==undefined){
+      const e=harness.e;
+      if(typeof e.soraoto_supersynth_stage3b_set_variant_mask!=='function'
+          ||typeof e.soraoto_supersynth_stage3b_get_variant_mask!=='function')
+        throw new Error('Stage3B capture requires a test-only Stage3B diagnostic WASM');
+      if((e.soraoto_supersynth_stage3b_set_variant_mask(options.stage3bVariantMask)|0)!==0)
+        throw new Error(`Stage3B variant mask rejected: ${options.stage3bVariantMask}`);
+      if((e.soraoto_supersynth_stage3b_get_variant_mask()>>>0)!==options.stage3bVariantMask)
+        throw new Error(`Stage3B variant mask did not persist: ${options.stage3bVariantMask}`);
+    }
     if(options.includeSoundboardDiagnostics){
       if(typeof harness.e.soraoto_supersynth_soundboard_diag_reset!=='function'
           ||typeof harness.e.soraoto_supersynth_soundboard_diag_sum_squares!=='function'
@@ -144,6 +154,7 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
           selectedToConstrainedAmplitudeRatio:selectedPeak&&nearPeak?selectedPeak.amplitude/Math.max(1e-30,nearPeak.amplitude):null,
           preparedStringNominalHz};
     }
+    if(options.stage3bVariantMask!==undefined)metrics.stage3bVariantMask=options.stage3bVariantMask;
     }
     if(options.includeNearFundamentalProbe&&pitch===21){
       const expectedHz=440*2**((pitch-69)/12);

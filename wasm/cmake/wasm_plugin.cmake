@@ -51,6 +51,9 @@ function(soraoto_add_wasm_plugin group plugin)
     option(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS
       "Build test-only Stage2M factor attribution controls for SuperSynth"
       OFF)
+    option(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS
+      "Build test-only Stage3B string-bundle contact attribution controls for SuperSynth"
+      OFF)
     target_compile_options(${target} PRIVATE -msimd128 -fvectorize -fslp-vectorize)
     if(SORAOTO_SUPERSYNTH_SIMD_DIAGNOSTICS)
       target_compile_options(${target} PRIVATE
@@ -71,6 +74,12 @@ function(soraoto_add_wasm_plugin group plugin)
         message(FATAL_ERROR "Stage2M diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON")
       endif()
       target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=1)
+    endif()
+    if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
+      if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS OR NOT SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+        message(FATAL_ERROR "Stage3B diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON and SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=ON")
+      endif()
+      target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS=1)
     endif()
   elseif(plugin STREQUAL "reverb")
     target_compile_options(${target} PRIVATE -O2)
@@ -103,6 +112,11 @@ function(soraoto_add_wasm_plugin group plugin)
         "-Wl,--export=soraoto_supersynth_stage2m_get_factor_mask"
         "-Wl,--export=soraoto_supersynth_stage2m_hammer_diag_reset"
         "-Wl,--export=soraoto_supersynth_stage2m_hammer_diag_value")
+      if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
+        list(APPEND link_options
+          "-Wl,--export=soraoto_supersynth_stage3b_set_variant_mask"
+          "-Wl,--export=soraoto_supersynth_stage3b_get_variant_mask")
+      endif()
     endif()
   endif()
   target_link_options(${target} PRIVATE ${link_options})

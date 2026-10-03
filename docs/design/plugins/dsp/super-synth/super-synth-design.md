@@ -378,6 +378,14 @@ recording, and near-zero partial ratios are numerically unstable. `full-range-ce
 `adjacent-continuity.csv`, and `velocity-progression.csv` keep every evaluated row visible beside the
 summary distributions.
 
+### Stage3B string-bundle contact attribution
+
+Stage3B is a bounded diagnostic factorial over the existing Stage2N candidate. It does not select production coefficients or change the production model. The diagnostic CMake option `SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS` defaults OFF and requires both guard and Stage2M diagnostics. A build with the option OFF retains the production semantics and must remain byte-identical to the approved production artifact.
+
+The Stage3B variant mask is test-only: bit 1 normalizes the active characteristic impedances to a sum of one while preserving their ratios, and bit 2 applies lane-0 frequency and strike geometry coherently to all active unison strings while preserving separate delay-line state. Mask 0 is the current model; masks 1, 2, and 3 isolate each factor and their combination. Stage2M factor mask stays at 3. A mask change resets DSP state. Neither factor is approved production architecture.
+
+Use the persisted Stage3A mask-0 measurements as the factorial baseline; do not rerender them. Attribute each measured scalar with the two-factor main-effect and interaction equations, and report the two-string and three-string groups separately. Safety failures disqualify the affected factor. Stage3B may recommend a separate design phase, but it must not implement a selected factor in production.
+
 ## 6. Failure and blocker handling
 
 If the official Salamander package cannot be retrieved, its contents are incomplete, or its SFZ

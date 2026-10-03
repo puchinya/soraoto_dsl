@@ -10,7 +10,7 @@ Pull request: [#8](https://github.com/puchinya/soraoto_dsl/pull/8)
 
 ## Fixed identity and accounting
 
-- Recovery baseline: `90dac1247560c16c274eadbde3977baacdc5f149`.
+- Recovery baseline: `90dac1247560c16b274eadbde3977baacdc5f149`.
 - Candidate: `stage2n-r3-candidate-01`; production SIMD WASM SHA-256: `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`.
 - Config SHA-256: `792c563e3ae6ffbf6bef72b18a6c841a24598e1bc20ad5ec7dd39a4c0832513d`; profile SHA-256: `cf3d4adabd055b1b9895820bcaeee95b4a4999d6a245bea06c07fb14eeb7eb66`.
 - Diagnostic WASM SHA-256: `59d661e4e435298baf8f097fc1d85bfc8c517c2af1c23f391963a125cb3328b3`; both required diagnostic build options were ON.
@@ -78,4 +78,4 @@ The detailed machine-readable 192-cell table, per-pitch/velocity rows, all hamme
 - PASS: `rtk git diff --check`.
 - NOT RUN per contract: Stage3 480-cell recapture, six separate equivalence renders, MIDI41 rerender, GPSampler, Stage4, full CTest, Web Player tests/build, manual listening.
 
-Issue #7 remains `OPEN`, `phase:implementation`, `blocked`. Stage3's direct-reference blocker remains authoritative; Stage3A completion does not promote Stage3 or unlock Stage4. The next work requires a separate Stage3B physical-design decision.
+Issue #7 remains `OPEN`, `phase:implementation`, `blocked`. Stage3's direct-reference blocker remains authoritative; Stage3A completion does not promote Stage3 or unlock Stage4. Stage3B instrumentation is implemented, but its required production-build identity could not be reproduced from the isolated baseline because the pre-existing dirty descriptor differs; no Stage3B renders were spent. See [Stage3B contact attribution status](stage3b-contact-attribution.md).
