@@ -2,13 +2,36 @@
 
 const assert=require('node:assert/strict');
 const {MASK,EQUIVALENCE_CELLS,MATRIX_PITCHES,VELOCITIES,MIDI41_NORMALIZED,
-  assertFixedCells,assertMask,compareEquivalence,gainDecomposition,assertHammerInvariants}
+  assertFixedCells,assertMask,compareEquivalence,gainDecomposition,assertHammerInvariants,assertSupplementalCells,
+  validateSupplementalRow,MIDI41_EXPECTED_DERIVATIVE,DIAGNOSTIC_SIGNALS}
   =require('./run-stage3a-velocity-diagnostic.cjs');
 
 assert.equal(MASK,3);
 assert.deepEqual(EQUIVALENCE_CELLS,[[36,14],[36,124],[51,14],[51,124],[96,31],[96,124]]);
 assert.equal(MATRIX_PITCHES.length*VELOCITIES.length+MIDI41_NORMALIZED.length,195);
 assert.deepEqual(MIDI41_NORMALIZED,[0.25,0.55,0.9]);
+const supplemental=MIDI41_NORMALIZED.map(velocityNormalized=>({pitch:41,velocityNormalized}));
+assert.doesNotThrow(()=>assertSupplementalCells(supplemental));
+assert.throws(()=>assertSupplementalCells(supplemental.slice(0,2)),/exactly MIDI 41/);
+assert.throws(()=>assertSupplementalCells([...supplemental,supplemental[0]]),/exactly MIDI 41/);
+assert.throws(()=>assertSupplementalCells([{pitch:40,velocityNormalized:.25},...supplemental.slice(1)]),/exactly MIDI 41/);
+assert.throws(()=>assertSupplementalCells([{pitch:41,velocityNormalized:.25},{pitch:41,velocityNormalized:.55},{pitch:41,velocityNormalized:.91}]),/exactly MIDI 41/);
+assert.throws(()=>assertSupplementalCells([...supplemental].reverse()),/exactly MIDI 41/);
+
+function midi41Row(index,derivative=MIDI41_EXPECTED_DERIVATIVE[index],window=[30,180]){
+  return {pitch:41,velocityNormalized:MIDI41_NORMALIZED[index],metrics:{
+    stage2mFactorMask:3,stage2mHammer:{effectiveHardness:.3,initialHammerVelocity:.7,contactDurationSamples:120,
+      peakForce:20,maxCompression:.0005,postContactTransverseEnergy:100},
+    velocityDerivative:derivative,velocityDerivativeWindowMs:window,envelopeDbfs:[-40,-39,-38,-37,-36],
+    peakDbfs:-12,fullRenderPeakDbfs:-11.9,finite:true,outputGuardHits:0,
+    soundboardDiagnostics:{signals:Object.fromEntries(DIAGNOSTIC_SIGNALS.map(name=>[name,{rms:.01,peak:.02}]))}
+  }};
+}
+assert.equal(validateSupplementalRow(midi41Row(0),0).equivalencePass,true);
+assert.equal(validateSupplementalRow(midi41Row(1,MIDI41_EXPECTED_DERIVATIVE[1]+0.9e-6),1).equivalencePass,true);
+assert.equal(validateSupplementalRow(midi41Row(2,MIDI41_EXPECTED_DERIVATIVE[2]+1.1e-6),2).equivalencePass,false);
+assert.throws(()=>validateSupplementalRow(midi41Row(0,MIDI41_EXPECTED_DERIVATIVE[0],[0,160]),0),/30–180 ms/);
+assert.throws(()=>validateSupplementalRow({...midi41Row(0),metrics:{...midi41Row(0).metrics,outputGuardHits:1}},0),/acoustic\/safety diagnostics/);
 
 const cells=MATRIX_PITCHES.flatMap(pitch=>VELOCITIES.map(velocity=>({pitch,velocity})));
 assert.doesNotThrow(()=>assertFixedCells(cells));
