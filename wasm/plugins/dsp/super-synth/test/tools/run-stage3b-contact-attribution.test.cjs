@@ -1,12 +1,14 @@
 'use strict';
 
 const assert=require('node:assert/strict');
+const crypto=require('node:crypto');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 const {
   EXPECTED_HEAD,CANDIDATE,DYNAMIC_PITCHES,TREBLE_PITCHES,VELOCITIES,TREBLE_VELOCITIES,MIDI41_NORMALIZED,MASKS,SUBSET,CELL_COUNT,
   stage3bPaths,cellKey,cellPath,expectedSubset,makeLedger,counts,assertLedger,validateCell,inspectState,run,finalize,
+  assertMask0EquivalenceAuthorization,
   factorial,normalizeActiveImpedances,worstBaselineFailingPitch,supportGates,midi41FactorGuard,factorSafety,selectDecision,DERIVATIVE_WINDOW
 }=require('./run-stage3b-contact-attribution.cjs');
 
@@ -116,6 +118,90 @@ function fakeMetrics(mask){return {stage2mFactorMask:3,stage3bVariantMask:mask,
 
 function temporaryRoot(callback){const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3b-recovery-'));
   try{return callback(root);}finally{fs.rmSync(root,{recursive:true,force:true});}}
+
+function writeMask0Authorization(root,overrides={}){
+  const base=path.join(root,'.agent-state/issues/7/stage3b');fs.mkdirSync(base,{recursive:true});
+  const provenanceFile=path.join(base,'preflight-provenance.json');fs.writeFileSync(provenanceFile,'{"fixture":"preflight"}\n');
+  const preflightProvenanceSha256=crypto.createHash('sha256').update(fs.readFileSync(provenanceFile)).digest('hex');
+  const artifact={schemaVersion:1,decision:'STAGE3B_MASK0_EQUIVALENT',authorization:'AUTHORIZE_STAGE3B_477_RENDER_MATRIX',
+    candidateId:identity.candidateId,authoritativeProductionWasmSha256:identity.hashes.productionWasmSha256,
+    stage3bDiagnosticWasmSha256:identity.hashes.stage3bWasmSha256,preflightProvenanceSha256,
+    productionCandidateDelta:0,stage4Renders:0,...overrides};
+  const authorizationFile=path.join(base,'mask0-equivalence-authorization.json');
+  fs.writeFileSync(authorizationFile,`${JSON.stringify(artifact,null,2)}\n`);
+  return {authorizationFile,provenanceFile,artifact};
+}
+function testAuthorization(root,files,options={}){
+  let preflightCalls=0,identityCalls=0;
+  const result=assertMask0EquivalenceAuthorization(root,{...files,
+    preflightCheck:(checkedRoot,{provenanceFile})=>{preflightCalls++;assert.equal(checkedRoot,root);assert.equal(provenanceFile,files.provenanceFile);return {};},
+    identityProvider:checkedRoot=>{identityCalls++;assert.equal(checkedRoot,root);return identity;},...options});
+  return {result,preflightCalls,identityCalls};
+}
+
+temporaryRoot(root=>{
+  const files=writeMask0Authorization(root),before=fs.readdirSync(path.dirname(files.authorizationFile)).sort();
+  const checked=testAuthorization(root,files);
+  assert.equal(checked.result.identity,identity);
+  assert.equal(checked.result.authorization.decision,'STAGE3B_MASK0_EQUIVALENT');
+  assert.equal(checked.result.preflightProvenanceSha256,files.artifact.preflightProvenanceSha256);
+  assert.equal(checked.preflightCalls,1);assert.equal(checked.identityCalls,1);
+  assert.deepEqual(fs.readdirSync(path.dirname(files.authorizationFile)).sort(),before,'authorization validation must not write');
+});
+
+temporaryRoot(root=>{
+  const base=path.join(root,'.agent-state/issues/7/stage3b');fs.mkdirSync(base,{recursive:true});
+  const provenanceFile=path.join(base,'preflight-provenance.json');fs.writeFileSync(provenanceFile,'{}\n');
+  assert.throws(()=>assertMask0EquivalenceAuthorization(root,{authorizationFile:path.join(base,'mask0-equivalence-authorization.json'),provenanceFile,
+    preflightCheck:()=>{},identityProvider:()=>identity}),/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/);
+});
+
+temporaryRoot(root=>{
+  const files=writeMask0Authorization(root,{schemaVersion:2});
+  assert.throws(()=>testAuthorization(root,files),/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/);
+});
+for(const [key,value] of [
+  ['decision','WRONG'],['authorization','FORCE'],['candidateId','other-candidate'],
+  ['authoritativeProductionWasmSha256','f'.repeat(64)],['stage3bDiagnosticWasmSha256','e'.repeat(64)],
+  ['preflightProvenanceSha256','c'.repeat(64)],['productionCandidateDelta',1],['stage4Renders',1]
+])temporaryRoot(root=>{
+  const files=writeMask0Authorization(root,{[key]:value});
+  assert.throws(()=>testAuthorization(root,files),/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/,`${key} mismatch must block`);
+});
+
+temporaryRoot(root=>{
+  const files=writeMask0Authorization(root);
+  fs.appendFileSync(files.provenanceFile,'changed\n');
+  assert.throws(()=>testAuthorization(root,files),/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/,
+    'changed preflight provenance invalidates the saved authorization');
+});
+
+temporaryRoot(root=>{
+  const files=writeMask0Authorization(root);
+  const changedIdentity={...identity,hashes:{...identity.hashes,productionWasmSha256:'9'.repeat(64)}};
+  assert.throws(()=>assertMask0EquivalenceAuthorization(root,{...files,preflightCheck:()=>{},identityProvider:()=>changedIdentity}),
+    /BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/,'authorization cannot outlive the authoritative production WASM');
+});
+
+temporaryRoot(root=>{
+  const files=writeMask0Authorization(root);
+  const paths=stage3bPaths(root);let renderCalls=0;
+  assert.throws(()=>run({root,mode:'execute',renderFn:()=>{renderCalls++;return fakeMetrics(1);}}),
+    /BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/);
+  assert.equal(renderCalls,0);
+  assert.equal(fs.existsSync(paths.ledger),false,'execute authorization must block before ledger creation');
+  assert.equal(fs.existsSync(paths.final),false);
+  assert.throws(()=>run({root,mode:'finalize'}),/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/);
+  assert.equal(fs.existsSync(paths.ledger),false);
+  assert.equal(fs.existsSync(paths.final),false,'finalize authorization must block before final-result write');
+});
+
+temporaryRoot(root=>{
+  const paths=stage3bPaths(root);
+  assert.throws(()=>finalize({root,paths}),/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/);
+  assert.equal(fs.existsSync(paths.ledger),false);
+  assert.equal(fs.existsSync(paths.final),false,'direct finalize authorization must block before evidence/final writes');
+});
 
 const initial=makeLedger(identity);
 assert.deepEqual(counts(initial),{PENDING:477,IN_PROGRESS:0,COMPLETE:0});

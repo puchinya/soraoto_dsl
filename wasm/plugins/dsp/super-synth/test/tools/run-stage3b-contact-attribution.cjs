@@ -14,6 +14,7 @@ const provenance=require('./stage3b-production-provenance.cjs');
 const ROOT=path.resolve(__dirname,'../../../../../../');
 const PRIVATE_ROOT=path.join(ROOT,'.agent-state/issues/7/stage3b');
 const PROVENANCE_FILE=path.join(ROOT,'.agent-state/issues/7/stage3b/preflight-provenance.json');
+const MASK0_AUTHORIZATION_FILE=path.join(PRIVATE_ROOT,'mask0-equivalence-authorization.json');
 const STAGE3A_ROOT=path.join(ROOT,'.agent-state/issues/7/stage3a');
 const STAGE3A_RECOVERY=path.join(STAGE3A_ROOT,'recovery');
 const STAGE3A_LEDGER=path.join(STAGE3A_RECOVERY,'recovery-ledger.json');
@@ -271,6 +272,28 @@ function assertPreflightReady(root=ROOT,{provenanceFile=PROVENANCE_FILE}={}){
   for(const key of ['stage3bWasmSha256','pluginSourceSha256','cmakeSourceSha256','captureEvaluatorSha256','runnerSha256'])
     if(!recorded||recorded[key]!==diagnostic.hashes[key])throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: preflight ${key} no longer matches`);
   return {authoritative,stage3a,diagnostic,production};
+}
+
+function assertMask0EquivalenceAuthorization(root=ROOT,{authorizationFile=root===ROOT?MASK0_AUTHORIZATION_FILE:path.join(root,'.agent-state/issues/7/stage3b/mask0-equivalence-authorization.json'),
+  provenanceFile=path.join(root,'.agent-state/issues/7/stage3b/preflight-provenance.json'),
+  preflightCheck=assertPreflightReady,identityProvider=assertBuildIdentity}={}){
+  try{
+    preflightCheck(root,{provenanceFile});
+    const identity=identityProvider(root);
+    if(!fs.existsSync(authorizationFile))throw new Error('authorization artifact is missing');
+    if(!fs.existsSync(provenanceFile))throw new Error('preflight provenance artifact is missing');
+    const authorization=readJson(authorizationFile);
+    const expected={schemaVersion:1,decision:'STAGE3B_MASK0_EQUIVALENT',authorization:'AUTHORIZE_STAGE3B_477_RENDER_MATRIX',
+      candidateId:identity.candidateId,authoritativeProductionWasmSha256:identity.hashes.productionWasmSha256,
+      stage3bDiagnosticWasmSha256:identity.hashes.stage3bWasmSha256,preflightProvenanceSha256:sha256(provenanceFile),
+      productionCandidateDelta:0,stage4Renders:0};
+    for(const [key,value] of Object.entries(expected))if(authorization[key]!==value)
+      throw new Error(`authorization field ${key} mismatch`);
+    return {identity,authorization,preflightProvenanceSha256:expected.preflightProvenanceSha256};
+  }catch(error){
+    if(String(error?.message||error).startsWith('BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED'))throw error;
+    throw new Error(`BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED: ${error.message||error}`);
+  }
 }
 
 function gateCorrectionSelfTest(root=ROOT){
@@ -639,8 +662,7 @@ function validateAggregateFiles(paths,ledger,identity){
 }
 
 function finalize({root=ROOT,paths=stage3bPaths(root),identityOverride=null}={}){
-  const identity=identityOverride||assertBuildIdentity(root);
-  if(!identityOverride)assertPreflightReady(root);
+  const identity=identityOverride||assertMask0EquivalenceAuthorization(root).identity;
   const state=inspectState(paths,identity),ledger=state.ledger;
   if(state.counts.PENDING!==0||state.counts.IN_PROGRESS!==0||state.counts.COMPLETE!==CELL_COUNT)
     throw new Error(`BLOCKED_STAGE3B_DIAGNOSTIC_EVIDENCE: finalization requires 477 COMPLETE cells, got ${JSON.stringify(state.counts)}`);
@@ -660,14 +682,19 @@ function finalize({root=ROOT,paths=stage3bPaths(root),identityOverride=null}={})
 function run({root=ROOT,mode='dry-run',progress=()=>{},renderFn=null,identityOverride=null,failurePoint=null}={}){
   expectedSubset();
   if(mode==='preflight')return runPreflight({root,progress});
-  const identity=identityOverride||assertBuildIdentity(root),paths=stage3bPaths(root),state=inspectState(paths,identity),ledger=state.ledger;
+  if(!['dry-run','execute','finalize'].includes(mode))throw new Error(`explicit mode required: --dry-run, --execute, or --finalize`);
+  let identity;
+  if(identityOverride)identity=identityOverride;
+  else if(mode==='dry-run'){
+    assertPreflightReady(root);
+    identity=assertBuildIdentity(root);
+  }else identity=assertMask0EquivalenceAuthorization(root).identity;
+  const paths=stage3bPaths(root),state=inspectState(paths,identity),ledger=state.ledger;
   if(mode==='dry-run'){
-    if(!identityOverride)assertPreflightReady(root);
     return {decision:'STAGE3B_DRY_RUN',builds:0,renders:0,acousticRenders:0,authorizedNewRenders:CELL_COUNT,
       masks:MASKS,mask0Renders:0,counts:state.counts,identity};
   }
-  if(mode==='finalize')return finalize({root,paths,identityOverride:identity});
-  if(mode!=='execute')throw new Error(`explicit mode required: --dry-run, --execute, or --finalize`);
+  if(mode==='finalize')return identityOverride?finalize({root,paths,identityOverride}):finalize({root,paths});
   if(!state.created)writeJsonAtomic(paths.ledger,ledger);
   const priorBuildDir=process.env.SORAOTO_WASM_BUILD_DIR;
   const {render}=renderFn?{}:require('./capture-supersynth-matrix.cjs');
@@ -727,6 +754,7 @@ module.exports={ROOT,EXPECTED_HEAD,CANDIDATE,EXPECTED,DYNAMIC_PITCHES,TREBLE_PIT
   TREBLE_VELOCITIES,MIDI41_NORMALIZED,MASKS,SUBSET,CELL_COUNT,DERIVATIVE_WINDOW,stage3bPaths,cellKey,cellPath,expectedSubset,
   assertDiagnosticExports,assertProductionStage3BAbsent,assertVariantMaskApi,loadStage3ABaseline,
   assertAuthoritativeProductionIdentity,assertStage3AEvidenceIdentity,assertStage3BDiagnosticBuildIdentity,loadProductionProvenance,assertPreflightReady,
+  MASK0_AUTHORIZATION_FILE,assertMask0EquivalenceAuthorization,
   assertBuildIdentity,gateCorrectionSelfTest,runPreflight,makeLedger,counts,assertLedger,validateCell,inspectState,loadCell,
   normalizeActiveImpedances,factorial,mean,worstBaselineFailingPitch,supportGates,midi41FactorGuard,factorSafety,selectDecision,
   calculateAnalysis,validateAggregateFiles,finalize,run};
