@@ -1,6 +1,6 @@
 'use strict';
 
-const {estimateExpectedPitch} = require('./salamander-metrics.cjs');
+const {estimateExpectedPitch, spectrum, peakNearExpected, spectralPeakProminence} = require('./salamander-metrics.cjs');
 
 const MIN_CONFIDENCE_RATIO = 1.03; // diagnostic compatibility only; not a validity gate
 const DEFAULT_WINDOW_MS = [20, 550];
@@ -13,6 +13,12 @@ const MAX_MEASUREMENT_UNCERTAINTY_CENTS = 8;
 const LOCAL_MATCH_RADIUS_CENTS = 32;
 const MIN_PEAK_SNR_AMPLITUDE = 3;
 const MIN_LOCAL_UNIQUENESS = 1.02;
+const PITCH_ESTIMATOR_REVISION = 2;
+const LOW_REGISTER_FFT_SIZE = 65536;
+const LOW_REGISTER_START_MS = 20;
+const LOW_REGISTER_MAX_DEVIATION_CENTS = 100;
+const LOW_REGISTER_AGREEMENT_CENTS = 8;
+const LOW_REGISTER_MIN_FUNDAMENTAL_PROMINENCE = 3;
 
 function midiToHz(pitch) {
   return 440 * 2 ** ((pitch - 69) / 12);
@@ -495,9 +501,17 @@ function getPianoPitchAnalysisPlan(expectedMidiPitch, {
     throw new RangeError('expected MIDI pitch, sample rate, block size, and minimum duration must be valid');
   }
   const windows = defaultAnalysisWindows(targetHz, startMs);
-  const maximumWindowEndMs = Math.max(...windows.map(window => window[1]));
+  const lowRegisterWindow = targetHz < 100 ? {
+    startMs: LOW_REGISTER_START_MS,
+    endMs: LOW_REGISTER_START_MS + LOW_REGISTER_FFT_SIZE * 1000 / sampleRate,
+    startFrame: Math.floor(sampleRate * LOW_REGISTER_START_MS / 1000),
+    sampleCount: LOW_REGISTER_FFT_SIZE
+  } : null;
+  const maximumWindowEndMs = Math.max(...windows.map(window => window[1]), lowRegisterWindow?.endMs ?? 0);
   const alignmentMarginFrames = blockSize;
-  const requiredWindowFrames = Math.ceil(maximumWindowEndMs * sampleRate / 1000);
+  const requiredWindowFrames = lowRegisterWindow
+    ? lowRegisterWindow.startFrame + lowRegisterWindow.sampleCount
+    : Math.ceil(maximumWindowEndMs * sampleRate / 1000);
   const minimumFrames = Math.ceil(minimumDurationMs * sampleRate / 1000);
   const requiredFrames = Math.ceil(Math.max(
     minimumFrames,
@@ -509,6 +523,7 @@ function getPianoPitchAnalysisPlan(expectedMidiPitch, {
     sampleRate,
     blockSize,
     windows,
+    lowRegisterWindow,
     maximumWindowEndMs,
     alignmentMarginFrames,
     requiredFrames,
@@ -516,7 +531,7 @@ function getPianoPitchAnalysisPlan(expectedMidiPitch, {
   };
 }
 
-function estimatePianoPitch(left, right, {
+function estimatePianoPitchLegacy(left, right, {
   sampleRate = 48000,
   expectedMidiPitch,
   expectedF0,
@@ -642,11 +657,189 @@ function estimatePianoPitch(left, right, {
   };
 }
 
+function recoverSpectralBaseF0(h1Hz, h2Hz, expectedHz, h1Prominence, h2Prominence) {
+  const invalid = reason => ({eligible: false, reason, h1Hz, h2Hz, h1Prominence, h2Prominence,
+    r2: null, denominator: null, B_A: null, f0_A: null, cents_A: null});
+  if (![h1Hz, h2Hz, expectedHz, h1Prominence, h2Prominence].every(Number.isFinite)
+    || !(h1Hz > 0) || !(h2Hz > h1Hz) || !(expectedHz > 0)) return invalid('missing-or-invalid-harmonic-peak');
+  if (h1Prominence < LOW_REGISTER_MIN_FUNDAMENTAL_PROMINENCE
+    || h2Prominence < LOW_REGISTER_MIN_FUNDAMENTAL_PROMINENCE) return invalid('insufficient-h1-h2-prominence');
+  const r2 = (h2Hz / (2 * h1Hz)) ** 2;
+  const denominator = 4 - r2;
+  if (!(denominator > 0)) return {...invalid('invalid-inharmonicity-denominator'), r2, denominator};
+  const B_A = (r2 - 1) / denominator;
+  // Permit only floating-point comparison roundoff at the closed domain endpoints;
+  // preserve the computed B_A unchanged and never clamp the measurement.
+  const domainRoundoff = 1e-12;
+  if (!Number.isFinite(B_A) || B_A < -domainRoundoff || B_A > 0.02 + domainRoundoff) {
+    return {...invalid('inharmonicity-out-of-range'), r2, denominator, B_A};
+  }
+  const f0_A = h1Hz / Math.sqrt(1 + B_A);
+  const cents_A = 1200 * Math.log2(f0_A / expectedHz);
+  if (!Number.isFinite(f0_A) || !Number.isFinite(cents_A)) return {...invalid('non-finite-base-f0'), r2, denominator, B_A};
+  return {eligible: true, reason: null, h1Hz, h2Hz, h1Prominence, h2Prominence,
+    r2, denominator, B_A, f0_A, cents_A};
+}
+
+function peakInPhysicalBand(magnitude, binHz, expectedHz, lowHz, highHz) {
+  if (!(lowHz > 0) || !(highHz > lowHz)) return null;
+  const centerHz = Math.sqrt(lowHz * highHz);
+  const maxCents = Math.max(1200 * Math.log2(centerHz / lowHz), 1200 * Math.log2(highHz / centerHz));
+  const peak = peakNearExpected(magnitude, binHz, centerHz, maxCents);
+  return peak && peak.hz >= lowHz && peak.hz <= highHz ? peak : null;
+}
+
+function estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, onset) {
+  const legacy = estimatePianoPitchLegacy(left, right, {...options, sampleRate});
+  const endMs = LOW_REGISTER_START_MS + LOW_REGISTER_FFT_SIZE * 1000 / sampleRate;
+  const startIndex = onset + Math.floor(sampleRate * LOW_REGISTER_START_MS / 1000);
+  const requiredEndIndex = startIndex + LOW_REGISTER_FFT_SIZE;
+  const enoughSamples = requiredEndIndex <= left.length && requiredEndIndex <= right.length;
+  const invalidResult = (reason, sources, fit, cluster) => ({
+    ...legacy,
+    estimated_f0: null,
+    pitch_error_cents: null,
+    fitted_B: fit?.fitted_B ?? fit?.candidate_fitted_B ?? null,
+    autocorrelation_pitch_cents: sources[1]?.cents ?? null,
+    estimator_disagreement_cents: null,
+    measurement_valid: false,
+    result: 'MEASUREMENT_INVALID',
+    reason,
+    pitch_estimator_revision: PITCH_ESTIMATOR_REVISION,
+    low_register_diagnostics: {
+      estimator_revision: PITCH_ESTIMATOR_REVISION,
+      window: {startMs: LOW_REGISTER_START_MS, endMs, sampleCount: LOW_REGISTER_FFT_SIZE,
+        startIndex, endIndex: requiredEndIndex, available: enoughSamples},
+      sources,
+      agreement_cluster: cluster,
+      final_cents: null,
+      legacy_diagnostic: legacy
+    }
+  });
+  if (!enoughSamples) return invalidResult('insufficient-exact-low-register-window', [], null, {valid: false, sources: [], spreadCents: null, medianCents: null});
+
+  const spectralWindow = spectrum(left, right, sampleRate, onset, LOW_REGISTER_START_MS,
+    LOW_REGISTER_FFT_SIZE);
+  const baseMinHz = targetHz * 2 ** (-LOW_REGISTER_MAX_DEVIATION_CENTS / 1200);
+  const baseMaxHz = targetHz * 2 ** (LOW_REGISTER_MAX_DEVIATION_CENTS / 1200);
+  const h1Peak = spectralWindow?.sampleCount === LOW_REGISTER_FFT_SIZE
+    ? peakInPhysicalBand(spectralWindow.magnitude, spectralWindow.binHz, targetHz,
+      baseMinHz, baseMaxHz * Math.sqrt(1.02)) : null;
+  const h2Peak = spectralWindow?.sampleCount === LOW_REGISTER_FFT_SIZE
+    ? peakInPhysicalBand(spectralWindow.magnitude, spectralWindow.binHz, targetHz,
+      2 * baseMinHz, 2 * baseMaxHz * Math.sqrt(1.08)) : null;
+  const h1Prominence = h1Peak
+    ? spectralPeakProminence(spectralWindow.magnitude, spectralWindow.binHz, h1Peak.hz, h1Peak.amplitude) : null;
+  const h2Prominence = h2Peak
+    ? spectralPeakProminence(spectralWindow.magnitude, spectralWindow.binHz, h2Peak.hz, h2Peak.amplitude) : null;
+  const spectralBase = h1Peak && h2Peak
+    ? recoverSpectralBaseF0(h1Peak.hz, h2Peak.hz, targetHz, h1Prominence, h2Prominence)
+    : {eligible: false, reason: !h1Peak ? 'missing-h1-peak' : 'missing-h2-peak', h1Hz: h1Peak?.hz ?? null,
+      h2Hz: h2Peak?.hz ?? null, h1Prominence, h2Prominence, r2: null, denominator: null,
+      fittedB: null, f0: null, cents: null};
+  const spectralFundamental = {name: 'spectralBaseF0', ...spectralBase,
+    cents: spectralBase.cents_A, frequencyHz: spectralBase.f0_A,
+    rawH1Cents: h1Peak ? 1200 * Math.log2(h1Peak.hz / targetHz) : null,
+    windowSampleCount: spectralWindow?.sampleCount ?? 0};
+
+  const autocorrelation = estimateExpectedPitch(left, right, targetHz, sampleRate, {
+    onset,
+    startMs: LOW_REGISTER_START_MS,
+    endMs,
+    maxDeviationCents: 85
+  });
+  const autocorrelationSource = {
+    name: 'autocorrelation',
+    eligible: Boolean(autocorrelation && Number.isFinite(autocorrelation.cents)),
+    cents: autocorrelation?.cents ?? null,
+    frequencyHz: autocorrelation?.hz ?? null,
+    score: autocorrelation?.score ?? null
+  };
+
+  const harmonicFit = estimateSingleWindow(left, right, sampleRate, targetHz, onset, LOW_REGISTER_START_MS, endMs);
+  const harmonicCents = harmonicFit.measurement_valid ? harmonicFit.pitch_error_cents : harmonicFit.candidate_pitch_error_cents;
+  const harmonicComb = {
+    name: 'harmonicComb',
+    eligible: Boolean(harmonicFit.measurement_valid && Number.isFinite(harmonicFit.pitch_error_cents)),
+    cents: Number.isFinite(harmonicCents) ? harmonicCents : null,
+    frequencyHz: harmonicFit.estimated_f0 ?? harmonicFit.candidate_estimated_f0 ?? null,
+    fittedB: harmonicFit.fitted_B ?? harmonicFit.candidate_fitted_B ?? null,
+    B_C: harmonicFit.fitted_B ?? harmonicFit.candidate_fitted_B ?? null,
+    f0_C: harmonicFit.estimated_f0 ?? harmonicFit.candidate_estimated_f0 ?? null,
+    cents_C: Number.isFinite(harmonicCents) ? harmonicCents : null,
+    valid: harmonicFit.measurement_valid,
+    diagnostics: harmonicFit
+  };
+  const sources = [spectralFundamental, autocorrelationSource, harmonicComb];
+  const sourceSpread = spectralFundamental.eligible && harmonicComb.eligible
+    ? Math.abs(spectralFundamental.cents - harmonicComb.cents) : null;
+  const consensusValid = spectralFundamental.eligible && harmonicComb.eligible
+    && sourceSpread <= LOW_REGISTER_AGREEMENT_CENTS;
+  const consensus = {valid: consensusValid, sources: consensusValid ? ['spectralBaseF0', 'harmonicComb'] : [], spreadCents: sourceSpread};
+  if (!consensusValid) return invalidResult('low-register-spectral-comb-disagreement', sources, harmonicFit, consensus);
+
+  const cents = harmonicFit.pitch_error_cents;
+  const estimatedF0 = harmonicFit.estimated_f0;
+  return {
+    ...legacy,
+    estimated_f0: estimatedF0,
+    pitch_error_cents: cents,
+    fitted_B: harmonicFit.fitted_B ?? harmonicFit.candidate_fitted_B ?? null,
+    usable_partial_count: harmonicFit.usable_partial_count ?? 0,
+    usable_partials: harmonicFit.usable_partials ?? [],
+    partial_peak_frequencies_hz: harmonicFit.inferred_f0_by_partial ?? [],
+    best_score: harmonicFit.best_score ?? legacy.best_score,
+    confidence_ratio: harmonicFit.confidence_ratio ?? legacy.confidence_ratio,
+    confidence_components: harmonicFit.confidence_components ?? legacy.confidence_components,
+    autocorrelation_pitch_cents: autocorrelationSource.cents,
+    estimator_disagreement_cents: sourceSpread,
+    measurement_valid: true,
+    result: Math.abs(cents) <= 15 ? 'PASS' : 'FAIL',
+    reason: null,
+    pitch_estimator_revision: PITCH_ESTIMATOR_REVISION,
+    measurement_basis: 'low-register-base-f0-spectral-comb-consensus',
+    low_register_diagnostics: {
+      estimator_revision: PITCH_ESTIMATOR_REVISION,
+      window: {startMs: LOW_REGISTER_START_MS, endMs, sampleCount: LOW_REGISTER_FFT_SIZE,
+        startIndex, endIndex: requiredEndIndex, available: true},
+      sources,
+      agreement_cluster: consensus,
+      clusterSpreadCents: sourceSpread,
+      final_cents: cents,
+      legacy_diagnostic: legacy
+    }
+  };
+}
+
+function estimatePianoPitch(left, right, options = {}) {
+  const sampleRate = options.sampleRate ?? 48000;
+  const targetHz = Number.isFinite(options.expectedF0) ? options.expectedF0 : midiToHz(options.expectedMidiPitch);
+  if (!(left instanceof Float32Array || left instanceof Float64Array)
+    || !(right instanceof Float32Array || right instanceof Float64Array)
+    || left.length !== right.length) {
+    return estimatePianoPitchLegacy(left, right, options);
+  }
+  if (targetHz >= 100) {
+    return {...estimatePianoPitchLegacy(left, right, options), pitch_estimator_revision: PITCH_ESTIMATOR_REVISION};
+  }
+  const onset = Number.isInteger(options.onsetIndex)
+    ? Math.max(0, Math.min(left?.length ?? 0, options.onsetIndex))
+    : detectOnset(left, right, sampleRate);
+  return estimateLowRegisterPitch(left, right, options, sampleRate, targetHz, onset);
+}
+
 module.exports = {
   MIN_CONFIDENCE_RATIO,
   MAX_WINDOW_PITCH_SPREAD_CENTS,
   MAX_PARTIAL_F0_SPREAD_CENTS,
   MAX_PARTIAL_FIT_RESIDUAL_CENTS,
+  PITCH_ESTIMATOR_REVISION,
+  LOW_REGISTER_FFT_SIZE,
+  LOW_REGISTER_START_MS,
+  LOW_REGISTER_MAX_DEVIATION_CENTS,
+  LOW_REGISTER_AGREEMENT_CENTS,
+  LOW_REGISTER_MIN_FUNDAMENTAL_PROMINENCE,
+  recoverSpectralBaseF0,
   estimatePianoPitch,
   midiToHz,
   defaultAnalysisWindows,

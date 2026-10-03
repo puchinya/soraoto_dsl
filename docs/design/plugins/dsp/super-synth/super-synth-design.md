@@ -301,28 +301,47 @@ tracks local partial peaks, and robustly fits `f_n = n*f0*sqrt(1+B*n^2)`. The es
 least two independent stable windows; it reports per-partial inferred f0, fit residual, uncertainty,
 window spread, and local peak evidence. A search-boundary result is invalid.
 
-Below 1 kHz, a stable pitch measurement requires two coherent usable partials shared across both
-windows; no exact harmonic pair is required. From 1–3 kHz, prefer three or more, while two may
-establish a stable measurement when they are locally unambiguous and pass the existing residual and
-uncertainty checks. Above 3 kHz, use the expected-f0 local fundamental and any supporting partials
-that are present; do not require a fixed harmonic count. If every analysis window independently
-has valid partial-fit evidence but the measured pitch moves beyond the approved window-spread limit,
-classify that as a physical pitch-instability `FAIL` and report the worst absolute window offset.
-Do not average the movement into a passing pitch or label it `MEASUREMENT_INVALID`. A confidently
-measured pitch outside ±15 cents is likewise a physical-pitch failure, not `MEASUREMENT_INVALID`.
+For expected fundamentals from 100 Hz upward, retain the existing estimator selection, analysis
+windows, validity gates, and result behavior. In particular, below 1 kHz a stable measurement
+requires two coherent usable partials shared across both windows; from 1–3 kHz, two locally
+unambiguous partials may establish a valid measurement; above 3 kHz, use the expected-f0 local
+fundamental and available supporting partials. A valid measured pitch movement beyond the approved
+window-spread limit remains a physical pitch-instability `FAIL`, and a confident result outside
+±15 cents remains a pitch `FAIL`.
+
+For expected fundamentals below 100 Hz, estimator revision 2 measures the stiff-string model's base
+`f0`, not the raw first-partial frequency. It uses an exact 65,536-sample Hann window beginning 20 ms
+after onset; the capture plan must include all samples plus its block-alignment margin. Source A finds
+H1 and H2 within the physical bands implied by base-f0 ±100 cents and `B` in [0, 0.02], using the
+shared spectral helpers and prominence definition. Both peaks must have prominence >=3. From the
+observed partial frequencies `p1` and `p2`, calculate `r2=(p2/(2*p1))^2`, `B_A=(r2-1)/(4-r2)`, and
+`f0_A=p1/sqrt(1+B_A)`. An invalid denominator or `B_A` outside [0, 0.02] makes Source A ineligible;
+do not clamp `B_A` or move its result toward expected pitch.
+
+Source C runs the existing full inharmonic single-window harmonic-comb fit over that same exact
+interval, preserving its ±100-cent base-f0 search, inharmonicity range, local-peak evidence, robust
+fit, and validity gates. It is eligible only when that fit is valid. Source B continues to calculate
+the existing expected-lag autocorrelation estimate over the same interval for diagnostics, but it is
+not an authority below 100 Hz: it cannot veto or rescue Source A/C agreement.
+
+A low-register measurement is valid only when both Source A and Source C are eligible and their
+base-f0 estimates agree within 8 cents. The authoritative estimate is Source C's fitted base `f0`; do
+not average A and C. Otherwise report `MEASUREMENT_INVALID` with reason
+`low-register-spectral-comb-disagreement`. For a valid measurement, apply the unchanged inclusive
+±15-cent limit to Source C: within the limit is `PASS`, and outside it is a physical pitch `FAIL`.
+Record raw H1, H2, `B_A`, `f0_A`, Source B diagnostics, `B_C`, `f0_C`, A/C spread, validity, and
+estimator revision. This rule is selected by expected frequency, never by MIDI note number.
 
 Stage 2 and Stage 4 must not use different estimators or shift the synth result by a Salamander
 source offset.
 
-Autocorrelation, the single-peak `fundamentalHz` estimate, and the Salamander source pitch offset
-are diagnostics only. Best-to-competitor score ratio is diagnostic and is not the sole confidence
-gate. Measurement validity depends on coherent within-window partials, robust-fit residual and
-uncertainty, and local peak evidence. Cross-window pitch movement remains a reported physical
-constraint; a result without adequate per-window evidence is `MEASUREMENT_INVALID`, neither a pass
-nor a reason to fall back to autocorrelation. Re-evaluate the measurement rather than widening ±15
-cents. Do not proceed to Stage 3 while Stage 2 has no passing candidate; if the existing Stage 1
-candidates still produce no Stage 2 passer, report the failing cells and metrics before making any
-new physical-model change.
+For expected fundamentals at or above 100 Hz, all existing estimator selection and validity behavior
+remains unchanged; autocorrelation, the single-peak `fundamentalHz` estimate, and the Salamander
+source pitch offset remain diagnostics only. Below 100 Hz, autocorrelation is diagnostic only.
+For all registers, best-to-competitor score ratio is diagnostic and is not the sole confidence gate;
+the synth result is never shifted by a Salamander source offset. Do not proceed to Stage 3 while
+Stage 2 has no passing candidate; report failing cells and metrics before making any new physical-model
+change.
 
 The soundboard-control regression is an independent acceptance blocker. Keep the control and
 bypass checks substantive; do not lower their limits to conceal an ineffective radiation path. A

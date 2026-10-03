@@ -80,7 +80,7 @@ function spectrum(left, right, sampleRate, onset, startMs = 20, size = FFT_SIZE)
   const count = size / 2 + 1;
   const magnitude = new Float64Array(count);
   for (let i = 0; i < count; i++) magnitude[i] = Math.hypot(real[i], imag[i]);
-  return {magnitude, binHz: sampleRate / size};
+  return {magnitude, binHz: sampleRate / size, sampleCount: available, startIndex: start};
 }
 
 function peakNear(magnitude, binHz, hz) {
@@ -446,4 +446,4 @@ function toneMag(signal, frequencyHz, startSeconds=0.08, endSeconds=0.65, sample
   return Math.hypot(real,imaginary)/Math.max(1e-12,windowSum);
 }
 
-module.exports = {FFT_SIZE, WINDOWS_MS, analyzeStereo, estimateExpectedPitch, spectrum, peakNear, peakNearExpected, decodeWav24Stereo, toneMag};
+module.exports = {FFT_SIZE, WINDOWS_MS, analyzeStereo, estimateExpectedPitch, spectrum, peakNear, peakNearExpected, spectralPeakProminence, decodeWav24Stereo, toneMag};
