@@ -164,7 +164,13 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
       metrics.harmonicSparsity={h1,h2,h3,h2ToH1:h2/Math.max(1e-12,h1),h3ToH1:h3/Math.max(1e-12,h1),minimumH2ToH1:.12,minimumH3ToH1:.05};
     }
     if(options.includeLowRegisterBuzz)metrics.lowRegisterBuzz=derivative(left,.05,.25);
-    if(options.includeVelocityDerivative)metrics.velocityDerivative=derivative(left,0,.16);
+    if(options.includeVelocityDerivative){
+      const startMs=Number.isFinite(options.velocityDerivativeStartMs)?options.velocityDerivativeStartMs:0;
+      const endMs=Number.isFinite(options.velocityDerivativeEndMs)?options.velocityDerivativeEndMs:160;
+      if(startMs<0||endMs<=startMs)throw new Error('invalid velocity derivative window');
+      metrics.velocityDerivative=derivative(left,startMs/1000,endMs/1000);
+      metrics.velocityDerivativeWindowMs=[startMs,endMs];
+    }
     metrics.outputGuardHits=guardCount===null?null:harness.e.soraoto_supersynth_guard_hit_count()-guardCount;
     if(options.includeSoundboardDiagnostics){
       const frames=harness.e.soraoto_supersynth_soundboard_diag_frames();

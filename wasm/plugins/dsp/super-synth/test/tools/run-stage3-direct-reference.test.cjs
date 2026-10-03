@@ -11,6 +11,7 @@ const {
   validateReferenceFixture,
   assertExactCoverage,
   compareSentinelMetrics,
+  selectStage3Decision,
 } = require('./run-stage3-direct-reference.cjs');
 
 const fixturePath = path.resolve(__dirname, '../reference/salamander-grand-piano-v3-metrics.json');
@@ -44,5 +45,16 @@ assert.equal(compareSentinelMetrics(row(), row({finite: false})).pass, false);
 assert.equal(compareSentinelMetrics(row(), row({outputGuardHits: 1})).pass, false);
 assert.equal(compareSentinelMetrics(row(), {...row(), pitch: 61}).reason, 'sentinel cell identity mismatch');
 assert.equal(SENTINELS.length, 6);
+
+assert.equal(selectStage3Decision({deterministic: false, directPass: false, regressionsPass: false}),
+  'BLOCKED_STAGE3_NONDETERMINISTIC_CAPTURE');
+assert.equal(selectStage3Decision({deterministic: true, directPass: false, regressionsPass: false}),
+  'BLOCKED_STAGE3_DIRECT_REFERENCE');
+assert.equal(selectStage3Decision({deterministic: true, directPass: false, regressionsPass: true}),
+  'BLOCKED_STAGE3_DIRECT_REFERENCE');
+assert.equal(selectStage3Decision({deterministic: true, directPass: true, regressionsPass: false}),
+  'BLOCKED_STAGE3_INDEPENDENT_REGRESSION');
+assert.equal(selectStage3Decision({deterministic: true, directPass: true, regressionsPass: true}),
+  'STAGE3_READY_FOR_STAGE4');
 
 console.log('PASS Stage3 direct-reference runner validation and sentinel rules');

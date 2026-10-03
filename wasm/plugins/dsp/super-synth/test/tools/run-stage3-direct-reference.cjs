@@ -150,6 +150,13 @@ function evaluateDirect(fixture, capture) {
   return {direct,counts,diagnostics:diagnostics(direct),pass};
 }
 
+function selectStage3Decision({deterministic,directPass,regressionsPass}) {
+  if (!deterministic) return 'BLOCKED_STAGE3_NONDETERMINISTIC_CAPTURE';
+  if (!directPass) return 'BLOCKED_STAGE3_DIRECT_REFERENCE';
+  if (!regressionsPass) return 'BLOCKED_STAGE3_INDEPENDENT_REGRESSION';
+  return 'STAGE3_READY_FOR_STAGE4';
+}
+
 function sanitizeCapture(capture) {
   const {wasmBuildRoot: _privateBuildPath, ...render}=capture.render;
   return {...capture,render};
@@ -206,9 +213,7 @@ function run(mode, regressionResultsPath = null) {
     shapeErrorDb:cell.postAttackShapeErrorDb,peakDbfs:cell.peakDbfs,guardHits:cell.guardHits,finite:cell.finite}));
   const directPass=result.pass;
   const regressionsPass=['concertGrand','pianoRealism'].every(name=>regressionResults[name].result==='PASS');
-  const stage3Pass=reference.directCells===480&&coverage.unique===480&&directPass&&deterministic&&regressionsPass;
-  const decision=stage3Pass?'STAGE3_READY_FOR_STAGE4':!regressionsPass?'BLOCKED_STAGE3_INDEPENDENT_REGRESSION'
-    :!deterministic?'BLOCKED_STAGE3_NONDETERMINISTIC_CAPTURE':!directPass?'BLOCKED_STAGE3_DIRECT_REFERENCE':'BLOCKED_STAGE3_CAPTURE_COVERAGE';
+  const decision=selectStage3Decision({deterministic,directPass,regressionsPass});
   const finished=new Date().toISOString();
   const evidence={schemaVersion:1,decision,started,finished,identity,reference,coverage,
     capture:{pitches:EXPECTED_PITCHES,velocities:EXPECTED_VELOCITIES,cells:480,uniqueCells:480,
@@ -244,4 +249,4 @@ if (require.main===module) {
 
 module.exports={BASELINE_HEAD,CANDIDATE_ID,EXPECTED_WASM_SHA256,EXPECTED_CONFIG_SHA256,EXPECTED_ARCHIVE_SHA256,
   EXPECTED_PITCHES,EXPECTED_VELOCITIES,SENTINELS,SERIALIZATION_TOLERANCE,validateReferenceFixture,
-  assertExactCoverage,compareSentinelMetrics,countHardFailures,percentileSummary,evaluateDirect};
+  assertExactCoverage,compareSentinelMetrics,countHardFailures,percentileSummary,evaluateDirect,selectStage3Decision};

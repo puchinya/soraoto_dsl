@@ -6,7 +6,7 @@ Pull request: [#8](https://github.com/puchinya/soraoto_dsl/pull/8)
 
 ## Result
 
-**`BLOCKED_STAGE3_INDEPENDENT_REGRESSION`**. The fixed Stage3 measurement completed with 480/480 unique direct-reference cells and six deterministic sentinel re-renders. The contract's independent `concert-grand-regression.test.js` failed, so Stage4 remains locked. The direct-reference evaluation also has independent level and dynamic-span failures.
+**`BLOCKED_STAGE3_DIRECT_REFERENCE`**. The fixed Stage3 measurement completed with 480/480 unique direct-reference cells and six deterministic sentinel re-renders, but the direct-reference matrix itself failed its direct-level and dynamic-span gates. The independent `concert-grand-regression.test.js` failure is a secondary blocker. Stage4 remains locked.
 
 No acoustic parameters, thresholds, preset values, reference fixtures, or production DSP were changed. Stage3 candidate delta is 0; Stage2L remains 1/12 and Stage2N remains 1/1.
 
@@ -56,3 +56,11 @@ Dynamic-span failures:
 ## Next gate
 
 Keep Issue #7 in `phase:implementation` and blocked. Do not run Stage4, retune, change thresholds, or advance the Issue based on this result. A separate requirements/design decision is needed to address the measured blockers.
+
+## Stage3A status — diagnostic evidence incomplete
+
+Stage3A corrected the result precedence: `BLOCKED_STAGE3_DIRECT_REFERENCE` is primary because the saved direct-reference matrix failed; the Concert Grand regression is secondary. No Stage3 matrix was rerendered, and the underlying 480-cell measurements remain unchanged.
+
+The separate diagnostic WASM build succeeded. Its six required production-equivalence cells passed the `1e-6` comparison, and the bounded diagnostic run executed 195 authorized render identities (192 selected pitch/velocity cells, with six equivalence cells reused, plus three MIDI 41 normalized-velocity cells). The required MIDI 41 derivative check could not be accepted: the first run used the shared capture helper's default `0–160 ms` window, while the existing Concert Grand regression computes this quantity over `30–180 ms`. The comparison therefore did not measure the contracted metric. The capture helper and Stage3A runner were corrected to use `30–180 ms` for MIDI 41, but no rerender was performed after the 195-render allowance had been consumed.
+
+**Current Stage3A result: `BLOCKED_STAGE3A_DIAGNOSTIC_EVIDENCE_INCOMPLETE`.** The expected MIDI 41 values have not been revalidated with the correct interval; diagnostic path/span tables are not accepted as completion evidence. No production parameters, thresholds, reference data, or DSP were changed. Stage4 remains unrun. A new narrowly scoped authorization is needed before remeasuring the three existing MIDI 41 cells with the corrected analysis window.
