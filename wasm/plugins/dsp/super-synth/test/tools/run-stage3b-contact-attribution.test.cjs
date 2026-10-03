@@ -7,7 +7,7 @@ const os=require('node:os');
 const path=require('node:path');
 const {
   EXPECTED_HEAD,CANDIDATE,DYNAMIC_PITCHES,TREBLE_PITCHES,VELOCITIES,TREBLE_VELOCITIES,MIDI41_NORMALIZED,MASKS,SUBSET,CELL_COUNT,
-  stage3bPaths,cellKey,cellPath,expectedSubset,makeLedger,counts,assertLedger,validateCell,inspectState,run,finalize,
+  ROOT,stage3bPaths,cellKey,cellPath,expectedSubset,makeLedger,counts,assertLedger,validateCell,inspectState,run,finalize,
   assertMask0EquivalenceAuthorization,
   factorial,normalizeActiveImpedances,worstBaselineFailingPitch,supportGates,midi41FactorGuard,factorSafety,selectDecision,DERIVATIVE_WINDOW
 }=require('./run-stage3b-contact-attribution.cjs');
@@ -201,6 +201,15 @@ temporaryRoot(root=>{
   assert.throws(()=>finalize({root,paths}),/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/);
   assert.equal(fs.existsSync(paths.ledger),false);
   assert.equal(fs.existsSync(paths.final),false,'direct finalize authorization must block before evidence/final writes');
+});
+
+temporaryRoot(root=>{
+  const paths=stage3bPaths(root);
+  assert.equal(fs.existsSync(path.join(ROOT,'.agent-state/issues/7/stage3b/mask0-equivalence-authorization.json')),false);
+  assert.throws(()=>finalize({root:ROOT,paths}),/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/,
+    'direct production finalizer must reject a missing authorization after valid preflight');
+  assert.equal(fs.existsSync(paths.ledger),false);
+  assert.equal(fs.existsSync(paths.final),false);
 });
 
 const initial=makeLedger(identity);
