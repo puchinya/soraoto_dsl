@@ -4,7 +4,6 @@
 const fs=require('node:fs');
 const path=require('node:path');
 const crypto=require('node:crypto');
-const {execFileSync}=require('node:child_process');
 const stage3b=require('./run-stage3b-contact-attribution.cjs');
 const continuation=require('./run-stage3c-equivalence-correction-and-split.cjs');
 const core=require('./stage3c-attribution-core.cjs');
@@ -12,6 +11,28 @@ const core=require('./stage3c-attribution-core.cjs');
 const ROOT=path.resolve(__dirname,'../../../../../../');
 const BASE='.agent-state/issues/7/stage3c';
 const CANDIDATE='stage2n-r3-candidate-01';
+const AUTHORITATIVE_RESULT=Object.freeze({
+  sha256:'1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1e63737',
+  schemaVersion:1,
+  decision:'STAGE3C_SPLIT_ATTRIBUTION_COMPLETE',
+  candidateId:CANDIDATE,
+  equivalenceDecision:'STAGE3C_EQUIVALENCE_CORRECTION_COMPLETE',
+  correctedEquivalenceSha256:'e28178043baaf087dae5795d63e3de5acb74cc06904972e88a5755f8860a8b97',
+  correctionLedgerSha256:'5fe8da6e32b7195a1b186f724ed41638b54db379ef2da64c2c00d75b09aef46b',
+  continuationLedgerSha256:'6cd380fe66f7b0d0a7a410f00ba8e40fc403f6c9b227382c4d53cd903d6d5d19',
+  ledgerSha256:'6cd380fe66f7b0d0a7a410f00ba8e40fc403f6c9b227382c4d53cd903d6d5d19',
+  continuationAggregateCount:24,
+  stage3bAggregateCount:39,
+  executionSourceRevision:'d3fa2e359dae0a8a21c04f1f535259d4a89cc59b',
+  finalizerSourceRevision:'d88ee6f0c061548409f8a19d452c5276560999de',
+  finalizerSha256:'ea567b05b950ad08395ab7e08938a1660c5e32978ffac25e92dc6fad5c6da08c',
+  attributionCoreSha256:'0d1ffa7d6bf4ba5b711b2e211a99aaa012290bf7d2aa86b6bbf33bd322960bdf',
+  accounting:Object.freeze({stage3aHistoricalCalls:390,stage3bMask0Calls:6,stage3bFactorCalls:477,
+    stage3cHistoricalEquivalenceCalls:20,stage3cCorrectionCalls:1,stage3cSplitCalls:286,cumulativeDiagnosticCalls:1180,
+    physicalCandidateDelta:0,stage4Renders:0}),
+  productionCandidateDelta:0,
+  stage4Renders:0
+});
 const EXPECTED={
   originalLedger:'348409a1fe0ded9fd9f60d5cd91dcfd80990d4df1d8635578e079c86b7ca5055',
   originalBlockedEvaluation:'4141debf0673e8b36cd6c34363e0a8f0e91540e6cb228fef9e00dd3714d3fcf9',
@@ -52,13 +73,6 @@ function cellKey(cell){
   return `${cell.kind}:mask-${cell.stage3cMask}:midi-${String(cell.pitch).padStart(3,'0')}:${velocity}`;
 }
 function resultPath(root=ROOT){return path.join(root,BASE,'continuation/split-attribution.json');}
-function currentRevision(root=ROOT){return execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();}
-function writeAtomic(file,value){
-  fs.mkdirSync(path.dirname(file),{recursive:true});
-  const temporary=`${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temporary,`${JSON.stringify(value,null,2)}\n`,{flag:'wx'});
-  fs.renameSync(temporary,file);
-}
 function fail(kind,message){throw new Error(`${kind}: ${message}`);}
 function checkSha(root,relative,expected,label,kind='BLOCKED_STAGE3C_FINALIZER_BASELINE_IDENTITY'){
   const file=path.join(root,relative);
@@ -164,14 +178,35 @@ function validateContinuation(root=ROOT,expected=EXPECTED,modules={continuation,
     continuationLedgerSha256:shaFile(evidence.files.continuationLedger),accounting});
   return {...evidence,counts,rows,aggregateCount,attribution,continuationLedgerSha256:shaFile(evidence.files.continuationLedger)};
 }
-function validateExistingResult(file,bindings){
-  if(!fs.existsSync(file))return null;
-  let old;try{old=readJson(file);}catch{fail('BLOCKED_STAGE3C_FINALIZER_EVIDENCE','existing attribution result is malformed');}
-  const keys=['schemaVersion','decision','candidateId','correctedEquivalenceSha256','correctionLedgerSha256','continuationLedgerSha256',
-    'continuationAggregateCount','stage3bAggregateCount','executionSourceRevision','finalizerSourceRevision','finalizerSha256','attributionCoreSha256',
-    'productionCandidateDelta','stage4Renders'];
-  if(keys.some(key=>old[key]!==bindings[key]))fail('BLOCKED_STAGE3C_FINALIZER_EVIDENCE','existing result binding conflicts with validated evidence');
-  return old;
+function validateAuthoritativeResult(file,ready,expected=AUTHORITATIVE_RESULT){
+  if(!fs.existsSync(file))fail('BLOCKED_STAGE3C_FINALIZER_EVIDENCE','authoritative attribution result is missing');
+  let bytes,result;
+  try{bytes=fs.readFileSync(file);result=JSON.parse(bytes.toString('utf8'));}
+  catch{fail('BLOCKED_STAGE3C_FINALIZER_EVIDENCE','authoritative attribution result is malformed');}
+  if(shaBytes(bytes)!==expected.sha256)fail('BLOCKED_STAGE3C_FINALIZER_EVIDENCE','authoritative attribution result SHA mismatch');
+  const fields=['schemaVersion','decision','candidateId','equivalenceDecision','correctedEquivalenceSha256','correctionLedgerSha256',
+    'continuationLedgerSha256','ledgerSha256','continuationAggregateCount','stage3bAggregateCount','executionSourceRevision',
+    'finalizerSourceRevision','finalizerSha256','attributionCoreSha256','productionCandidateDelta','stage4Renders'];
+  if(fields.some(key=>result[key]!==expected[key]))
+    fail('BLOCKED_STAGE3C_FINALIZER_EVIDENCE','authoritative result identity/evidence/creator binding mismatch');
+  const readyBindings={
+    correctedEquivalenceSha256:shaFile(ready.files.correctedEquivalence),
+    correctionLedgerSha256:shaFile(ready.files.correctionLedger),
+    continuationLedgerSha256:ready.continuationLedgerSha256,
+    ledgerSha256:ready.continuationLedgerSha256,
+    continuationAggregateCount:ready.aggregateCount,
+    stage3bAggregateCount:ready.attribution.stage3bAggregateCount,
+    executionSourceRevision:ready.identity.executionSourceRevision
+  };
+  if(Object.entries(readyBindings).some(([key,value])=>result[key]!==value))
+    fail('BLOCKED_STAGE3C_FINALIZER_EVIDENCE','authoritative result no longer matches validated evidence');
+  const accounting=expected.accounting;
+  if(!result.accounting||Object.entries(accounting).some(([key,value])=>result.accounting[key]!==value)
+      ||Object.keys(result.accounting).length!==Object.keys(accounting).length
+      ||ready.attribution.accounting&&Object.entries(accounting).some(([key,value])=>ready.attribution.accounting[key]!==value)
+      ||result.productionCandidateDelta!==0||result.stage4Renders!==0)
+    fail('BLOCKED_STAGE3C_FINALIZER_EVIDENCE','authoritative result accounting mismatch');
+  return result;
 }
 function dryRun(root=ROOT,options={}){
   const ready=validateContinuation(root,options.expected||EXPECTED,options.modules||{continuation,stage3b});
@@ -182,19 +217,9 @@ function dryRun(root=ROOT,options={}){
 }
 function finalize(root=ROOT,options={}){
   const ready=validateContinuation(root,options.expected||EXPECTED,options.modules||{continuation,stage3b});
-  const head=(options.currentRevision||currentRevision)(root);
-  const finalizerFile=options.finalizerFile||__filename,coreFile=options.coreFile||require.resolve('./stage3c-attribution-core.cjs');
   const resultFile=resultPath(root);
-  const result={...ready.attribution,schemaVersion:1,decision:'STAGE3C_SPLIT_ATTRIBUTION_COMPLETE',candidateId:CANDIDATE,
-    equivalenceDecision:'STAGE3C_EQUIVALENCE_CORRECTION_COMPLETE',correctedEquivalenceSha256:EXPECTED.correctedEquivalence,
-    correctionLedgerSha256:shaFile(ready.files.correctionLedger),continuationLedgerSha256:ready.continuationLedgerSha256,
-    continuationAggregateCount:24,stage3bAggregateCount:39,executionSourceRevision:ready.identity.executionSourceRevision,
-    finalizerSourceRevision:head,finalizerSha256:shaFile(finalizerFile),attributionCoreSha256:shaFile(coreFile),
-    productionCandidateDelta:0,stage4Renders:0,finalizedAt:new Date().toISOString()};
-  const existing=validateExistingResult(resultFile,result);
-  if(existing)return {...existing,builds:0,renders:0,acousticRenders:0};
-  writeAtomic(resultFile,result);
-  return {...result,builds:0,renders:0,acousticRenders:0};
+  const existing=validateAuthoritativeResult(resultFile,ready);
+  return {...existing,builds:0,renders:0,acousticRenders:0};
 }
 function modes(argv){if(argv.length!==1||!['--dry-run','--finalize'].includes(argv[0]))throw new Error('explicit mode required: --dry-run or --finalize');return argv[0];}
 function run({mode,root=ROOT,options={}}){
@@ -205,4 +230,4 @@ function run({mode,root=ROOT,options={}}){
 function main(){const mode=modes(process.argv.slice(2));process.stdout.write(`${JSON.stringify(run({mode}))}\n`);}
 if(require.main===module){try{main();}catch(error){process.stderr.write(`Stage3C finalizer ERROR: ${error.stack||error.message}\n`);process.exitCode=1;}}
 
-module.exports={ROOT,CANDIDATE,EXPECTED,EXPECTED_PATHS,resultPath,shaFile,readJson,cellKey,fixedEvidence,validateContinuation,validateExistingResult,dryRun,finalize,modes,run};
+module.exports={ROOT,CANDIDATE,EXPECTED,EXPECTED_PATHS,AUTHORITATIVE_RESULT,resultPath,shaFile,readJson,cellKey,fixedEvidence,validateContinuation,validateAuthoritativeResult,dryRun,finalize,modes,run};

@@ -679,3 +679,11 @@ identity, then supplies the actual continuation-ledger hash to the attribution
 result; it does not derive evidence ownership from a legacy path. The obsolete
 `.agent-state/issues/7/stage3c/split/` path is not revived. This recovery adds
 no acoustic execution and does not change Stage3C metric or factorial rules.
+
+The finalized `continuation/split-attribution.json` is a terminal immutable
+result. Repeated finalization validates its exact file hash, fixed evidence
+bindings, and historical creator tuple, then returns the persisted result
+without writes or renders. A later documentation-only HEAD change does not
+change replay validity or the historical creator identity. A missing or
+modified authoritative result fails closed; the finalizer never recreates or
+overwrites it.

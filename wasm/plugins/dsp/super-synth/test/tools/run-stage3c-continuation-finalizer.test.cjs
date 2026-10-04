@@ -100,6 +100,16 @@ function makeSyntheticRoot(){
 const stubbed=fixture=>({continuation,stage3b:{loadStage3ABaseline:()=>({baseline:fixture.baseline}),
   assertAuthoritativeProductionIdentity:()=>({}),assertStage3AEvidenceIdentity:()=>({identity:{stage3aLedgerSha256:fixture.expected.stage3aLedger,
     stage3aFinalSha256:fixture.expected.stage3aFinal,stage3aSupplementSha256:fixture.expected.stage3aSupplement}})}});
+function syntheticAuthoritativeResult(ready,fixture){
+  return {...ready.attribution,schemaVersion:1,decision:'STAGE3C_SPLIT_ATTRIBUTION_COMPLETE',candidateId:runner.CANDIDATE,
+    equivalenceDecision:fixture.expected.correctedDecision,correctedEquivalenceSha256:fixture.expected.correctedEquivalence,
+    correctionLedgerSha256:fixture.expected.correctionLedger,continuationLedgerSha256:fixture.expected.continuationLedger,
+    ledgerSha256:fixture.expected.continuationLedger,continuationAggregateCount:24,stage3bAggregateCount:39,
+    executionSourceRevision:fixture.expected.executionSourceRevision,
+    finalizerSourceRevision:runner.AUTHORITATIVE_RESULT.finalizerSourceRevision,
+    finalizerSha256:runner.AUTHORITATIVE_RESULT.finalizerSha256,attributionCoreSha256:runner.AUTHORITATIVE_RESULT.attributionCoreSha256,
+    physicalCandidateDelta:0,productionCandidateDelta:0,stage4Renders:0,finalizedAt:'2026-10-04T15:41:00.790Z'};
+}
 
 assert.throws(()=>runner.modes([]),/explicit mode required/);
 assert.throws(()=>runner.modes(['--execute']),/explicit mode required/);
@@ -114,18 +124,28 @@ assert.equal(fs.existsSync(runner.resultPath(fixture.root)),false);
 const dry=runner.dryRun(fixture.root,{expected:fixture.expected,modules:stubbed(fixture)});
 assert.equal(dry.renders,0);assert.equal(dry.acousticRenders,0);assert.equal(dry.continuationCells,286);assert.equal(dry.continuationAggregates,24);
 assert.equal(fs.existsSync(runner.resultPath(fixture.root)),false);
-const finalized=runner.finalize(fixture.root,{expected:fixture.expected,modules:stubbed(fixture),currentRevision:()=> 'e'.repeat(40)});
-assert.equal(finalized.decision,'STAGE3C_SPLIT_ATTRIBUTION_COMPLETE');assert.equal(finalized.renders,0);
-assert.equal(finalized.accounting.cumulativeDiagnosticCalls,1180);
-assert.equal(finalized.ledgerSha256,fixture.expected.continuationLedger);
-assert.equal(finalized.continuationLedgerSha256,fixture.expected.continuationLedger);
-assert.equal(finalized.executionSourceRevision,fixture.expected.executionSourceRevision);
-assert.equal(typeof finalized.finalizerSha256,'string');assert.equal(typeof finalized.attributionCoreSha256,'string');
-const resultFile=runner.resultPath(fixture.root);assert.equal(fs.existsSync(resultFile),true);
-const resultBytes=fs.readFileSync(resultFile),again=runner.finalize(fixture.root,{expected:fixture.expected,modules:stubbed(fixture),currentRevision:()=> 'e'.repeat(40)});
-assert.deepEqual(fs.readFileSync(resultFile),resultBytes);assert.equal(again.decision,'STAGE3C_SPLIT_ATTRIBUTION_COMPLETE');
-const old=JSON.parse(resultBytes);old.continuationLedgerSha256='f'.repeat(64);writeJson(resultFile,old);
-assert.throws(()=>runner.finalize(fixture.root,{expected:fixture.expected,modules:stubbed(fixture),currentRevision:()=> 'e'.repeat(40)}),/BLOCKED_STAGE3C_FINALIZER_EVIDENCE/);
+assert.throws(()=>runner.finalize(fixture.root,{expected:fixture.expected,modules:stubbed(fixture)}),/BLOCKED_STAGE3C_FINALIZER_EVIDENCE/,
+  'a missing finalized result must block rather than be recreated');
+
+const syntheticResult=syntheticAuthoritativeResult(ready,fixture),syntheticResultFile=path.join(fixture.root,'synthetic-split-attribution.json');
+writeJson(syntheticResultFile,syntheticResult);
+const syntheticExpected={...runner.AUTHORITATIVE_RESULT,sha256:shaFile(syntheticResultFile),
+  correctedEquivalenceSha256:fixture.expected.correctedEquivalence,correctionLedgerSha256:fixture.expected.correctionLedger,
+  continuationLedgerSha256:fixture.expected.continuationLedger,ledgerSha256:fixture.expected.continuationLedger,
+  executionSourceRevision:fixture.expected.executionSourceRevision};
+const validatedSynthetic=runner.validateAuthoritativeResult(syntheticResultFile,ready,syntheticExpected);
+assert.equal(validatedSynthetic.finalizerSourceRevision,'d88ee6f0c061548409f8a19d452c5276560999de');
+const tamperedResultFile=path.join(fixture.root,'tampered-split-attribution.json');
+fs.copyFileSync(syntheticResultFile,tamperedResultFile);fs.appendFileSync(tamperedResultFile,' ');
+assert.throws(()=>runner.validateAuthoritativeResult(tamperedResultFile,ready,syntheticExpected),/BLOCKED_STAGE3C_FINALIZER_EVIDENCE/);
+assert.throws(()=>runner.validateAuthoritativeResult(path.join(fixture.root,'missing-split-attribution.json'),ready,syntheticExpected),
+  /BLOCKED_STAGE3C_FINALIZER_EVIDENCE/);
+for(const key of ['finalizerSourceRevision','finalizerSha256','attributionCoreSha256']){
+  const wrongCreator={...syntheticResult,[key]:key==='finalizerSourceRevision'?'f'.repeat(40):'f'.repeat(64)};
+  const wrongCreatorFile=path.join(fixture.root,`wrong-creator-${key}.json`);writeJson(wrongCreatorFile,wrongCreator);
+  assert.throws(()=>runner.validateAuthoritativeResult(wrongCreatorFile,ready,{...syntheticExpected,sha256:shaFile(wrongCreatorFile)}),
+    /BLOCKED_STAGE3C_FINALIZER_EVIDENCE/,`historical ${key} must remain fixed even with matching test file SHA`);
+}
 
 const corrupt=makeSyntheticRoot();
 const sampleCell=continuation.splitCells()[0],sampleFile=continuation.continuationCellPath(sampleCell,corrupt.root);fs.unlinkSync(sampleFile);
@@ -184,13 +204,23 @@ writeJson(nonfiniteLedgerPath,nonfiniteLedger);nonfinite.expected.continuationLe
 assert.throws(()=>runner.validateContinuation(nonfinite.root,nonfinite.expected,stubbed(nonfinite)),/BLOCKED_STAGE3C_NONFINITE_DIAGNOSTIC/);
 
 const root=runner.ROOT,realResult=runner.resultPath(root);
-assert.equal(fs.existsSync(realResult),false,'integration must not create the authoritative result');
+assert.equal(fs.existsSync(realResult),true,'authoritative result must already exist for replay');
+assert.equal(shaFile(realResult),runner.AUTHORITATIVE_RESULT.sha256);
 const integration=runner.validateContinuation(root);
 assert.equal(integration.rows.length,286);assert.equal(integration.aggregateCount,24);
 assert.equal(integration.attribution.decision,'STAGE3C_SPLIT_ATTRIBUTION_COMPLETE');
 assert.equal(integration.continuationLedgerSha256,runner.EXPECTED.continuationLedger);
 assert.equal(fs.existsSync(path.join(root,'.agent-state/issues/7/stage3c/split')),false);
-assert.equal(fs.existsSync(realResult),false,'integration calculation is read-only');
+const beforeReplay=fs.readFileSync(realResult),beforeReplayMtime=fs.statSync(realResult).mtimeMs;
+const dryReal=runner.dryRun(root);assert.equal(dryReal.renders,0);assert.equal(dryReal.acousticRenders,0);
+const replay=runner.finalize(root,{currentRevision:()=>{throw new Error('currentRevision must not be read on authoritative replay');}});
+assert.equal(replay.decision,'STAGE3C_SPLIT_ATTRIBUTION_COMPLETE');assert.equal(replay.builds,0);assert.equal(replay.renders,0);assert.equal(replay.acousticRenders,0);
+assert.deepEqual(fs.readFileSync(realResult),beforeReplay);assert.equal(shaFile(realResult),runner.AUTHORITATIVE_RESULT.sha256);
+assert.equal(fs.statSync(realResult).mtimeMs,beforeReplayMtime);
+const secondReplay=runner.finalize(root,{currentRevision:()=>{throw new Error('currentRevision must not be read on repeated replay');}});
+assert.equal(secondReplay.decision,'STAGE3C_SPLIT_ATTRIBUTION_COMPLETE');assert.deepEqual(fs.readFileSync(realResult),beforeReplay);
+assert.equal(shaFile(realResult),runner.AUTHORITATIVE_RESULT.sha256);assert.equal(fs.statSync(realResult).mtimeMs,beforeReplayMtime);
 for(const temporaryRoot of tempRoots)fs.rmSync(temporaryRoot,{recursive:true,force:true});
 console.log(JSON.stringify({pass:true,syntheticCells:ready.rows.length,syntheticAggregates:ready.aggregateCount,
-  integrationCells:integration.rows.length,integrationAggregates:integration.aggregateCount,renderCalls:0,resultWrittenByIntegration:false}));
+  integrationCells:integration.rows.length,integrationAggregates:integration.aggregateCount,preStatusReplay:true,repeatReplay:true,
+  currentRevisionCalls:0,resultWrites:0,resultSha256:shaFile(realResult),resultMtimeUnchanged:true,builds:0,renders:0,acousticRenders:0}));
