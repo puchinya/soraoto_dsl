@@ -73,3 +73,20 @@ Verification:
 - NOT RUN by contract: mask-0 equivalence render, 477 acoustic renders/finalization, Stage3, Stage4, full CTest, Web Player tests/build, and manual listening.
 
 Issue #7 remains OPEN, `phase:implementation` + `blocked`. This correction only hardens the future render lock.
+
+## Stage3B CLI render-lock completion record — 2026-10-04
+
+**STAGE3B_CLI_RENDER_LOCK_COMPLETE**
+
+This decision records completion of the CLI/evidence-lock implementation only. It does not establish mask-0 acoustic equivalence or complete Stage3B attribution, and it does not pass Stage3 or unlock Stage4.
+
+- Real `.agent-state/issues/7/stage3b/mask0-equivalence.json`: absent.
+- Real mask-0 renders: 0.
+- Stage3B acoustic ledger, cells, aggregates, and final result: absent.
+- Stage3B acoustic renders: 0.
+- Production candidate delta: 0.
+- Stage4 renders: 0; Stage4 remains NOT RUN / LOCKED.
+- Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`.
+- Next work requires a separate Stage3B mask-0 acoustic-equivalence Implementation Contract.
+
+The token means only that the execution lock is complete; it does not authorize any acoustic render. Issue #7 remains OPEN with `phase:implementation` and `blocked`; PR #8 remains OPEN with `Closes #7`.
