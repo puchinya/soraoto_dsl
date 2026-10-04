@@ -646,3 +646,25 @@ contact, bridge, and interaction effects separately. This diagnostic can
 identify output-path attribution only; it cannot establish physical root cause
 or authorize production adoption. Any production architecture decision needs
 a separate requirements/design contract.
+
+#### Stage3C equivalence recovery
+
+The original 20-render Stage3C equivalence ledger and blocked result are
+immutable historical evidence. Its nineteen passing rows remain reusable; the
+MIDI41 normalized-velocity `0.25`, mask-0 row is retained as a superseded
+capture because it used `[0,160] ms` instead of the Stage3A supplement's
+`[30,180] ms` derivative window. A separate correction sidecar supplies exactly
+one replacement-comparison render at `[30,180] ms` and composes the nineteen
+historical passes with that new pass. The original ledger, cells, and result are
+never edited or rerendered.
+
+Only after the corrected equivalence decision passes may the continuation
+runner execute the existing 286 contact/bridge split cells. Correction and
+continuation evidence have separate ledgers and are bound to the accepted
+historical build/evidence hashes. Every continuation cell uses the fixed
+`[30,180] ms` velocity-derivative window. The maximum new render count for this
+recovery is 287: one correction plus 286 split cells. Correct cumulative
+diagnostic accounting is 893 calls before recovery, 894 after correction, and
+1180 after a complete split (`390 + 6 + 477 + 20 + 1 + 286`). The earlier
+reported value 993 was an arithmetic error. This recovery remains diagnostic
+only and cannot select or implement a production impedance architecture.
