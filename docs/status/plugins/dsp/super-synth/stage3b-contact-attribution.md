@@ -105,3 +105,26 @@ The six authorized Stage3B diagnostic-WASM renders used Stage2M mask 3 and Stage
 - Stage3B masks 1/2/3 attribution (`477` renders) remains NOT RUN and locked pending its separate contract. Stage3 480-cell recapture, Stage4, full CTest, Web Player, and manual listening remain NOT RUN.
 
 Issue #7 remains OPEN with `phase:implementation` and `blocked`; PR #8 remains OPEN with `Closes #7`. This result authorizes no factor render by itself.
+
+## Stage3B mask-0 Completion Report — 2026-10-04
+
+**STAGE3B_MASK0_EQUIVALENCE_COMPLETE**
+
+This completion record uses the persisted mask-0 evidence only. No renderer, build, preflight, or finalization command was run for this report.
+
+| MIDI | Velocity | Production max difference | Stage3A diagnostic max difference | Combined max difference | Finite | Guard hits | Peak dBFS | Full-render peak dBFS | Result |
+|---:|---:|---:|---:|---:|:---:|---:|---:|---:|:---:|
+| 36 | 14 | 0 | 0 | 0 | true | 0 | -38.504727 | -38.50472659272666 | PASS |
+| 36 | 124 | 0 | 0 | 0 | true | 0 | -4.88098 | -4.880979944191414 | PASS |
+| 51 | 14 | 0 | 0 | 0 | true | 0 | -47.545753 | -47.54575302855055 | PASS |
+| 51 | 124 | 0 | 0 | 0 | true | 0 | -7.163076 | -7.163076230820552 | PASS |
+| 96 | 31 | 0 | 0 | 0 | true | 0 | -29.897132 | -29.89713248540157 | PASS |
+| 96 | 124 | 0 | 0 | 0 | true | 0 | -15.95573 | -15.955730012201277 | PASS |
+
+Exact-byte SHA-256:
+
+- Mask-0 ledger: `23ff977042540645cd99be1392cce6ee0341faa7dcf4dad50156b04b523e1f57`
+- Mask-0 evaluation: `4f8a3cd31bec279fdc48d24d73a6d93d3b120aa21d0bb98565d11d137e6e2d55`
+- Authoritative result: `fc54305c158e706ca5a28eeacdf9390c029a932283d94d047c9a443a28eb702a`
+
+Accounting: authorized mask-0 renders `6`; actual mask-0 renders `6`; additional renders for this report `0`; Stage3B masks 1/2/3 attribution `NOT RUN` (`0` renders); production candidate delta `0`; Stage4 `0` renders and remains **LOCKED**. The 477-cell attribution is **NOT RUN** and remains locked pending its separate execution contract.
