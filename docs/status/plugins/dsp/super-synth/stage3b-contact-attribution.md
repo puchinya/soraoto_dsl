@@ -486,3 +486,55 @@ Pooled factorial values; 143 coordinates per metric.
 Issue #7 remains OPEN with `phase:implementation` and `blocked`; PR #8 remains OPEN and retains `Closes #7`. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. No Stage3C production architecture was selected. Production candidate delta is 0. No Stage3 or Stage4 execution is part of this finalizer report.
 
 The continuation finalizer source revision is `d88ee6f0c061548409f8a19d452c5276560999de`; the split execution source revision is `d3fa2e359dae0a8a21c04f1f535259d4a89cc59b`. The existing PR #8 remains the sole delivery path.
+
+## Stage3C finalizer idempotency and completion-report closure — 2026-10-05
+
+**Decision:** `STAGE3C_SPLIT_ATTRIBUTION_COMPLETE` remains authoritative. This closure records the finalizer replay fix and fills the missing completion-report fields. It does not rerun or rewrite Stage3C acoustic evidence.
+
+### Immutable result and replay identity
+
+- Authoritative `split-attribution.json` SHA-256: `1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1c63737`.
+- Historical result creator: revision `d88ee6f0c061548409f8a19d452c5276560999de`; finalizer SHA-256 `ea567b05b950ad08395ab7e08938a1660c5e32978ffac25e92dc6fad5c6da08c`; attribution-core SHA-256 `0d1ffa7d6bf4ba5b711b2e211a99aaa012290bf7d2aa86b6bbf33bd322960bdf`.
+- Idempotent replay finalizer SHA-256: `0617d705870972d04310708532c75c09b432db25dbebf8a31989932eb8f238a5`.
+- The current finalizer validates the exact existing result bytes and bindings, then returns it without reading a new source revision, writing a result, building, or rendering. Repeated replay preserved result bytes and modification time.
+- Pre-status replay: PASS, decision `STAGE3C_SPLIT_ATTRIBUTION_COMPLETE`, 0 builds / 0 renders / 0 acoustic renders; authoritative result SHA remained unchanged.
+
+### Evidence closure
+
+| Evidence | SHA-256 / count |
+|---|---|
+| Original Stage3C equivalence ledger | `348409a1fe0ded9fd9f60d5cd91dcfd80990d4df1d8635578e079c86b7ca5055` |
+| Original blocked equivalence evaluation | `4141debf0673e8b36cd6c34363e0a8f0e91540e6cb228fef9e00dd3714d3fcf9` |
+| Corrected equivalence ledger | `5fe8da6e32b7195a1b186f724ed41638b54db379ef2da64c2c00d75b09aef46b` |
+| Corrected equivalence evaluation | `e28178043baaf087dae5795d63e3de5acb74cc06904972e88a5755f8860a8b97` |
+| Stage3C continuation ledger | `6cd380fe66f7b0d0a7a410f00ba8e40fc403f6c9b227382c4d53cd903d6d5d19` |
+| Stage3B aggregates | 39 |
+| Stage3C continuation aggregates | 24 |
+| Authoritative Stage3C result | `1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1c63737` |
+
+The execution provenance remains source revision `d3fa2e359dae0a8a21c04f1f535259d4a89cc59b`; preflight classification is `SUFFICIENT_METADATA_PROVENANCE`, SHA-256 `f69e8adf900db451bc91c48928f914dc8b7da28b732e533f1742d5b49d9ce1dc`.
+
+### Attribution classifications
+
+- `safetyOrigin = CONTACT`. Contact-only had 59 unsafe cells, 778,311 guard hits, and worst peak +1.583625 dBFS. Bridge-only had 0 unsafe cells, 0 guard hits, and worst peak −4.974125 dBFS.
+- MIDI 51: contact improvement +11.412230 dB, bridge improvement +1.017358 dB, `benefitOrigin = BOTH`.
+- MIDI 54: contact improvement +4.582215 dB, bridge improvement −0.336626 dB, `benefitOrigin = CONTACT`.
+- Contact-path improvement direction reverses between two-string and three-string groups. Stage3C remains diagnostic; no production architecture is selected.
+
+### Accounting and workflow
+
+```text
+Stage3A historical                 390
+Stage3B mask-0                       6
+Stage3B factorial                  477
+Stage3C original equivalence        20
+Stage3C correction                   1
+Stage3C contact/bridge split       286
+--------------------------------------
+cumulative diagnostic calls       1180
+new calls in idempotency/closure      0
+production candidate delta            0
+Stage4 renders                        0
+```
+
+Stage3C diagnostic attribution is COMPLETE; production architecture is NOT SELECTED. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Issue #7 remains OPEN / `phase:implementation` / `blocked`, and PR #8 remains OPEN with `Closes #7`. The next work requires a separate production-architecture requirements/design contract based on this evidence.
