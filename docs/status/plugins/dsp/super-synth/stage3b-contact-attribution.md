@@ -90,3 +90,18 @@ This decision records completion of the CLI/evidence-lock implementation only. I
 - Next work requires a separate Stage3B mask-0 acoustic-equivalence Implementation Contract.
 
 The token means only that the execution lock is complete; it does not authorize any acoustic render. Issue #7 remains OPEN with `phase:implementation` and `blocked`; PR #8 remains OPEN with `Closes #7`.
+
+## Stage3B mask-0 acoustic equivalence — 2026-10-04
+
+**STAGE3B_MASK0_EQUIVALENCE_COMPLETE**
+
+The six authorized Stage3B diagnostic-WASM renders used Stage2M mask 3 and Stage3B mask 0. Each matched both the saved production Stage3 capture and accepted Stage3A diagnostic row across the contracted output, hammer, and soundboard diagnostics. The maximum numeric difference was `0` against the exact `1e-6` tolerance. All six were finite, had zero output-guard hits, and had negative measured and full-render peaks; the worst peak was `-4.880980 dBFS`.
+
+- Authorized cells: `(36,14)`, `(36,124)`, `(51,14)`, `(51,124)`, `(96,31)`, `(96,124)`; COMPLETE `6/6`; new renders `6`; no build was run.
+- Accounting: historical Stage3A diagnostic calls `390`; new mask-0 calls `6`; cumulative diagnostic calls `396`; production candidate delta `0`; Stage4 renders `0`.
+- Production, Stage3A diagnostic, and Stage3B diagnostic WASM hashes remained the pinned identities recorded above. Preflight provenance remains `SUFFICIENT_METADATA_PROVENANCE`.
+- The authoritative mask-0 result passed the existing Stage3B validator. Repeated `--finalize` was idempotent and rendered zero cells.
+- PASS: the dedicated mask-0 runner tests (11/11), existing Stage3B runner tests, existing production-provenance tests, mask-0 dry-run (0 builds/0 renders/6 cells), actual six-cell execution, zero-render finalize, read-only artifact validation, and `git diff --check`.
+- Stage3B masks 1/2/3 attribution (`477` renders) remains NOT RUN and locked pending its separate contract. Stage3 480-cell recapture, Stage4, full CTest, Web Player, and manual listening remain NOT RUN.
+
+Issue #7 remains OPEN with `phase:implementation` and `blocked`; PR #8 remains OPEN with `Closes #7`. This result authorizes no factor render by itself.

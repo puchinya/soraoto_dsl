@@ -257,8 +257,11 @@ temporaryRoot(root=>{
 temporaryRoot(root=>{
   const paths=stage3bPaths(root);
   assert.equal(fs.existsSync(path.join(ROOT,'.agent-state/issues/7/stage3b/mask0-equivalence-authorization.json')),false);
-  assert.throws(()=>finalize({root:ROOT,paths}),/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/,
-    'direct production finalizer must reject a missing authorization after valid preflight');
+  const expectedBlocker=fs.existsSync(path.join(ROOT,'.agent-state/issues/7/stage3b/mask0-equivalence.json'))
+    ?/BLOCKED_STAGE3B_DIAGNOSTIC_EVIDENCE: finalization requires 477 COMPLETE cells/
+    :/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/;
+  assert.throws(()=>finalize({root:ROOT,paths}),expectedBlocker,
+    'direct finalizer must require either the mask-0 authorization or a complete 477-cell ledger');
   assert.equal(fs.existsSync(paths.ledger),false);
   assert.equal(fs.existsSync(paths.final),false);
 });
