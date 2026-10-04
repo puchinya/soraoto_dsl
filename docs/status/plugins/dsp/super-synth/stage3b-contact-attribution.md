@@ -128,3 +128,161 @@ Exact-byte SHA-256:
 - Authoritative result: `fc54305c158e706ca5a28eeacdf9390c029a932283d94d047c9a443a28eb702a`
 
 Accounting: authorized mask-0 renders `6`; actual mask-0 renders `6`; additional renders for this report `0`; Stage3B masks 1/2/3 attribution `NOT RUN` (`0` renders); production candidate delta `0`; Stage4 `0` renders and remains **LOCKED**. The 477-cell attribution is **NOT RUN** and remains locked pending its separate execution contract.
+
+## Stage3B 477-cell contact attribution — 2026-10-04
+
+**BLOCKED_STAGE3B_DIAGNOSTIC_SAFETY**
+
+The authorized Stage3B factorial matrix completed and was finalized from persisted evidence. The result is a safety blocker: every cell was finite, but mask 1 and mask 3 violated output safety. No factor is selected and this result authorizes no production change.
+
+### Repository and provenance
+
+- Starting HEAD / source revision: `064db066955e9e72c77ebe60dfd0ce4ad99ab615`.
+- Candidate: `stage2n-r3-candidate-01`; Stage2N budget `1/1`; Stage2L budget `1/12`.
+- Production WASM SHA-256: `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`.
+- Config/profile/presets/reference-fixture SHA-256: `792c563e3ae6ffbf6bef72b18a6c841a24598e1bc20ad5ec7dd39a4c0832513d` / `cf3d4adabd055b1b9895820bcaeee95b4a4999d6a245bea06c07fb14eeb7eb66` / `cbe58468911ee583d535c7d3ce09bd40199aeb93183def0a8204d591feac4431` / `5d27b6beae2a3c478e21ef0e260e588fdfd22bd1fea4181c74c0d00520a08cd7`.
+- Stage3A diagnostic WASM SHA-256: `59d661e4e435298baf8f097fc1d85bfc8c517c2af1c23f391963a125cb3328b3`.
+- Stage3B diagnostic WASM SHA-256: `2fe2919e9d903ade8e42c1eab44a081d1119bdbdc322961e9427fccc571a78d9`.
+- Mask-0 result SHA-256: `fc54305c158e706ca5a28eeacdf9390c029a932283d94d047c9a443a28eb702a`.
+- Preflight provenance: `SUFFICIENT_METADATA_PROVENANCE`; SHA-256 `f69e8adf900db451bc91c48928f914dc8b7da28b732e533f1742d5b49d9ce1dc`.
+- Stage3A ledger/final/supplement SHA-256: `e43d6d1b88f57766d0c48e413801916b313580cec83d629b54835be0f23060e9` / `e953ba33a363f378a006aafcbe4066cb1b05d69ac42ca1f401cd68d7e7261cd4` / `91b6b4df895a2a044135752156b88d1ab04806f02ebd338a8518f703e29c1713`.
+
+### Render accounting and safety
+
+- Authorized factor renders: `477`; actual new factor renders: `477`; COMPLETE `477`; PENDING `0`; IN_PROGRESS `0`.
+- Factor masks: `1`, `2`, `3`; Stage2M mask `3`; mask-0 rerenders `0`.
+- Stage3A historical calls `390`; mask-0 equivalence calls `6`; Stage3B factor calls `477`; factual cumulative diagnostic calls `873`.
+- The finalizer's legacy report field still says `totalStage3aAndStage3bCalls = 867` (`390 + 477`) and omits the separate six mask-0 calls. This is a known reporting-only discrepancy; the persisted render ledger independently records `477` new calls. It did not affect factor selection. No runner or test code was changed under this contract.
+- Production candidate delta: `0`; Stage4 renders: `0`.
+- Finite cells: `477/477`; total output guard hits: `1,440,235`; worst peak and full-render peak: `+1.583625266 dBFS`.
+- Mask 1: 59/159 safety-failing cells; 695,958 guard hits; worst full-render peak `+1.583625266 dBFS`.
+- Mask 2: 0/159 safety-failing cells; 0 guard hits; worst full-render peak `-3.902679902 dBFS`.
+- Mask 3: 58/159 safety-failing cells; 744,277 guard hits; worst full-render peak `+1.583625266 dBFS`.
+- Factor I safety (masks 1 and 3): FAIL. Factor P safety (masks 2 and 3): FAIL.
+- All renders used production SIMD, Stage2M mask `3`, Stage3B masks `1/2/3`, soundboard diagnostics, and the fixed 30–180 ms velocity-derivative window.
+
+Safety-failing cells are listed by MIDI and velocity. Mask 1: MIDI36 `101,109,117,124`; MIDI42 `45,49,54`; MIDI45 `36,40,45,49,54,61,69,77`; MIDI48 `14,31,40,45,49,54,61,69,77,85,93,101,109`; MIDI51 `14,31,36,40,45,49,54,61,69,77,85,93,101,109,117,124`; MIDI54 `31,36,40,45,49,54,61,69,77,85,93,101,109,117,124`. Mask 3: MIDI36 `101,109,117,124`; MIDI42 `45,49,54`; MIDI45 `36,40,45,49,54,61,69,77`; MIDI48 `14,31,40,45,49,54,61,69,77,85,93,101,109`; MIDI51 `14,31,36,40,45,49,54,61,69,77,85,93,101,109,117,124`; MIDI54 `31,36,45,49,54,61,69,77,85,93,101,109,117,124`. Mask 2 had no safety-failing cells.
+
+### Failing-pitch span results
+
+The M0–M3 columns are absolute span error in dB. `I_main`, `P_main`, and `interaction` are the contract factorial effects on that error; positive error effect means worse. The improvement columns below use the runner's improvement convention, where positive means error reduction.
+
+| MIDI | M0 | M1 | M2 | M3 | I improvement | P improvement | I effect | P effect | Interaction |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 36 | 12.580882 | 17.890174 | 12.980804 | 18.255703 | -5.292095 | -0.382725 | +5.292095 | +0.382725 | -0.034393 |
+| 39 | 12.069386 | 13.534894 | 12.445666 | 13.887020 | -1.453431 | -0.364203 | +1.453431 | +0.364203 | -0.024154 |
+| 51 | 20.696187 | 8.266599 | 21.758897 | 9.084338 | +12.552073 | -0.940224 | -12.552073 | +0.940224 | -0.244971 |
+| 54 | 9.249924 | 5.004335 | 10.117455 | 4.977901 | +4.692572 | -0.420549 | -4.692572 | +0.420549 | -0.893965 |
+
+MIDI51, the baseline-worst pitch, improves by `12.552073 dB` under the Factor I improvement convention and worsens by `0.940224 dB` under Factor P. Factor I reaches the required MIDI51 improvement gate, but only two of four failing pitches improve by at least 4 dB; its three-of-four gate fails.
+
+Complete dynamic-span output for all required pitches. Each M0–M3 value is `synth span / reference span / absolute error / signed difference` in dB; the final columns are factorial effects on absolute error.
+
+| MIDI | Group | M0 | M1 | M2 | M3 | I main | P main | Interaction |
+|---:|---|---|---|---|---|---:|---:|---:|
+| 33 | Control | 21.3630/18.2444/3.1187/3.1187 | 21.3630/18.2444/3.1187/3.1187 | 21.3630/18.2444/3.1187/3.1187 | 21.3630/18.2444/3.1187/3.1187 | 0.0000 | 0.0000 | 0.0000 |
+| 36 | Failure | 33.6833/21.1024/12.5809/12.5809 | 38.9926/21.1024/17.8902/17.8902 | 34.0832/21.1024/12.9808/12.9808 | 39.3581/21.1024/18.2557/18.2557 | +5.2921 | +0.3827 | -0.0344 |
+| 39 | Failure | 27.7951/15.7258/12.0694/12.0694 | 29.2607/15.7258/13.5349/13.5349 | 28.1714/15.7258/12.4457/12.4457 | 29.6128/15.7258/13.8870/13.8870 | +1.4534 | +0.3642 | -0.0242 |
+| 42 | Control | 15.7936/18.8002/3.0066/-3.0066 | 31.8527/18.8002/13.0525/13.0525 | 15.8051/18.8002/2.9950/-2.9950 | 31.2225/18.8002/12.4223/12.4223 | +9.7366 | -0.3209 | -0.6187 |
+| 45 | Control | 26.5268/19.6729/6.8539/6.8539 | 38.2430/19.6729/18.5700/18.5700 | 33.6877/19.6729/14.0148/14.0148 | 38.2703/19.6729/18.5974/18.5974 | +8.1494 | +3.5942 | -7.1336 |
+| 48 | Control | 19.4092/17.4451/1.9641/1.9641 | 26.0327/17.4451/8.5876/8.5876 | 20.0811/17.4451/2.6360/2.6360 | 25.6503/17.4451/8.2052/8.2052 | +6.0963 | +0.1447 | -1.0543 |
+| 51 | Failure | 37.1721/16.4759/20.6962/20.6962 | 8.2093/16.4759/8.2666/-8.2666 | 38.2348/16.4759/21.7589/21.7589 | 7.3916/16.4759/9.0843/-9.0843 | -12.5521 | +0.9402 | -0.2450 |
+| 54 | Failure | 29.7988/20.5489/9.2499/9.2499 | 25.5532/20.5489/5.0043/5.0043 | 30.6664/20.5489/10.1175/10.1175 | 25.5268/20.5489/4.9779/4.9779 | -4.6926 | +0.4205 | -0.8940 |
+| 57 | Control | 19.4577/23.6852/4.2275/-4.2275 | 8.9822/23.6852/14.7030/-14.7030 | 19.6114/23.6852/4.0738/-4.0738 | 8.7825/23.6852/14.9027/-14.9027 | +10.6522 | +0.0230 | +0.3534 |
+| 93 | Treble | 24.7154/23.5125/1.2028/1.2028 | 17.7132/23.5125/5.7993/-5.7993 | 24.7015/23.5125/1.1889/1.1889 | 19.3710/23.5125/4.1416/-4.1416 | +3.7746 | -0.8358 | -1.6438 |
+| 96 | Treble | 24.9516/26.2339/1.2823/-1.2823 | 20.8398/26.2339/5.3941/-5.3941 | 24.2395/26.2339/1.9945/-1.9945 | 23.8121/26.2339/2.4218/-2.4218 | +2.2696 | -1.1301 | -3.6845 |
+| 99 | Treble | 25.0109/32.0192/7.0084/-7.0084 | 17.4157/32.0192/14.6036/-14.6036 | 25.1860/32.0192/6.8332/-6.8332 | 16.0672/32.0192/15.9521/-15.9521 | +8.3570 | +0.5867 | +1.5236 |
+
+### Control pitches and subgroup results
+
+Control worsening in absolute span error (dB; positive means worse):
+
+| MIDI | Factor I worsening | Factor P worsening |
+|---:|---:|---:|
+| 33 | 0.000000 | 0.000000 |
+| 42 | 9.730865 | 4.702113 |
+| 45 | 11.729842 | 9.452232 |
+| 48 | 6.432273 | 3.456483 |
+| 57 | 10.575346 | 5.260731 |
+
+| Group | Factor I mean improvement | Factor P mean improvement |
+|---|---:|---:|
+| Two-string (36,39) | -3.372763 dB | -0.373464 dB |
+| Three-string (51,54) | +8.622323 dB | -0.680387 dB |
+| Pooled failing pitches | +2.624780 dB | -0.526925 dB |
+
+Mean absolute failing-pitch interaction: `0.299371 dB`. Factor I reverses direction between the two-string and three-string groups; Factor P does not.
+
+### Treble and MIDI41 guardrails
+
+MIDI96/velocity31 absolute direct-level error: M0 `6.749034 dB`, M1 `5.982623 dB`, M2 `6.768095 dB`, M3 `4.312521 dB`; `I_main = -1.610992 dB`, `P_main = -0.825520 dB`, interaction `-1.689163 dB`. Both ≤3 dB treble guardrails PASS.
+
+Treble direct-level errors M0/M1/M2/M3 and factorial effects I/P/interaction, all in dB:
+
+| MIDI | Velocity | M0/M1/M2/M3 absolute error | I/P/interaction |
+|---:|---:|---|---|
+| 93 | 14 | 4.2253/3.7082/4.2606/1.0290 | -1.8744/-1.3219/-2.7145 |
+| 93 | 31 | 0.2093/0.5827/0.1594/1.2676 | +0.7407/+0.3175/+0.7348 |
+| 93 | 61 | 1.3626/3.7521/1.4458/3.1467 | +2.0452/-0.2611/-0.6887 |
+| 93 | 124 | 3.0224/9.5075/3.0717/5.1705 | +4.2919/-2.1439/-4.3861 |
+| 96 | 14 | 0.1428/0.5544/0.1666/0.0649 | +0.1549/-0.2329/-0.5133 |
+| 96 | 31 | 6.7490/5.9826/6.7681/4.3125 | -1.6110/-0.8255/-1.6892 |
+| 96 | 61 | 0.3179/0.1187/0.3645/4.1370 | +1.7866/+2.0325/+3.9716 |
+| 96 | 124 | 1.4252/4.8397/2.1611/2.3569 | +1.8052/-0.8734/-3.2188 |
+| 99 | 14 | 0.6046/4.5776/0.5754/2.7667 | +3.0822/-0.9201/-1.7818 |
+| 99 | 31 | 3.1274/6.1233/3.2084/3.0643 | +1.4259/-1.4890/-3.1401 |
+| 99 | 61 | 4.8651/8.6740/4.8931/6.8783 | +2.8970/-0.8839/-1.8237 |
+| 99 | 124 | 6.4038/11.1113/6.2579/13.1854 | +5.8175/+0.9641/+2.2200 |
+
+MIDI41 derivative, 30–180 ms:
+
+| Normalized velocity | M0 | M1 | M2 | M3 |
+|---:|---:|---:|---:|---:|
+| 0.25 | 0.062991 | 0.415140 | 0.063690 | 0.413098 |
+| 0.55 | 0.053890 | 0.055096 | 0.054006 | 0.055264 |
+| 0.90 | 0.242315 | 0.348419 | 0.241354 | 0.347165 |
+
+MIDI41 factorial I/P/interaction effects for normalized velocities `0.25/0.55/0.90`: `+0.35077880/-0.00067102/-0.00274037`; `+0.00123191/+0.00014216/+0.00005239`; `+0.10595784/-0.00110780/-0.00029363`.
+
+Hard derivative remains above mid. Factor I derivative guard FAILS: soft/mid/hard deviations are mask 1 `0.352149/0.001206/0.106105` and mask 3 `0.350108/0.001374/0.104850`; each required deviation must be ≤0.10. Factor P derivative guard FAILS because mask 3 exceeds 0.10 (mask 2 itself is within the guard).
+
+### Gate matrix
+
+| Gate | Factor I | Factor P |
+|---|:---:|:---:|
+| At least 3/4 failing pitches improve by ≥4 dB | FAIL | FAIL |
+| MIDI51 improves by ≥6 dB | PASS | FAIL |
+| All controls worsen by ≤3 dB | FAIL | FAIL |
+| Factor-specific safety | FAIL | FAIL |
+| MIDI96/v31 factorial worsening ≤3 dB | PASS | PASS |
+| MIDI41 derivative guard | FAIL | FAIL |
+| Two-/three-string direction does not reverse | FAIL | PASS |
+
+Neither factor is safe, so comparative winner selection is not applicable. The finalizer's precedence selects `BLOCKED_STAGE3B_DIAGNOSTIC_SAFETY`; no architecture is selected.
+
+### Path attribution
+
+Pooled factorial effects are in each metric's native units; `mean |interaction|` is across cells.
+
+| Metric | I main | P main | Interaction | Mean |interaction| |
+|---|---:|---:|---:|---:|
+| Contact duration (samples) | 48.116352 | 0.059748 | -2.031447 | 3.792453 |
+| Peak force | 83.418950 | 0.317006 | -0.493524 | 0.613343 |
+| Post-contact transverse energy | 4,241,925.738018 | 80,943.941834 | 155,767.193425 | 242,380.545501 |
+| Bridge-B RMS | 30.995189 | 1.165612 | 2.067496 | 2.120258 |
+| Board-drive-B RMS | 30.994426 | 1.165557 | 2.067392 | 2.120153 |
+| Post-radiation-L RMS | 1.910972 | 0.075732 | 0.147407 | 0.150707 |
+| Spectral centroid (Hz) | 2,352.088243 | -59.916935 | -162.109868 | 244.941662 |
+| Above-2k power ratio | 0.339161 | 0.001123 | -0.014898 | 0.018699 |
+
+### Persisted evidence and next state
+
+- Finalized ledger SHA-256 (exact current file): `3c688ce49877dd7a94a2920c02bc9ddb7145709d06b1e7a04a7aecda4b18fbaf`.
+- Factorial analysis SHA-256: `220c4904fc858ee671002ce84de85a75abd2271f78a53f433dbf5bd4021675cb`.
+- Ledger's analysis snapshot hash: `58132618393f3e84b04a0c38cdcbb8411b96e2c942e080ad51bab15fbd1e200c` (the ledger was finalized after this snapshot; both hashes are retained as persisted).
+- Final decision: `BLOCKED_STAGE3B_DIAGNOSTIC_SAFETY`.
+- Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains NOT RUN / LOCKED.
+- Issue #7 remains OPEN with `phase:implementation` and `blocked`; PR #8 remains OPEN with `Closes #7`.
+- Stage3 production 480-cell recapture, Stage3A recapture, Stage4, full CTest, Web Player, and manual listening remain NOT RUN.
+
+No code, DSP, candidate, configuration, threshold, or reference fixture was changed. The existing production and diagnostic build artifacts were reused; no build occurred. This status record does not authorize a 26th or repeat acoustic evaluation, production adoption of Factor I or P, or Stage4. A new requirements/design decision is required before any further acoustic evaluation or production architecture work.
