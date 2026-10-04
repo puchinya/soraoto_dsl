@@ -316,11 +316,58 @@ Stage3C equivalence rendered   = 20
 Stage3C split authorized       = 286
 Stage3C split rendered         = 0
 Stage3C total renders          = 20
-cumulative diagnostic calls    = 993 (390 + 6 + 477 + 20)
+cumulative diagnostic calls    = 893 (390 + 6 + 477 + 20)
 production candidate delta     = 0
 Stage4 renders                 = 0
 ```
 
-The equivalence ledger has 20 `COMPLETE`, 0 `PENDING`, and 0 `IN_PROGRESS` rows. Its SHA-256 is `348409a1fe0ded9fd9f60d5cd91dcfd80990d4df1d8635578e079c86b7ca5055`; the blocked equivalence evaluation SHA-256 is `4141debf0673e8b36cd6c34363e0a8f0e91540e6cb228fef9e00dd3714d3fcf9`. No Stage3C split ledger or attribution result was created. The 20-render allowance is exhausted; do not rerender or start the 286-cell split without a new contract that resolves the evidence identity and render budget.
+The equivalence ledger has 20 `COMPLETE`, 0 `PENDING`, and 0 `IN_PROGRESS` rows. Its SHA-256 is `348409a1fe0ded9fd9f60d5cd91dcfd80990d4df1d8635578e079c86b7ca5055`; the blocked equivalence evaluation SHA-256 is `4141debf0673e8b36cd6c34363e0a8f0e91540e6cb228fef9e00dd3714d3fcf9`. This was the original attempt; its history remains immutable and the approved correction contract supplies the continuation path.
+
+The previous cumulative value `993` was an arithmetic error. The corrected historical total is `893` (`390 + 6 + 477 + 20`).
+
+## Stage3C equivalence correction and split continuation — 2026-10-04
+
+Execution HEAD: `d3fa2e359dae0a8a21c04f1f535259d4a89cc59b` (PR #8). The original 20-cell ledger, blocked evaluation, all original cells, Stage3C WASM, Stage3C runner, capture helper, `plugin.c`, and CMake source remained unchanged.
+
+The single authorized correction render for MIDI41 / normalized velocity `0.25` / Stage3C mask 0 used Stage2M mask 3 and the exact `[30,180] ms` derivative window. It matched the Stage3A supplement with maximum difference `0`:
+
+- Correction decision: `STAGE3C_EQUIVALENCE_CORRECTION_COMPLETE`.
+- Historical 19 PASS rows reused without rerender; the failed historical row remains immutable and is referenced as superseded.
+- Correction render calls: `1`; correction cell SHA-256: `018da7dd3687006eb7989881d33b2daaf9b2fe93918c66ba7d084f64a42eb925`.
+- Correction ledger SHA-256: `5fe8da6e32b7195a1b186f724ed41638b54db379ef2da64c2c00d75b09aef46b`.
+- Corrected-equivalence SHA-256: `e28178043baaf087dae5795d63e3de5acb74cc06904972e88a5755f8860a8b97`.
+
+The authorized contact/bridge split matrix then completed using masks 1 and 2 only:
+
+| Measure | Result |
+|---|---:|
+| New split renders | 286 |
+| COMPLETE / PENDING / IN_PROGRESS | 286 / 0 / 0 |
+| Continuation aggregates | 24 |
+| Finite cells | 286 / 286 |
+| Output guard hits | 778311 |
+| Worst full-render peak | +1.583625 dBFS |
+| Continuation ledger SHA-256 | `6cd380fe66f7b0d0a7a410f00ba8e40fc403f6c9b227382c4d53cd903d6d5d19` |
+
+### Finalization blocker
+
+The zero-render `--finalize` attempt stopped before producing `split-attribution.json`. The existing `calculateAttribution()` helper hard-codes `.agent-state/issues/7/stage3c/split/ledger.json`; this contract requires continuation evidence under `.agent-state/issues/7/stage3c/continuation/` and forbids reusing the old `split/` path. That directory remains absent. No attribution result or architecture decision is claimed. Current state: `BLOCKED_STAGE3C_CONTINUATION_EVIDENCE` pending a narrowly scoped finalizer correction contract; no acoustic rerender is needed or authorized by this report.
+
+Correct diagnostic-call accounting is:
+
+```text
+Stage3A historical                 390
+Stage3B mask-0                       6
+Stage3B factorial                  477
+Stage3C original equivalence        20
+Stage3C correction                   1
+Stage3C contact/bridge split       286
+--------------------------------------
+cumulative diagnostic calls       1180
+production candidate delta           0
+Stage4 renders                       0
+```
+
+The totals after correction and after split execution were `894` and `1180`. Production architecture remains unselected. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains locked. Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`.
 
 Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`. No production architecture was selected.
