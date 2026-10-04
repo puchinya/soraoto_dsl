@@ -668,3 +668,14 @@ diagnostic accounting is 893 calls before recovery, 894 after correction, and
 1180 after a complete split (`390 + 6 + 477 + 20 + 1 + 286`). The earlier
 reported value 993 was an arithmetic error. This recovery remains diagnostic
 only and cannot select or implement a production impedance architecture.
+
+#### Stage3C continuation finalization recovery
+
+The correction and 286-cell continuation evidence remain immutable and retain
+their execution identity. Final attribution now runs through a separate
+read-only finalizer sidecar and a pure, filesystem-independent attribution
+core. The finalizer validates the persisted evidence against its historical
+identity, then supplies the actual continuation-ledger hash to the attribution
+result; it does not derive evidence ownership from a legacy path. The obsolete
+`.agent-state/issues/7/stage3c/split/` path is not revived. This recovery adds
+no acoustic execution and does not change Stage3C metric or factorial rules.
