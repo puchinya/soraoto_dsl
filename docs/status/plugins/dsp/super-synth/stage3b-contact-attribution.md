@@ -371,3 +371,118 @@ Stage4 renders                       0
 The totals after correction and after split execution were `894` and `1180`. Production architecture remains unselected. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains locked. Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`.
 
 Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`. No production architecture was selected.
+
+## Stage3C continuation attribution finalization — 2026-10-05
+
+**Decision:** `STAGE3C_SPLIT_ATTRIBUTION_COMPLETE`
+
+The finalizer consumed only the persisted Stage3C continuation ledger, cell evidence, and aggregates. The result separates contact-path and bridge-path diagnostic effects. It does not select or authorize a production architecture, and it does not establish physical root cause beyond the measured output-path attribution.
+
+### Identity and evidence
+
+| Evidence | SHA-256 / identity |
+|---|---|
+| Candidate | `stage2n-r3-candidate-01` |
+| Production WASM | `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2` |
+| Stage3B diagnostic WASM | `2fe2919e9d903ade8e42c1eab44a081d1119bdbdc322961e9427fccc571a78d9` |
+| Stage3A diagnostic WASM | `59d661e4e435298baf8f097fc1d85bfc8c517c2af1c23f391963a125cb3328b3` |
+| Corrected Stage3C equivalence | `e28178043baaf087dae5795d63e3de5acb74cc06904972e88a5755f8860a8b97` |
+| Continuation ledger / result `ledgerSha256` | `6cd380fe66f7b0d0a7a410f00ba8e40fc403f6c9b227382c4d53cd903d6d5d19` |
+| Finalizer | `ea567b05b950ad08395ab7e08938a1660c5e32978ffac25e92dc6fad5c6da08c` |
+| Attribution core | `0d1ffa7d6bf4ba5b711b2e211a99aaa012290bf7d2aa86b6bbf33bd322960bdf` |
+| Final result `split-attribution.json` | `1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1e63737` |
+
+The correction reused the 19 historical passing equivalence rows and the single corrected MIDI41 / normalized-velocity 0.25 row; the original failed row remains preserved as superseded evidence. Corrected Stage3C equivalence is 20/20 with maximum difference 0. The split continuation has 286/286 COMPLETE cells, 24 aggregates, and 0 PENDING / 0 IN_PROGRESS.
+
+### Safety and render accounting
+
+| Diagnostic variant | Unsafe cells | Guard hits | Worst full-render peak |
+|---|---:|---:|---:|
+| Contact-only (mask 1) | 59 | 778,311 | +1.583625 dBFS |
+| Bridge-only (mask 2) | 0 | 0 | −4.974125 dBFS |
+| Persisted Stage3B full-I comparison | 59 | 695,958 | +1.583625 dBFS |
+
+The mask-1 contact diagnostic is unsafe; this precludes treating it as a production recommendation. Mask 2 was safe in these measured cells, but that alone is not production selection evidence.
+
+| Diagnostic call source | Calls |
+|---|---:|
+| Stage3A historical | 390 |
+| Stage3B mask-0 equivalence | 6 |
+| Stage3B factorial | 477 |
+| Stage3C historical equivalence | 20 |
+| Stage3C correction | 1 |
+| Stage3C contact/bridge split | 286 |
+| **Cumulative diagnostic calls** | **1,180** |
+| Production candidate delta | 0 |
+| Stage4 renders | 0 |
+
+Finalizer dry-run: PASS, 0 builds / 0 renders, 286 cells and 24 aggregates recognized. Finalize: PASS, 0 builds / 0 renders / 0 acoustic renders. No acoustic capture, production build, Stage3 recapture, or Stage4 run was performed for finalization.
+
+### Dynamic-span attribution
+
+Values are absolute span error in dB. `MC` is contact-only, `MB` bridge-only, and `MI` combined. Positive improvement means lower error than M0; the main effects use the contracted factorial signs.
+
+| MIDI | Strings | Group | M0 | MC | MB | MI | Contact improvement | Bridge improvement | Interaction |
+|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 36 | 2 | failure | 12.580882 | 18.011487 | 12.400970 | 17.890174 | −5.459905 | +0.150613 | +0.058599 |
+| 39 | 2 | failure | 12.069386 | 13.784909 | 11.831009 | 13.534894 | −1.709704 | +0.244196 | −0.011638 |
+| 42 | 2 | control | 3.006558 | 13.298398 | 3.008712 | 13.052525 | −10.167827 | +0.121860 | −0.248027 |
+| 45 | 2 | control | 6.853855 | 18.228781 | 6.483811 | 18.570019 | −11.730567 | +0.014403 | +0.711282 |
+| 48 | 3 | control | 1.964136 | 7.436629 | 1.601008 | 8.587612 | −6.229549 | −0.393928 | +1.514111 |
+| 51 | 3 | failure | 20.696187 | 9.636255 | 20.031128 | 8.266599 | +11.412230 | +1.017358 | −0.704597 |
+| 54 | 3 | failure | 9.249924 | 3.557543 | 8.476384 | 5.004335 | +4.582215 | −0.336626 | +2.220332 |
+| 57 | 3 | control | 4.227523 | 15.004954 | 4.071495 | 14.703038 | −10.704487 | +0.228972 | −0.145888 |
+
+MIDI 51 contact / bridge improvements are +11.412230 / +1.017358 dB. Mean contact / bridge improvement is −7.267000 / +0.132768 dB in the two-string subgroup and −0.234897 / +0.128944 dB in the three-string subgroup. Across the four failing pitches, mean absolute interaction is 0.748792 dB. Contact-path improvement direction reverses across the string-count groups; the result is diagnostic and does not justify promoting either factor.
+
+### Treble direct-level guardrail
+
+Entries show direct-level error for M0 / MC / MB / MI, followed by contact main effect, bridge main effect, and interaction (dB).
+
+| MIDI | Velocity | M0 | MC | MB | MI | Contact main | Bridge main | Interaction |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 93 | 14 | −4.225260 | +5.050555 | −13.399287 | −3.708154 | +9.483474 | −8.966368 | +0.415318 |
+| 93 | 31 | +0.209337 | +7.311514 | −8.838288 | −0.582678 | +7.678894 | −8.470909 | +1.153433 |
+| 93 | 61 | −1.362593 | +3.945983 | −10.235695 | −3.752140 | +5.896066 | −8.285613 | +1.174979 |
+| 93 | 124 | −3.022449 | −1.702629 | −10.985391 | −9.507459 | +1.398876 | −7.883886 | +0.158112 |
+| 96 | 14 | −0.142844 | +9.014160 | −10.902800 | +0.554411 | +10.307107 | −9.609852 | +2.300207 |
+| 96 | 31 | +6.749034 | +15.427619 | −3.865345 | +5.982623 | +9.263277 | −10.029688 | +1.169383 |
+| 96 | 61 | −0.317869 | +7.014857 | −10.681978 | −0.118729 | +8.947987 | −8.748848 | +3.230523 |
+| 96 | 124 | −1.425192 | +5.596235 | −10.937488 | −4.839735 | +6.559590 | −9.974133 | −0.923674 |
+| 99 | 14 | +0.604576 | +16.663021 | −11.942300 | +4.577641 | +16.289193 | −12.316128 | +0.461496 |
+| 99 | 31 | −3.127353 | +5.690034 | −15.622232 | −6.123296 | +9.158161 | −12.154104 | +0.681549 |
+| 99 | 61 | −4.865120 | +3.166269 | −17.158647 | −8.673953 | +8.258042 | −12.066875 | +0.453305 |
+| 99 | 124 | −6.403777 | −0.012347 | −17.845291 | −11.111332 | +6.562694 | −11.270250 | +0.342529 |
+
+Explicit MIDI 96 / velocity 31: contact and bridge main effects are +9.263277 dB and −10.029688 dB, respectively.
+
+### MIDI 41 velocity derivative
+
+Window `[30,180]` ms. Columns are M0 / MC / MB / MI, then contact main effect, bridge main effect, and interaction.
+
+| Normalized velocity | M0 | MC | MB | MI | Contact main | Bridge main | Interaction |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.25 | 0.062991 | 0.415730 | 0.062979 | 0.415140 | +0.352450 | −0.000301 | −0.000579 |
+| 0.55 | 0.053890 | 0.055212 | 0.053890 | 0.055096 | +0.001264 | −0.000058 | −0.000116 |
+| 0.90 | 0.242315 | 0.351484 | 0.238234 | 0.348419 | +0.109677 | −0.003572 | +0.001016 |
+
+### Path attribution
+
+Pooled factorial values; 143 coordinates per metric.
+
+| Metric | Contact main | Bridge main | Interaction | Mean absolute interaction |
+|---|---:|---:|---:|---:|
+| Contact duration (samples) | +54.636364 | −0.006993 | −0.013986 | 0.167832 |
+| Peak force | +93.026911 | 0.000000 | 0.000000 | 0.000000 |
+| Post-contact transverse energy | +5,414,136.475596 | −784,187.521277 | −1,498,557.079550 | 1,498,557.079550 |
+| Bridge B RMS | +35.694381 | −2.380611 | −4.478462 | 4.478462 |
+| Board-drive B RMS | +35.693510 | −2.380531 | −4.478312 | 4.478312 |
+| Post-radiation L RMS | +2.212276 | −0.169439 | −0.336321 | 0.336321 |
+| Spectral centroid (Hz) | +2,693.146513 | +12.236460 | −8.671306 | 128.357984 |
+| Above-2-kHz power ratio | +0.389911 | −0.004519 | +0.003584 | 0.009211 |
+
+### Workflow and limits
+
+Issue #7 remains OPEN with `phase:implementation` and `blocked`; PR #8 remains OPEN and retains `Closes #7`. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. No Stage3C production architecture was selected. Production candidate delta is 0. No Stage3 or Stage4 execution is part of this finalizer report.
+
+The continuation finalizer source revision is `d88ee6f0c061548409f8a19d452c5276560999de`; the split execution source revision is `d3fa2e359dae0a8a21c04f1f535259d4a89cc59b`. The existing PR #8 remains the sole delivery path.
