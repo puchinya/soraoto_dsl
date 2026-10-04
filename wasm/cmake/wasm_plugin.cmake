@@ -54,6 +54,9 @@ function(soraoto_add_wasm_plugin group plugin)
     option(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS
       "Build test-only Stage3B string-bundle contact attribution controls for SuperSynth"
       OFF)
+    option(SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS
+      "Build test-only Stage3C contact-vs-bridge impedance split controls for SuperSynth"
+      OFF)
     target_compile_options(${target} PRIVATE -msimd128 -fvectorize -fslp-vectorize)
     if(SORAOTO_SUPERSYNTH_SIMD_DIAGNOSTICS)
       target_compile_options(${target} PRIVATE
@@ -80,6 +83,15 @@ function(soraoto_add_wasm_plugin group plugin)
         message(FATAL_ERROR "Stage3B diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON and SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=ON")
       endif()
       target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS=1)
+    endif()
+    if(SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS)
+      if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS OR NOT SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+        message(FATAL_ERROR "Stage3C diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON and SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=ON")
+      endif()
+      if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
+        message(FATAL_ERROR "Stage3B and Stage3C diagnostics are mutually exclusive")
+      endif()
+      target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS=1)
     endif()
   elseif(plugin STREQUAL "reverb")
     target_compile_options(${target} PRIVATE -O2)
@@ -116,6 +128,11 @@ function(soraoto_add_wasm_plugin group plugin)
         list(APPEND link_options
           "-Wl,--export=soraoto_supersynth_stage3b_set_variant_mask"
           "-Wl,--export=soraoto_supersynth_stage3b_get_variant_mask")
+      endif()
+      if(SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS)
+        list(APPEND link_options
+          "-Wl,--export=soraoto_supersynth_stage3c_set_variant_mask"
+          "-Wl,--export=soraoto_supersynth_stage3c_get_variant_mask")
       endif()
     endif()
   endif()

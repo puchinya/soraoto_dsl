@@ -286,3 +286,41 @@ Pooled factorial effects are in each metric's native units; `mean |interaction|`
 - Stage3 production 480-cell recapture, Stage3A recapture, Stage4, full CTest, Web Player, and manual listening remain NOT RUN.
 
 No code, DSP, candidate, configuration, threshold, or reference fixture was changed. The existing production and diagnostic build artifacts were reused; no build occurred. This status record does not authorize a 26th or repeat acoustic evaluation, production adoption of Factor I or P, or Stage4. A new requirements/design decision is required before any further acoustic evaluation or production architecture work.
+
+## Stage3C contact-vs-bridge split diagnostic attempt — 2026-10-04
+
+**Decision: `BLOCKED_STAGE3C_EQUIVALENCE`**
+
+Stage3C diagnostic implementation and its dedicated production-SIMD diagnostic build were prepared. The fixed production WASM remained byte-identical (`9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`). Stage3B's persisted aggregate count was validated as **39**.
+
+The authorized 20-cell equivalence gate ran to completion. Nineteen rows passed with maximum numeric difference `0`; the Stage3C mask-0 MIDI41 / normalized velocity `0.25` row failed the exact `velocityDerivativeWindowMs` comparison. The capture used `[0,160]` ms while its accepted Stage3A supplemental reference uses `[30,180]` ms. The measured row therefore cannot establish the required equivalence. This is an implementation contract violation in the Stage3C capture-window selection, not evidence of an acoustic mismatch. The Stage3B mask-1 checks, including unsafe guard telemetry, matched exactly where compared.
+
+| MIDI / velocity | Stage3C mask 0 | Stage3C mask 3 |
+|---|---:|---:|
+| 36 / 124 | PASS, diff 0 | PASS, diff 0 |
+| 39 / 124 | PASS, diff 0 | PASS, diff 0 |
+| 45 / 69 | PASS, diff 0 | PASS, diff 0 |
+| 48 / 69 | PASS, diff 0 | PASS, diff 0 |
+| 51 / 14 | PASS, diff 0 | PASS, diff 0 |
+| 51 / 124 | PASS, diff 0 | PASS, diff 0 |
+| 54 / 124 | PASS, diff 0 | PASS, diff 0 |
+| 57 / 124 | PASS, diff 0 | PASS, diff 0 |
+| 96 / 31 | PASS, diff 0 | PASS, diff 0 |
+| 41 / normalized 0.25 | FAIL, window mismatch | PASS, diff 0 |
+
+Render accounting:
+
+```text
+Stage3C equivalence authorized = 20
+Stage3C equivalence rendered   = 20
+Stage3C split authorized       = 286
+Stage3C split rendered         = 0
+Stage3C total renders          = 20
+cumulative diagnostic calls    = 993 (390 + 6 + 477 + 20)
+production candidate delta     = 0
+Stage4 renders                 = 0
+```
+
+The equivalence ledger has 20 `COMPLETE`, 0 `PENDING`, and 0 `IN_PROGRESS` rows. Its SHA-256 is `348409a1fe0ded9fd9f60d5cd91dcfd80990d4df1d8635578e079c86b7ca5055`; the blocked equivalence evaluation SHA-256 is `4141debf0673e8b36cd6c34363e0a8f0e91540e6cb228fef9e00dd3714d3fcf9`. No Stage3C split ledger or attribution result was created. The 20-render allowance is exhausted; do not rerender or start the 286-cell split without a new contract that resolves the evidence identity and render budget.
+
+Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`. No production architecture was selected.

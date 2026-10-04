@@ -52,6 +52,8 @@ function render(pitch, velocity, parameters={}, options={}) {
 }
 
 function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) {
+  if(options.stage3bVariantMask!==undefined&&options.stage3cVariantMask!==undefined)
+    throw new Error('Stage3B and Stage3C diagnostic masks cannot be requested together');
   const harness = new PluginHarness(REPO,WASM,{sampleRate:SAMPLE_RATE,maxFrames:BLOCK});
   try {
     const guardCount=typeof harness.e.soraoto_supersynth_guard_hit_count==='function'?harness.e.soraoto_supersynth_guard_hit_count():null;
@@ -80,6 +82,16 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
         throw new Error(`Stage3B variant mask rejected: ${options.stage3bVariantMask}`);
       if((e.soraoto_supersynth_stage3b_get_variant_mask()>>>0)!==options.stage3bVariantMask)
         throw new Error(`Stage3B variant mask did not persist: ${options.stage3bVariantMask}`);
+    }
+    if(options.stage3cVariantMask!==undefined){
+      const e=harness.e;
+      if(typeof e.soraoto_supersynth_stage3c_set_variant_mask!=='function'
+          ||typeof e.soraoto_supersynth_stage3c_get_variant_mask!=='function')
+        throw new Error('Stage3C capture requires a test-only Stage3C diagnostic WASM');
+      if((e.soraoto_supersynth_stage3c_set_variant_mask(options.stage3cVariantMask)|0)!==0)
+        throw new Error(`Stage3C variant mask rejected: ${options.stage3cVariantMask}`);
+      if((e.soraoto_supersynth_stage3c_get_variant_mask()>>>0)!==options.stage3cVariantMask)
+        throw new Error(`Stage3C variant mask did not persist: ${options.stage3cVariantMask}`);
     }
     if(options.includeSoundboardDiagnostics){
       if(typeof harness.e.soraoto_supersynth_soundboard_diag_reset!=='function'
@@ -155,6 +167,7 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
           preparedStringNominalHz};
     }
     if(options.stage3bVariantMask!==undefined)metrics.stage3bVariantMask=options.stage3bVariantMask;
+    if(options.stage3cVariantMask!==undefined)metrics.stage3cVariantMask=options.stage3cVariantMask;
     }
     if(options.includeNearFundamentalProbe&&pitch===21){
       const expectedHz=440*2**((pitch-69)/12);
@@ -194,7 +207,9 @@ function renderNormalized(pitch, velocityNormalized, parameters={}, options={}) 
   } finally { harness.close(); }
 }
 
-function captureMatrix({onProgress=()=>{},pitches=Array.from({length:88},(_,i)=>i+21),velocities=VELOCITIES,parameters={},includePitchHealth=false,includeSoundboardDiagnostics=false,includeCalibrationDiagnostics=false,includeNearFundamentalProbe=false,stage2mFactorMask=undefined,cells=null}={}) {
+function captureMatrix({onProgress=()=>{},pitches=Array.from({length:88},(_,i)=>i+21),velocities=VELOCITIES,parameters={},includePitchHealth=false,includeSoundboardDiagnostics=false,includeCalibrationDiagnostics=false,includeNearFundamentalProbe=false,stage2mFactorMask=undefined,stage3bVariantMask=undefined,stage3cVariantMask=undefined,cells=null}={}) {
+  if(stage3bVariantMask!==undefined&&stage3cVariantMask!==undefined)
+    throw new Error('Stage3B and Stage3C diagnostic masks cannot be requested together');
   const rows=[];
   const requestedCells=cells??pitches.flatMap(pitch=>velocities.map(velocity=>({pitch,velocity})));
   const seenCells=new Set();
@@ -204,7 +219,7 @@ function captureMatrix({onProgress=()=>{},pitches=Array.from({length:88},(_,i)=>
     const cellKey=`${pitch}:${velocity}`;
     if(seenCells.has(cellKey))throw new Error(`duplicate requested matrix cell ${cellKey}`);
     seenCells.add(cellKey);
-    rows.push({pitch,velocity,velocityNormalized:velocity/127,metrics:render(pitch,velocity,parameters,{includePitchHealth,includeSoundboardDiagnostics,includeNearFundamentalProbe,stage2mFactorMask})});
+    rows.push({pitch,velocity,velocityNormalized:velocity/127,metrics:render(pitch,velocity,parameters,{includePitchHealth,includeSoundboardDiagnostics,includeNearFundamentalProbe,stage2mFactorMask,stage3bVariantMask,stage3cVariantMask})});
     onProgress(pitch,rows.length);
   }
   if (rows.length!==requestedCells.length) throw new Error(`expected ${requestedCells.length} render cases, got ${rows.length}`);

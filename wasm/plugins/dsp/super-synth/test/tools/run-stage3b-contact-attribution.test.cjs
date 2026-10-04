@@ -257,9 +257,15 @@ temporaryRoot(root=>{
 temporaryRoot(root=>{
   const paths=stage3bPaths(root);
   assert.equal(fs.existsSync(path.join(ROOT,'.agent-state/issues/7/stage3b/mask0-equivalence-authorization.json')),false);
-  const expectedBlocker=fs.existsSync(path.join(ROOT,'.agent-state/issues/7/stage3b/mask0-equivalence.json'))
-    ?/BLOCKED_STAGE3B_DIAGNOSTIC_EVIDENCE: finalization requires 477 COMPLETE cells/
-    :/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/;
+  const preflight=JSON.parse(fs.readFileSync(path.join(ROOT,'.agent-state/issues/7/stage3b/preflight-provenance.json'),'utf8'));
+  const currentPluginSourceSha256=crypto.createHash('sha256')
+    .update(fs.readFileSync(path.join(ROOT,'wasm/plugins/dsp/super-synth/src/plugin.c'))).digest('hex');
+  const stalePluginProvenance=preflight.production?.pluginSourceSha256!==currentPluginSourceSha256;
+  const expectedBlocker=stalePluginProvenance
+    ?/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED: BLOCKED_STAGE3B_DIAGNOSTIC_BUILD_IDENTITY: preflight pluginSourceSha256 no longer matches/
+    :fs.existsSync(path.join(ROOT,'.agent-state/issues/7/stage3b/mask0-equivalence.json'))
+      ?/BLOCKED_STAGE3B_DIAGNOSTIC_EVIDENCE: finalization requires 477 COMPLETE cells/
+      :/BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED/;
   assert.throws(()=>finalize({root:ROOT,paths}),expectedBlocker,
     'direct finalizer must require either the mask-0 authorization or a complete 477-cell ledger');
   assert.equal(fs.existsSync(paths.ledger),false);

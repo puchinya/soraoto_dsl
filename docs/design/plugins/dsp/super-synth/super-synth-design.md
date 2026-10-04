@@ -601,3 +601,48 @@ failures, peak/guard hits, and CPU ratio as informational data. Fit the board on
 stages are stable. Then run the direct 480 cells, the production-SIMD 1,408-cell lifecycle gate, and
 1,392 adjacent comparisons; tune preset and output gain last. Any later relevant source or document
 change invalidates its affected evidence.
+
+### 8.8 Stage3C contact-vs-bridge impedance split diagnostic
+
+Stage3C is a test-only attribution experiment for the Stage3B bundle-impedance
+change. It separates the two current uses of active-string characteristic
+impedance without selecting or changing production architecture. The product
+specification, production presets, and ordinary DSP behavior remain unchanged.
+
+Stage3C diagnostic mask meanings are:
+
+| Mask | Diagnostic behavior |
+| ---: | --- |
+| 0 | Current production-equivalent contact and bridge impedances |
+| 1 | Contact-side bundle normalization only |
+| 2 | Bridge-side bundle normalization only |
+| 3 | Normalize both views; must reproduce Stage3B Factor-I behavior |
+
+For active lanes, each normalized view divides the existing lane impedance by
+the sum of active lane impedances. Lane ratios remain `1 : 0.965 : 1.035`.
+Contact normalization affects only contact-weighted string velocity, contact
+impedance sum, and hammer `delta_v`. Bridge normalization affects only the
+shared bridge numerator and impedance denominator. String count, delay state,
+unison geometry, hammer force law, bridge termination, soundboard, and output
+gain do not change. The Stage3B implementation remains available with its
+original mask semantics and is not modified by Stage3C.
+
+Before split attribution, a 20-render equivalence gate checks ten fixed
+coordinates at Stage3C masks 0 and 3. Mask 0 is compared with accepted Stage3A
+evidence; mask 3 is compared with persisted Stage3B mask-1 evidence. Compared
+numeric output and diagnostic fields must differ by no more than `1e-6`, while
+masks, counts, and categorical values must match exactly. The mask-0 result is
+reused as the factorial baseline; no mask-0 or mask-3 renders occur in the
+subsequent split matrix.
+
+After equivalence passes, the split matrix permits 286 renders: 256 dynamic
+span cells over MIDI 36/39/42/45/48/51/54/57 and two masks (contact-only and
+bridge-only), 24 treble guardrail cells over MIDI 93/96/99 and two masks, and
+six MIDI41 velocity-derivative cells over normalized velocities 0.25/0.55/0.90
+and two masks. The total Stage3C allowance is 306 renders, including
+equivalence. Stage3A, Stage3B, and prior equivalence evidence are immutable
+inputs. Stage3C factorial analysis reuses the accepted baselines and reports
+contact, bridge, and interaction effects separately. This diagnostic can
+identify output-path attribution only; it cannot establish physical root cause
+or authorize production adoption. Any production architecture decision needs
+a separate requirements/design contract.

@@ -339,6 +339,9 @@ static float g_stage2m_hammer_diag[STAGE2M_HAMMER_DIAG_COUNT]={0};
 #if defined(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
 static unsigned int g_stage3b_variant_mask=0u;
 #endif
+#if defined(SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS)
+static unsigned int g_stage3c_variant_mask=0u;
+#endif
 static float g_sb_diag_sum_sq[SB_DIAG_COUNT]={0};
 static float g_sb_diag_peak[SB_DIAG_COUNT]={0};
 static unsigned int g_sb_diag_frames=0;
@@ -763,6 +766,17 @@ int soraoto_supersynth_stage3b_set_variant_mask(unsigned int mask){
 }
 unsigned int soraoto_supersynth_stage3b_get_variant_mask(void){return g_stage3b_variant_mask;}
 #endif
+#if defined(SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS)
+int soraoto_supersynth_stage3c_set_variant_mask(unsigned int mask){
+  if(mask&~3u)return -1;
+  if(mask!=g_stage3c_variant_mask){
+    g_stage3c_variant_mask=mask;
+    dsp_reset();
+  }
+  return 0;
+}
+unsigned int soraoto_supersynth_stage3c_get_variant_mask(void){return g_stage3c_variant_mask;}
+#endif
 #endif
 
 void dsp_set_parameter(int id,float value,int sample_offset){
@@ -1014,7 +1028,9 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
   float ret_b[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
   float out_a[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
   float out_b[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
-  float impedance[4] __attribute__((aligned(16)))={s->characteristic_impedance[0],s->characteristic_impedance[1],s->characteristic_impedance[2],0.0f};
+  float raw_impedance[4] __attribute__((aligned(16)))={s->characteristic_impedance[0],s->characteristic_impedance[1],s->characteristic_impedance[2],0.0f};
+  float contact_impedance[4] __attribute__((aligned(16)))={s->characteristic_impedance[0],s->characteristic_impedance[1],s->characteristic_impedance[2],0.0f};
+  float bridge_impedance[4] __attribute__((aligned(16)))={s->characteristic_impedance[0],s->characteristic_impedance[1],s->characteristic_impedance[2],0.0f};
   float active_lanes[4] __attribute__((aligned(16)))={0.0f,0.0f,0.0f,0.0f};
   float zsum=0.0f,contact_weighted=0.0f,string_sum=0.0f;
   float disp=s->dispersion_base+inh*(s->dispersion_inharmonicity_base+s->dispersion_inharmonicity_key_scale*key);
@@ -1030,20 +1046,39 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
 #if defined(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
   if((g_stage3b_variant_mask&1u)!=0u){
     float raw_sum=0.0f;
-    for(int st=0;st<count;st++)raw_sum+=impedance[st];
+    for(int st=0;st<count;st++)raw_sum+=raw_impedance[st];
     float scale=raw_sum>0.0f?1.0f/raw_sum:0.0f;
-    for(int st=0;st<4;st++)impedance[st]=st<count?impedance[st]*scale:0.0f;
+    for(int st=0;st<4;st++){
+      contact_impedance[st]=st<count?raw_impedance[st]*scale:0.0f;
+      bridge_impedance[st]=contact_impedance[st];
+    }
   }
+#elif defined(SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS)
+  if((g_stage3c_variant_mask&3u)!=0u){
+    float raw_sum=0.0f;
+    for(int st=0;st<count;st++)raw_sum+=raw_impedance[st];
+    float scale=raw_sum>0.0f?1.0f/raw_sum:0.0f;
+    for(int st=0;st<4;st++){
+      contact_impedance[st]=st<count&&((g_stage3c_variant_mask&1u)!=0u)?raw_impedance[st]*scale:raw_impedance[st];
+      bridge_impedance[st]=st<count&&((g_stage3c_variant_mask&2u)!=0u)?raw_impedance[st]*scale:raw_impedance[st];
+      if(st>=count){contact_impedance[st]=0.0f;bridge_impedance[st]=0.0f;}
+    }
+  }else{
+    for(int st=count;st<4;st++){contact_impedance[st]=0.0f;bridge_impedance[st]=0.0f;}
+  }
+#else
+  for(int st=count;st<4;st++){contact_impedance[st]=0.0f;bridge_impedance[st]=0.0f;}
 #endif
 #if SORAOTO_GRAND_SIMD
-  v128_t v_impedance=wasm_f32x4_mul(wasm_v128_load(impedance),wasm_v128_load(active_lanes));
+  v128_t v_contact_impedance=wasm_f32x4_mul(wasm_v128_load(contact_impedance),wasm_v128_load(active_lanes));
+  v128_t v_bridge_impedance=wasm_f32x4_mul(wasm_v128_load(bridge_impedance),wasm_v128_load(active_lanes));
   v128_t pair=wasm_f32x4_mul(wasm_f32x4_add(wasm_v128_load(in_a),wasm_v128_load(in_b)),wasm_f32x4_splat(.5f));
-  zsum=grand_hsum_f32x4(v_impedance);
-  contact_weighted=grand_hsum_f32x4(wasm_f32x4_mul(v_impedance,pair));
+  zsum=grand_hsum_f32x4(v_contact_impedance);
+  contact_weighted=grand_hsum_f32x4(wasm_f32x4_mul(v_contact_impedance,pair));
   string_sum=grand_hsum_f32x4(pair);
 #else
   for(int st=0;st<count;st++){
-    zsum+=impedance[st];contact_weighted+=impedance[st]*(in_a[st]+in_b[st])*.5f;
+    zsum+=contact_impedance[st];contact_weighted+=contact_impedance[st]*(in_a[st]+in_b[st])*.5f;
     string_sum+=(in_a[st]+in_b[st])*.5f;
   }
 #endif
@@ -1141,12 +1176,14 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
   float v_board=body_fb*g_params[P_PIANO_SYMPATHETIC];
 #if SORAOTO_GRAND_SIMD
   v128_t v_at_bridge=wasm_v128_load(at_b);
-  float numerator=grand_hsum_f32x4(wasm_f32x4_mul(wasm_f32x4_splat(2.0f),wasm_f32x4_mul(v_impedance,v_at_bridge)))+zb_imp*v_board;
-  float v_bridge=numerator/(grand_hsum_f32x4(v_impedance)+zb_imp);
+  float bridge_zsum=grand_hsum_f32x4(v_bridge_impedance);
+  float numerator=grand_hsum_f32x4(wasm_f32x4_mul(wasm_f32x4_splat(2.0f),wasm_f32x4_mul(v_bridge_impedance,v_at_bridge)))+zb_imp*v_board;
+  float v_bridge=numerator/(bridge_zsum+zb_imp);
 #else
   float numerator=zb_imp*v_board;
-  for(int st=0;st<count;st++)numerator+=2.0f*impedance[st]*at_b[st];
-  float v_bridge=numerator/(zsum+zb_imp);
+  float bridge_zsum=0.0f;
+  for(int st=0;st<count;st++){numerator+=2.0f*bridge_impedance[st]*at_b[st];bridge_zsum+=bridge_impedance[st];}
+  float v_bridge=numerator/(bridge_zsum+zb_imp);
 #endif
   float bridge_force=zb_imp*(v_bridge-v_board);
 
