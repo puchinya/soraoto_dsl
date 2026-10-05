@@ -8,6 +8,9 @@ set(CMAKE_C_EXTENSIONS OFF)
 include(CTest)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 find_program(SORAOTO_NODE_EXECUTABLE NAMES node)
+option(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS
+  "Build the isolated test-only Stage3D SuperSynth source"
+  OFF)
 include(cmake/wasm_plugin.cmake)
 
 set(SORAOTO_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
@@ -56,6 +59,22 @@ add_subdirectory(plugins/effects/reverb)
 add_subdirectory(plugins/effects/master-limiter)
 add_subdirectory(plugins/dsp/drum-machine)
 add_subdirectory(plugins/dsp/super-synth)
+
+if(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS)
+  if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS OR NOT SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+    message(FATAL_ERROR "Stage3D diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON and SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=ON")
+  endif()
+  if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS OR SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS)
+    message(FATAL_ERROR "Stage3B, Stage3C, and Stage3D diagnostics are mutually exclusive")
+  endif()
+  set(stage3d_target soraoto_dsp_super_synth)
+  set_property(TARGET ${stage3d_target} PROPERTY SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/src/plugin_stage3d.c")
+  target_compile_definitions(${stage3d_target} PRIVATE SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS=1)
+  target_link_options(${stage3d_target} PRIVATE
+    "-Wl,--export=soraoto_supersynth_stage3d_set_variant"
+    "-Wl,--export=soraoto_supersynth_stage3d_get_variant")
+endif()
 
 if(BUILD_TESTING AND SORAOTO_NODE_EXECUTABLE)
   file(GLOB SORAOTO_SHARED_WASM_TESTS CONFIGURE_DEPENDS

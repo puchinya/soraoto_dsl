@@ -396,6 +396,20 @@ Before the 477 factor-attribution cells, a separate mask-0 equivalence gate rend
 
 Apply Stage3B selection gates to each factor independently. The six-decibel worst-pitch requirement is evaluated at the Stage3A M0 failing pitch with the greatest absolute span error (currently MIDI 51). The MIDI96/v31 level guard uses each factor's factorial main effect. The MIDI41 derivative and safety checks use the relevant factor masks only: I uses masks 1 and 3; P uses masks 2 and 3. When both factor families are safe, architecture selection also requires the stated interaction, subgroup-direction, and comparative-improvement checks; when one family is unsafe, it does not automatically disqualify the other.
 
+### Stage3D localized lossless contact-transformer selection
+
+Stage3D tests a diagnostic-only, lossless contact transformer against the fixed Stage2N candidate. It does not modify ordinary production behavior, profile data, presets, public parameters, or the Plugin ABI. The diagnostic option defaults OFF, requires guard and Stage2M diagnostics, and is mutually exclusive with Stage3B and Stage3C diagnostic builds. Variant 0 is the baseline; variants 1, 2, and 3 are the only authorized candidates.
+
+The transformer is applied only when three strings are active and the MIDI register gate is nonzero. For `p <= 48` and `p >= 57`, `g(p)=0`; for `48 < p < 51`, `g(p)=smoothstep((p-48)/3)`; for `51 <= p <= 54`, `g(p)=1`; and for `54 < p < 57`, `g(p)=smoothstep((57-p)/3)`, with `smoothstep(t)=t*t*(3-2*t)`. Thus two-string notes, MIDI 48/57, and treble are unchanged. For each candidate plateau ratio `r_k`, the applied ratio is `r(p)=1-g(p)*(1-r_k)`.
+
+For the raw active bundle impedance `S=ΣZ_i`, define `v_bundle=Σ(Z_i*pair_i)/S`, `v_contact=v_bundle/r`, `F_string=F_hammer/r`, and `delta_v=F_string/(2*S)`. This preserves the contact power identity `F_hammer*v_contact=F_string*v_bundle`; the existing bridge continues to use raw `Z_i` and its existing shared-junction solve. No contact-only impedance normalization, bridge normalization, output-gain compensation, or clipping workaround is permitted. Variant 0 and every zero-gate note must reduce to the current production equations.
+
+The three plateau ratios are fixed and evaluated in order from least to most aggressive: variant 1 uses `sqrt((Z0+Z1)/(Z0+Z1+Z2))`; variant 2 uses `sqrt(Z0/(Z0+Z1+Z2))`; variant 3 uses `Z0/(Z0+Z1+Z2)`. The first candidate that passes the existing direct-reference limits, MIDI 51/54 span limits, all no-op localization checks, and safety requirements is selected; no aggregate-score ranking or fourth ratio is allowed.
+
+Stage3D results are architecture-selection evidence only. A selected ratio must not be enabled in ordinary production by this work. A separate production-promotion requirements/design contract must update product semantics, decide whether the gate/ratio is fixed architecture or profile-owned, promote exactly the selected candidate, rebuild ordinary production, and rerun Stage3 acceptance. Stage3 and Stage4 remain outside Stage3D.
+
+Stage3D equivalence and no-op comparisons use the derivative window belonging to their reference evidence. Stage3A recovery rows use `[0,160] ms`, while the accepted MIDI41 supplement uses `[30,180] ms`. The nine ordinary Stage3D equivalence rows captured against the recovery set are corrected in a separate immutable sidecar; the original ten-row result is retained as historical evidence, and its passing MIDI41 row is reused. Selection no-op rows for MIDI 48, MIDI 57, and treble use `[0,160] ms`; MIDI41 uses `[30,180] ms`. Other Stage3D diagnostic rows use `[30,180] ms`. The Stage3D-only capture helper receives the selected window explicitly from the runner; the shared historical capture helper remains unchanged.
+
 ## 6. Failure and blocker handling
 
 If the official Salamander package cannot be retrieved, its contents are incomplete, or its SFZ
