@@ -538,3 +538,60 @@ Stage4 renders                        0
 ```
 
 Stage3C diagnostic attribution is COMPLETE; production architecture is NOT SELECTED. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Issue #7 remains OPEN / `phase:implementation` / `blocked`, and PR #8 remains OPEN with `Closes #7`. The next work requires a separate production-architecture requirements/design contract based on this evidence.
+
+## Stage3D equivalence-window correction and selection — 2026-10-06
+
+**Decision:** `BLOCKED_STAGE3D_CONTACT_TRANSFORMER_FAMILY`. The Stage3D diagnostic-only candidate family did not satisfy the unchanged selection gates. No production architecture was selected or promoted.
+
+The Stage3D implementation commit is `02baf88307547b343968d1bffacc842fcef4d915`, based on PR baseline `4821d5eb2e4657fc303793dfcc3ad94ed908c47b`. The isolated diagnostic WASM remained byte-identical at `9883b54eaa888b5a8d2e4d9da0490de92dd4c31915fb0d97d47cc03ce123a63a`; production WASM remained `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`. Stage3C's protected source files and authoritative result were unchanged; its result SHA-256 remains `1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1c63737`.
+
+### Historical equivalence and correction
+
+The original 10-cell Stage3D equivalence ledger/result were not edited or rerendered. Their hashes remain ledger `186305188a08a8852dafa7013e6a2ea3c73b09aa7d3561c24bb375e7ae1816a0` and result `b4057b7d7cec163722a82b67646dda0d52120402c0cc792219c32a2b123deab4`; the historical decision remains `BLOCKED_STAGE3D_EQUIVALENCE`, with nine ordinary `[30,180]` versus `[0,160]` window mismatches and one passing MIDI41 supplement row at `[30,180]`.
+
+The separate correction rendered the nine ordinary cells at `[0,160]` ms. All nine passed with max metric difference 0, finite output, zero guard hits, and safe peaks. The historical MIDI41 pass was reused, producing 10 effective passing equivalence rows.
+
+| MIDI | Velocity | Difference | Result |
+|---:|---:|---:|:---|
+| 36 | 124 | 0 | PASS |
+| 39 | 124 | 0 | PASS |
+| 45 | 69 | 0 | PASS |
+| 48 | 69 | 0 | PASS |
+| 51 | 14 | 0 | PASS |
+| 51 | 124 | 0 | PASS |
+| 54 | 124 | 0 | PASS |
+| 57 | 124 | 0 | PASS |
+| 96 | 31 | 0 | PASS |
+
+Correction decision: `STAGE3D_EQUIVALENCE_CORRECTION_COMPLETE`; authorized/completed 9/9; max difference 0 (tolerance `1e-6`). Correction ledger SHA-256: `e6b98f1d8a30fb7bc7cae503d54796548a5d17a3d31ae8ffd220c1ffa899ed10`. Corrected result SHA-256: `153a8b7265ae1a4e5d8a79fce5af87611602315b6d3affc345eb3aec74a7050a`.
+
+### Selection window policy and results
+
+Selection used exactly 261 rows: 132 at `[0,160]` ms (MIDI48/57 and MIDI93/96/99) and 129 at `[30,180]` ms (MIDI51/54, MIDI41 supplement, and MIDI49/50/55/56 transitions). No-op comparisons passed for all variants.
+
+| Variant | Plateau ratio | Unsafe / 87 | Guard hits | Worst peak dBFS | MIDI51 span error dB | MIDI54 span error dB | Direct-reference failures | Transition failures | Eligible |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---|
+| 1 | 0.809321 | 9 | 82,116 | +1.583625 | 36.209626 | 23.734756 | 10 | 1 | No |
+| 2 | 0.577350 | 24 | 338,507 | +1.583625 | 0.365872 | 10.015281 | 27 | 2 | No |
+| 3 | 0.333333 | 34 | 674,249 | +1.583625 | 13.704034 | 7.552482 | 33 | 2 | No |
+
+All 261 rows were finite. Each variant failed safety (guard hits and peak above 0 dBFS); each also failed direct-reference and transition-safety checks. Variant 1 failed both dynamic-span limits, variant 2 failed MIDI54's span limit, and variant 3 failed MIDI51's span limit. Selection decision: `BLOCKED_STAGE3D_CONTACT_TRANSFORMER_FAMILY`; no variant was eligible.
+
+### Accounting and verification
+
+```text
+Historical diagnostic calls before Stage3D     1180
+Original Stage3D equivalence calls                10
+Stage3D equivalence correction calls               9
+Stage3D selection calls                           261
+Total Stage3D calls                               280
+Maximum cumulative diagnostic calls             1460
+Production candidate delta                          0
+Stage4 renders                                      0
+```
+
+Stage3D correction and selection ledgers finished with 9/9 and 261/261 COMPLETE, with no PENDING or IN_PROGRESS rows. Selection ledger SHA-256: `70f1f2311c09adcd79e2be48ae9b1d6af4ae094912bf29e5eecc3d555ad15914`. Selection result SHA-256: `a331b4785d7d554c7aaf0c0b688ee3f28c217a1ffa5f69784683a2dd337f1b3c`.
+
+PASS: Stage3D capture-helper test, Stage3D runner test, four Stage3C regression tests, Stage3C dry-run/finalizer replay (0 builds/0 renders; authoritative result SHA unchanged), Stage3D dry-runs (0 builds/0 renders; 9+261 authorized and window counts validated), and `git diff --check`. The referenced Stage3D source-generation and diagnostic-build test files were absent from this checkout; no rebuild was run. NOT RUN: Stage3 production acceptance, Stage4, production promotion/build, and manual listening.
+
+Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Further work requires a separate production-promotion requirements/design contract if one is proposed.
