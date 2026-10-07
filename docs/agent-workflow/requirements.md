@@ -15,6 +15,8 @@ Turn the request into a small, owned, verifiable scope before detailed investiga
 5. Identify the relevant part of the normative source at `docs/specs/soraotoDSL/soraotoDSL.md` and its owning `spec/*.md` module. Do not scan unrelated modules as a substitute for clarifying scope.
 6. Record external inputs required by acceptance criteria and confirm their authoritative location. If a required input is missing, record the exact blocker and do not replace it with fabricated or unrelated data.
 
+For evidence-producing work, apply [`evidence-preservation.md`](evidence-preservation.md) before the first build or capture. Authoritative raw evidence must use the Git-common primary root and the user-home secondary archive, with matching SHA-256 values before a cell is marked `COMPLETE`.
+
 Use `rtk gh` for Issue and label changes. Multiline Issue content must be written with real newlines and passed with `--body-file`; use `--body` only for genuinely single-line text.
 
 Do not begin implementation or run implementation-only self-review during this phase. If a material choice about DSL behavior, ABI, compatibility, architecture, or scope is unresolved, record it and use `needs-user-decision`.

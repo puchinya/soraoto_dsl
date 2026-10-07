@@ -2,7 +2,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const {captureMatrix, VELOCITIES} = require('./tools/capture-supersynth-matrix.cjs');
+const {VELOCITIES} = require('./tools/capture-supersynth-matrix.cjs');
 
 const ROOT = path.resolve(__dirname, '../../../../../');
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference/salamander-grand-piano-v3-metrics.json'), 'utf8'));
@@ -15,7 +15,7 @@ const ENVELOPE_WINDOWS = ['0to10', '10to30', '30to80', '80to200', '200to350'];
 // mismatch. Shape-only checks use post-attack windows; mic image and near-zero
 // harmonic ratios remain visible diagnostics because the synth is not a sample clone.
 const LIMITS = {
-  peakMaxDbfs: 1.6,
+  peakMaxDbfs: 0,
   peakMinDbfs: -90,
   directLevelErrorDb: 20,
   centroidRatio: 8,
@@ -104,14 +104,24 @@ function buildExpectedMatrix() {
 }
 
 function loadRenderedMatrix() {
+  if (process.env.SUPERSYNTH_LIFECYCLE_PATH) {
+    const lifecyclePath = path.resolve(process.env.SUPERSYNTH_LIFECYCLE_PATH);
+    const document = JSON.parse(fs.readFileSync(lifecyclePath, 'utf8'));
+    check(['STAGE4_LIFECYCLE_CAPTURE_COMPLETE', 'STAGE4_FULL_RANGE_COMPLETE'].includes(document.decision), 'lifecycle matrix is not a Stage4 lifecycle result');
+    check(document.coverage?.lifecycleCells === 1408 && document.coverage?.repeatCells === 15, 'Stage4 lifecycle/repeat coverage changed');
+    check(Array.isArray(document.matrix) && document.matrix.length === 1408, 'Stage4 persisted lifecycle matrix is incomplete');
+    check(Array.isArray(document.repeats) && document.repeats.length === 15, 'Stage4 persisted repeat matrix is incomplete');
+    return {document, repeatMatrix: document.repeats, lifecycle: true};
+  }
   if (process.env.SUPERSYNTH_MATRIX_PATH) {
     const matrixPath = path.resolve(process.env.SUPERSYNTH_MATRIX_PATH);
     const document = JSON.parse(fs.readFileSync(matrixPath, 'utf8'));
     check(document.render?.pluginVersion === '9.0.0', 'matrix is not a SuperSynth 9.0.0 render');
     check(document.render?.preset === 'concert_grand', 'matrix was not rendered with concert_grand');
-    return document;
+    check(Array.isArray(document.repeats) && document.repeats.length === 15, 'persisted matrix must include the 15 Stage4 repeats');
+    return {document, repeatMatrix: document.repeats, lifecycle: false};
   }
-  return captureMatrix({pitches: PITCHES, velocities: VELOCITIES});
+  throw new Error('persisted Stage4 lifecycle matrix is required; the Stage4 runner owns all acoustic renders');
 }
 
 function csv(rows, columns) {
@@ -152,7 +162,8 @@ function writeReports(dir, reports) {
 }
 
 function main() {
-  const rendered = loadRenderedMatrix();
+  const loaded = loadRenderedMatrix();
+  const rendered = loaded.document;
   const matrix = rendered.matrix;
   check(matrix.length === 1408, `render coverage ${matrix.length}/1408`);
   const actual = new Map(matrix.map(row => [cellKey(row.pitch, row.velocity), row.metrics]));
@@ -161,8 +172,9 @@ function main() {
   check(JSON.stringify(rendered.render.velocityRepresentatives) === JSON.stringify(VELOCITIES), 'render velocity representatives changed');
   check(Math.abs(rendered.render.pianoHammerHardness - preset.piano_hammer_hardness) < 1e-9, 'matrix hardness does not match concert_grand preset');
   check(Math.abs(rendered.render.pianoHammerNoise - preset.piano_hammer_noise) < 1e-9, 'matrix hammer noise does not match concert_grand preset');
-  const repeat = captureMatrix({pitches: [21, 60, 83, 87, 108], velocities: [14, 61, 124]});
-  for (const sample of repeat.matrix) {
+  const repeatRows = loaded.repeatMatrix;
+  check(repeatRows.length === 15, `repeat render coverage ${repeatRows.length}/15`);
+  for (const sample of repeatRows) {
     const original = actual.get(cellKey(sample.pitch, sample.velocity));
     check(JSON.stringify(sample.metrics) === JSON.stringify(original), `non-deterministic render ${cellKey(sample.pitch, sample.velocity)}`);
   }
@@ -201,7 +213,7 @@ function main() {
     const h2ToH6MaxFactor = harmonicFactors.length ? Math.max(...harmonicFactors) : 0;
     const stereoWidthDelta = Math.abs(measured.stereoWidth - reference.stereoWidth);
     const hardFailures = [];
-    if (measured.peakDbfs > LIMITS.peakMaxDbfs || measured.peakDbfs < LIMITS.peakMinDbfs) hardFailures.push('peakSafety');
+    if (measured.peakDbfs >= LIMITS.peakMaxDbfs || measured.peakDbfs < LIMITS.peakMinDbfs) hardFailures.push('peakSafety');
     if (target.direct && Math.abs(levelErrorDb) > LIMITS.directLevelErrorDb) hardFailures.push('directLevel');
     if (centroidComparable && centroidRatio > LIMITS.centroidRatio) hardFailures.push('centroid');
     if (above2kDelta > LIMITS.above2kDelta) hardFailures.push('above2k');

@@ -1,0 +1,127 @@
+#!/usr/bin/env node
+'use strict';
+
+const fs=require('node:fs');
+const path=require('node:path');
+const crypto=require('node:crypto');
+const {PluginHarness}=require('../../../../../test/helpers/plugin-harness.cjs');
+const {analyzeStereo}=require('./salamander-metrics.cjs');
+
+const REPO=path.resolve(__dirname,'../../../../../../');
+const WASM='plugins/dsp/super-synth/plugin.wasm';
+const SAMPLE_RATE=48000;
+const BLOCK=2048;
+const DURATION_MS=380;
+const STAGE2M_EXPORTS=[
+  'soraoto_supersynth_stage2m_set_factor_mask','soraoto_supersynth_stage2m_get_factor_mask',
+  'soraoto_supersynth_stage2m_hammer_diag_reset','soraoto_supersynth_stage2m_hammer_diag_value',
+];
+const STAGE3E_EXPORTS=[
+  'soraoto_supersynth_stage3e_set_velocity_response','soraoto_supersynth_stage3e_get_low',
+  'soraoto_supersynth_stage3e_get_mid','soraoto_supersynth_stage3e_get_bass_hardness',
+];
+const FORBIDDEN_EXPORTS=[
+  'soraoto_supersynth_stage3b_set_variant_mask','soraoto_supersynth_stage3c_set_variant_mask',
+  'soraoto_supersynth_stage3d_set_variant',
+];
+const REQUIRED_GUARD_EXPORTS=['soraoto_supersynth_guard_hit_count'];
+
+function buildRoot(root=REPO){return process.env.SORAOTO_WASM_BUILD_DIR?path.resolve(process.env.SORAOTO_WASM_BUILD_DIR):path.join(root,'build/wasm-stage3e');}
+function assertDiagnosticMode(root=REPO){
+  const cache=path.join(buildRoot(root),'CMakeCache.txt');
+  if(!fs.existsSync(cache))throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_PREFLIGHT: Stage3E CMake cache is missing');
+  const text=fs.readFileSync(cache,'utf8');
+  for(const [key,want] of Object.entries({
+    SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS:'ON',SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS:'ON',
+    SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS:'OFF',SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS:'OFF',
+    SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS:'OFF',SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS:'ON',
+  })){
+    const match=text.match(new RegExp(`^${key}:BOOL=(.*)$`,'m'));
+    if(!match||match[1]!==want)throw new Error(`BLOCKED_STAGE3E_DIAGNOSTIC_PREFLIGHT: ${key} must be ${want}`);
+  }
+  return cache;
+}
+function preflightDiagnosticCapabilities({root=REPO,harnessFactory=(R,file,options)=>new PluginHarness(R,file,options)}={}){
+  assertDiagnosticMode(root);
+  const harness=harnessFactory(root,WASM,{sampleRate:SAMPLE_RATE,maxFrames:BLOCK});
+  try{
+    const e=harness.e;
+    for(const name of [...REQUIRED_GUARD_EXPORTS,...STAGE2M_EXPORTS,...STAGE3E_EXPORTS])if(typeof e[name]!=='function')
+      throw new Error(`missing runtime export ${name}`);
+    for(const name of FORBIDDEN_EXPORTS)if(name in e)throw new Error(`unexpected mutually-exclusive runtime export ${name}`);
+    if((e.soraoto_supersynth_stage2m_set_factor_mask(3)>>>0)!==0||
+       (e.soraoto_supersynth_stage2m_get_factor_mask()>>>0)!==3)
+      throw new Error('Stage2M factor mask control round-trip failed');
+    const requested=[.75,.85,1.5];
+    if((e.soraoto_supersynth_stage3e_set_velocity_response(NaN,1,1)|0)===0||
+       (e.soraoto_supersynth_stage3e_set_velocity_response(.34,1,1)|0)===0)
+      throw new Error('Stage3E setter accepted invalid control values');
+    if((e.soraoto_supersynth_stage3e_set_velocity_response(...requested)>>>0)!==0)
+      throw new Error('Stage3E response setter rejected valid control values');
+    const values=[e.soraoto_supersynth_stage3e_get_low(),e.soraoto_supersynth_stage3e_get_mid(),e.soraoto_supersynth_stage3e_get_bass_hardness()];
+    if(values.some((value,index)=>!Number.isFinite(value)||Math.abs(value-requested[index])>1e-7))throw new Error(`Stage3E control round-trip failed: ${values}`);
+    if((e.soraoto_supersynth_stage3e_set_velocity_response(1,1,1)>>>0)!==0)throw new Error('Stage3E baseline controls could not be restored');
+    return {passed:true,buildRoot:buildRoot(root),audioProcessCalls:0,acousticRenders:0,stage2mFactorMask:3,stage3eRoundTripValues:values,stage3eResponse:[e.soraoto_supersynth_stage3e_get_low(),e.soraoto_supersynth_stage3e_get_mid(),e.soraoto_supersynth_stage3e_get_bass_hardness()]};
+  }catch(error){
+    throw new Error(`BLOCKED_STAGE3E_DIAGNOSTIC_PREFLIGHT: ${error.message}`);
+  }finally{harness.close();}
+}
+function requireResponse(values){
+  const [low,mid,bass]=values;
+  if(![low,mid,bass].every(Number.isFinite)||low<0.35||low>1||mid<0.35||mid>1||bass<0||bass>2)
+    throw new Error('Stage3E response tuple is outside approved profile bounds');
+  return values;
+}
+function render(pitch,velocity,response=[1,1,1],options={}){return renderNormalized(pitch,options.velocityNormalized??velocity/127,response,options);}
+function renderNormalized(pitch,velocityNormalized,response=[1,1,1],options={}){
+  if(!Number.isFinite(velocityNormalized)||velocityNormalized<0||velocityNormalized>1)throw new Error('Stage3E normalized velocity must be in [0,1]');
+  requireResponse(response);
+  const harness=new PluginHarness(REPO,WASM,{sampleRate:SAMPLE_RATE,maxFrames:BLOCK});
+  try{
+    const e=harness.e;
+    for(const name of [...STAGE2M_EXPORTS,...STAGE3E_EXPORTS])if(typeof e[name]!=='function')throw new Error(`Stage3E diagnostic WASM is missing ${name}`);
+    harness.applyPreset('concert_grand');
+    for(const [name,value] of [['voice_drift',0],['lfo1_pitch',0],['chorus_mix',0]])harness.setPlain(name,value);
+    for(const [name,value] of Object.entries(options.parameters||{}))harness.setPlain(name,value);
+    if((e.soraoto_supersynth_stage2m_set_factor_mask(3)>>>0)!==0||(e.soraoto_supersynth_stage2m_get_factor_mask()>>>0)!==3)throw new Error('Stage2M mask 3 unavailable');
+    if((e.soraoto_supersynth_stage3e_set_velocity_response(...response)|0)!==0)throw new Error('Stage3E response tuple rejected');
+    e.soraoto_supersynth_stage2m_hammer_diag_reset();
+    const guardCount=typeof e.soraoto_supersynth_guard_hit_count==='function'?e.soraoto_supersynth_guard_hit_count():null;
+    const count=Math.floor(SAMPLE_RATE*DURATION_MS/1000),left=new Float32Array(count),right=new Float32Array(count);
+    let offset=0,finite=true,fullPeak=0;
+    while(offset<count){
+      const frames=Math.min(BLOCK,count-offset);
+      const output=harness.process(frames,{events:offset===0?[{kind:1,noteId:1,pitch,velocity:velocityNormalized,offset:0}]:[]})[0];
+      left.set(output[0],offset);right.set(output[1],offset);
+      for(let i=0;i<frames;i++){
+        const l=output[0][i],r=output[1][i];
+        if(!Number.isFinite(l)||!Number.isFinite(r))finite=false;
+        fullPeak=Math.max(fullPeak,Math.abs(l),Math.abs(r));
+      }
+      offset+=frames;
+    }
+    const metrics=analyzeStereo(left,right,pitch,{sampleRate:SAMPLE_RATE});
+    metrics.finite=finite;
+    metrics.fullRenderPeakDbfs=fullPeak>0?20*Math.log10(fullPeak):null;
+    metrics.outputGuardHits=guardCount===null?null:e.soraoto_supersynth_guard_hit_count()-guardCount;
+    metrics.stage2mFactorMask=3;
+    metrics.stage2mHammer={effectiveHardness:e.soraoto_supersynth_stage2m_hammer_diag_value(0),initialHammerVelocity:e.soraoto_supersynth_stage2m_hammer_diag_value(1),contactDurationSamples:e.soraoto_supersynth_stage2m_hammer_diag_value(2),peakForce:e.soraoto_supersynth_stage2m_hammer_diag_value(3),maxCompression:e.soraoto_supersynth_stage2m_hammer_diag_value(4),postContactTransverseEnergy:e.soraoto_supersynth_stage2m_hammer_diag_value(5)};
+    metrics.stage3eVelocityResponse={low:response[0],mid:response[1],bassHardness:response[2]};
+    return {pitch,velocity:Math.round(velocityNormalized*127),velocityNormalized,metrics};
+  }finally{harness.close();}
+}
+function captureMatrix({rows,response=[1,1,1],parameters={},renderCell=render}={}){
+  if(!Array.isArray(rows)||rows.length===0)throw new Error('Stage3E capture requires an explicit non-empty cell list');
+  return rows.map(row=>{
+    const captured=row.velocityNormalized!==undefined
+      ?renderCell(row.pitch,Math.round(row.velocityNormalized*127),response,{parameters,velocityNormalized:row.velocityNormalized})
+      :renderCell(row.pitch,row.velocity,response,{parameters});
+    return {...captured,phase:row.phase||null};
+  });
+}
+function identity(){
+  const wasm=path.join(buildRoot(),WASM),source=path.join(REPO,'wasm/plugins/dsp/super-synth/src/plugin.c'),presets=path.join(REPO,'wasm/plugins/dsp/super-synth/presets.json');
+  const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  return {wasmPath:wasm,wasmSha256:sha(wasm),sourceSha256:sha(source),presetsSha256:sha(presets)};
+}
+module.exports={REPO,WASM,SAMPLE_RATE,BLOCK,DURATION_MS,STAGE2M_EXPORTS,STAGE3E_EXPORTS,FORBIDDEN_EXPORTS,REQUIRED_GUARD_EXPORTS,buildRoot,assertDiagnosticMode,preflightDiagnosticCapabilities,requireResponse,render,renderNormalized,captureMatrix,identity};

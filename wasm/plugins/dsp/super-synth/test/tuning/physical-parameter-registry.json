@@ -69,6 +69,25 @@
       "rationale": "Keep the launch law independent from the new velocity-dependent felt/contact hardness axis."
     },
     {
+      "id": "stage3e-register-local-velocity-response",
+      "group": "supporting-architecture",
+      "classification": "FIXED_ARCHITECTURE",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "hammer.velocity_launch_scale_low",
+        "hammer.velocity_launch_scale_mid",
+        "hammer.velocity_hardness_scale_bass"
+      ],
+      "bounds": {
+        "hammer.velocity_launch_scale_low": [0.35, 1.0],
+        "hammer.velocity_launch_scale_mid": [0.35, 1.0],
+        "hammer.velocity_hardness_scale_bass": [0.0, 2.0]
+      },
+      "boundBasis": "Stage3E fixed register-local response ranges; calibration is bounded to the approved deterministic search grids.",
+      "rationale": "These private profile values implement a fixed register-local architecture and are searched only by the Stage3E evaluator, not QMC."
+    },
+    {
       "id": "hammer-velocity-hardness",
       "group": "A",
       "classification": "OPTIMIZABLE_CALIBRATION_AXIS",

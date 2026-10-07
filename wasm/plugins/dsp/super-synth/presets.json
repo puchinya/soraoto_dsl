@@ -343,7 +343,7 @@
     "piano_sympathetic": 1,
     "engine_config": {
       "kind": "grand_piano_v1",
-      "revision": 3,
+      "revision": 4,
       "hammer": {
         "force_scale": 300,
         "initial_velocity_base": 0.42,
@@ -351,6 +351,9 @@
         "initial_velocity_hardness_base": 0.78,
         "initial_velocity_hardness_scale": 0.42,
         "velocity_hardness_amount": 0.5,
+        "velocity_launch_scale_low": 1.0,
+        "velocity_launch_scale_mid": 1.0,
+        "velocity_hardness_scale_bass": 1.0,
         "compression_scale": 0.00053383185753125,
         "compression_max_normalized": 1.75,
         "stiffness_soft": 0.018,

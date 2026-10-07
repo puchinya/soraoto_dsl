@@ -201,6 +201,25 @@ hardness factor in initial hammer velocity. Keep the initial launch intercept/sl
 `0.42 / 1.05`. Hammer-noise scaling remains based on base hardness. Do not tune hammer force,
 compression endpoints, contact endpoints, or output gain to emulate velocity-dependent felt behavior.
 
+#### Stage3E revision-4 register-local response
+
+Stage3E adds three private `concert_grand` profile values: low and mid launch scales in `[0.35,1]`
+and bass hardness scale in `[0,2]`. They are not public controls and do not change the Plugin ABI or
+DSL. Fixed smoothstep gates localize launch response to MIDI 33–42 and 48–57 and hardness response
+to MIDI 36–45. Launch velocity is compressed toward `61/127` by the weighted low/mid gates; the
+bass gate multiplies the existing velocity-hardness amount before the established felt mapping.
+Note-on, retarget and active contact use the same pitch-local mapping. The final output gain and
+hammer-noise scaling keep using original velocity/base hardness. The `(1,1,1)` tuple takes the
+legacy revision-3 path exactly.
+
+Stage3E is evaluator-only. It first checks baseline equivalence, screens the exact low-band `(L,H)`
+grid with `M=1`, full-validates at most the five highest-ranked candidates, then searches the fixed
+mid-band `M` grid with the selected low tuple. Existing direct-span, brightness, spectral/shape,
+safety and MIDI41 regression gates remain unchanged. No extra search axis or fallback is allowed.
+Production promotion requires the selected tuple, a regenerated profile, focused regressions, and
+the unchanged Stage3 direct-reference matrix. Stage4 remains locked until authoritative Stage3
+passes.
+
 ### 5.3 Stage2L revision-2 string-loss and velocity-response model carried by Stage2N revision 3
 
 Stage2L introduced the internal revision-2 `grand_piano_v1` model; Stage2N carries its N/V equations

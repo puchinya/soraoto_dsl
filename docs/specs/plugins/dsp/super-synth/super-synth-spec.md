@@ -99,7 +99,7 @@ proxy identified from derived Salamander metrics; the microphone recordings are 
 bridge-force/bridge-velocity measurements and must not be described as the piano's measured
 mechanical admittance.
 
-Each `concert_grand` factory preset is a complete standalone `grand_piano_v1` revision-3 instrument
+Each `concert_grand` factory preset is a complete standalone `grand_piano_v1` revision-4 instrument
 definition in `engine_config`. No piano-profile inheritance, partial configuration, missing-field C
 fallback, runtime JSON parsing, or realtime allocation is used. Construction and calibration values
 remain internal; existing public piano controls are high-level modifiers over the selected profile.
@@ -118,6 +118,18 @@ The mapping is continuous at the pivot and bounded in `[0,1]`. Its output contro
 stiffness, passive contact loss, hammer mass, and the initial hammer velocity hardness factor. The
 fixed launch intercept/slope remain `0.42 / 1.05`, and hammer-noise scaling continues to use base
 hardness. The field is private preset configuration, not a public parameter or DSL field.
+
+Revision 4 adds three private `concert_grand` hammer profile values:
+`velocity_launch_scale_low` and `velocity_launch_scale_mid` in `[0.35,1]`, and
+`velocity_hardness_scale_bass` in `[0,2]`. With normalized velocity `v`, pivot `61/127`, and
+fixed smoothstep register gates `g_low`, `g_mid`, and `g_h` over MIDI ranges 33–42, 48–57, and
+36–45 respectively, compute `v_launch = clamp(pivot + launch_scale*(v-pivot),0,1)`, where
+`launch_scale = 1-g_low*(1-L)-g_mid*(1-M)`. Compute
+`amount_eff = clamp(velocity_hardness_amount*(1+g_h*(H-1)),0,1)`. The existing hammer launch law
+uses `v_launch`; felt hardness uses the original `v` and `amount_eff` both at note-on/retarget and
+during active contact. The final output gain continues to use original note velocity. At `L=M=H=1`
+the revision-3 path is taken exactly. These are private profile values, not public parameters, DSL
+fields, or Plugin ABI state.
 
 Revision 3 retains the velocity-independent passive string termination loss introduced in revision 2. Velocity
 affects hammer excitation/hardness and the existing final velocity gain, while passive boundary decay

@@ -18,8 +18,8 @@ PRESETS = json.loads((WASM_ROOT / "plugins/dsp/super-synth/presets.json").read_t
 class GrandProfileSchemaTests(unittest.TestCase):
     def test_complete_factory_profile_is_valid(self):
         self.assertEqual(len(metadata.validate_grand_profiles(PRESETS)), 1)
-        self.assertEqual(metadata.GRAND_PROFILE_REVISION, 3)
-        self.assertEqual(PRESETS["concert_grand"]["engine_config"]["revision"], 3)
+        self.assertEqual(metadata.GRAND_PROFILE_REVISION, 4)
+        self.assertEqual(PRESETS["concert_grand"]["engine_config"]["revision"], 4)
 
     def test_time_normalized_string_loss_schema_is_revision_three(self):
         config = PRESETS["concert_grand"]["engine_config"]["string"]
@@ -29,10 +29,36 @@ class GrandProfileSchemaTests(unittest.TestCase):
         self.assertNotIn("reference_loss_velocity_scale", config)
 
     def test_revision_mismatch_is_rejected(self):
-        for revision in (2, 4):
+        for revision in (2, 3, 5):
             presets = copy.deepcopy(PRESETS)
             presets["concert_grand"]["engine_config"]["revision"] = revision
-            with self.subTest(revision=revision), self.assertRaisesRegex(ValueError, "engine_config.revision must be 3"):
+            with self.subTest(revision=revision), self.assertRaisesRegex(ValueError, "engine_config.revision must be 4"):
+                metadata.validate_grand_profiles(presets)
+
+    def test_stage3e_response_fields_accept_approved_bounds(self):
+        for low, mid, bass in ((0.35, 0.35, 0.0), (1.0, 1.0, 2.0)):
+            presets = copy.deepcopy(PRESETS)
+            hammer = presets["concert_grand"]["engine_config"]["hammer"]
+            hammer["velocity_launch_scale_low"] = low
+            hammer["velocity_launch_scale_mid"] = mid
+            hammer["velocity_hardness_scale_bass"] = bass
+            metadata.validate_grand_profiles(presets)
+
+    def test_stage3e_response_fields_reject_outside_bounds(self):
+        cases = (("velocity_launch_scale_low", 0.349999), ("velocity_launch_scale_low", 1.000001),
+                 ("velocity_launch_scale_mid", 0.349999), ("velocity_launch_scale_mid", 1.000001),
+                 ("velocity_hardness_scale_bass", -0.000001), ("velocity_hardness_scale_bass", 2.000001))
+        for key, value in cases:
+            presets = copy.deepcopy(PRESETS)
+            presets["concert_grand"]["engine_config"]["hammer"][key] = value
+            with self.subTest(key=key, value=value), self.assertRaisesRegex(ValueError, key):
+                metadata.validate_grand_profiles(presets)
+
+    def test_stage3e_response_fields_are_required(self):
+        for key in ("velocity_launch_scale_low", "velocity_launch_scale_mid", "velocity_hardness_scale_bass"):
+            presets = copy.deepcopy(PRESETS)
+            del presets["concert_grand"]["engine_config"]["hammer"][key]
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, f"missing fields: {key}"):
                 metadata.validate_grand_profiles(presets)
 
     def test_velocity_hardness_amount_accepts_approved_domain(self):
@@ -112,7 +138,9 @@ class GrandProfileSchemaTests(unittest.TestCase):
         self.assertEqual(first.encode("utf-8"), second.encode("utf-8"))
         self.assertIn("#define SORAOTO_GRAND_PROFILE_COUNT 2", first)
         self.assertIn(".force_scale = 123.0f", first)
-        self.assertIn(".velocity_hardness_amount = 0.0f", first)
+        self.assertIn(".velocity_launch_scale_low = 1.0f", first)
+        self.assertIn(".velocity_launch_scale_mid = 1.0f", first)
+        self.assertIn(".velocity_hardness_scale_bass = 1.0f", first)
 
     def test_descriptor_does_not_expose_internal_config_or_plugin_state(self):
         _, model = metadata.parse_interface(WASM_ROOT / "plugins/dsp/super-synth/interface.soraoto")

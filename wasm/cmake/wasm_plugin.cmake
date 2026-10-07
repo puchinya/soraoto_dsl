@@ -57,6 +57,12 @@ function(soraoto_add_wasm_plugin group plugin)
     option(SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS
       "Build test-only Stage3C contact-vs-bridge impedance split controls for SuperSynth"
       OFF)
+    option(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS
+      "Build test-only Stage3D contact transformer controls for SuperSynth"
+      OFF)
+    option(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS
+      "Build test-only Stage3E register-local velocity response controls for SuperSynth"
+      OFF)
     target_compile_options(${target} PRIVATE -msimd128 -fvectorize -fslp-vectorize)
     if(SORAOTO_SUPERSYNTH_SIMD_DIAGNOSTICS)
       target_compile_options(${target} PRIVATE
@@ -92,6 +98,20 @@ function(soraoto_add_wasm_plugin group plugin)
         message(FATAL_ERROR "Stage3B and Stage3C diagnostics are mutually exclusive")
       endif()
       target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS=1)
+    endif()
+    if(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS OR SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS)
+      if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS OR NOT SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+        message(FATAL_ERROR "Stage3D/Stage3E diagnostics require GUARD_DIAGNOSTICS=ON and STAGE2M_DIAGNOSTICS=ON")
+      endif()
+      if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS OR SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS OR
+         (SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS AND SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS))
+        message(FATAL_ERROR "Stage3B, Stage3C, Stage3D, and Stage3E diagnostics are mutually exclusive")
+      endif()
+      if(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS)
+        target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS=1)
+      else()
+        target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS=1)
+      endif()
     endif()
   elseif(plugin STREQUAL "reverb")
     target_compile_options(${target} PRIVATE -O2)
@@ -133,6 +153,13 @@ function(soraoto_add_wasm_plugin group plugin)
         list(APPEND link_options
           "-Wl,--export=soraoto_supersynth_stage3c_set_variant_mask"
           "-Wl,--export=soraoto_supersynth_stage3c_get_variant_mask")
+      endif()
+      if(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS)
+        list(APPEND link_options
+          "-Wl,--export=soraoto_supersynth_stage3e_set_velocity_response"
+          "-Wl,--export=soraoto_supersynth_stage3e_get_low"
+          "-Wl,--export=soraoto_supersynth_stage3e_get_mid"
+          "-Wl,--export=soraoto_supersynth_stage3e_get_bass_hardness")
       endif()
     endif()
   endif()

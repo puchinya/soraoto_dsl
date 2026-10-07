@@ -11,6 +11,9 @@ find_program(SORAOTO_NODE_EXECUTABLE NAMES node)
 option(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS
   "Build the isolated test-only Stage3D SuperSynth source"
   OFF)
+option(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS
+  "Build the isolated test-only Stage3E SuperSynth velocity-response mode"
+  OFF)
 include(cmake/wasm_plugin.cmake)
 
 set(SORAOTO_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
@@ -76,6 +79,15 @@ if(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS)
     "-Wl,--export=soraoto_supersynth_stage3d_get_variant")
 endif()
 
+if(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS)
+  if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS OR NOT SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+    message(FATAL_ERROR "Stage3E diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON and SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=ON")
+  endif()
+  if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS OR SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS OR SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS)
+    message(FATAL_ERROR "Stage3B, Stage3C, Stage3D, and Stage3E diagnostics are mutually exclusive")
+  endif()
+endif()
+
 if(BUILD_TESTING AND SORAOTO_NODE_EXECUTABLE)
   file(GLOB SORAOTO_SHARED_WASM_TESTS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/test/*.test.js")
@@ -97,6 +109,25 @@ if(BUILD_TESTING AND SORAOTO_NODE_EXECUTABLE)
   add_test(NAME wasm.dsp.super-synth.salamander-pitch-detector
     COMMAND "${SORAOTO_NODE_EXECUTABLE}"
       "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/test/tools/salamander-metrics.test.cjs")
+  set(SORAOTO_STAGE3E_EVIDENCE_TESTS
+    durable-evidence.test.cjs
+    capture-supersynth-stage3e-matrix.test.cjs
+    run-stage3e-velocity-response.test.cjs
+    stage3e-generation2-core.test.cjs
+    run-stage3e-generation2.test.cjs
+    run-stage3e-historical-reference-requalification.test.cjs
+    run-stage3-production-recovery.test.cjs
+    capture-supersynth-stage4-lifecycle.test.cjs
+    stage4-full-range-evaluator.test.cjs
+    run-stage4-full-range.test.cjs)
+  foreach(test_file IN LISTS SORAOTO_STAGE3E_EVIDENCE_TESTS)
+    string(REPLACE ".test.cjs" "" test_name "${test_file}")
+    add_test(NAME "wasm.dsp.super-synth.${test_name}"
+      COMMAND "${SORAOTO_NODE_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/test/tools/${test_file}")
+    set_tests_properties("wasm.dsp.super-synth.${test_name}" PROPERTIES
+      ENVIRONMENT "SORAOTO_WASM_BUILD_DIR=${CMAKE_BINARY_DIR}")
+  endforeach()
 endif()
 
 if(BUILD_TESTING)
