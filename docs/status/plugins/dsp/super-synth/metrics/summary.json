@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "reference": "Salamander Grand Piano V3; derived numeric metrics only",
+  "render": {
+    "pluginVersion": "9.0.0",
+    "preset": "concert_grand",
+    "sampleRate": 48000,
+    "durationMs": 380,
+    "velocityRepresentatives": [
+      14,
+      31,
+      36,
+      40,
+      45,
+      49,
+      54,
+      61,
+      69,
+      77,
+      85,
+      93,
+      101,
+      109,
+      117,
+      124
+    ],
+    "pianoHammerHardness": 0.81,
+    "pianoHammerNoise": 0.1
+  },
+  "coverage": {
+    "directReferenceCells": 480,
+    "renderCells": 1408,
+    "pitches": 88,
+    "velocityLayers": 16,
+    "adjacentComparisons": 1392,
+    "interpolatedPitches": 58
+  },
+  "sharedGainOffsetDb": 4.7693,
+  "limits": {
+    "peakMaxDbfs": 1.6,
+    "peakMinDbfs": -90,
+    "directLevelErrorDb": 20,
+    "centroidRatio": 8,
+    "centroidEnergyFloor": 0.001,
+    "above2kDelta": 1,
+    "postAttackShapeErrorDb": 10,
+    "adjacentLevelJumpDb": 10,
+    "adjacentCentroidRatio": 4.5,
+    "adjacentAbove2kDelta": 0.5,
+    "adjacentLateDecayDeltaDb": 8,
+    "adjacentStereoPanDelta": 0.3,
+    "velocityLevelDropDb": 1,
+    "minimumVelocityLevelSpanDb": 6
+  },
+  "directAndFullRangeErrorDistribution": {
+    "absoluteLevelErrorDbAllCells": {
+      "p50": 4.5532,
+      "p90": 9.6086,
+      "p95": 11.857,
+      "max": 19.1777
+    },
+    "directReferenceAbsoluteLevelErrorDb": {
+      "p50": 4.2236,
+      "p90": 9.4076,
+      "p95": 11.8864,
+      "max": 19.1777
+    },
+    "interpolatedKeyAbsoluteLevelErrorDb": {
+      "p50": 4.7556,
+      "p90": 9.7161,
+      "p95": 11.6773,
+      "max": 16.9562
+    },
+    "peakDbfs": {
+      "p50": -8.1527,
+      "p90": 0.4155,
+      "p95": 1.217,
+      "max": 1.5836
+    },
+    "centroidRatio": {
+      "p50": 1.3345,
+      "p90": 2.4186,
+      "p95": 3.148,
+      "max": 8.3143
+    },
+    "centroidRatioWhenEnergyFloorMet": {
+      "p50": 1.3459,
+      "p90": 2.5467,
+      "p95": 3.1853,
+      "max": 5.2784
+    },
+    "lowEnergyCentroidOutliersDiagnostic": 1,
+    "above2kAbsoluteDelta": {
+      "p50": 0.0032,
+      "p90": 0.443,
+      "p95": 0.5982,
+      "max": 0.912
+    },
+    "postAttackShapeErrorDb": {
+      "p50": 2.4075,
+      "p90": 5.1581,
+      "p95": 6.5377,
+      "max": 9.3446
+    },
+    "maxHarmonicRatioFactorWith0_01Floor": {
+      "p50": 5.7242,
+      "p90": 49.5573,
+      "p95": 115.5318,
+      "max": 32461.893
+    },
+    "stereoWidthDeltaDiagnostic": {
+      "p50": 0.5023,
+      "p90": 1.1575,
+      "p95": 1.5247,
+      "max": 2.5708
+    },
+    "inharmonicityAbsoluteDeltaDiagnostic": {
+      "p50": 0.0019,
+      "p90": 0.0097,
+      "p95": 0.02,
+      "max": 0.0815
+    },
+    "spectralSpreadRatioDiagnostic": {
+      "p50": 1.5971,
+      "p90": 3.3489,
+      "p95": 3.9404,
+      "max": 9.1793
+    },
+    "onsetAbsoluteDeltaMsDiagnostic": {
+      "p50": 10.6667,
+      "p90": 14,
+      "p95": 16,
+      "max": 36
+    },
+    "earlyAttackShapeErrorDbDiagnostic": {
+      "p50": 5.4054,
+      "p90": 9.2801,
+      "p95": 15.1799,
+      "max": 32.5735
+    }
+  },
+  "adjacentContinuityDistribution": {
+    "levelJumpDb": {
+      "p50": 0.4427,
+      "p90": 2.3803,
+      "p95": 3.6914,
+      "max": 7.2905
+    },
+    "centroidRatio": {
+      "p50": 1.0681,
+      "p90": 1.3788,
+      "p95": 1.5083,
+      "max": 7.5466
+    },
+    "centroidRatioWhenEnergyFloorMet": {
+      "p50": 1.0668,
+      "p90": 1.3056,
+      "p95": 1.4042,
+      "max": 1.8207
+    },
+    "above2kAbsoluteDelta": {
+      "p50": 0.0004,
+      "p90": 0.0279,
+      "p95": 0.0689,
+      "max": 0.4243
+    },
+    "lateDecayDeltaDb": {
+      "p50": 0.2196,
+      "p90": 1.0476,
+      "p95": 1.3278,
+      "max": 3.086
+    },
+    "stereoPanDelta": {
+      "p50": 0.0146,
+      "p90": 0.0533,
+      "p95": 0.0657,
+      "max": 0.0842
+    },
+    "lowEnergyCentroidOutliersDiagnostic": 5
+  },
+  "velocityResponse": {
+    "pitchesWithBrightnessEvolution": 83,
+    "brightnessEvolutionCoverage": 0.9432,
+    "levelDropToleranceDb": 1,
+    "minimumLevelSpanDb": 6
+  },
+  "failures": {
+    "directAndInterpolatedCells": 0,
+    "adjacentComparisons": 0,
+    "velocityPitchesOrLayers": 0,
+    "examples": []
+  }
+}

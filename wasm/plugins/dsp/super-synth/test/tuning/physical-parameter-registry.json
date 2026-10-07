@@ -1,0 +1,359 @@
+{
+  "schemaVersion": 1,
+  "inventoryComplete": true,
+  "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+  "sourcePreset": "concert_grand",
+  "scopeRoots": [
+    "engine_config.hammer",
+    "engine_config.string",
+    "engine_config.bridge",
+    "engine_config.zones",
+    "engine_config.soundboard"
+  ],
+  "groups": [
+    {
+      "id": "semantic-controls",
+      "group": "A-C",
+      "classification": "OPTIMIZABLE_SEMANTIC_CONTROL",
+      "optimizerEligible": true,
+      "sourcePrefix": "concert_grand.",
+      "sourceSymbols": [
+        "piano_hammer_hardness",
+        "piano_string_damping",
+        "piano_string_unison",
+        "piano_inharmonicity"
+      ],
+      "boundBasis": "Existing public normalized control domains [0,1]; these are the approved semantic axes for hardness, string loss, unison, and inharmonicity.",
+      "rationale": "Use semantic controls instead of independently searching the implementation coefficients that they govern."
+    },
+    {
+      "id": "late-stage-controls",
+      "group": "C",
+      "classification": "LATE_STAGE_CONTROL",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.",
+      "sourceSymbols": [
+        "piano_hammer_noise",
+        "piano_soundboard_size",
+        "piano_soundboard_mix",
+        "piano_sympathetic",
+        "piano_stereo_width"
+      ],
+      "boundBasis": "Existing public normalized control domains; excluded from the approved core-tone screen and reserved for later focused calibration.",
+      "rationale": "Hammer noise must not manufacture contact brightness; soundboard and stereo controls are tuned after the core physical screen."
+    },
+    {
+      "id": "hammer-force",
+      "group": "A",
+      "classification": "FIXED_CALIBRATED",
+      "fixedValue": 300,
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": ["hammer.force_scale"],
+      "boundBasis": "Previously approved Issue #7 independent force calibration fixed the authoritative value at 300.",
+      "rationale": "Do not search force scale during the initial Level-1 QMC."
+    },
+    {
+      "id": "hammer-velocity-launch",
+      "group": "A",
+      "classification": "FIXED_ARCHITECTURE",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "hammer.initial_velocity_base",
+        "hammer.initial_velocity_velocity_scale",
+        "hammer.initial_velocity_hardness_base",
+        "hammer.initial_velocity_hardness_scale"
+      ],
+      "boundBasis": "Launch intercept, slope, and base-hardness multiplier remain fixed architecture; initial velocity always follows the legacy MIDI-velocity mapping.",
+      "rationale": "Keep the launch law independent from the new velocity-dependent felt/contact hardness axis."
+    },
+    {
+      "id": "hammer-velocity-hardness",
+      "group": "A",
+      "classification": "OPTIMIZABLE_CALIBRATION_AXIS",
+      "optimizerEligible": true,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": ["hammer.velocity_hardness_amount"],
+      "boundBasis": "Structural normalized amount range [0,1]; zero preserves constant base hardness and one maps the velocity endpoints to the validated soft/hard limits.",
+      "rationale": "Represent velocity-dependent felt hardness independently of initial launch and hammer-noise scaling."
+    },
+    {
+      "id": "hammer-compression",
+      "group": "A",
+      "classification": "OPTIMIZABLE_CALIBRATION_AXIS",
+      "optimizerEligible": true,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": ["hammer.compression_scale"],
+      "boundBasis": "Previously approved joint strike/compression calibration domain [0.0005,0.002].",
+      "rationale": "Search jointly with semantic hardness and effective C4 strike position."
+    },
+    {
+      "id": "hammer-compression-cap",
+      "group": "A",
+      "classification": "FIXED_ARCHITECTURE",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": ["hammer.compression_max_normalized"],
+      "boundBasis": "Retain the existing validated normalized compression cap.",
+      "rationale": "The approved calibration axis is compression_scale; the solver safety cap is not another tuning dimension."
+    },
+    {
+      "id": "hammer-contact-endpoints",
+      "group": "A",
+      "classification": "FIXED_ARCHITECTURE_ENDPOINTS",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "hammer.stiffness_soft",
+        "hammer.stiffness_hard",
+        "hammer.mass_soft",
+        "hammer.mass_hard",
+        "hammer.contact_loss_soft",
+        "hammer.contact_loss_hard",
+        "hammer.contact_loss_min",
+        "hammer.contact_loss_max",
+        "hammer.felt_exponent_soft",
+        "hammer.felt_exponent_hard"
+      ],
+      "boundBasis": "Existing validated contact endpoints and constraints; semantic hammer hardness is the Level-1 interpolation axis.",
+      "rationale": "Keep stiffness, mass, felt-exponent, and contact-loss endpoint values fixed to avoid redundant dimensions."
+    },
+    {
+      "id": "hammer-noise-implementation",
+      "group": "A",
+      "classification": "FIXED_ARCHITECTURE_MAPPING",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "hammer.noise_filter_base",
+        "hammer.noise_filter_hardness_scale",
+        "hammer.noise_gain_base",
+        "hammer.noise_gain_hardness_scale",
+        "hammer.radiation_transient_gain"
+      ],
+      "boundBasis": "Retain current noise/transient mapping; hammer noise is a late-stage control and cannot substitute for contact/string physics.",
+      "rationale": "Exclude these implementation coefficients from the initial QMC."
+    },
+    {
+      "id": "strike-endpoints",
+      "group": "A",
+      "classification": "OPTIMIZABLE_CALIBRATION_AXIS",
+      "optimizerEligible": false,
+      "derivedFrom": "effective_strike_position_c4",
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "string.strike_position_bass",
+        "string.strike_position_treble"
+      ],
+      "boundBasis": "Derived by the single authorized effective_strike_position_c4 axis using the production interpolation at MIDI 60 and a common offset.",
+      "rationale": "The bass and treble endpoints are not independent QMC dimensions; derive them together so their difference stays unchanged."
+    },
+    {
+      "id": "string-topology-and-shape",
+      "group": "B",
+      "classification": "FIXED_ARCHITECTURE_SHAPE",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "string.unison_activation_start_midi",
+        "string.unison_activation_width_midi",
+        "string.one_to_two_string_midi",
+        "string.two_to_three_string_midi",
+        "string.unison_detune_base_cents",
+        "string.unison_detune_amount",
+        "string.unison_detune_key_base",
+        "string.unison_detune_key_scale",
+        "string.unison_offsets",
+        "string.strike_offsets",
+        "string.strike_offset_base",
+        "string.strike_offset_unison_scale"
+      ],
+      "boundBasis": "Retain existing validated string-count and unison/strike-shape mappings; piano_string_unison is the semantic calibration axis.",
+      "rationale": "Keep per-string shape, offsets, and MIDI transition topology fixed in Level 1."
+    },
+    {
+      "id": "string-geometry",
+      "group": "B",
+      "classification": "FIXED_ARCHITECTURE",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "string.strike_position_min",
+        "string.strike_position_max",
+        "string.characteristic_impedance",
+        "string.geometric_phase_delay_samples",
+        "string.wound_reference_midi",
+        "string.wound_transition_width_midi",
+        "string.reference_pitches"
+      ],
+      "boundBasis": "Retain the existing validated geometry, junction impedance, termination delay, register transition, and fit-grid coordinates.",
+      "rationale": "These values define model topology and interpolation coordinates, not independent calibration dimensions."
+    },
+    {
+      "id": "string-inharmonicity-fit",
+      "group": "B",
+      "classification": "FITTER_OWNED",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": ["string.inharmonicity_b"],
+      "boundBasis": "Pitch-specific B values remain the output of the approved reference fitter.",
+      "rationale": "The semantic piano_inharmonicity axis calibrates the mapping without replacing the per-key fitted table."
+    },
+    {
+      "id": "string-loss-mapping",
+      "group": "B",
+      "classification": "FIXED_ARCHITECTURE_MAPPING",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "string.reference_loss_base",
+        "string.reference_loss_register_start",
+        "string.reference_loss_register_width",
+        "string.decay_reference_midi",
+        "string.release_loss_base",
+        "string.release_loss_damping_scale",
+        "string.release_loss_key_scale"
+      ],
+      "boundBasis": "Passive boundary loss is velocity-independent and per-second decay is time-normalized against string.decay_reference_midi; piano_string_damping remains the semantic loss/decay axis.",
+      "rationale": "Do not tune low-level loss coefficients independently of their semantic control or introduce strike-velocity dependence into passive boundary decay."
+    },
+    {
+      "id": "string-dispersion-mapping",
+      "group": "B",
+      "classification": "FIXED_ARCHITECTURE_MAPPING",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "string.dispersion_base",
+        "string.dispersion_inharmonicity_base",
+        "string.dispersion_inharmonicity_key_scale"
+      ],
+      "boundBasis": "Retain the current dispersion equation mapping and use piano_inharmonicity as the semantic calibration axis.",
+      "rationale": "Do not expose implementation mappings as additional QMC dimensions."
+    },
+    {
+      "id": "agraffe-and-bridge-termination",
+      "group": "B",
+      "classification": "FIXED_ARCHITECTURE_MAPPING",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.string.",
+      "sourceSymbols": [
+        "agraffe.lowpass_base",
+        "agraffe.lowpass_damping_coefficient",
+        "agraffe.lowpass_key_coefficient",
+        "agraffe.high_frequency_loss_base",
+        "agraffe.high_frequency_loss_damping_coefficient",
+        "agraffe.high_frequency_loss_key_coefficient",
+        "agraffe.high_frequency_loss_wound_coefficient",
+        "agraffe.reflection_loss_base",
+        "agraffe.key_loss_base",
+        "agraffe.key_loss_coefficient",
+        "agraffe.damping_base",
+        "agraffe.damping_coefficient",
+        "agraffe.reference_loss_multiplier",
+        "agraffe.passive_min",
+        "agraffe.passive_max",
+        "agraffe.dispersion_multiplier",
+        "bridge_termination.lowpass_base",
+        "bridge_termination.lowpass_damping_coefficient",
+        "bridge_termination.lowpass_key_coefficient",
+        "bridge_termination.high_frequency_loss_base",
+        "bridge_termination.high_frequency_loss_damping_coefficient",
+        "bridge_termination.high_frequency_loss_key_coefficient",
+        "bridge_termination.high_frequency_loss_wound_coefficient",
+        "bridge_termination.reflection_loss_base",
+        "bridge_termination.key_loss_base",
+        "bridge_termination.key_loss_coefficient",
+        "bridge_termination.damping_base",
+        "bridge_termination.damping_coefficient",
+        "bridge_termination.release_loss_multiplier",
+        "bridge_termination.reference_loss_multiplier",
+        "bridge_termination.passive_min",
+        "bridge_termination.passive_max",
+        "bridge_termination.dispersion_multiplier"
+      ],
+      "boundBasis": "Retain the existing validated passive-filter, damping, loss, and dispersion mappings.",
+      "rationale": "These coefficients implement the approved string and bridge termination equations."
+    },
+    {
+      "id": "bridge-junction-and-radiation-difference",
+      "group": "C",
+      "classification": "FIXED_ARCHITECTURE_MAPPING",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "bridge.impedance_bass",
+        "bridge.impedance_treble",
+        "bridge.radiation_diff_base_bass",
+        "bridge.radiation_diff_base_treble",
+        "bridge.radiation_diff_velocity2",
+        "bridge.radiation_diff_key_velocity3"
+      ],
+      "boundBasis": "Retain the positive-impedance bridge junction and current bridge-radiation difference mapping.",
+      "rationale": "Do not reopen bridge transfer/radiation coefficients during core-tone screening without separate evidence."
+    },
+    {
+      "id": "register-topology",
+      "group": "C",
+      "classification": "FIXED_ARCHITECTURE",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "zones.bass_to_tenor_start",
+        "zones.bass_to_tenor_end",
+        "zones.tenor_to_treble_start",
+        "zones.tenor_to_treble_end",
+        "zones.low_bass_gate_start",
+        "zones.low_bass_gate_end"
+      ],
+      "boundBasis": "Retain existing ordered crossover and low-bass gate coordinates validated by the authoritative metadata generator.",
+      "rationale": "These values define register topology, not ordinary acoustic coefficients."
+    },
+    {
+      "id": "soundboard-fit",
+      "group": "C",
+      "classification": "FITTER_OWNED",
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": [
+        "soundboard.size_scale_min",
+        "soundboard.size_scale_max",
+        "soundboard.modes",
+        "soundboard.zone_pan",
+        "soundboard.residual_alpha",
+        "soundboard.residual_gain",
+        "soundboard.feedback_scale",
+        "soundboard.radiation_scale",
+        "soundboard.excitation_pan_mode_weight",
+        "soundboard.excitation_pan_zone_weight",
+        "soundboard.excitation_pan_slew_per_second",
+        "soundboard.excitation_pan_slew_min",
+        "soundboard.excitation_pan_slew_max",
+        "soundboard.spatial_pan_limit"
+      ],
+      "boundBasis": "Reference-derived soundboard fit values remain controlled by the approved fitter and regeneration path.",
+      "rationale": "Keep modal, Q, zone, residual, feedback, radiation, and spatial fit coefficients outside the hammer/string QMC."
+    },
+    {
+      "id": "fixed-dry-longitudinal-path",
+      "group": "supporting-architecture",
+      "classification": "FIXED_ARCHITECTURE",
+      "fixedValue": 0.0,
+      "optimizerEligible": false,
+      "sourcePrefix": "concert_grand.engine_config.",
+      "sourceSymbols": ["radiation.dry_longitudinal_gain"],
+      "boundBasis": "Approved architecture decision fixes the direct dry longitudinal path at 0.0; no finite search bound exists.",
+      "rationale": "Longitudinal modes remain in the bridge/body path and must not be added as a second dry radiator."
+    }
+  ],
+  "unclassifiedAllowedCount": 0,
+  "excludedEngineConfigRoots": [
+    "kind",
+    "revision",
+    "sympathetic",
+    "longitudinal",
+    "radiation",
+    "velocity"
+  ]
+}

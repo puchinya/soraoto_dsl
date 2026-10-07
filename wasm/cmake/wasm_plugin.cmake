@@ -11,8 +11,6 @@ set(SORAOTO_PLUGIN_EXPORTS
   soraoto_plugin_stop_processing
   soraoto_plugin_process
   soraoto_plugin_reset
-  soraoto_plugin_state_snapshot
-  soraoto_plugin_state_load
   soraoto_plugin_latency_samples
   soraoto_plugin_tail_samples)
 
@@ -35,10 +33,66 @@ function(soraoto_add_wasm_plugin group plugin)
     "${PROJECT_SOURCE_DIR}/shared")
   target_compile_options(${target} PRIVATE -O3 -nostdlib -fno-builtin)
   target_compile_definitions(${target} PRIVATE
-    "PLUGIN_DESCRIPTOR_HEADER=\"generated/${plugin}_descriptor.h\"")
+    "PLUGIN_DESCRIPTOR_HEADER=\"${generated_dir}/${plugin}_descriptor.h\"")
 
   if(plugin STREQUAL "super-synth")
-    target_compile_options(${target} PRIVATE -msimd128)
+    option(SORAOTO_SUPERSYNTH_SIMD_DIAGNOSTICS
+      "Emit local SuperSynth Wasm loop/SLP vectorization remarks" OFF)
+    option(SORAOTO_FORCE_SCALAR_GRAND
+      "Build a local scalar reference for the SuperSynth concert-grand kernels" OFF)
+    if(BUILD_TESTING)
+      set(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS_DEFAULT ON)
+    else()
+      set(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS_DEFAULT OFF)
+    endif()
+    option(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS
+      "Expose SuperSynth guard, voice-count and kernel-benchmark hooks in local diagnostics"
+      ${SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS_DEFAULT})
+    option(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS
+      "Build test-only Stage2M factor attribution controls for SuperSynth"
+      OFF)
+    option(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS
+      "Build test-only Stage3B string-bundle contact attribution controls for SuperSynth"
+      OFF)
+    option(SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS
+      "Build test-only Stage3C contact-vs-bridge impedance split controls for SuperSynth"
+      OFF)
+    target_compile_options(${target} PRIVATE -msimd128 -fvectorize -fslp-vectorize)
+    if(SORAOTO_SUPERSYNTH_SIMD_DIAGNOSTICS)
+      target_compile_options(${target} PRIVATE
+        -Rpass=loop-vectorize
+        -Rpass-missed=loop-vectorize
+        -Rpass=slp-vectorizer
+        -Rpass-missed=slp-vectorizer)
+    endif()
+    if(SORAOTO_FORCE_SCALAR_GRAND)
+      target_compile_definitions(${target} PRIVATE SORAOTO_FORCE_SCALAR_GRAND=1)
+      target_compile_options(${target} PRIVATE -fno-vectorize -fno-slp-vectorize)
+    endif()
+    if(SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+      target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=1)
+    endif()
+    if(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+      if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+        message(FATAL_ERROR "Stage2M diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON")
+      endif()
+      target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=1)
+    endif()
+    if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
+      if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS OR NOT SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+        message(FATAL_ERROR "Stage3B diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON and SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=ON")
+      endif()
+      target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS=1)
+    endif()
+    if(SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS)
+      if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS OR NOT SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+        message(FATAL_ERROR "Stage3C diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON and SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=ON")
+      endif()
+      if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
+        message(FATAL_ERROR "Stage3B and Stage3C diagnostics are mutually exclusive")
+      endif()
+      target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS=1)
+    endif()
   elseif(plugin STREQUAL "reverb")
     target_compile_options(${target} PRIVATE -O2)
   endif()
@@ -54,6 +108,34 @@ function(soraoto_add_wasm_plugin group plugin)
   foreach(symbol IN LISTS SORAOTO_PLUGIN_EXPORTS)
     list(APPEND link_options "-Wl,--export=${symbol}")
   endforeach()
+  if(plugin STREQUAL "super-synth" AND SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_guard_hit_count")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_active_voice_count")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_benchmark_soundboard")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_benchmark_sympathetic")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_soundboard_diag_reset")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_soundboard_diag_sum_squares")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_soundboard_diag_peak")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_soundboard_diag_frames")
+    list(APPEND link_options "-Wl,--export=soraoto_supersynth_diagnostic_set_ablation_mask")
+    if(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+      list(APPEND link_options
+        "-Wl,--export=soraoto_supersynth_stage2m_set_factor_mask"
+        "-Wl,--export=soraoto_supersynth_stage2m_get_factor_mask"
+        "-Wl,--export=soraoto_supersynth_stage2m_hammer_diag_reset"
+        "-Wl,--export=soraoto_supersynth_stage2m_hammer_diag_value")
+      if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS)
+        list(APPEND link_options
+          "-Wl,--export=soraoto_supersynth_stage3b_set_variant_mask"
+          "-Wl,--export=soraoto_supersynth_stage3b_get_variant_mask")
+      endif()
+      if(SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS)
+        list(APPEND link_options
+          "-Wl,--export=soraoto_supersynth_stage3c_set_variant_mask"
+          "-Wl,--export=soraoto_supersynth_stage3c_get_variant_mask")
+      endif()
+    endif()
+  endif()
   target_link_options(${target} PRIVATE ${link_options})
 
   set_target_properties(${target} PROPERTIES

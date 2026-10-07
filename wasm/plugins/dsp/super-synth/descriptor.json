@@ -3,8 +3,8 @@
   "abi_minor": 0,
   "id": "net.puchinya.soraotodsl.super-synth-v8",
   "vendor": "soraotoDSL",
-  "name": "SuperSynth v8",
-  "version": "8.0.0",
+  "name": "SuperSynth v9",
+  "version": "9.0.0",
   "kinds": [
     "instrument"
   ],
@@ -5875,7 +5875,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "1",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5896,7 +5896,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5917,7 +5917,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5938,7 +5938,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5958,7 +5958,7 @@
             "soraoto.recommended_range": "E2-C6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5978,7 +5978,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5999,7 +5999,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6020,7 +6020,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6041,7 +6041,7 @@
             "soraoto.recommended_range": "E2-E6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6062,7 +6062,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6083,7 +6083,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6104,7 +6104,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6125,7 +6125,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6146,7 +6146,7 @@
             "soraoto.recommended_range": "E2-E6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6167,7 +6167,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6188,7 +6188,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6209,7 +6209,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6230,7 +6230,7 @@
             "soraoto.recommended_range": "C4-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6251,7 +6251,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6272,7 +6272,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6293,7 +6293,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6314,7 +6314,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6335,7 +6335,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "1",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6356,7 +6356,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6377,7 +6377,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6398,7 +6398,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6419,7 +6419,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6440,7 +6440,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6461,7 +6461,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6482,7 +6482,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6503,7 +6503,7 @@
             "soraoto.recommended_range": "E2-C6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6524,7 +6524,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6545,7 +6545,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6566,7 +6566,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6587,7 +6587,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6608,7 +6608,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6629,7 +6629,7 @@
             "soraoto.recommended_range": "C4-C7",
             "soraoto.polyphony": "1",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6650,7 +6650,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6671,7 +6671,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6692,7 +6692,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6713,7 +6713,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6734,7 +6734,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6755,7 +6755,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6776,7 +6776,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6797,7 +6797,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "high",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6818,7 +6818,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6839,7 +6839,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "high",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6860,7 +6860,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "1",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6880,7 +6880,7 @@
             "soraoto.recommended_range": "C3-C6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6901,7 +6901,7 @@
             "soraoto.recommended_range": "E2-C6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6922,7 +6922,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         }
       ]
