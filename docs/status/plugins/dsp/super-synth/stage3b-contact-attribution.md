@@ -595,3 +595,39 @@ Stage3D correction and selection ledgers finished with 9/9 and 261/261 COMPLETE,
 PASS: Stage3D capture-helper test, Stage3D runner test, four Stage3C regression tests, Stage3C dry-run/finalizer replay (0 builds/0 renders; authoritative result SHA unchanged), Stage3D dry-runs (0 builds/0 renders; 9+261 authorized and window counts validated), and `git diff --check`. The referenced Stage3D source-generation and diagnostic-build test files were absent from this checkout; no rebuild was run. NOT RUN: Stage3 production acceptance, Stage4, production promotion/build, and manual listening.
 
 Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Further work requires a separate production-promotion requirements/design contract if one is proposed.
+
+## Stage3D final verification closure — 2026-10-07
+
+This read-only verification closure records three findings: **B** — prior verification incorrectly equated the pre-finalization and final selection-ledger hashes; **B** — the runner test still assumed selection evidence was absent; **C** — completed evidence needs historical execution identity separated from current verifier identity.
+
+The two-stage selection binding is valid and unchanged. The immutable result SHA-256 is `a331b4785d7d554c7aaf0c0b688ee3f28c217a1ffa5f69784683a2dd337f1b3c`; its `ledgerSha256` is the historical pre-finalization value `71b33e3928fc94a80ed8a766d05ebc22824b9f5811dea475677ec8b170ec9309`. The final selection ledger SHA-256 is `70f1f2311c09adcd79e2be48ae9b1d6af4ae094912bf29e5eecc3d555ad15914`, and its `finalResultSha256` matches the result SHA. The two ledger hashes differ by design. No evidence identity or file was rewritten.
+
+Persisted correction identity validates 9 COMPLETE / 0 PENDING / 0 IN_PROGRESS; corrected-equivalence result SHA-256 remains `153a8b7265ae1a4e5d8a79fce5af87611602315b6d3affc345eb3aec74a7050a`. Persisted selection identity validates 261 COMPLETE / 0 PENDING / 0 IN_PROGRESS. The decision remains `BLOCKED_STAGE3D_CONTACT_TRANSFORMER_FAMILY`; no variant was selected.
+
+Verifier-only fields are `sourceRevision`, `runnerSha256`, and `stage3dCaptureEvaluatorSha256`; all strict-core identity fields pass. At verification, the persisted/current build-identity values were:
+
+| Field | Historical | Current |
+|---|---|---|
+| source revision | `4821d5eb2e4657fc303793dfcc3ad94ed908c47b` | `593972c2b3a5601e109c968e145f16d7b29440c0` |
+| runner SHA-256 | `316dcd1540bc5f6cda6a387b62f3bc07e8fb49625367776d9e6d6073fa3bcf83` | `82a870a43dd7c1039cc5689df64d41ca8ed007c8956250ea50c449b82a668307` |
+| Stage3D capture-helper SHA-256 | `aa5310b4ebc43ea447305eee212c7122349424fca6e226be10dbcd8a4f5991c1` | `8a1b58ccab0656f1dfca0cfedc7a52fa47a3a391e094b2b41f871efddafce52c` |
+
+The correction identity separately retains its historical execution revision `02baf88307547b343968d1bffacc842fcef4d915` and runner SHA `8803801bcef339a405e6007afdfd7012ccd10fc2dfd0008a4867a9d3611fdaa0`; its capture-helper SHA is `8a1b58ccab0656f1dfca0cfedc7a52fa47a3a391e094b2b41f871efddafce52c`. Current verifier values were reported separately without changing either persisted identity.
+
+Scratch Stage3D rebuild reproduced the historical WASM exactly: `9883b54eaa888b5a8d2e4d9da0490de92dd4c31915fb0d97d47cc03ce123a63a` (`EXACT_REBUILD_PROVENANCE`). Descriptor, interface, and export topology passed. Production WASM remains `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`; Stage3C authoritative result remains `1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1c63737`.
+
+Stage3D dry-run passed twice with zero builds, renders, or evidence writes. Both runs validated 9 correction rows, 261 selection rows, and window counts 132 at `[0,160]` ms / 129 at `[30,180]` ms. SHA and mtime snapshots for all 328 files under Stage3D private evidence were unchanged. Stage3C dry-run and finalizer replay also passed with zero builds/renders and unchanged result identity.
+
+```text
+Historical diagnostic calls before Stage3D     1180
+Original Stage3D equivalence calls                10
+Stage3D equivalence correction calls               9
+Stage3D selection calls                           261
+Total Stage3D calls                               280
+Cumulative diagnostic calls                      1460
+Additional acoustic renders in this closure         0
+Production candidate delta                          0
+Stage4 renders                                      0
+```
+
+Verification PASS: source/isolation test, scratch provenance rebuild, Stage3D capture-helper test, Stage3D runner test, four Stage3C regression tests, Stage3C dry-run/finalizer replay, two Stage3D read-only dry-runs with evidence snapshot stability, and `git diff --check`. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`.

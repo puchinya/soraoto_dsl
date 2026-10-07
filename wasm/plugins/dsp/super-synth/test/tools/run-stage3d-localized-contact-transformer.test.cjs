@@ -78,7 +78,63 @@ const historical=stage3d.loadHistoricalEquivalence();
 assert.equal(historical.result.decision,'BLOCKED_STAGE3D_EQUIVALENCE');
 assert.equal(historical.rows.length,10);
 assert.ok(fs.existsSync(stage3d.paths().eqResult));
-assert.equal(fs.existsSync(stage3d.paths().selLedger),false);
+const persistedCorrection=stage3d.validatePersistedCorrection();
+assert.equal(persistedCorrection.state.counts.COMPLETE,9);
+assert.equal(persistedCorrection.state.counts.PENDING,0);
+assert.equal(persistedCorrection.state.counts.IN_PROGRESS,0);
+assert.equal(persistedCorrection.resultSha256,stage3d.EXPECTED.stage3dCorrectedEquivalenceResult);
+const completedSelection=stage3d.validateCompletedSelection();
+assert.equal(fs.existsSync(stage3d.paths().selLedger),true);
+assert.equal(fs.existsSync(stage3d.paths().selResult),true);
+assert.equal(completedSelection.ledgerSha256,stage3d.EXPECTED.stage3dSelectionFinalLedger);
+assert.equal(completedSelection.resultSha256,stage3d.EXPECTED.stage3dSelectionResult);
+assert.equal(completedSelection.rows.length,261);
+assert.equal(stage3d.counts(completedSelection.ledger).COMPLETE,261);
+assert.equal(stage3d.counts(completedSelection.ledger).PENDING,0);
+assert.equal(stage3d.counts(completedSelection.ledger).IN_PROGRESS,0);
+assert.equal(completedSelection.ledger.finalResultSha256,completedSelection.resultSha256);
+assert.match(completedSelection.preFinalizationLedgerSha256,/^[0-9a-f]{64}$/);
+assert.notEqual(completedSelection.preFinalizationLedgerSha256,completedSelection.ledgerSha256);
+
+const currentIdentity=stage3d.buildIdentity();
+const savedIdentity=JSON.parse(fs.readFileSync(stage3d.paths().identity,'utf8'));
+const verifierDrift=stage3d.compareStrictCoreIdentity(savedIdentity,currentIdentity);
+for(const field of stage3d.VERIFIER_ONLY_FIELDS){
+  assert.equal(verifierDrift[field].historical,savedIdentity[field]);
+  assert.equal(verifierDrift[field].current,currentIdentity[field]);
+}
+const strictMutation={...currentIdentity,stage3dDiagnosticWasmSha256:'f'.repeat(64)};
+assert.throws(()=>stage3d.compareStrictCoreIdentity(savedIdentity,strictMutation),/BLOCKED_STAGE3D_DIAGNOSTIC_BUILD_IDENTITY/);
+const persistedCorrectionIdentity=JSON.parse(fs.readFileSync(stage3d.paths().correctionIdentity,'utf8'));
+const expectedCorrectionIdentity=stage3d.correctionIdentity(currentIdentity,historical);
+assert.doesNotThrow(()=>stage3d.compareStrictCoreIdentity(persistedCorrectionIdentity,expectedCorrectionIdentity,stage3d.CORRECTION_VERIFIER_FIELD_MAP));
+assert.throws(()=>stage3d.compareStrictCoreIdentity(persistedCorrectionIdentity,
+  {...expectedCorrectionIdentity,stage3cAuthoritativeResultSha256:'f'.repeat(64)},stage3d.CORRECTION_VERIFIER_FIELD_MAP),
+  /BLOCKED_STAGE3D_DIAGNOSTIC_BUILD_IDENTITY/);
+const tamperedLedger=structuredClone(completedSelection.ledger);
+tamperedLedger.finalResultSha256='0'.repeat(64);
+assert.throws(()=>stage3d.assertSelectionCompletionShape(tamperedLedger,completedSelection.result,completedSelection.resultSha256),
+  /BLOCKED_STAGE3D_DIAGNOSTIC_EVIDENCE/);
+const tamperedResult=structuredClone(completedSelection.result);
+tamperedResult.accounting.totalCumulativeCalls=1459;
+assert.throws(()=>stage3d.assertSelectionCompletionShape(completedSelection.ledger,tamperedResult,completedSelection.resultSha256),
+  /BLOCKED_STAGE3D_DIAGNOSTIC_EVIDENCE/);
+const evidencePaths=stage3d.paths();
+const correctionCellEntry=Object.values(persistedCorrection.state.ledger.cells).find(entry=>entry.state==='COMPLETE');
+const selectionCellEntry=Object.values(completedSelection.ledger.cells).find(entry=>entry.state==='COMPLETE');
+const aggregateEntry=Object.values(completedSelection.ledger.aggregates)[0];
+const snapshotFiles=[evidencePaths.identity,evidencePaths.correctionIdentity,evidencePaths.correctionLedger,evidencePaths.correctionResult,
+  path.join(evidencePaths.correctionDir,correctionCellEntry.path),evidencePaths.selLedger,evidencePaths.selResult,
+  path.join(evidencePaths.selDir,selectionCellEntry.path),path.resolve(path.dirname(evidencePaths.selLedger),aggregateEntry.path)];
+const snapshot=()=>snapshotFiles.map(file=>({file,sha256:require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+  mtimeMs:fs.statSync(file).mtimeMs}));
+const beforeDryRun=snapshot();
+const dryRun=stage3d.run({mode:'--dry-run'});
+assert.equal(dryRun.builds,0);assert.equal(dryRun.renders,0);assert.equal(dryRun.acousticRenders,0);
+assert.equal(dryRun.correctionComplete,9);assert.equal(dryRun.selectionComplete,261);
+assert.equal(dryRun.selectionDecision,'BLOCKED_STAGE3D_CONTACT_TRANSFORMER_FAMILY');
+assert.deepEqual(dryRun.selectionWindowCounts,{'0-160':132,'30-180':129});
+assert.deepEqual(snapshot(),beforeDryRun);
 
 const plugin=fs.readFileSync(path.join(__dirname,'../../src/plugin.c'),'utf8');
 const stage3dPlugin=fs.readFileSync(path.join(__dirname,'../../src/plugin_stage3d.c'),'utf8');

@@ -410,6 +410,8 @@ Stage3D results are architecture-selection evidence only. A selected ratio must 
 
 Stage3D equivalence and no-op comparisons use the derivative window belonging to their reference evidence. Stage3A recovery rows use `[0,160] ms`, while the accepted MIDI41 supplement uses `[30,180] ms`. The nine ordinary Stage3D equivalence rows captured against the recovery set are corrected in a separate immutable sidecar; the original ten-row result is retained as historical evidence, and its passing MIDI41 row is reused. Selection no-op rows for MIDI 48, MIDI 57, and treble use `[0,160] ms`; MIDI41 uses `[30,180] ms`. Other Stage3D diagnostic rows use `[30,180] ms`. The Stage3D-only capture helper receives the selected window explicitly from the runner; the shared historical capture helper remains unchanged.
 
+Completed Stage3D correction and selection evidence is validated against its persisted execution identity. Later verifier-only changes to source revision, runner SHA, or Stage3D capture-helper SHA are reported separately and never rewrite that identity; all acoustic, build, production, and reference identity fields remain strict. The selection result's `ledgerSha256` is the historical pre-finalization ledger hash. The final ledger binds one-way to the result through `finalResultSha256`, and replay verifies the fixed final ledger/result byte hashes plus that binding. No canonicalized or reconstructed pre-finalization ledger hash is used.
+
 ## 6. Failure and blocker handling
 
 If the official Salamander package cannot be retrieved, its contents are incomplete, or its SFZ

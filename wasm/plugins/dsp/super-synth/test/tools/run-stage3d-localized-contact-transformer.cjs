@@ -14,6 +14,10 @@ const ROOT=path.resolve(__dirname,'../../../../../../');
 const CANDIDATE='stage2n-r3-candidate-01';
 const START_HEAD='4821d5eb2e4657fc303793dfcc3ad94ed908c47b';
 const TOL=1e-6, MASKS=[1,2,3], VELOCITIES=[14,31,36,40,45,49,54,61,69,77,85,93,101,109,117,124];
+const VERIFIER_ONLY_FIELDS=Object.freeze(['sourceRevision','runnerSha256','stage3dCaptureEvaluatorSha256']);
+const CORRECTION_VERIFIER_FIELD_MAP=Object.freeze({sourceRevision:['executionSourceRevision','executionSourceRevision'],
+  runnerSha256:['stage3dRunnerSha256','stage3dRunnerSha256'],
+  stage3dCaptureEvaluatorSha256:['stage3dDedicatedCaptureHelperSha256','stage3dDedicatedCaptureHelperSha256']});
 const DYNAMIC=[48,51,54,57], TREBLE=[93,96,99], TRANSITION=[49,50,55,56], NORM=[.25,.55,.9];
 const EQUIVALENCE_COORDS=[{kind:'dynamic',pitch:36,velocity:124},{kind:'dynamic',pitch:39,velocity:124},
   {kind:'dynamic',pitch:45,velocity:69},{kind:'dynamic',pitch:48,velocity:69},{kind:'dynamic',pitch:51,velocity:14},
@@ -46,6 +50,9 @@ const EXPECTED={
   presets:'cbe58468911ee583d535c7d3ce09bd40199aeb93183def0a8204d591feac4431',
   fixture:'5d27b6beae2a3c478e21ef0e260e588fdfd22bd1fea4181c74c0d00520a08cd7',
   stage3cResult:'1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1e63737',
+  stage3dCorrectedEquivalenceResult:'153a8b7265ae1a4e5d8a79fce5af87611602315b6d3affc345eb3aec74a7050a',
+  stage3dSelectionFinalLedger:'70f1f2311c09adcd79e2be48ae9b1d6af4ae094912bf29e5eecc3d555ad15914',
+  stage3dSelectionResult:'a331b4785d7d554c7aaf0c0b688ee3f28c217a1ffa5f69784683a2dd337f1b3c',
   preflight:'f69e8adf900db451bc91c48928f914dc8b7da28b732e533f1742d5b49d9ce1dc',
   stage3aLedger:'e43d6d1b88f57766d0c48e413801916b313580cec83d629b54835be0f23060e9',
   stage3aFinal:'e953ba33a363f378a006aafcbe4066cb1b05d69ac42ca1f401cd68d7e7261cd4',
@@ -59,6 +66,17 @@ function readJson(file){return JSON.parse(fs.readFileSync(file,'utf8'));}
 function writeAtomic(file,value){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=`${file}.${process.pid}.tmp`;
   fs.writeFileSync(temp,`${JSON.stringify(value,null,2)}\n`,{flag:'wx'});fs.renameSync(temp,file);}
 function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
+function compareStrictCoreIdentity(persisted,current,fieldMap=Object.fromEntries(VERIFIER_ONLY_FIELDS.map(field=>[field,[field,field]]))){
+  const persistedSkip=new Set(Object.values(fieldMap).map(fields=>fields[0])),currentSkip=new Set(Object.values(fieldMap).map(fields=>fields[1]));
+  const historicalCore=Object.fromEntries(Object.entries(persisted||{}).filter(([field])=>!persistedSkip.has(field)));
+  const currentCore=Object.fromEntries(Object.entries(current||{}).filter(([field])=>!currentSkip.has(field)));
+  if(!same(historicalCore,currentCore)){
+    const fields=[...new Set([...Object.keys(historicalCore),...Object.keys(currentCore)])].filter(field=>!same(historicalCore[field],currentCore[field]));
+    throw new Error(`BLOCKED_STAGE3D_DIAGNOSTIC_BUILD_IDENTITY: strict-core mismatch ${fields.join(',')}`);
+  }
+  return Object.fromEntries(VERIFIER_ONLY_FIELDS.map(field=>{const [historicalField,currentField]=fieldMap[field];
+    return [field,{historical:persisted?.[historicalField]??null,current:current?.[currentField]??null}];}));
+}
 function currentHead(root=ROOT){return execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();}
 function paths(root=ROOT){const base=path.join(root,'.agent-state/issues/7/stage3d');return {
   root:base,identity:path.join(base,'build-identity.json'),eqDir:path.join(base,'equivalence'),
@@ -159,10 +177,7 @@ function ensureBuildIdentity(root=ROOT,{write=false}={}){const p=paths(root),now
   if(fs.existsSync(p.identity)&&!same(readJson(p.identity),now)){
     const prior=readJson(p.identity);
     if(hasAcousticEvidence(p)){
-      const omit=new Set(['sourceRevision','runnerSha256','stage3dCaptureEvaluatorSha256']);
-      const priorBase=Object.fromEntries(Object.entries(prior).filter(([k])=>!omit.has(k)));
-      const nowBase=Object.fromEntries(Object.entries(now).filter(([k])=>!omit.has(k)));
-      if(!same(priorBase,nowBase))throw new Error('BLOCKED_STAGE3D_DIAGNOSTIC_BUILD_IDENTITY: persisted acoustic identity changed');
+      compareStrictCoreIdentity(prior,now);
       return now;
     }
     if(!write)throw new Error('BLOCKED_STAGE3D_DIAGNOSTIC_BUILD_IDENTITY: persisted identity changed');
@@ -332,6 +347,75 @@ function loadCorrectedEquivalence(root=ROOT,p=paths(root),identity=ensureBuildId
       ||result.bindings?.correctionLedgerSha256!==sha(p.correctionLedger))
     throw new Error('BLOCKED_STAGE3D_EQUIVALENCE_CORRECTION: corrected equivalence did not pass');return result;
 }
+function validatePersistedCorrection(root=ROOT,p=paths(root),identity=ensureBuildIdentity(root),inputs=baselineInputs(root)){
+  if(!fs.existsSync(p.correctionIdentity)||!fs.existsSync(p.correctionResult))
+    throw new Error('BLOCKED_STAGE3D_EQUIVALENCE_CORRECTION_EVIDENCE: completed correction artifacts absent');
+  const resultSha256=sha(p.correctionResult);
+  if(resultSha256!==EXPECTED.stage3dCorrectedEquivalenceResult)
+    throw new Error('BLOCKED_STAGE3D_EQUIVALENCE_CORRECTION_EVIDENCE: corrected result hash mismatch');
+  const historical=loadHistoricalEquivalence(root,p,inputs),persistedIdentity=readJson(p.correctionIdentity);
+  const currentExpected=correctionIdentity(identity,historical);
+  const verifierDifferences=compareStrictCoreIdentity(persistedIdentity,currentExpected,CORRECTION_VERIFIER_FIELD_MAP);
+  const state=inspectCorrection(p,persistedIdentity),ledger=state.ledger;
+  const result=readJson(p.correctionResult);
+  if(state.counts.COMPLETE!==9||state.counts.PENDING!==0||state.counts.IN_PROGRESS!==0
+      ||ledger.accounting?.newRenderCalls!==9||ledger.identitySha256!==digest(persistedIdentity)||!same(ledger.identity,persistedIdentity))
+    throw new Error('BLOCKED_STAGE3D_EQUIVALENCE_CORRECTION_EVIDENCE: correction is not 9/0/0');
+  const actualCellShas=Object.fromEntries(CORRECTION_CELLS.map(cell=>[key(cell),ledger.cells[key(cell)].sha256]));
+  if(result.decision!=='STAGE3D_EQUIVALENCE_CORRECTION_COMPLETE'||result.candidateId!==CANDIDATE
+      ||result.correctionIdentitySha256!==digest(persistedIdentity)||result.correctionPassCount!==9
+      ||result.historicalReusedPassCount!==1||result.effectiveEquivalenceCellCount!==10
+      ||!Number.isFinite(result.maxMetricDifference)||result.maxMetricDifference>TOL
+      ||!same(result.bindings?.correctionCellSha256,actualCellShas)
+      ||result.bindings?.correctionLedgerSha256!==sha(p.correctionLedger)
+      ||result.bindings?.originalEquivalenceLedgerSha256!==historical.ledgerSha256
+      ||result.bindings?.originalBlockedResultSha256!==historical.resultSha256
+      ||result.bindings?.historicalMIDI41CellSha256!==persistedIdentity.historicalMIDI41CellSha256
+      ||result.bindings?.stage3dRunnerSha256!==persistedIdentity.stage3dRunnerSha256
+      ||result.bindings?.stage3dCaptureHelperSha256!==persistedIdentity.stage3dDedicatedCaptureHelperSha256
+      ||result.bindings?.stage3dBuildIdentitySha256!==persistedIdentity.isolatedBuildIdentitySha256
+      ||result.bindings?.stage3dWasmSha256!==persistedIdentity.stage3dDiagnosticWasmSha256)
+    throw new Error('BLOCKED_STAGE3D_EQUIVALENCE_CORRECTION_EVIDENCE: immutable correction binding mismatch');
+  const rows=CORRECTION_CELLS.map(cell=>loadCorrectionCell(state.pp,ledger,cell,persistedIdentity));
+  const comparisons=rows.map((row,index)=>compareEquivalence(CORRECTION_CELLS[index],row,inputs));
+  const maxMetricDifference=Math.max(...comparisons.map(c=>c.maxMetricDifference));
+  if(comparisons.some(c=>!c.pass||c.maxMetricDifference>TOL)||maxMetricDifference!==result.maxMetricDifference
+      ||result.rows?.length!==9||!result.rows.every(row=>row.result==='PASS'))
+    throw new Error('BLOCKED_STAGE3D_EQUIVALENCE_CORRECTION_EVIDENCE: persisted correction comparison failed');
+  return {identity:persistedIdentity,state,result,verifierDifferences,resultSha256};
+}
+function assertSelectionCompletionShape(ledger,result,resultSha256){
+  const c=counts(ledger),accounting=result.accounting||{};
+  const expectedAccounting={historicalCallsBeforeStage3d:1180,originalEquivalenceRenders:10,correctionRenders:9,selectionRenders:261,
+    maximumStage3dCalls:280,totalCumulativeCalls:1460,productionCandidateDelta:0,stage4Renders:0};
+  if(ledger.phase!=='selection'||ledger.status!=='COMPLETE'||ledger.authorizedRenderCount!==261
+      ||c.COMPLETE!==261||c.PENDING!==0||c.IN_PROGRESS!==0||ledger.accounting?.newRenderCalls!==261
+      ||ledger.accounting?.productionCandidateDelta!==0||ledger.accounting?.stage4Renders!==0
+      ||ledger.identitySha256!==digest(ledger.identity)||ledger.finalResultSha256!==resultSha256
+      ||result.decision!=='BLOCKED_STAGE3D_CONTACT_TRANSFORMER_FAMILY'||result.authorizedRenderCount!==261
+      ||result.completedCellCount!==261||result.selectedVariant!==null||result.identitySha256!==ledger.identitySha256
+      ||!same(accounting,expectedAccounting)||typeof result.ledgerSha256!=='string'||! /^[0-9a-f]{64}$/.test(result.ledgerSha256))
+    throw new Error('BLOCKED_STAGE3D_DIAGNOSTIC_EVIDENCE: completed selection result/ledger shape mismatch');
+}
+function validateCompletedSelection(root=ROOT,p=paths(root),currentIdentity=ensureBuildIdentity(root)){
+  if(!fs.existsSync(p.selLedger)||!fs.existsSync(p.selResult))
+    throw new Error('BLOCKED_STAGE3D_DIAGNOSTIC_EVIDENCE: completed selection artifacts absent');
+  const ledgerSha256=sha(p.selLedger),resultSha256=sha(p.selResult);
+  if(ledgerSha256!==EXPECTED.stage3dSelectionFinalLedger||resultSha256!==EXPECTED.stage3dSelectionResult)
+    throw new Error('BLOCKED_STAGE3D_DIAGNOSTIC_EVIDENCE: fixed completed selection artifact hash mismatch');
+  const ledger=readJson(p.selLedger),result=readJson(p.selResult);
+  assertSelectionCompletionShape(ledger,result,resultSha256);
+  if(result.ledgerSha256===ledgerSha256)
+    throw new Error('BLOCKED_STAGE3D_DIAGNOSTIC_EVIDENCE: expected historical pre-finalization ledger SHA');
+  const verifierDifferences=compareStrictCoreIdentity(ledger.identity,currentIdentity);
+  const state=inspectLedger(p,ledger.identity,'selection');
+  if(state.counts.COMPLETE!==261||state.counts.PENDING!==0||state.counts.IN_PROGRESS!==0)
+    throw new Error('BLOCKED_STAGE3D_DIAGNOSTIC_EVIDENCE: selection is not 261/0/0');
+  validateAggregates(p,ledger,ledger.identity);
+  const rows=SELECTION_CELLS.map(cell=>loadCell(state.pp,ledger,cell,ledger.identity));
+  if(rows.length!==261)throw new Error('BLOCKED_STAGE3D_DIAGNOSTIC_EVIDENCE: selection cell count mismatch');
+  return {ledger,result,rows,verifierDifferences,ledgerSha256,resultSha256,preFinalizationLedgerSha256:result.ledgerSha256};
+}
 function compareEquivalence(cell,row,inputs){const expected=referenceRow(cell,inputs);if(!expected?.metrics)throw new Error(`BLOCKED_STAGE3D_BASELINE_IDENTITY: missing Stage3A reference ${key(cell)}`);
   return stage3c.compareMetrics(row.metrics,expected.metrics);}
 function safety(m){return {finite:m.finite===true,guardHits:m.outputGuardHits,peakDbfs:m.peakDbfs,fullRenderPeakDbfs:m.fullRenderPeakDbfs,
@@ -453,21 +537,28 @@ function executePhase(root,p,identity,phase,progress=()=>{}){const cells=phase==
   return {decision:phase==='equivalence'?'STAGE3D_EQUIVALENCE_RENDERING_COMPLETE':'STAGE3D_SELECTION_RENDERING_COMPLETE',renderCalls:renders,
     counts:counts(ledger),ledgerSha256:sha(pp.ledger)};}
 function run({root=ROOT,mode='--dry-run',progress=()=>{}}={}){if(!['--dry-run','--equivalence','--correct-equivalence','--execute','--finalize'].includes(mode))throw new Error('explicit mode required');
-  const p=paths(root),identity=ensureBuildIdentity(root,{write:mode==='--dry-run'});
+  const p=paths(root),identity=ensureBuildIdentity(root,{write:false});
   if(mode==='--dry-run'){
     const historical=loadHistoricalEquivalence(root,p,baselineInputs(root));
-    let correctionComplete=0,correctionDecision=null;
-    if(fs.existsSync(p.correctionLedger)){const expected=correctionIdentity(identity,historical);correctionComplete=inspectCorrection(p,expected).counts.COMPLETE;}
-    if(fs.existsSync(p.correctionResult))correctionDecision=readJson(p.correctionResult).decision;
+    const correction=validatePersistedCorrection(root,p,identity,baselineInputs(root));
+    const selection=validateCompletedSelection(root,p,identity);
     const windowCounts={'0-160':SELECTION_CELLS.filter(c=>c.velocityDerivativeStartMs===0&&c.velocityDerivativeEndMs===160).length,
       '30-180':SELECTION_CELLS.filter(c=>c.velocityDerivativeStartMs===30&&c.velocityDerivativeEndMs===180).length};
     const windowPolicyValid=windowCounts['0-160']===132&&windowCounts['30-180']===129;
     if(!windowPolicyValid)throw new Error('BLOCKED_STAGE3D_WINDOW_POLICY: selection window counts differ');
+    const persistedBuildIdentity=readJson(p.identity);
     return {decision:'DRY_RUN',builds:0,renders:0,acousticRenders:0,historicalEquivalenceCalls:10,historicalEquivalenceComplete:10,
-      historicalEquivalenceDecision:historical.result.decision,correctionAuthorized:9,correctionComplete,correctedEquivalenceDecision:correctionDecision,
-      selectionAuthorized:261,selectionExists:fs.existsSync(p.selLedger),selectionWindowCounts:windowCounts,windowPolicyValid,
+      historicalEquivalenceDecision:historical.result.decision,correctionAuthorized:9,correctionComplete:correction.state.counts.COMPLETE,
+      correctedEquivalenceDecision:correction.result.decision,selectionAuthorized:261,selectionComplete:selection.rows.length,
+      selectionDecision:selection.result.decision,selectionExists:true,selectionWindowCounts:windowCounts,windowPolicyValid,
       revisedStage3dMaximumCalls:280,historicalCallsBeforeStage3d:1180,maximumCumulativeCalls:1460,
-      equivalenceCells:EQUIVALENCE_CELLS,correctionCells:CORRECTION_CELLS,selectionCells:SELECTION_CELLS,identity};}
+      productionCandidateDelta:0,stage4Renders:0,
+      verifierIdentity:{historical:Object.fromEntries(VERIFIER_ONLY_FIELDS.map(field=>[field,persistedBuildIdentity[field]])),
+        current:Object.fromEntries(VERIFIER_ONLY_FIELDS.map(field=>[field,identity[field]])),
+        correctionHistorical:correction.verifierDifferences},
+      selectionBinding:{preFinalizationLedgerSha256:selection.preFinalizationLedgerSha256,
+        finalLedgerSha256:selection.ledgerSha256,selectionResultSha256:selection.resultSha256,
+        preFinalizationDiffersFromFinal:selection.preFinalizationLedgerSha256!==selection.ledgerSha256}};}
   const inputs=baselineInputs(root);
   if(mode==='--equivalence'){
     const historical=loadHistoricalEquivalence(root,p,inputs);return {decision:historical.result.decision,renderCalls:0,
@@ -491,7 +582,7 @@ function mode(argv){if(argv.length!==1||!['--dry-run','--equivalence','--correct
 if(require.main===module){try{const m=mode(process.argv.slice(2));const out=run({mode:m,progress:s=>process.stderr.write(`${s}\n`)});process.stdout.write(`${JSON.stringify(out)}\n`);}
   catch(e){process.stderr.write(`Stage3D localized contact transformer ERROR: ${e.stack||e.message}\n`);process.exitCode=1;}}
 module.exports={ROOT,CANDIDATE,START_HEAD,EXPECTED,TOL,MASKS,VELOCITIES,DYNAMIC,TREBLE,TRANSITION,NORM,EQUIVALENCE_CELLS,CORRECTION_CELLS,SELECTION_CELLS,derivativeWindow,
-  DIAGNOSTIC_SIGNALS,paths,key,fileName,counts,assertAuthorized,buildRoot,buildIdentity,ensureBuildIdentity,hasAcousticEvidence,makeLedger,loadLedger,validateCellRow,
+  DIAGNOSTIC_SIGNALS,VERIFIER_ONLY_FIELDS,CORRECTION_VERIFIER_FIELD_MAP,compareStrictCoreIdentity,paths,key,fileName,counts,assertAuthorized,buildRoot,buildIdentity,ensureBuildIdentity,hasAcousticEvidence,makeLedger,loadLedger,validateCellRow,
   inspectLedger,safety,compareEquivalence,evaluateNoOps,isNoOp,plateauFormula,plateauFormulaText,selectCandidate,gateValue,plateauRatio,transformerTerms,
   finalizeEquivalence,loadHistoricalEquivalence,correctionIdentity,loadCorrectionLedger,inspectCorrection,executeCorrection,finalizeCorrection,loadCorrectedEquivalence,
-  evaluateCandidate,finalizeSelection,validateAggregates,executePhase,run,mode};
+  evaluateCandidate,finalizeSelection,validateAggregates,validatePersistedCorrection,assertSelectionCompletionShape,validateCompletedSelection,executePhase,run,mode};
