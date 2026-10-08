@@ -1,8 +1,30 @@
 'use strict';
 const assert=require('node:assert/strict');
+const {execFileSync}=require('node:child_process');
+const fs=require('node:fs');
+const path=require('node:path');
 const compatibility=require('./stage3e-search-compatibility.cjs');
 const validator=require('./stage3e-evidence-validator.cjs');
-const root='/tmp/stage3e-compatibility-fixture';
+const searchCore=require('./stage3e-search-core.cjs');
+const root=path.resolve(__dirname,'../../../../../../');
+const legacyRunnerPath='wasm/plugins/dsp/super-synth/test/tools/run-stage3e-velocity-response.cjs';
+const legacyRunner=execFileSync('rtk',['git','cat-file','blob',`${compatibility.ORIGINAL_LOCAL_COMMIT}:${legacyRunnerPath}`],
+  {cwd:root,encoding:'utf8'});
+const currentSearchCore=fs.readFileSync(path.join(root,'wasm/plugins/dsp/super-synth/test/tools/stage3e-search-core.cjs'),'utf8');
+function functionSource(source,name){
+  const start=source.indexOf(`function ${name}(`);assert.notEqual(start,-1,`missing ${name}`);
+  const next=source.indexOf('\nfunction ',start+1);return source.slice(start,next<0?source.length:next).trim();
+}
+function declarationSource(source,name){
+  const match=source.match(new RegExp(`^const ${name}=[^\n]+$`,'m'));assert.ok(match,`missing ${name}`);return match[0];
+}
+for(const name of ['lowGridTuples','midGridTuples','gridCells','lowScreenCells','lowFullCells','midScreenCells','midFullCells',
+  'smoothstep','registerGate','stage3eResponse','rankLowCandidates','rankMidCandidates','topFive'])
+  assert.equal(functionSource(currentSearchCore,name),functionSource(legacyRunner,name),`${name} changed since Gen2 creator`);
+for(const name of ['LAUNCH_GRID','BASS_HARDNESS_GRID','MID_GRID','SCREEN_VELOCITIES','OFFICIAL_VELOCITIES','BASELINE_EQUIVALENCE_CELLS','MIDI41_NORMALIZED'])
+  assert.equal(declarationSource(currentSearchCore,name),declarationSource(legacyRunner,name),`${name} changed since Gen2 creator`);
+assert.equal(searchCore.lowGridTuples().length*searchCore.lowScreenCells().length,1512);
+
 const accepted='a'.repeat(40),descendant='b'.repeat(40),bad='c'.repeat(40);
 const v1={schemaVersion:1,decision:'STAGE3E_SEARCH_VERIFIER_COMPATIBLE',
   originalLocalCommit:compatibility.ORIGINAL_LOCAL_COMMIT,verifierFixCommit:compatibility.V1_FIX_COMMIT};
