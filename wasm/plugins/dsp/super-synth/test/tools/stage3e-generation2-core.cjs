@@ -105,7 +105,7 @@ function loadFinalizedReferenceSet(rootsSet){
       ||!same(manifest.files,inventory))throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: finalized manifest identity/inventory mismatch');
   const archive=durable.verifyDualCopy(path.join(rootsSet.primary,'archives/historical-reference-requalification.tar.gz'),path.join(rootsSet.secondary,'archives/historical-reference-requalification.tar.gz'));
   const entries=execFileSync('tar',['-tzf',path.join(rootsSet.primary,'archives/historical-reference-requalification.tar.gz')],{encoding:'utf8'});
-  if(!entries.includes(REFERENCE_FILE)||archive.sizeBytes===0)throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: finalized phase archive is incomplete');
+  if(!entries.includes(requalification.REFERENCE_FILE)||archive.sizeBytes===0)throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: finalized phase archive is incomplete');
   return {referenceSet:value,sha256:stored.sha256};
 }
 function expectedCellPath(row){return `cells/${row.cellKey}.json`;}
