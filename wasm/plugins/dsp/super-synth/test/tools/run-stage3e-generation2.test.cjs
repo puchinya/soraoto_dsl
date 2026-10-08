@@ -5,6 +5,9 @@ const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 const runner=require('./run-stage3e-generation2.cjs');
+const legacy=require('./run-stage3e-velocity-response.cjs');
+
+assert.equal(typeof legacy.preflightDiagnosticCapabilities,'function');
 
 function tempRoots(){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-gen2-runner-'));
