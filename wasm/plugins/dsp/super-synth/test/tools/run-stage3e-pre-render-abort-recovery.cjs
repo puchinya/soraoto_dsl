@@ -27,6 +27,7 @@ const TARGET_KEY='low-screen-L1-M1-H0-midi-036-v110';
 const OLD_HEAD='01c059ae9497119e5ef22d273958ca33eeade9a0';
 const OLD_LEDGER_SHA256='c8c0d162aafcf30908e4b1d7637245ecb6418328a75cee35d76303328960109f';
 const FORENSIC_SHA256='e601de82fbb382065b0d3c7efed6da8540c25681d5e622a11fb74a4cf12bb482';
+const JOURNAL_PROOF_SHA256=preflight.PROOF_SHA256;
 const V1_SHA256='331279140ef707c71c81cf716eed052f443e8537616bac83ad88e002bf61b1e5';
 const V2_SHA256='5f3340f7b993bb879aa29bca4214e5192008f54308d20160282aac0cfcc6f797';
 const TARGET={pitch:36,velocity:14,velocityNormalized:14/127,phase:'low-screen',response:{low:1,mid:1,bassHardness:0},key:TARGET_KEY};
@@ -112,7 +113,7 @@ function readOriginalArtifacts({root=ROOT,home=process.env.HOME}={}){
   const genesisRecordFile=durable.verifyDualCopy(resolved.primary.genesisRecord,resolved.secondary.genesisRecord);
   const genesisRecord=JSON.parse(genesisRecordFile.bytes.toString('utf8'));
   if(genesis.sha256!==evidenceValidator.LOW_GENESIS_SHA256||genesisRecord.genesisLedgerSha256!==genesis.sha256||
-     genesisRecord.manifestSha256!==resolvedManifest.sha256||genesisRecord.proofSha256!==evidenceValidator.SOURCE_AUDIT_SHA256||
+     genesisRecord.manifestSha256!==resolvedManifest.sha256||genesisRecord.proofSha256!==JOURNAL_PROOF_SHA256||
      genesisRecord.compatibilitySha256!==v2Bundle.sha256||!same(genesisRecord.identity,ledger.identity))
     error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE','original genesis binding is invalid');
   const transitionEntries=preflight.readTransitionEntries(roots,manifest),renderStartEntries=preflight.readRenderStartEntries(roots,manifest);
@@ -125,7 +126,7 @@ function readOriginalArtifacts({root=ROOT,home=process.env.HOME}={}){
   if(!same(liveJournal,forensic.originalJournalFiles))error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','original journal bytes differ from forensic snapshot');
   const replay=evidenceValidator.validateLedgerTransitions({genesisLedgerBytes:genesis.bytes,currentLedgerBytes:ledgerFile.bytes,
     transitionEntries,renderStartEntries,expectedCells:cells,bindings:{manifestSha256:resolvedManifest.sha256,
-      proofSha256:evidenceValidator.SOURCE_AUDIT_SHA256,compatibilitySha256:v2Bundle.sha256}});
+      proofSha256:JOURNAL_PROOF_SHA256,compatibilitySha256:v2Bundle.sha256}});
   if(replay.pending!==1511||replay.inProgress!==1||replay.complete!==0||replay.renderCalls!==0||replay.currentLedgerSha256!==ledgerFile.sha256)
     error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','journal does not terminate at the exact pre-abort ledger');
   const currentWasm=path.join(path.resolve(process.env.SORAOTO_WASM_BUILD_DIR||path.join(root,'build/wasm-stage3e')),'plugins/dsp/super-synth/plugin.wasm');
@@ -219,7 +220,7 @@ function verifyRecoveredState({root=ROOT,home=process.env.HOME}={}){
     error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','historical first transition was rewritten');
   const replay=evidenceValidator.validateLedgerTransitions({genesisLedgerBytes:readDual(roots,'ledger-transition-journal/genesis-ledger.json').bytes,
     currentLedgerBytes:ledgerFile.bytes,transitionEntries:transitions,renderStartEntries:renderStarts,expectedCells:search.expectedLowScreenCells(),
-    bindings:{manifestSha256:manifestFile.sha256,proofSha256:evidenceValidator.SOURCE_AUDIT_SHA256,
+    bindings:{manifestSha256:manifestFile.sha256,proofSha256:JOURNAL_PROOF_SHA256,
       compatibilitySha256:bridge.sha256,acceptedCompatibilitySha256s:[v2Bundle.sha256],recoveryCompatibilitySha256:bridge.sha256,
       recoveryResultSha256:resultFile.sha256}});
   if(replay.pending!==1512||replay.inProgress!==0||replay.complete!==0||replay.renderCalls!==0)
@@ -304,7 +305,7 @@ function executeRecovery({root=ROOT,home=process.env.HOME}={}){
   durable.writeDualCopy(path.join(sidecar.primary,AUTHORIZATION),path.join(sidecar.secondary,AUTHORIZATION),authorizationBytes);
   durable.writeDualCopy(path.join(sidecar.primary,RESULT),path.join(sidecar.secondary,RESULT),resultBytes);
   const journalRoots=generation2.ledgerJournalRoots(roots),journalContext={journalRoots,manifestSha256:state.manifestSha256,
-    proofSha256:evidenceValidator.SOURCE_AUDIT_SHA256,compatibilitySha256:bridge.sha256};
+    proofSha256:JOURNAL_PROOF_SHA256,compatibilitySha256:bridge.sha256};
   const first=generation2.appendLedgerTransition({roots,ledger:state.ledger,cell:state.targetCell,
     oldState:'IN_PROGRESS',newState:'IN_PROGRESS',previousRenderCount:0,newRenderCount:0,capturedCellSha256:null,
     recoveryAuthorizationSha256:authorizationSha256,recoveryResultSha256:resultSha256,abortEvidenceSha256:state.forensicSha256,
@@ -349,6 +350,6 @@ function main(argv=process.argv.slice(2)){if(argv.length!==1)throw new Error('on
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
 
 module.exports={ROOT,RECOVERY_DIR,PRE_ABORT_LEDGER,FORENSIC,AUTHORIZATION,RESULT,ARCHIVE,TARGET_KEY,OLD_HEAD,OLD_LEDGER_SHA256,
-  FORENSIC_SHA256,V1_SHA256,V2_SHA256,TARGET,sha256,jsonBytes,stable,same,rootPaths,sidecarRoots,counts,validateAbortForensic,
+  FORENSIC_SHA256,JOURNAL_PROOF_SHA256,V1_SHA256,V2_SHA256,TARGET,sha256,jsonBytes,stable,same,rootPaths,sidecarRoots,counts,validateAbortForensic,
   lowLedgerIdentityMatchesManifest,priorExecutionLogMatches,readOriginalArtifacts,readAndValidateBridge,createCompatibilityV3,recoveryLedger,verifyRecoveredState,verifyBridgeAndPreAbort,
   executeRecovery,dryRun,run,main};

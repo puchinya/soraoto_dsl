@@ -6,8 +6,13 @@ const vm=require('node:vm');
 const {execFileSync}=require('node:child_process');
 const recovery=require('./run-stage3e-pre-render-abort-recovery.cjs');
 const generation2=require('./run-stage3e-generation2.cjs');
+const evidenceValidator=require('./stage3e-evidence-validator.cjs');
 
 const OLD_HELPER='wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs';
+
+assert.equal(recovery.JOURNAL_PROOF_SHA256,'e6cc3049b6f5f20529c50c2bcab5bfa66a6afdfbe5bf9241b5b9cf7f53a130eb');
+assert.notEqual(recovery.JOURNAL_PROOF_SHA256,evidenceValidator.SOURCE_AUDIT_SHA256,
+  'the ledger journal binds the original v5 proof, not the separate frozen source-audit document');
 
 function reproduceOriginalAbort(){
   const source=execFileSync('rtk',['git','show',`${recovery.OLD_HEAD}:${OLD_HELPER}`],{

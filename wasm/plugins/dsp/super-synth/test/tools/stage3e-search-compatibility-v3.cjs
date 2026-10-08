@@ -79,7 +79,7 @@ function buildRecord({root,manifest,manifestSha256,v1Sha256,v2Sha256,sourceAudit
   if(!same(manifestAcoustic,current)||current.diagnosticWasmSha256!==v2.STAGE3E_WASM_SHA256)
     fail('current Stage3E acoustic identity differs from immutable Generation-2 identity','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
   return {schemaVersion:3,kind:'STAGE3E_PRE_RENDER_RECOVERY_COMPATIBILITY',decision:'STAGE3E_PRE_RENDER_RECOVERY_COMPATIBLE',
-    v1Sha256,v2Sha256,v2AcceptedCommit:V2_ACCEPTED_COMMIT,recoveryCommit,originalManifestSha256:manifestSha256,
+    v1Sha256,v2Sha256,v2AcceptedCommit:V2_ACCEPTED_COMMIT,recoveryCommit,originalProofSha256:v2.PROOF_SHA256,originalManifestSha256:manifestSha256,
     bootstrapLedgerSha256:validator.LOW_GENESIS_SHA256,preAbortLedgerSha256:PRE_ABORT_LEDGER_SHA256,
     protectedStage3eWasmSha256:v2.STAGE3E_WASM_SHA256,fixed35InventorySha256:inventorySha256,
     preRenderAbortEvidenceSha256,originalJournalSha256:preAbortEvidence.originalJournalSha256,
@@ -92,7 +92,7 @@ function validateRecord(record,{root,head=currentHead(root),manifest,v1Sha256,v2
   inventorySha256,preAbortEvidenceSha256,pinned=pinnedExecutorHashes(root),currentIdentity=currentAcousticIdentity(root),isAncestorCheck=isAncestor}={}){
   const expected={schemaVersion:3,kind:'STAGE3E_PRE_RENDER_RECOVERY_COMPATIBILITY',decision:'STAGE3E_PRE_RENDER_RECOVERY_COMPATIBLE',
     v1Sha256:v2.V1_SHA256,v2Sha256:'5f3340f7b993bb879aa29bca4214e5192008f54308d20160282aac0cfcc6f797',
-    v2AcceptedCommit:V2_ACCEPTED_COMMIT,originalManifestSha256:validator.SEARCH_MANIFEST_SHA256,
+    v2AcceptedCommit:V2_ACCEPTED_COMMIT,originalProofSha256:v2.PROOF_SHA256,originalManifestSha256:validator.SEARCH_MANIFEST_SHA256,
     bootstrapLedgerSha256:validator.LOW_GENESIS_SHA256,preAbortLedgerSha256:PRE_ABORT_LEDGER_SHA256,
     protectedStage3eWasmSha256:v2.STAGE3E_WASM_SHA256,fixed35InventorySha256:'25e4bb121a8714bc90cd83ed00df1c8eb577208b87d2e272b15fc389fd212adf',
     preRenderAbortEvidenceSha256:'e601de82fbb382065b0d3c7efed6da8540c25681d5e622a11fb74a4cf12bb482',

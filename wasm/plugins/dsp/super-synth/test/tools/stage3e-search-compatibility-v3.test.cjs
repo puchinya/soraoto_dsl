@@ -16,7 +16,7 @@ try{
     presetsSha256:'e'.repeat(64),referenceFixtureSha256:'f'.repeat(64)}}};
   const record={schemaVersion:3,kind:'STAGE3E_PRE_RENDER_RECOVERY_COMPATIBILITY',decision:'STAGE3E_PRE_RENDER_RECOVERY_COMPATIBLE',
     v1Sha256:v2.V1_SHA256,v2Sha256:'5f3340f7b993bb879aa29bca4214e5192008f54308d20160282aac0cfcc6f797',
-    v2AcceptedCommit:v3.V2_ACCEPTED_COMMIT,recoveryCommit:'8'.repeat(40),originalManifestSha256:validator.SEARCH_MANIFEST_SHA256,
+    v2AcceptedCommit:v3.V2_ACCEPTED_COMMIT,recoveryCommit:'8'.repeat(40),originalProofSha256:v2.PROOF_SHA256,originalManifestSha256:validator.SEARCH_MANIFEST_SHA256,
     bootstrapLedgerSha256:validator.LOW_GENESIS_SHA256,preAbortLedgerSha256:v3.PRE_ABORT_LEDGER_SHA256,
     protectedStage3eWasmSha256:v2.STAGE3E_WASM_SHA256,fixed35InventorySha256:'25e4bb121a8714bc90cd83ed00df1c8eb577208b87d2e272b15fc389fd212adf',
     preRenderAbortEvidenceSha256:'e601de82fbb382065b0d3c7efed6da8540c25681d5e622a11fb74a4cf12bb482',
@@ -32,6 +32,7 @@ try{
     isAncestorCheck:()=>true};
   assert.equal(v3.validateRecord(record,options).pass,true);
   assert.throws(()=>v3.validateRecord({...record,pinnedExecutorHashes:{...record.pinnedExecutorHashes,captureHelper:'0'.repeat(64)}},options),/pinned verifier\/executor SHA changed/);
+  assert.throws(()=>v3.validateRecord({...record,originalProofSha256:'0'.repeat(64)},options),/v3 originalProofSha256 mismatch/);
   assert.throws(()=>v3.validateRecord({...record,preAbortLedgerSha256:'0'.repeat(64)},options),/preAbortLedgerSha256 mismatch/);
   const saved=v3.writeBundle(roots,record);assert.match(saved.sha256,/^[0-9a-f]{64}$/);
   const replay=v3.readBundle(roots);assert.equal(replay.sha256,saved.sha256);assert.equal(replay.archiveSha256,saved.archiveSha256);
