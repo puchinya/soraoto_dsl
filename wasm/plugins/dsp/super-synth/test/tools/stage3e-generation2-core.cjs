@@ -11,6 +11,8 @@ const BASELINE_METRIC_FIELDS=['onsetMs','peakDbfs','fullRenderPeakDbfs','spectra
 const DIAGNOSTIC_METRIC_FIELDS=['stage2mFactorMask','stage2mHammer','soundboardDiagnostics'];
 const MIDI41_DIAGNOSTIC_FIELDS=['velocityDerivative','velocityDerivativeWindowMs'];
 const KEY=(pitch,velocity)=>`${pitch}:${velocity}`;
+const SURROGATE_ARTIFACT_ROLES=Object.freeze({[requalification.REFERENCE_FILE]:'stage3e-surrogate-reference-set',
+  'production-provenance.json':'production-lineage-provenance','stage3d-surrogate-identity.json':'exact-stage3d-surrogate-build'});
 
 function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])]));return value;}
 function same(a,b){return JSON.stringify(stable(a))===JSON.stringify(stable(b));}
@@ -98,7 +100,7 @@ function loadFinalizedReferenceSet(rootsSet){
   const manifestHash=durable.verifyDualCopy(path.join(rootsSet.primary,'evidence-manifest.sha256'),path.join(rootsSet.secondary,'evidence-manifest.sha256'));
   if(manifestHash.bytes.toString('utf8')!==`${manifestStored.sha256}\n`)throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: finalized manifest SHA mismatch');
   const manifest=JSON.parse(manifestStored.bytes.toString('utf8'));
-  const inventory=durable.assertMatchingInventory(rootsSet.primary,rootsSet.secondary);
+  const inventory=durable.assertMatchingInventory(rootsSet.primary,rootsSet.secondary,SURROGATE_ARTIFACT_ROLES);
   if(manifest.state!=='FINALIZED'||manifest.decision!==value.decision||manifest.generation!==value.referenceSetId
       ||!same(manifest.files,inventory))throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: finalized manifest identity/inventory mismatch');
   const archive=durable.verifyDualCopy(path.join(rootsSet.primary,'archives/historical-reference-requalification.tar.gz'),path.join(rootsSet.secondary,'archives/historical-reference-requalification.tar.gz'));
@@ -159,4 +161,4 @@ function validateLowFullRows(rows,fixture){
   return {...acoustic,brightness,derivatives,pass:acoustic.pass&&brightness};
 }
 
-module.exports={BASELINE_METRIC_FIELDS,DIAGNOSTIC_METRIC_FIELDS,LIMITS,KEY,stable,same,compareValue,projectMetrics,validateHistoricalReferenceSet,loadFinalizedReferenceSet,compareReferenceRow,validateBaselineRows,loadReferenceFixture,safetyPass,groupRows,expectedRowsFor,screenSpanErrors,derivativeSet,lowScreenResult,midScreenResult,firstFivePassing,validateFullRows,validateLowFullRows};
+module.exports={BASELINE_METRIC_FIELDS,DIAGNOSTIC_METRIC_FIELDS,LIMITS,KEY,SURROGATE_ARTIFACT_ROLES,stable,same,compareValue,projectMetrics,validateHistoricalReferenceSet,loadFinalizedReferenceSet,compareReferenceRow,validateBaselineRows,loadReferenceFixture,safetyPass,groupRows,expectedRowsFor,screenSpanErrors,derivativeSet,lowScreenResult,midScreenResult,firstFivePassing,validateFullRows,validateLowFullRows};
