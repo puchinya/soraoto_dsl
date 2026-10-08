@@ -6,11 +6,13 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const {execFileSync}=require('node:child_process');
 const durable=require('./durable-evidence.cjs');
-const legacy=require('./run-stage3e-velocity-response.cjs');
+const legacy=require('./stage3e-search-core.cjs');
 const captureDefaults=require('./capture-supersynth-stage3e-matrix.cjs');
 const core=require('./stage3e-generation2-core.cjs');
 const historical=require('./run-stage3e-historical-reference-requalification.cjs');
 const midi41Amendment=require('./run-stage3e-midi41-evidence-amendment.cjs');
+const searchPreflight=require('./stage3e-preflight.cjs');
+const evidenceValidator=require('./stage3e-evidence-validator.cjs');
 
 const ROOT=legacy.ROOT;
 const EXECUTION_ID='generation-2';
@@ -101,7 +103,69 @@ function loadLedger(roots,phase,identity,cells,{create=false}={}){
   }
   return ledger;
 }
-function writeCellState(roots,ledger){writeDualJson(roots,`${ledger.phase}-ledger.json`,ledger);}
+function writeCellState(roots,ledger){return writeDualJson(roots,`${ledger.phase}-ledger.json`,ledger);}
+function ledgerJournalRoots(base,relative='ledger-transition-journal'){
+  return {primary:path.join(base.primary,relative),secondary:path.join(base.secondary,relative)};
+}
+function immutableDualBytes(roots,relative,bytes){
+  const primary=path.join(roots.primary,relative),secondary=path.join(roots.secondary,relative);
+  if(fs.existsSync(primary)||fs.existsSync(secondary)){
+    if(!fs.existsSync(primary)||!fs.existsSync(secondary))throw new Error(`BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: partial immutable ${relative}`);
+    const stored=durable.verifyDualCopy(primary,secondary);
+    if(!stored.bytes.equals(bytes))throw new Error(`BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: immutable ${relative} changed`);
+    return stored;
+  }
+  return durable.writeDualCopy(primary,secondary,bytes);
+}
+function transitionEntries(roots){
+  if(!fs.existsSync(roots.primary)&&!fs.existsSync(roots.secondary))return [];
+  if(!fs.existsSync(roots.primary)||!fs.existsSync(roots.secondary))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: partial ledger journal');
+  const p=fs.readdirSync(roots.primary).filter(name=>/^transition-[0-9]{6}\.json$/.test(name)).sort();
+  const s=fs.readdirSync(roots.secondary).filter(name=>/^transition-[0-9]{6}\.json$/.test(name)).sort();
+  if(!same(p,s))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: journal path sets differ');
+  return p.map(name=>JSON.parse(durable.verifyDualCopy(path.join(roots.primary,name),path.join(roots.secondary,name)).bytes.toString('utf8')));
+}
+function ensureLedgerGenesis({roots,ledger,identity,compatibilitySha256,journalRoots,manifestSha256,proofSha256}={}){
+  const ledgerFile=`${ledger.phase}-ledger.json`,stored=durable.verifyDualCopy(path.join(roots.primary,ledgerFile),path.join(roots.secondary,ledgerFile));
+  const genesisFile='genesis-ledger.json',genesisRecord='genesis.json';
+  const ledgerPathRoots=journalRoots||ledgerJournalRoots(roots);
+  const existingGenesis=path.join(ledgerPathRoots.primary,genesisFile),existingSecondary=path.join(ledgerPathRoots.secondary,genesisFile);
+  if(fs.existsSync(existingGenesis)||fs.existsSync(existingSecondary)){
+    if(!fs.existsSync(existingGenesis)||!fs.existsSync(existingSecondary))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: partial ledger genesis');
+    const original=durable.verifyDualCopy(existingGenesis,existingSecondary),record=JSON.parse(durable.verifyDualCopy(path.join(ledgerPathRoots.primary,genesisRecord),path.join(ledgerPathRoots.secondary,genesisRecord)).bytes.toString('utf8'));
+    if(record.genesisLedgerSha256!==original.sha256||record.manifestSha256!==manifestSha256||record.proofSha256!==proofSha256||
+       record.compatibilitySha256!==compatibilitySha256||record.phase!==ledger.phase||!same(record.identity,identity))
+      throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: ledger genesis identity changed');
+    return {sha256:original.sha256,bytes:original.bytes,roots:ledgerPathRoots,records:transitionEntries(ledgerPathRoots)};
+  }
+  const records=transitionEntries(ledgerPathRoots);
+  if(records.length||(ledger.phase==='low'&&stored.sha256!==evidenceValidator.LOW_GENESIS_SHA256))
+    throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: missing genesis attestation for mutable ledger');
+  if(ledger.accounting?.renderCalls!==0||Object.values(ledger.cells||{}).some(cell=>cell.state!=='PENDING'))
+    throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: low ledger is not pristine at genesis');
+  immutableDualBytes(ledgerPathRoots,genesisFile,stored.bytes);
+  const record={schemaVersion:1,decision:'STAGE3E_SEARCH_LEDGER_GENESIS',phase:ledger.phase,
+    genesisLedgerSha256:stored.sha256,manifestSha256,proofSha256,compatibilitySha256,identity,
+    authorizedCellCount:ledger.authorizedCellCount,renderCalls:0,attestedAt:new Date().toISOString()};
+  immutableDualJson(ledgerPathRoots,genesisRecord,record);
+  return {sha256:stored.sha256,bytes:stored.bytes,roots:ledgerPathRoots,records:[]};
+}
+function appendLedgerTransition({roots,ledger,cell,oldState,newState,previousRenderCount,newRenderCount,capturedCellSha256,
+  manifestSha256,proofSha256,compatibilitySha256,journalRoots}={}){
+  const ledgerFile=`${ledger.phase}-ledger.json`,current=durable.verifyDualCopy(path.join(roots.primary,ledgerFile),path.join(roots.secondary,ledgerFile));
+  const journal=journalRoots||ledgerJournalRoots(roots),entries=transitionEntries(journal);
+  const genesis=durable.verifyDualCopy(path.join(journal.primary,'genesis-ledger.json'),path.join(journal.secondary,'genesis-ledger.json'));
+  const expectedPrevious=entries.at(-1)?.nextLedgerSha256||genesis.sha256;
+  const oldBytes=current.bytes,oldSha=current.sha256;
+  if(oldSha!==expectedPrevious)throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: ledger does not match journal tip before transition');
+  const next=writeCellState(roots,ledger);
+  const entry={schemaVersion:1,sequence:entries.length+1,previousLedgerSha256:oldSha,nextLedgerSha256:next.sha256,
+    cellKey:cell.key,cellIdentity:cell,oldState,newState,previousRenderCount,newRenderCount,capturedCellSha256,
+    manifestSha256,proofSha256,compatibilitySha256,transitionedAt:new Date().toISOString()};
+  const name=`transition-${String(entry.sequence).padStart(6,'0')}.json`;
+  immutableDualJson(journal,name,entry);
+  return {entry,previousLedgerSha256:oldSha,nextLedgerSha256:next.sha256,previousLedgerBytes:oldBytes};
+}
 function validateReferenceSet(roots){return core.loadFinalizedReferenceSet(roots);}
 function assertBaselineReferenceIdentity(currentSha256,expectedSha256){
   if(currentSha256!==expectedSha256)throw new Error('BLOCKED_STAGE3E_BASELINE_REFERENCE_CHANGED: finalized surrogate reference SHA changed');
@@ -118,16 +182,25 @@ function renderOne(cell,response,capture){
   }
   const captured=capture.render(cell.pitch,cell.velocity,effectiveResponse,{});return {pitch:cell.pitch,velocity:cell.velocity,velocityNormalized:cell.velocity/127,kind:cell.kind||'search',metrics:captured.metrics};
 }
-function capturePhaseRows({roots,ledger,cells,identity,capture= captureDefaults,render=renderOne,response,identityNow,now=()=>new Date().toISOString()}={}){
+function capturePhaseRows({roots,ledger,cells,identity,capture= captureDefaults,render=renderOne,response,identityNow,
+  now=()=>new Date().toISOString(),journalContext=null}={}){
   let calls=0;
+  if(journalContext)ensureLedgerGenesis({roots,ledger,identity,...journalContext});
   for(const cell of cells){
     const state=ledger.cells[cell.key];if(state.state==='COMPLETE')continue;
     if(state.state!=='PENDING')throw new Error(`BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: ${cell.key} is ${state.state}`);
     const current=identityNow();if(!sameExecutionIdentity(current,identity))throw new Error(`BLOCKED_STAGE3E_DIAGNOSTIC_BUILD_IDENTITY: identity drift before ${cell.key}`);
-    state.state='IN_PROGRESS';state.startedAt=now();writeCellState(roots,ledger);
+    const previousRenderCount=ledger.accounting.renderCalls;
+    state.state='IN_PROGRESS';state.startedAt=now();
+    if(journalContext)appendLedgerTransition({roots,ledger,cell,oldState:'PENDING',newState:'IN_PROGRESS',
+      previousRenderCount,newRenderCount:previousRenderCount,capturedCellSha256:null,...journalContext});
+    else writeCellState(roots,ledger);
     const measured=render(cell,response??cell.response??[1,1,1],capture);const row={schemaVersion:1,cellKey:cell.key,cell,identity,pitch:measured.pitch,velocity:measured.velocity,velocityNormalized:measured.velocityNormalized,kind:measured.kind,metrics:measured.metrics,capturedAt:now()};
     const bytes=jsonBytes(row),sha=durable.writeDualCopy(path.join(roots.primary,state.relativePath),path.join(roots.secondary,state.relativePath),bytes);
-    state.state='COMPLETE';state.sha256=sha.sha256;state.completedAt=now();ledger.accounting.renderCalls++;calls++;writeCellState(roots,ledger);
+    state.state='COMPLETE';state.sha256=sha.sha256;state.completedAt=now();ledger.accounting.renderCalls++;calls++;
+    if(journalContext)appendLedgerTransition({roots,ledger,cell,oldState:'IN_PROGRESS',newState:'COMPLETE',
+      previousRenderCount,newRenderCount:ledger.accounting.renderCalls,capturedCellSha256:sha.sha256,...journalContext});
+    else writeCellState(roots,ledger);
   }
   return {ledger,calls,counts:ledgerCounts(ledger)};
 }
@@ -174,6 +247,9 @@ function midCandidateScreenCells(tuple){return [...legacy.midScreenCells()].map(
 function fullCellsFor(tuple,pitches,phase){return [...legacy.gridCells(pitches,OFFICIAL_VELOCITIES)].map(cell=>({...cell,phase,response:{...tuple}}));}
 function fullLowCells(tuple){return [...fullCellsFor(tuple,[33,36,39,42,45],'low-full'),...legacy.MIDI41_NORMALIZED.map(velocityNormalized=>({phase:'low-full',pitch:41,velocity:Math.round(velocityNormalized*127),velocityNormalized,response:{...tuple}}))];}
 function candidateSummary(rows,tuple,fixture,kind){return kind==='low'?core.lowScreenResult(tuple,rows,fixture):core.midScreenResult(tuple,rows,fixture);}
+function evidencePreflight({root=ROOT,home=process.env.HOME}={}){
+  return searchPreflight.preflight({root,home,verifySourceAudit:midi41Amendment.assertSourceAudit,verifyAmendment:midi41Amendment.verify});
+}
 function phaseIdentity(identity,phase,referenceSetSha256,extra={}){return { ...identity,phase,referenceSetSha256,...extra};}
 function lowPhaseIdentity(identity,referenceSetSha256){return phaseIdentity(identity,'low',referenceSetSha256,{authorizedGrid:legacy.lowGridTuples(),screenCoordinates:legacy.lowScreenCells()});}
 function midPhaseIdentity(identity,referenceSetSha256,selected){return phaseIdentity(identity,'mid',referenceSetSha256,{authorizedGrid:legacy.midGridTuples(selected),screenCoordinates:legacy.midScreenCells(),lowSelection:selected});}
@@ -196,18 +272,22 @@ function assertBaselined(roots,identity,amendmentEvidence){
 function runBaseline({roots,identity,referenceSet,capture,preflight,identityNow,render,now}){
   throw new Error('BLOCKED_STAGE3E_BASELINE_CAPTURE_RETIRED: immutable 12-cell Gen2 baseline cannot be rerendered; use the finalized MIDI41 amendment overlay');
 }
-function screenLedgerRows(roots,phase,identity,cells,capture,response,identityNow,now,render=renderOne){
-  const pr=phaseRoots(roots,phase),ledger=loadLedger(pr,phase,identity,cells,{create:true});if(!ledger.startedAt){ledger.startedAt=now();writeCellState(pr,ledger);}
-  capturePhaseRows({roots:pr,ledger,cells,identity,capture,response,identityNow,now,render});return {ledger,rows:readCompletedRows(pr,ledger,cells)};
+function screenLedgerRows(roots,phase,identity,cells,capture,response,identityNow,now,render=renderOne,compatibilitySha256){
+  const pr=phaseRoots(roots,phase),isExistingLowScreen=phase==='low';
+  const ledger=loadLedger(pr,phase,identity,cells,{create:!isExistingLowScreen});
+  const journalRoots=isExistingLowScreen?ledgerJournalRoots(roots):ledgerJournalRoots(pr);
+  const journalContext={journalRoots,manifestSha256:searchPreflight.MANIFEST_SHA256,proofSha256:searchPreflight.PROOF_SHA256,
+    compatibilitySha256};
+  capturePhaseRows({roots:pr,ledger,cells,identity,capture,response,identityNow,now,render,journalContext});return {ledger,rows:readCompletedRows(pr,ledger,cells)};
 }
-function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,amendmentEvidence}){
+function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,amendmentEvidence,compatibilitySha256}){
   assertBaselined(roots,identity,amendmentEvidence);
   const fixture=buildFixtureMap(ROOT),screenRows=[];
   const tuples=legacy.lowGridTuples();
   const screenCells=tuples.flatMap(tuple=>lowCandidateScreenCells(tuple));
   const screenId=lowPhaseIdentity(identity,referenceSet.sha256);
   const existing=loadResult(phaseRoots(roots,'low'),'low',screenId);if(existing)return existing;
-  const screen=screenLedgerRows(roots,'low',screenId,cellSpecs('low-screen',screenCells),capture,null,identityNow,now,render);
+  const screen=screenLedgerRows(roots,'low',screenId,cellSpecs('low-screen',screenCells),capture,null,identityNow,now,render,compatibilitySha256);
   const screenByTuple=new Map();for(const row of screen.rows){const key=`${row.cell.response.low}:${row.cell.response.bassHardness}`;if(!screenByTuple.has(key))screenByTuple.set(key,[]);screenByTuple.get(key).push(row);}
   for(const tuple of tuples){const rows=screenByTuple.get(`${tuple.low}:${tuple.bassHardness}`)||[];screenRows.push(candidateSummary(rows,tuple,fixture,'low'));}
   const ranked=legacy.rankLowCandidates(screenRows),top=legacy.topFive(ranked);let selected=null;const fullResults=[];let fullCalls=0;
@@ -215,7 +295,7 @@ function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,
     const tuple={low:candidate.low,mid:1,bassHardness:candidate.bassHardness};const cells=cellSpecs(`low-full-${candidate.low}-${candidate.bassHardness}`,fullLowCells(tuple));
     const phase=cells[0]?.phase||`low-full-${candidate.low}-${candidate.bassHardness}`;
     const phaseId=phaseIdentity(identity,phase,referenceSet.sha256,{response:tuple,lowScreenResultSha256:sha256(jsonBytes(candidate))});
-    const full=screenLedgerRows(roots,phase,phaseId,cells,capture,makeResponse(tuple),identityNow,now,render);fullCalls+=full.ledger.accounting.renderCalls;
+    const full=screenLedgerRows(roots,phase,phaseId,cells,capture,makeResponse(tuple),identityNow,now,render,compatibilitySha256);fullCalls+=full.ledger.accounting.renderCalls;
     const evaluation=core.validateLowFullRows(full.rows,fixture);fullResults.push({tuple,pass:evaluation.pass,pitchDiagnostics:{derivatives:evaluation.derivatives,brightness:evaluation.brightness},directEvaluation:evaluation.evaluation});
     immutableDualJson(phaseRoots(roots,phase),`${phase}-validation.json`,{identity:phaseId,evaluation:fullResults.at(-1)});
     finalizePhase({roots:phaseRoots(roots,phase),phase,identity:phaseId,ledger:full.ledger,
@@ -232,7 +312,7 @@ function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,
   if(!selected)throw new Error('BLOCKED_STAGE3E_LOW_RESPONSE_FAMILY');
   return {...result,archiveSha256:archive.sha256};
 }
-function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,amendmentEvidence}){
+function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,amendmentEvidence,compatibilitySha256}){
   assertBaselined(roots,identity,amendmentEvidence);
   const low=readDualJson(phaseRoots(roots,'low'),'low-result.json');
   const expectedLowId=lowPhaseIdentity(identity,referenceSet.sha256);
@@ -240,7 +320,7 @@ function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,
   const fixture=buildFixtureMap(ROOT),tuples=legacy.midGridTuples(low.selected),screenCells=tuples.flatMap(tuple=>midCandidateScreenCells(tuple));
   const screenId=midPhaseIdentity(identity,referenceSet.sha256,low.selected);
   const existing=loadResult(phaseRoots(roots,'mid'),'mid',screenId);if(existing)return existing;
-  const screen=screenLedgerRows(roots,'mid',screenId,cellSpecs('mid-screen',screenCells),capture,null,identityNow,now,render);
+  const screen=screenLedgerRows(roots,'mid',screenId,cellSpecs('mid-screen',screenCells),capture,null,identityNow,now,render,compatibilitySha256);
   const grouped=new Map();for(const row of screen.rows){const key=String(row.cell.response.mid);if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(row);}
   const scored=tuples.map(tuple=>candidateSummary(grouped.get(String(tuple.mid))||[],tuple,fixture,'mid'));
   const ranked=legacy.rankMidCandidates(scored),top=legacy.topFive(ranked);let selected=null;const fullResults=[];let fullCalls=0;
@@ -248,7 +328,7 @@ function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,
     const tuple={low:low.selected.low,mid:candidate.mid,bassHardness:low.selected.bassHardness};const phase=`mid-full-${candidate.mid}`;
     const cells=cellSpecs(phase,fullCellsFor(tuple,[48,51,54,57],phase));
     const phaseId=phaseIdentity(identity,phase,referenceSet.sha256,{response:tuple,midScreenResultSha256:sha256(jsonBytes(candidate))});
-    const full=screenLedgerRows(roots,phase,phaseId,cells,capture,makeResponse(tuple),identityNow,now,render);fullCalls+=full.ledger.accounting.renderCalls;
+    const full=screenLedgerRows(roots,phase,phaseId,cells,capture,makeResponse(tuple),identityNow,now,render,compatibilitySha256);fullCalls+=full.ledger.accounting.renderCalls;
     const evaluation=core.validateFullRows(full.rows,{pitches:[48,51,54,57],fixture});fullResults.push({tuple,pass:evaluation.pass,directEvaluation:evaluation.evaluation});
     immutableDualJson(phaseRoots(roots,phase),`${phase}-validation.json`,{identity:phaseId,evaluation:fullResults.at(-1)});
     finalizePhase({roots:phaseRoots(roots,phase),phase,identity:phaseId,ledger:full.ledger,
@@ -262,13 +342,13 @@ function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,
   const archive=durable.createPhaseArchive({primaryRoot:aggregate.primary,secondaryRoot:aggregate.secondary,phase:'mid-selection'});
   if(!selected)throw new Error('BLOCKED_STAGE3E_MID_RESPONSE_FAMILY');return {...result,archiveSha256:archive.sha256};
 }
-function dryRun({root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT,preflight=legacy.preflightDiagnosticCapabilities,amendmentCheck=midi41Amendment.verify}={}){
-  preflight({root});legacy.assertGeneration1Abandoned(root);const refs=validateReferenceSet(historicalRoots(root,home));const roots=getGeneration2Roots({root,home,evidenceRoot});
+function dryRun({root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT,preflight=evidencePreflight,amendmentCheck=midi41Amendment.verify}={}){
+  const readiness=preflight({root,home});legacy.assertGeneration1Abandoned(root);const refs=validateReferenceSet(historicalRoots(root,home));const roots=getGeneration2Roots({root,home,evidenceRoot});
   const amendment=amendmentCheck({root,home});
   if(amendment.result?.decision!=='STAGE3E_GENERATION2_BASELINE_EQUIVALENT'||amendment.result?.effectivePassCount!==12||amendment.result?.effectiveCellCount!==12)
     throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT: MIDI41 amendment is not finalized 12/12');
   const prior=durable.verifyDualCopy(path.join(generationRoots(root,home).primary,'generation-2-manifest.json'),path.join(generationRoots(root,home).secondary,'generation-2-manifest.json'));
-  const identity=currentGenerationIdentity({root,referenceSetSha256:refs.sha256,midi41AmendmentResultSha256:amendment.resultSha256,
+  const identity=readiness?.creatorIdentity||currentGenerationIdentity({root,referenceSetSha256:refs.sha256,midi41AmendmentResultSha256:amendment.resultSha256,
     historicalGeneration2ManifestSha256:prior.sha256});
   const manifestFile=path.join(roots.primary,'generation-2-manifest.json');
   if(fs.existsSync(manifestFile))assertExistingGenerationManifest(roots,identity);
@@ -277,29 +357,33 @@ function dryRun({root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOT
     historicalGeneration2ManifestSha256:prior.sha256,lowGridCandidates:legacy.lowGridTuples().length,midCandidates:legacy.MID_GRID.length,
     historicalReferenceSetSha256:refs.sha256,activeSearchRoot:roots.primary,identity,searchEnabled:true};
 }
-function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT,preflight=legacy.preflightDiagnosticCapabilities,capture=captureDefaults,render=renderOne,now=()=>new Date().toISOString(),amendmentCheck=midi41Amendment.verify}={}){
+function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT,preflight=evidencePreflight,capture=captureDefaults,render=renderOne,now=()=>new Date().toISOString(),amendmentCheck=midi41Amendment.verify}={}){
   const allowed=['--dry-run','--baseline','--low','--mid','--finalize'];if(!allowed.includes(mode))throw new Error(`explicit Generation-2 mode required: ${allowed.join(' or ')}`);
   if(mode==='--baseline')throw new Error('BLOCKED_STAGE3E_BASELINE_CAPTURE_RETIRED: no Generation-2 baseline rerender is authorized');
   if(mode==='--dry-run')return dryRun({root,home,evidenceRoot,preflight,amendmentCheck});
-  preflight({root});legacy.assertGeneration1Abandoned(root);
+  const readiness=preflight({root,home});legacy.assertGeneration1Abandoned(root);
   const refs=validateReferenceSet(historicalRoots(root,home)),roots=getGeneration2Roots({root,home,evidenceRoot});
   const amendment=amendmentCheck({root,home});
   if(amendment.result?.decision!=='STAGE3E_GENERATION2_BASELINE_EQUIVALENT'||amendment.result?.effectivePassCount!==12||amendment.result?.effectiveCellCount!==12)
     throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT: MIDI41 amendment is not finalized 12/12');
   const historicalRootsSet=generationRoots(root,home),historicalManifest=durable.verifyDualCopy(path.join(historicalRootsSet.primary,'generation-2-manifest.json'),path.join(historicalRootsSet.secondary,'generation-2-manifest.json'));
-  const protectedIdentity=legacy.currentProtectedIdentity(root),identity=currentGenerationIdentity({root,referenceSetSha256:refs.sha256,protectedIdentity,
+  const protectedIdentity=legacy.currentProtectedIdentity(root),identity=readiness?.creatorIdentity||currentGenerationIdentity({root,referenceSetSha256:refs.sha256,protectedIdentity,
     midi41AmendmentResultSha256:amendment.resultSha256,historicalGeneration2ManifestSha256:historicalManifest.sha256});
   if(mode==='--low'||mode==='--mid')assertGenerationManifest(roots,identity,now);else assertExistingGenerationManifest(roots,identity);
   const identityNow=()=>{
-    const currentRefs=validateReferenceSet(historicalRoots(root,home));
-    assertBaselineReferenceIdentity(currentRefs.sha256,refs.sha256);
-    const currentAmendment=amendmentCheck({root,home});if(currentAmendment.resultSha256!==amendment.resultSha256)throw new Error('BLOCKED_STAGE3E_BASELINE_REFERENCE_CHANGED: amendment result SHA changed');
-    return currentGenerationIdentity({root,referenceSetSha256:currentRefs.sha256,protectedIdentity:legacy.currentProtectedIdentity(root),
-      midi41AmendmentResultSha256:currentAmendment.resultSha256,historicalGeneration2ManifestSha256:historicalManifest.sha256});
+    const validated=searchPreflight.validateRuntimeIdentity({root,home,manifestIdentity:identity,
+      compatibilitySha256:readiness?.compatibilitySha256,verifySourceAudit:midi41Amendment.assertSourceAudit,verifyAmendment:amendmentCheck});
+    if(validated.compatibilitySha256!==readiness?.compatibilitySha256)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: compatibility identity changed');
+    return identity;
   };
-  if(mode==='--low')return executeLow({roots,identity,referenceSet:refs,capture,identityNow,render,now,amendmentEvidence:amendment});
+  let writerLock=null;
+  if(mode!=='--dry-run')writerLock=searchPreflight.acquireWriterLock({root,phase:mode.slice(2),executionIdentity:sha256(jsonBytes(identity))});
+  try{
+  if(mode==='--low')return executeLow({roots,identity,referenceSet:refs,capture,identityNow,render,now,amendmentEvidence:amendment,
+    compatibilitySha256:readiness?.compatibilitySha256});
   if(mode==='--mid'){
-    const result=executeMid({roots,identity,referenceSet:refs,capture,identityNow,render,now,amendmentEvidence:amendment});
+    const result=executeMid({roots,identity,referenceSet:refs,capture,identityNow,render,now,amendmentEvidence:amendment,
+      compatibilitySha256:readiness?.compatibilitySha256});
     if(result.selected){
       const selectedRoots=phaseRoots(roots,'stage3e-selection');
       const selection={schemaVersion:1,decision:'STAGE3E_SELECTED_RESPONSE',identity,selected:result.selected,
@@ -328,7 +412,8 @@ function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORA
   assertFinalizedRootReadOnly(selectedRoots,'stage3e-selection.tar.gz');
   assertFinalizedRootReadOnly(roots,'stage3e-selection.tar.gz');
   return {decision:'STAGE3E_SELECTION_READY_FOR_PRODUCTION_PREFLIGHT',builds:0,renders:0,acousticRenders:0,baseline,low,mid,selection,selectionSha256:selectedResultSha};
+  }finally{if(writerLock)writerLock.release();}
 }
 function main(argv=process.argv.slice(2)){if(argv.length!==1)throw new Error('one explicit mode is required');const result=run({mode:argv[0]});process.stdout.write(JSON.stringify(result)+'\n');}
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
-module.exports={ROOT,EXECUTION_ID,TOLERANCE,LOW_SCREEN_VELOCITIES,MID_SCREEN_VELOCITIES,OFFICIAL_VELOCITIES,sha256,jsonBytes,stable,same,sameExecutionIdentity,cellId,historicalRoots,generationRoots,phaseRoots,readDualJson,writeDualJson,immutableDualJson,getGeneration2Roots,currentGenerationIdentity,assertGenerationManifest,cellSpecs,freshCellLedger,ledgerCounts,loadLedger,writeCellState,validateReferenceSet,assertBaselineReferenceIdentity,renderOne,capturePhaseRows,readCompletedRows,finalizePhase,loadResult,baselineCells,buildFixtureMap,makeResponse,lowCandidateScreenCells,midCandidateScreenCells,fullCellsFor,fullLowCells,candidateSummary,phaseIdentity,lowPhaseIdentity,midPhaseIdentity,runBaseline,executeLow,executeMid,dryRun,run,main};
+module.exports={ROOT,EXECUTION_ID,TOLERANCE,LOW_SCREEN_VELOCITIES,MID_SCREEN_VELOCITIES,OFFICIAL_VELOCITIES,sha256,jsonBytes,stable,same,sameExecutionIdentity,cellId,historicalRoots,generationRoots,phaseRoots,readDualJson,writeDualJson,immutableDualJson,getGeneration2Roots,currentGenerationIdentity,assertGenerationManifest,cellSpecs,freshCellLedger,ledgerCounts,loadLedger,writeCellState,ledgerJournalRoots,transitionEntries,ensureLedgerGenesis,appendLedgerTransition,validateReferenceSet,assertBaselineReferenceIdentity,renderOne,capturePhaseRows,readCompletedRows,finalizePhase,loadResult,baselineCells,buildFixtureMap,makeResponse,lowCandidateScreenCells,midCandidateScreenCells,fullCellsFor,fullLowCells,candidateSummary,phaseIdentity,lowPhaseIdentity,midPhaseIdentity,runBaseline,executeLow,executeMid,dryRun,run,main};

@@ -4,8 +4,10 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
+const durable=require('./durable-evidence.cjs');
 const runner=require('./run-stage3e-generation2.cjs');
 const legacy=require('./run-stage3e-velocity-response.cjs');
+const evidenceValidator=require('./stage3e-evidence-validator.cjs');
 
 assert.equal(typeof legacy.preflightDiagnosticCapabilities,'function');
 
@@ -41,6 +43,30 @@ function rowMetrics(){return {finite:true,outputGuardHits:0,peakDbfs:-12,fullRen
     const second=runner.finalizePhase({roots,phase:'screen',identity,ledger:replay,decision:'PASS',result:evaluation,now:()=> '2026-10-08T00:10:01.000Z'});
     assert.equal(first.ledgerSha256,second.ledgerSha256,'finalization replay preserves persisted result identity');
     assert.equal(first.archiveSha256,second.archiveSha256,'phase archive is immutable and reused');
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+}
+
+{
+  const {root,roots}=tempRoots();
+  try{
+    const base=baseIdentity(),identity=runner.phaseIdentity(base,'journal-screen','c'.repeat(64));
+    const cells=runner.cellSpecs('journal-screen',[{pitch:36,velocity:14}]);
+    const ledger=runner.freshCellLedger('journal-screen',identity,cells),journalRoots=runner.ledgerJournalRoots(roots,'journal');
+    runner.writeCellState(roots,ledger);
+    const journalContext={journalRoots,manifestSha256:'1'.repeat(64),proofSha256:'2'.repeat(64),compatibilitySha256:'3'.repeat(64)};
+    let renders=0;
+    const measured=runner.capturePhaseRows({roots,ledger,cells,identity,capture:{},journalContext,
+      render(){renders++;return {pitch:36,velocity:14,velocityNormalized:14/127,kind:'screen',metrics:rowMetrics()};},
+      identityNow:()=>base,now:()=> '2026-10-08T00:00:00.000Z'});
+    assert.equal(renders,1);assert.deepEqual(measured.counts,{PENDING:0,IN_PROGRESS:0,COMPLETE:1});
+    const genesis=durable.verifyDualCopy(path.join(journalRoots.primary,'genesis-ledger.json'),path.join(journalRoots.secondary,'genesis-ledger.json'));
+    const current=durable.verifyDualCopy(path.join(roots.primary,'journal-screen-ledger.json'),path.join(roots.secondary,'journal-screen-ledger.json'));
+    const events=runner.transitionEntries(journalRoots);
+    const replay=evidenceValidator.validateLedgerTransitions({genesisLedgerBytes:genesis.bytes,currentLedgerBytes:current.bytes,
+      transitionEntries:events,expectedCells:cells,bindings:journalContext});
+    assert.equal(replay.transitionCount,2);assert.equal(replay.renderCalls,1);assert.equal(replay.complete,1);
+    assert.equal(events[0].oldState,'PENDING');assert.equal(events[0].newState,'IN_PROGRESS');
+    assert.equal(events[1].oldState,'IN_PROGRESS');assert.equal(events[1].newState,'COMPLETE');
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 }
 

@@ -235,6 +235,22 @@ marking a supplement COMPLETE. Never rewrite a baseline cell or ledger. A passin
 comparison is a new amendment result; Generation 2 search then starts in a new identity-bound search
 epoch that references that result and the original baseline creator identity.
 
+The Stage3E search-v1 recovery distinguishes frozen source evidence, immutable authorized
+additions, and mutable ledgers. The original 35-file inventory is a fixed path/SHA/size set; legal
+search additions do not make that inventory drift, and no listed original may be replaced. Search
+manifests and completed result/cell evidence remain immutable. A mutable low-screen ledger is
+replayed from its exact genesis bytes through an append-only journal of dual-copy-verified state
+transitions. The genesis SHA remains an anchor, while each current ledger must match the journal tip
+and the same bytes in both durable stores.
+
+Verifier-only changes use a separate immutable compatibility sidecar that records the original
+proof/amendment/manifest/ledger identities alongside the new verifier commit and exact permitted
+diff. It may accept new verifier hashes only when the capture helper, WASM, candidate audio
+identity, control parameters, search ordering, render arguments, and evaluation behavior remain
+unchanged. Read-only preflight is a standalone importable module; the CLI wrapper may call the
+phase runner, but the phase runner never imports its wrapper. These checks preserve creator
+provenance without rewriting or re-signing acoustic evidence.
+
 Issue #7 Stage3E evidence uses the canonical primary root
 `<GIT_COMMON_DIR>/soraoto-agent-state/7/stage3e/` and secondary root
 `$HOME/.soraoto-agent-archive/soraoto_dsl/7/stage3e/`. Do not search or fall back to an

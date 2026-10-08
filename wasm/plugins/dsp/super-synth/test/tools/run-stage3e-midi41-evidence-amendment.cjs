@@ -6,9 +6,10 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const {execFileSync}=require('node:child_process');
 const durable=require('./durable-evidence.cjs');
+const evidenceValidator=require('./stage3e-evidence-validator.cjs');
 const capture3e=require('./capture-supersynth-stage3e-matrix.cjs');
 const capture3d=require('./capture-supersynth-stage3d-matrix.cjs');
-const legacy=require('./run-stage3e-velocity-response.cjs');
+const legacy=require('./stage3e-search-core.cjs');
 const historical=require('./run-stage3e-historical-reference-requalification.cjs');
 const core=require('./stage3e-generation2-core.cjs');
 
@@ -136,10 +137,17 @@ function assertSourceAudit({root=ROOT,home=process.env.HOME}={}){
      missing.authorizedSupplementIdentities.some((cell,index)=>cell.side!=='generation2'||cell.pitch!==41||
        cell.velocityNormalized!==[.25,.55,.90][index]||cell.stage3dVariant!==null||cell.stage2mFactorMask!==3||!same(cell.windowMs,[30,180])))
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_SOURCE_AUDIT_INVALID');
-  const current={primary:fileInventory(roots.base.primary),secondary:fileInventory(roots.base.secondary)};
-  for(const name of ['primary','secondary'])if(!same(current[name],doc.immutablePreexistingFileInventory?.[name]?.files))
-    throw new Error(`BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: original ${name} inventory/hash/mtime changed`);
-  return {roots,audit:doc,sha256:audit.sha256,inventory:current};
+  const searchRoots={primary:path.join(roots.base.primary,'generation-2/search-v1'),secondary:path.join(roots.base.secondary,'generation-2/search-v1')};
+  const ledgerPrimary=path.join(searchRoots.primary,'low/low-ledger.json'),ledgerSecondary=path.join(searchRoots.secondary,'low/low-ledger.json');
+  let authorizedKeys=[];
+  if(fs.existsSync(ledgerPrimary)||fs.existsSync(ledgerSecondary)){
+    if(!fs.existsSync(ledgerPrimary)||!fs.existsSync(ledgerSecondary))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: partial low ledger');
+    const low=JSON.parse(durable.verifyDualCopy(ledgerPrimary,ledgerSecondary).bytes.toString('utf8'));
+    authorizedKeys=Object.keys(low.cells||{});
+  }
+  const inventoryValidation=evidenceValidator.validateNamespaceAdditions({primaryRoot:roots.base.primary,secondaryRoot:roots.base.secondary,audit:doc,authorizedKeys});
+  const inventory={primary:doc.immutablePreexistingFileInventory.primary.files,secondary:doc.immutablePreexistingFileInventory.secondary.files};
+  return {roots,audit:doc,sha256:audit.sha256,inventory,inventoryValidation};
 }
 function assertWritable(rootSet){
   for(const target of [rootSet.primary,rootSet.secondary]){
@@ -285,6 +293,18 @@ function changedTrackedFiles(root,revision){
   const output=execFileSync('rtk',['git','diff','--name-only',CREATOR_REVISION,revision],{cwd:root,encoding:'utf8'});
   return parseTrackedDiffNames(output);
 }
+function sourceFileShaAtRevision(root,revision,relativePath){
+  const bytes=execFileSync('git',['show',`${revision}:${relativePath}`],{cwd:root,maxBuffer:16*1024*1024});
+  return sha256(bytes);
+}
+function amendmentProgramHashesAtRevision(root,revision){
+  const files={captureHelperSha256:'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs',
+    velocityRunnerSha256:'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-velocity-response.cjs',
+    generation2RunnerSha256:'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-generation2.cjs',
+    amendmentRunnerSha256:'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-midi41-evidence-amendment.cjs',
+    generation2CoreSha256:'wasm/plugins/dsp/super-synth/test/tools/stage3e-generation2-core.cjs'};
+  return Object.fromEntries(Object.entries(files).map(([key,file])=>[key,sourceFileShaAtRevision(root,revision,file)]));
+}
 function makeIdentityProofPayload({audit,baseline,buildIdentity,root=ROOT,executionSourceRevision=buildIdentity.sourceRevision}={}){
   const allowed=new Set(['docs/agent-workflow/evidence-preservation.md','docs/design/plugins/dsp/super-synth/super-synth-design.md',
     'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs',
@@ -319,9 +339,7 @@ function makeIdentityProofPayload({audit,baseline,buildIdentity,root=ROOT,execut
         creatorRecomputedIdentity:baseline.candidateIdentityProof.creatorRecomputedIdentity,currentAudioIdentity:currentCandidate,
         sameSideComparison:candidateCompare}},
     creatorProgramHashes:baseline.candidateIdentityProof.creatorProgramHashes,
-    amendmentMeasurementProgramHashes:{captureHelperSha256:buildIdentity.stage3eCaptureHelperSha256,
-      velocityRunnerSha256:buildIdentity.stage3eVelocityRunnerSha256,generation2RunnerSha256:buildIdentity.stage3eGeneration2RunnerSha256,
-      amendmentRunnerSha256:buildIdentity.stage3eAmendmentRunnerSha256,generation2CoreSha256:buildIdentity.stage3eCoreSha256},
+    amendmentMeasurementProgramHashes:amendmentProgramHashesAtRevision(root,executionSourceRevision),
     captureChange,changedTrackedFiles:changed,protectedAcousticInputsUnchanged:candidateCompare.pass,
     acousticControls:{sampleRate:buildIdentity.sampleRate,durationMs:buildIdentity.durationMs,preset:'concert_grand',
       stage2mFactorMask:3,stage3dVariant:0,generation2Response:[1,1,1],normalizedMidi41:MIDI41,derivativeWindowMs:[30,180]},
@@ -417,10 +435,22 @@ function makeCaptureIdentity({baseline,buildIdentity,authorizationSha256,identit
 function assertCurrentCaptureIdentity(expected,{root=ROOT,home=process.env.HOME,baseline,authorizationSha256}={}){
   const audit=assertSourceAudit({root,home}),buildIdentity=currentBuildIdentities({root,baseline});
   const proof=assertPreAmendmentIdentityProof({audit,baseline,buildIdentity,root,home,expectedSha256:expected.preAmendmentIdentityProofSha256});
-  const current=makeCaptureIdentity({baseline,buildIdentity,authorizationSha256,identityProofSha256:proof.sha256});
-  const comparison={...current,executionSourceRevision:expected.executionSourceRevision};
-  if(!same(comparison,expected))throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: measurement capture identity changed');
-  const currentHead=current.buildIdentity.sourceRevision;
+  const historicalBuild=expected.buildIdentity,programs=proof.proof.payload.amendmentMeasurementProgramHashes||{};
+  const historicalPrograms={captureHelperSha256:historicalBuild?.stage3eCaptureHelperSha256,
+    velocityRunnerSha256:historicalBuild?.stage3eVelocityRunnerSha256,generation2RunnerSha256:historicalBuild?.stage3eGeneration2RunnerSha256,
+    amendmentRunnerSha256:historicalBuild?.stage3eAmendmentRunnerSha256,generation2CoreSha256:historicalBuild?.stage3eCoreSha256};
+  const currentAudio=Object.fromEntries(STAGE3E_AUDIO_IDENTITY_KEYS.map(key=>[key,buildIdentity.stage3eCandidateIdentity[key]]));
+  const historicalAudio=Object.fromEntries(STAGE3E_AUDIO_IDENTITY_KEYS.map(key=>[key,historicalBuild?.stage3eCandidateIdentity?.[key]]));
+  if(!same(historicalPrograms,programs)||!same(currentAudio,proof.proof.payload.identityDomains.stage3eGeneration2Candidate.currentAudioIdentity)||
+    !same(historicalAudio,currentAudio)||expected.authorizationSha256!==authorizationSha256||expected.sourceAuditSha256!==audit.sha256||
+    expected.preAmendmentIdentityProofSha256!==proof.sha256)
+    throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: immutable measurement identity binding changed');
+  for(const key of ['authoritativeProductionWasmSha256','historicalProductionIdentity','stage3dWasmSha256','stage3eWasmSha256',
+    'stage3dSourceSha256','stage3eSourceSha256','stage3dCaptureHelperSha256','stage3eCaptureHelperSha256','sampleRate','durationMs',
+    'stage2mFactorMask','stage3dVariant','baselineResponse'])
+    if(!same(historicalBuild?.[key],buildIdentity[key]))throw new Error(`BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: acoustic identity changed: ${key}`);
+  assertMeasurementOnlyCaptureChange(root,baseline);
+  const currentHead=buildIdentity.sourceRevision;
   try{execFileSync('rtk',['git','merge-base','--is-ancestor',expected.executionSourceRevision,currentHead],{cwd:root,stdio:'ignore'});}catch{throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: current HEAD is not descended from capture commit');}
   return expected;
 }
@@ -433,6 +463,33 @@ function assertAuthorization(auth,expected,{identityProofSha256}={}){
      auth.stage2mFactorMask!==3||auth.stage3dVariant!==0||!same(auth.velocityDerivativeWindowMs,[30,180])||auth.tolerance!==TOLERANCE)
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_RENDER_BUDGET');
   return auth;
+}
+function assertExistingAmendmentIdentity({auth,captureIdentity,audit,baseline,currentBuildIdentity,identityProofSha256,root=ROOT,home=process.env.HOME}={}){
+  const fail=detail=>{throw new Error(`BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: ${detail}`);};
+  const historicalBuild=auth?.buildIdentity,proofPayload=identityProofSha256&&
+    assertPreAmendmentIdentityProof({audit,baseline,buildIdentity:currentBuildIdentity,root,home,expectedSha256:identityProofSha256}).proof.payload;
+  if(!historicalBuild||!proofPayload)fail('historical amendment identity is incomplete');
+  const programs=proofPayload.amendmentMeasurementProgramHashes||{};
+  const historicalProgramMap={captureHelperSha256:historicalBuild.stage3eCaptureHelperSha256,
+    velocityRunnerSha256:historicalBuild.stage3eVelocityRunnerSha256,
+    generation2RunnerSha256:historicalBuild.stage3eGeneration2RunnerSha256,
+    amendmentRunnerSha256:historicalBuild.stage3eAmendmentRunnerSha256,
+    generation2CoreSha256:historicalBuild.stage3eCoreSha256};
+  if(!same(historicalProgramMap,programs))fail('amendment creator program hashes disagree with the immutable proof');
+  if(!same(historicalBuild.stage3eCandidateIdentity&&Object.fromEntries(STAGE3E_AUDIO_IDENTITY_KEYS.map(key=>[key,historicalBuild.stage3eCandidateIdentity[key]])),
+    proofPayload.identityDomains.stage3eGeneration2Candidate.currentAudioIdentity))fail('historical candidate audio identity disagrees with proof');
+  const currentAudio=Object.fromEntries(STAGE3E_AUDIO_IDENTITY_KEYS.map(key=>[key,currentBuildIdentity.stage3eCandidateIdentity[key]]));
+  if(!same(currentAudio,proofPayload.identityDomains.stage3eGeneration2Candidate.currentAudioIdentity))fail('current candidate audio identity changed');
+  for(const key of ['authoritativeProductionWasmSha256','historicalProductionIdentity','stage3dWasmSha256','stage3eWasmSha256',
+    'stage3dSourceSha256','stage3eSourceSha256','stage3dCaptureHelperSha256','stage3eCaptureHelperSha256','sampleRate','durationMs',
+    'stage2mFactorMask','stage3dVariant','baselineResponse'])
+    if(!same(historicalBuild[key],currentBuildIdentity[key]))fail(`acoustic identity changed: ${key}`);
+  const expectedAuth=makeAuthorization({audit,baseline,buildIdentity:historicalBuild,identityProofSha256});
+  if(!same(auth,expectedAuth))fail('immutable authorization fields disagree with original identity');
+  const expectedCapture=makeCaptureIdentity({baseline,buildIdentity:historicalBuild,
+    authorizationSha256:sha256(jsonBytes(auth)),identityProofSha256});
+  if(!same(captureIdentity,expectedCapture))fail('immutable capture identity disagrees with authorization');
+  return {auth,captureIdentity,historicalBuild};
 }
 function freshLedger(auth,authorizationSha256,captureIdentity,captureIdentitySha256,now=()=>new Date().toISOString()){
   const cells={};for(const cell of auth.authorizedCells)cells[cell.key]={state:'PENDING',identity:cell,relativePath:`cells/${cell.key}.json`,sha256:null};
@@ -491,14 +548,22 @@ function loadOrCreateImmutable(roots,relative,value){const bytes=jsonBytes(value
 function initialize({root=ROOT,home=process.env.HOME,createRecords=true}={}){
   const audit=assertSourceAudit({root,home}),baseline=loadBaselineRows({root,home}),buildIdentity=currentBuildIdentities({root,baseline});
   const identityProof=assertPreAmendmentIdentityProof({audit,baseline,buildIdentity,root,home});
-  const auth=makeAuthorization({audit,baseline,buildIdentity,identityProofSha256:identityProof.sha256});
-  const stored=(relative,value)=>{
-    if(createRecords)return loadOrCreateImmutable(audit.roots,relative,value);
-    return durable.verifyDualCopy(path.join(audit.roots.primary,relative),path.join(audit.roots.secondary,relative));
-  };
-  const authStored=stored('authorization.json',auth);if(!authStored.bytes.equals(jsonBytes(auth)))throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: authorization changed');
-  const captureIdentity=makeCaptureIdentity({baseline,buildIdentity,authorizationSha256:authStored.sha256,identityProofSha256:identityProof.sha256});
-  const captureStored=stored('capture-identity.json',captureIdentity);if(!captureStored.bytes.equals(jsonBytes(captureIdentity)))throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: capture identity changed');
+  const roots=audit.roots,authPath=path.join(roots.primary,'authorization.json'),authSecondary=path.join(roots.secondary,'authorization.json');
+  let auth,authStored,captureIdentity,captureStored;
+  if(fs.existsSync(authPath)||fs.existsSync(authSecondary)){
+    if(!fs.existsSync(authPath)||!fs.existsSync(authSecondary))throw new Error('BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: partial authorization');
+    authStored=durable.verifyDualCopy(authPath,authSecondary);auth=JSON.parse(authStored.bytes.toString('utf8'));
+    const capturePath=path.join(roots.primary,'capture-identity.json'),captureSecondary=path.join(roots.secondary,'capture-identity.json');
+    if(!fs.existsSync(capturePath)||!fs.existsSync(captureSecondary))throw new Error('BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: partial capture identity');
+    captureStored=durable.verifyDualCopy(capturePath,captureSecondary);captureIdentity=JSON.parse(captureStored.bytes.toString('utf8'));
+    assertExistingAmendmentIdentity({auth,captureIdentity,audit,baseline,currentBuildIdentity:buildIdentity,identityProofSha256:identityProof.sha256,root,home});
+  }else{
+    if(!createRecords)throw new Error('BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: immutable authorization is absent');
+    auth=makeAuthorization({audit,baseline,buildIdentity,identityProofSha256:identityProof.sha256});
+    authStored=loadOrCreateImmutable(roots,'authorization.json',auth);
+    captureIdentity=makeCaptureIdentity({baseline,buildIdentity,authorizationSha256:authStored.sha256,identityProofSha256:identityProof.sha256});
+    captureStored=loadOrCreateImmutable(roots,'capture-identity.json',captureIdentity);
+  }
   assertAuthorization(JSON.parse(authStored.bytes.toString('utf8')),exactSupplementIdentities(baseline),{identityProofSha256:identityProof.sha256});
   return {audit,baseline,buildIdentity,auth:JSON.parse(authStored.bytes.toString('utf8')),authorizationSha256:authStored.sha256,
     identityProof:identityProof.proof,identityProofSha256:identityProof.sha256,
