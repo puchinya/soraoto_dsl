@@ -40,9 +40,7 @@ function cellId(cell){
 function historicalRoots(root=ROOT,home=process.env.HOME){return durable.resolveRoots({root,issue:'7',task:'stage3e',executionId:historical.EXECUTION_ID,home});}
 function generationRoots(root=ROOT,home=process.env.HOME){return durable.resolveRoots({root,issue:'7',task:'stage3e',executionId:EXECUTION_ID,home});}
 function phaseRoots(generation,phase){
-  const parent=phase.startsWith('low-full-')?'low':phase.startsWith('mid-full-')?'mid':null;
-  const relative=parent?path.join(parent,'validations',phase):phase;
-  return {primary:path.join(generation.primary,relative),secondary:path.join(generation.secondary,relative)};
+  return evidencePaths.resolvePhaseRoots(generation,phase);
 }
 function readDualJson(roots,relative){return JSON.parse(durable.verifyDualCopy(path.join(roots.primary,relative),path.join(roots.secondary,relative)).bytes.toString('utf8'));}
 function writeDualJson(roots,relative,value){return durable.writeDualCopy(path.join(roots.primary,relative),path.join(roots.secondary,relative),jsonBytes(value));}
@@ -464,6 +462,8 @@ function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORA
     const validated=searchPreflight.validateRuntimeIdentity({root,home,manifestIdentity:identity,
       compatibilitySha256:readiness?.compatibilitySha256,verifySourceAudit:midi41Amendment.assertSourceAudit,verifyAmendment:amendmentCheck});
     if(validated.compatibilitySha256!==readiness?.compatibilitySha256)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: compatibility identity changed');
+    if(validated.recoveryReconciliationCompatibilitySha256!==readiness?.recoveryReconciliationCompatibilitySha256)
+      throw new Error('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY: reconciliation verifier identity changed');
     return identity;
   };
   let writerLock=null;

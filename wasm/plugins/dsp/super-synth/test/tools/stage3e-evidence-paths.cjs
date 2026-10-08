@@ -39,6 +39,24 @@ function safeChild(root,relative,label){
   if(!inside(root.real,realExisting))throw new Error(`BLOCKED_STAGE3E_EVIDENCE_PATH: symlink escapes root for ${label}`);
   return candidate;
 }
+function lowLedgerPath(evidenceRoot){
+  const root=canonicalRoot(evidenceRoot,'evidence');
+  return safeChild(root,RELATIVE.lowLedger,'low ledger');
+}
+function resolvePhaseRoots(roots,phase){
+  if(!roots||typeof roots!=='object')throw new Error('BLOCKED_STAGE3E_EVIDENCE_PATH: primary and secondary roots are required');
+  if(typeof phase!=='string'||!(/^(?:low|mid|stage3e-selection)$/.test(phase)||/^(?:low|mid)-full-[A-Za-z0-9._-]+$/.test(phase)))
+    throw new Error('BLOCKED_STAGE3E_EVIDENCE_PATH: unsupported phase');
+  const primary=canonicalRoot(roots.primary,'primary'),secondary=canonicalRoot(roots.secondary,'secondary');
+  if(primary.real===secondary.real||inside(primary.real,secondary.real)||inside(secondary.real,primary.real))
+    throw new Error('BLOCKED_STAGE3E_EVIDENCE_PATH: primary and secondary roots overlap');
+  const parent=phase.startsWith('low-full-')?'low':phase.startsWith('mid-full-')?'mid':null;
+  const relative=parent?path.join(parent,'validations',phase):phase==='low'?RELATIVE.lowRoot:phase;
+  const result={primary:safeChild(primary,relative,`primary ${phase} phase`),secondary:safeChild(secondary,relative,`secondary ${phase} phase`)};
+  if(path.relative(primary.resolved,result.primary)!==path.relative(secondary.resolved,result.secondary))
+    throw new Error(`BLOCKED_STAGE3E_EVIDENCE_PATH: primary/secondary phase path mismatch for ${phase}`);
+  return result;
+}
 function resolveStage3eEvidencePaths(root,manifest){
   if(!root||typeof root!=='object')throw new Error('BLOCKED_STAGE3E_EVIDENCE_PATH: primary and secondary roots are required');
   if(!manifest||manifest.schemaVersion!==1||manifest.generation!==2||manifest.executionId!=='generation-2'||manifest.searchEpoch!=='search-v1'||
@@ -57,4 +75,4 @@ function resolveStage3eEvidencePaths(root,manifest){
   return {primary:p,secondary:s,relative:RELATIVE};
 }
 
-module.exports={RELATIVE,resolveStage3eEvidencePaths};
+module.exports={RELATIVE,lowLedgerPath,resolvePhaseRoots,resolveStage3eEvidencePaths};

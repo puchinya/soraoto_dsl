@@ -281,14 +281,32 @@ reject arrays, missing or extra fields, non-finite values, and out-of-grid value
 transition. The setter call uses the explicit `low`, `mid`, `bassHardness` field order.
 
 The pre-render-abort exception applies only to the forensic-bound MIDI 36 / velocity 14 low-screen
-cell that was marked `IN_PROGRESS` before the named response reached the capture helper. Its old
-ledger remains immutable as a dual-copy snapshot. After the isolated old-source reproduction proves
-the exception happened before harness construction and audio processing, recovery appends exactly
-`ABORTED_BEFORE_RENDER` and `REQUEUE_AUTHORIZED`, returning that one cell to `PENDING` with zero
-render calls. All later cells follow `PENDING` → `IN_PROGRESS` → durable render-start marker → audio
-processing → dual-copy cell persistence → `COMPLETE`; an unknown interruption after render-start
-remains blocked. The v3 verifier bridge is created once after the fix commit and is validated by
-commit ancestry plus pinned file hashes, never by exact `HEAD` equality or by re-signing v1/v2.
+cell that was marked `IN_PROGRESS` before the named response reached the capture helper. The
+historical v1 authorization and invalid precommit result remain immutable; the old result is
+classified by a separate `INVALID_PRECOMMIT_RESULT` disposition. Recovery uses a new v2
+authorization bound to the exact old ledger SHA, one target cell, and zero acoustic renders. It
+stages one proposed ledger transition, `IN_PROGRESS` → `PENDING` with event type
+`ADMIN_REQUEUE_NO_RENDER`, in the dual-copy transaction namespace. No other cell or second requeue
+is permitted.
+
+The v2 transaction follows prepare → commit → verify → finalize. Production preflight validates the
+staged authorization, intent, proposed ledger, and transition before the one ledger commit. The
+live dual-copy ledger, transition journal, 1512-cell state counts, and zero render accounting are
+then checked. Before writing any receipt, result, final manifest, or archive, the recovery CLI must
+run its actual `--verify`, the Generation-2 `--dry-run`, and the master-orchestrator `--dry-run`.
+Each must report zero builds, acoustic renders, and evidence writes; before/after file SHA and mtime
+snapshots must also be unchanged. Only then may recovery finalize with
+`STAGE3E_PRE_RENDER_ABORT_RECONCILED`. A partial transaction may resume only the same exact staged
+bytes and transaction identity. Unknown state, changed identity, or a different ledger transition
+remains blocked.
+
+The shared evidence-path resolver is the only reader for the canonical
+`generation-2/search-v1/low/low-ledger.json` path. Flat-root fallbacks and implicit ledger creation
+are forbidden. All later cells follow `PENDING` → `IN_PROGRESS` → durable render-start marker →
+audio processing → dual-copy cell persistence → `COMPLETE`; an unknown interruption after
+render-start remains blocked. The v3 verifier bridge and v2 compatibility record are append-only
+and are validated by accepted commit ancestry plus pinned file hashes, never by rewriting prior
+proofs or requiring exact current `HEAD` equality.
 
 ### 5.3 Stage2L revision-2 string-loss and velocity-response model carried by Stage2N revision 3
 

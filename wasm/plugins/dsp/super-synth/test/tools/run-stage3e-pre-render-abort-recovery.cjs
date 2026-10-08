@@ -27,6 +27,8 @@ const TARGET_KEY='low-screen-L1-M1-H0-midi-036-v110';
 const OLD_HEAD='01c059ae9497119e5ef22d273958ca33eeade9a0';
 const OLD_LEDGER_SHA256='c8c0d162aafcf30908e4b1d7637245ecb6418328a75cee35d76303328960109f';
 const FORENSIC_SHA256='e601de82fbb382065b0d3c7efed6da8540c25681d5e622a11fb74a4cf12bb482';
+const LEGACY_AUTHORIZATION_SHA256='54fe051d4eeb2a406c702305e9adfd50ff3fe942bff1c6eaf38d533b07f6d63a';
+const LEGACY_INVALID_RESULT_SHA256='ee1bc4f286fadd25cfdaad4fff69951522b50b1d1ebdfef7417d121f7919eaa3';
 const JOURNAL_PROOF_SHA256=preflight.PROOF_SHA256;
 const V1_SHA256='331279140ef707c71c81cf716eed052f443e8537616bac83ad88e002bf61b1e5';
 const V2_SHA256='5f3340f7b993bb879aa29bca4214e5192008f54308d20160282aac0cfcc6f797';
@@ -38,6 +40,7 @@ function stable(value){if(Array.isArray(value))return value.map(stable);if(value
 function same(a,b){return JSON.stringify(stable(a))===JSON.stringify(stable(b));}
 function rootPaths(root=ROOT,home=process.env.HOME){return preflight.searchRoots(root,home);}
 function readDual(roots,relative){return durable.verifyDualCopy(path.join(roots.primary,relative),path.join(roots.secondary,relative));}
+function readLowLedger(roots){return durable.verifyDualCopy(evidencePaths.lowLedgerPath(roots.primary),evidencePaths.lowLedgerPath(roots.secondary));}
 function sidecarRoots(roots){return {primary:path.join(roots.primary,RECOVERY_DIR),secondary:path.join(roots.secondary,RECOVERY_DIR)};}
 function currentHead(root){return execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();}
 function counts(ledger){return Object.fromEntries(['PENDING','IN_PROGRESS','COMPLETE'].map(state=>[state,Object.values(ledger.cells||{}).filter(row=>row.state===state).length]));}
@@ -133,16 +136,18 @@ function readOriginalArtifacts({root=ROOT,home=process.env.HOME}={}){
   if(!fs.existsSync(currentWasm)||sha256(fs.readFileSync(currentWasm))!=='6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'||
      forensic.stage3eWasmSha256!=='6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221')
     error('BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT','Stage3E diagnostic WASM identity changed');
-  const preflightFiles=[AUTHORIZATION,RESULT,'evidence-manifest.json','evidence-manifest.sha256',`archives/${ARCHIVE}`];
-  for(const relative of preflightFiles)if(fs.existsSync(path.join(sidecar.primary,relative))||fs.existsSync(path.join(sidecar.secondary,relative)))
-    error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','recovery authorization already exists; one-time recovery cannot repeat');
+  const legacyAuthorization=readDual({primary:roots.primary,secondary:roots.secondary},`${RECOVERY_DIR}/recovery-authorization.json`);
+  const legacyResult=readDual({primary:roots.primary,secondary:roots.secondary},`${RECOVERY_DIR}/recovery-result.json`);
+  if(legacyAuthorization.sha256!==LEGACY_AUTHORIZATION_SHA256||legacyResult.sha256!==LEGACY_INVALID_RESULT_SHA256)
+    error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','immutable legacy recovery records changed');
   const audit=amendment.assertSourceAudit({root,home});
   const amendmentResult=amendment.verify({root,home});
   if(audit.sha256!==evidenceValidator.SOURCE_AUDIT_SHA256||amendmentResult.resultSha256!==compatibilityV2.AMENDMENT_RESULT_SHA256||
      amendmentResult.result?.decision!=='STAGE3E_GENERATION2_BASELINE_EQUIVALENT'||amendmentResult.result?.effectivePassCount!==12)
     error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT','frozen evidence or Generation-2 12/12 baseline changed');
   return {roots,resolved,manifest,manifestSha256:resolvedManifest.sha256,ledger,ledgerBytes:ledgerFile.bytes,
-    ledgerSha256:ledgerFile.sha256,genesisBytes:genesis.bytes,genesisRecord,v2Bundle,forensic,forensicSha256:forensicFile.sha256,
+    ledgerSha256:ledgerFile.sha256,genesisBytes:genesis.bytes,genesis:{bytes:genesis.bytes,sha256:genesis.sha256},genesisRecord,
+    v2Bundle,v1v2:v2Bundle,forensic,forensicSha256:forensicFile.sha256,oldAuthSha256:legacyAuthorization.sha256,oldResultSha256:legacyResult.sha256,
     snapshotSha256:snapshot.sha256,cells,targetCell,replay,audit,amendmentResult,sidecar,
     originalJournalSha256:forensic.originalJournalSha256,transitionEntries,renderStartEntries};
 }
@@ -152,7 +157,7 @@ function readAndValidateBridge(state,{root=ROOT}={}){
   compatibilityV3.validateRecord(bundle.record,{root,head:currentHead(root),manifest:state.manifest,
     v1Sha256:state.v2Bundle.v1Sha256,v2Sha256:state.v2Bundle.sha256,
     sourceAuditSha256:state.audit.sha256,inventorySha256:compatibilityV2.fixedInventorySha(state.audit.audit),
-    preAbortEvidenceSha256:state.forensicSha256});
+    preAbortEvidenceSha256:state.forensicSha256,pinned:bundle.record.pinnedExecutorHashes});
   return bundle;
 }
 
@@ -204,7 +209,7 @@ function verifyRecoveredState({root=ROOT,home=process.env.HOME}={}){
     sourceAuditSha256:sourceAudit.sha256,inventorySha256:compatibilityV2.fixedInventorySha(sourceAudit.audit),preAbortEvidenceSha256:forensicFile.sha256});
   if(authorization.compatibilityV3Sha256!==bridge.sha256||result.compatibilityV3Sha256!==bridge.sha256)
     error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY','recovery is not bound to the current immutable v3 bridge');
-  const ledgerFile=readDual(roots,'low/low-ledger.json'),ledger=JSON.parse(ledgerFile.bytes.toString('utf8'));
+  const ledgerFile=readLowLedger(roots),ledger=JSON.parse(ledgerFile.bytes.toString('utf8'));
   if(ledgerFile.sha256!==result.recoveredLedgerSha256||result.recoveredLedgerSha256!==authorization.recoveredLedgerSha256||
      !same(counts(ledger),{PENDING:1512,IN_PROGRESS:0,COMPLETE:0})||ledger.accounting?.renderCalls!==0)
     error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','post-recovery low ledger counts or SHA mismatch');
@@ -235,7 +240,7 @@ function verifyRecoveredState({root=ROOT,home=process.env.HOME}={}){
      masterDryRun.decision!=='STAGE3E_MASTER_DRY_RUN_READY'||masterDryRun.phaseEntry?.stage3?.authorizedRenderCount!==486||
      masterDryRun.phaseEntry?.stage4?.authorizedRenderCount!==1423)
     error('BLOCKED_STAGE3E_MASTER_PHASE_ENTRY','master dry-run failed a read-only phase gate');
-  if(readDual(roots,'low/low-ledger.json').sha256!==dryLedgerSha)
+  if(readLowLedger(roots).sha256!==dryLedgerSha)
     error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE','dry-run mutated the live low ledger');
   const postDryRunAudit=amendment.assertSourceAudit({root,home});
   if(postDryRunAudit.sha256!==sourceAudit.sha256||!same(postDryRunAudit.inventoryValidation,sourceAudit.inventoryValidation))
@@ -331,25 +336,14 @@ function executeRecovery({root=ROOT,home=process.env.HOME}={}){
 }
 
 function dryRun({root=ROOT,home=process.env.HOME}={}){
-  const roots=rootPaths(root,home),ledger=readDual(roots,'low/low-ledger.json');
+  const roots=rootPaths(root,home),ledger=readLowLedger(roots);
   if(ledger.sha256===OLD_LEDGER_SHA256)return {...verifyBridgeAndPreAbort({root,home}),mode:'pre-recovery',evidenceWrites:0};
   const verified=verifyRecoveredState({root,home});return {...verified,mode:'post-recovery',evidenceWrites:0};
 }
-function run({mode,root=ROOT,home=process.env.HOME}={}){
-  if(mode==='--create-v3')return createCompatibilityV3({root,home});
-  if(mode==='--dry-run')return dryRun({root,home});
-  if(mode==='--execute'){
-    const roots=rootPaths(root,home),ledger=readDual(roots,'low/low-ledger.json');
-    if(ledger.sha256!==OLD_LEDGER_SHA256){const verified=verifyRecoveredState({root,home});return {...verified,alreadyComplete:true};}
-    return executeRecovery({root,home});
-  }
-  if(mode==='--verify')return verifyRecoveredState({root,home});
-  throw new Error('supported modes: --create-v3, --dry-run, --execute, --verify');
-}
-function main(argv=process.argv.slice(2)){if(argv.length!==1)throw new Error('one explicit mode is required');process.stdout.write(JSON.stringify(run({mode:argv[0]}))+'\n');}
+function run(options={}){return require('./stage3e-recovery-reconciliation-v2.cjs').run(options);}
+function main(argv=process.argv.slice(2)){if(argv.length!==1)throw new Error('one explicit mode is required: --dry-run, --execute, --verify');process.stdout.write(JSON.stringify(run({mode:argv[0]}))+'\n');}
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
 
 module.exports={ROOT,RECOVERY_DIR,PRE_ABORT_LEDGER,FORENSIC,AUTHORIZATION,RESULT,ARCHIVE,TARGET_KEY,OLD_HEAD,OLD_LEDGER_SHA256,
-  FORENSIC_SHA256,JOURNAL_PROOF_SHA256,V1_SHA256,V2_SHA256,TARGET,sha256,jsonBytes,stable,same,rootPaths,sidecarRoots,counts,validateAbortForensic,
-  lowLedgerIdentityMatchesManifest,priorExecutionLogMatches,readOriginalArtifacts,readAndValidateBridge,createCompatibilityV3,recoveryLedger,verifyRecoveredState,verifyBridgeAndPreAbort,
-  executeRecovery,dryRun,run,main};
+  FORENSIC_SHA256,LEGACY_AUTHORIZATION_SHA256,LEGACY_INVALID_RESULT_SHA256,JOURNAL_PROOF_SHA256,V1_SHA256,V2_SHA256,TARGET,sha256,jsonBytes,stable,same,rootPaths,sidecarRoots,counts,validateAbortForensic,
+  lowLedgerIdentityMatchesManifest,priorExecutionLogMatches,readOriginalArtifacts,readAndValidateBridge,recoveryLedger,run,main};

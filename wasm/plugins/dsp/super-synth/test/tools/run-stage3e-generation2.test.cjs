@@ -7,6 +7,7 @@ const path=require('node:path');
 const durable=require('./durable-evidence.cjs');
 const runner=require('./run-stage3e-generation2.cjs');
 const legacy=require('./run-stage3e-velocity-response.cjs');
+const search=require('./stage3e-search-core.cjs');
 const evidenceValidator=require('./stage3e-evidence-validator.cjs');
 const captureDefaults=require('./capture-supersynth-stage3e-matrix.cjs');
 
@@ -21,6 +22,33 @@ assert.equal(typeof legacy.preflightDiagnosticCapabilities,'function');
   assert.deepEqual(counts,{lowCount:1512,lowFullCandidateCellCount:10458,midCount:13608,midFullCandidateCellCount:72576});
   assert.equal(validated,98154,'every authorized screen and full-validation request is normalized before capture');
   assert.equal(renderCalls,0,'request dry-check never constructs the audio capture path');
+}
+
+{
+  const {root,roots}=tempRoots();
+  try{
+    const target=search.expectedLowScreenCells().find(cell=>cell.key==='low-screen-L1-M1-H0-midi-036-v110');
+    assert.ok(target,'the recovered coordinate is an authorized low-screen identity');
+    assert.deepEqual(target.response,{low:1,mid:1,bassHardness:0});
+    const identity=baseIdentity(),cells=[target],ledger=runner.freshCellLedger('low-screen',identity,cells),phaseRoots={
+      primary:path.join(roots.primary,'low'),secondary:path.join(roots.secondary,'low')};
+    fs.mkdirSync(phaseRoots.primary,{recursive:true});fs.mkdirSync(phaseRoots.secondary,{recursive:true});
+    runner.writeCellState(phaseRoots,ledger);
+    const journalRoots={primary:path.join(roots.primary,'ledger-transition-journal'),secondary:path.join(roots.secondary,'ledger-transition-journal')};
+    let fakeRenders=0,observed=null;
+    const fakeCapture={...captureDefaults,
+      render(pitch,velocity,response,options){fakeRenders++;observed={pitch,velocity,response,options};return {metrics:rowMetrics()};},
+      renderNormalized(pitch,velocity,response,options){fakeRenders++;observed={pitch,velocity,response,options};return {metrics:rowMetrics()};}};
+    const done=runner.capturePhaseRows({roots:phaseRoots,ledger,cells,identity,capture:fakeCapture,journalContext:{journalRoots,
+      manifestSha256:'1'.repeat(64),proofSha256:'2'.repeat(64),compatibilitySha256:'3'.repeat(64)},
+      identityNow:()=>identity,now:()=> '2026-10-09T00:00:00.000Z'});
+    assert.equal(fakeRenders,1,'the real renderOne/helper chain invokes only the deterministic fake');
+    assert.deepEqual(observed.response,{low:1,mid:1,bassHardness:0});
+    assert.equal(observed.pitch,36);assert.equal(observed.velocity,14/127);
+    assert.equal(done.ledger.accounting.renderCalls,1);
+    assert.deepEqual(done.counts,{PENDING:0,IN_PROGRESS:0,COMPLETE:1});
+    assert.equal(runner.readCompletedRows(phaseRoots,done.ledger,cells)[0].cell.response.bassHardness,0);
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
 }
 
 function tempRoots(){
@@ -137,6 +165,7 @@ function rowMetrics(){return {finite:true,outputGuardHits:0,peakDbfs:-12,fullRen
   const {root,roots}=tempRoots();
   try{
     const generation={primary:path.join(roots.primary,'generation-2'),secondary:path.join(roots.secondary,'generation-2')};
+    fs.mkdirSync(generation.primary,{recursive:true});fs.mkdirSync(generation.secondary,{recursive:true});
     assert.equal(runner.phaseRoots(generation,'low-full-.8-1.25').primary,path.join(generation.primary,'low','validations','low-full-.8-1.25'));
     assert.equal(runner.phaseRoots(generation,'mid-full-.9').secondary,path.join(generation.secondary,'mid','validations','mid-full-.9'));
   }finally{fs.rmSync(root,{recursive:true,force:true});}

@@ -7,6 +7,7 @@ const crypto=require('node:crypto');
 const {execFileSync}=require('node:child_process');
 const durable=require('./durable-evidence.cjs');
 const evidenceValidator=require('./stage3e-evidence-validator.cjs');
+const evidencePaths=require('./stage3e-evidence-paths.cjs');
 const capture3e=require('./capture-supersynth-stage3e-matrix.cjs');
 const capture3d=require('./capture-supersynth-stage3d-matrix.cjs');
 const legacy=require('./stage3e-search-core.cjs');
@@ -138,7 +139,7 @@ function assertSourceAudit({root=ROOT,home=process.env.HOME}={}){
        cell.velocityNormalized!==[.25,.55,.90][index]||cell.stage3dVariant!==null||cell.stage2mFactorMask!==3||!same(cell.windowMs,[30,180])))
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_SOURCE_AUDIT_INVALID');
   const searchRoots={primary:path.join(roots.base.primary,'generation-2/search-v1'),secondary:path.join(roots.base.secondary,'generation-2/search-v1')};
-  const ledgerPrimary=path.join(searchRoots.primary,'low/low-ledger.json'),ledgerSecondary=path.join(searchRoots.secondary,'low/low-ledger.json');
+  const ledgerPrimary=evidencePaths.lowLedgerPath(searchRoots.primary),ledgerSecondary=evidencePaths.lowLedgerPath(searchRoots.secondary);
   let authorizedKeys=[];
   if(fs.existsSync(ledgerPrimary)||fs.existsSync(ledgerSecondary)){
     if(!fs.existsSync(ledgerPrimary)||!fs.existsSync(ledgerSecondary))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: partial low ledger');

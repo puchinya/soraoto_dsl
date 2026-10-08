@@ -53,6 +53,7 @@ function stable(value){if(Array.isArray(value))return value.map(stable);if(value
 function same(a,b){return JSON.stringify(stable(a))===JSON.stringify(stable(b));}
 function readDualJson(roots,relative){return JSON.parse(durable.verifyDualCopy(path.join(roots.primary,relative),path.join(roots.secondary,relative)).bytes.toString('utf8'));}
 function readDualBytes(roots,relative){return durable.verifyDualCopy(path.join(roots.primary,relative),path.join(roots.secondary,relative));}
+function readLowLedgerBytes(roots){return durable.verifyDualCopy(evidencePaths.lowLedgerPath(roots.primary),evidencePaths.lowLedgerPath(roots.secondary));}
 function searchRoots(root=search.ROOT,home=process.env.HOME){
   const common=search.gitCommonDir(root),repository=path.basename(path.resolve(root));
   const base={primary:path.join(common,'soraoto-agent-state','7','stage3e'),secondary:path.join(home,'.soraoto-agent-archive',repository,'7','stage3e')};
@@ -114,7 +115,7 @@ function buildCompatibilityV2Record({root=search.ROOT,manifestIdentity,sourceAud
   assertTrackedWorktreeClean(root);
   const roots=searchRoots(root),v1=readV1Compatibility(roots);
   const manifest=readDualBytes(roots,'generation-2-manifest.json');
-  const ledger=readDualBytes(roots,'low/low-ledger.json');
+  const ledger=readLowLedgerBytes(roots);
   if(manifest.sha256!==MANIFEST_SHA256||ledger.sha256!==GENESIS_SHA256)
     throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: bootstrap manifest or ledger changed before adoption');
   if(!manifestIdentity||!same(JSON.parse(manifest.bytes.toString('utf8')).identity,manifestIdentity))
@@ -162,7 +163,8 @@ function readRenderStartEntries(roots,manifest){
   if(!same(names,secondaryNames))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: render-start path sets differ');
   return names.map(name=>{const stored=durable.verifyDualCopy(path.join(primary,name),path.join(secondary,name));return {...JSON.parse(stored.bytes.toString('utf8')),_sha256:stored.sha256};});
 }
-function validateSearchLedger({roots,manifestBytes,ledgerBytes,compatibilitySha256,historicalCompatibilitySha256,proofSha256=PROOF_SHA256}={}){
+function validateSearchLedger({roots,manifestBytes,ledgerBytes,compatibilitySha256,historicalCompatibilitySha256,
+  recoveryReconciliationCompatibilitySha256,proofSha256=PROOF_SHA256}={}){
   const cells=search.expectedLowScreenCells(),ledger=JSON.parse(ledgerBytes.toString('utf8'));
   if(sha256(manifestBytes)!==MANIFEST_SHA256)throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: search manifest SHA mismatch');
   const manifest=JSON.parse(manifestBytes.toString('utf8'));
@@ -196,7 +198,7 @@ function validateSearchLedger({roots,manifestBytes,ledgerBytes,compatibilitySha2
   const result=validator.validateLedgerTransitions({genesisLedgerBytes:genesisFile.bytes,currentLedgerBytes:ledgerBytes,
     transitionEntries:entries,renderStartEntries:renderStarts,expectedCells:cells,bindings:{manifestSha256:MANIFEST_SHA256,proofSha256,
       compatibilitySha256,acceptedCompatibilitySha256s:historicalCompatibilitySha256?[historicalCompatibilitySha256]:[],
-      recoveryCompatibilitySha256:compatibilitySha256}});
+      recoveryCompatibilitySha256:compatibilitySha256,recoveryReconciliationCompatibilitySha256}});
   if(result.inProgress!==0)throw new Error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: unresolved IN_PROGRESS cell');
   for(const cell of cells){
     const state=ledger.cells[cell.key];
@@ -231,8 +233,22 @@ function validateRuntimeIdentity({root=search.ROOT,home=process.env.HOME,manifes
   const forensic=readDualBytes(roots,compatibilityV3.FORENSIC_RELATIVE);
   compatibilityV3.validateRecord(bundle.record,{root,manifest,head:execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),
     v1Sha256:v2Bundle.v1Sha256,v2Sha256:v2Bundle.sha256,sourceAuditSha256:audit.sha256,
-    inventorySha256:compatibilityV2.fixedInventorySha(audit.audit),preAbortEvidenceSha256:forensic.sha256});
-  return {pass:true,identity:manifest.identity,compatibilitySha256,auditSha256:audit.sha256,amendmentResultSha256:amendmentResult.resultSha256};
+    inventorySha256:compatibilityV2.fixedInventorySha(audit.audit),preAbortEvidenceSha256:forensic.sha256,
+    pinned:bundle.record.pinnedExecutorHashes});
+  const transitions=readTransitionEntries(roots,manifest),admin=transitions.filter(entry=>entry.eventType==='ADMIN_REQUEUE_NO_RENDER');
+  let recoveryReconciliationCompatibilitySha256=null;
+  if(admin.length){
+    if(admin.length!==1)throw new Error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: duplicate ADMIN_REQUEUE_NO_RENDER');
+    const reconciliation=require('./stage3e-recovery-reconciliation-v2.cjs'),bundleV2=reconciliation.readCompatibility(roots);
+    reconciliation.validateCompatibilityRecord(bundleV2.record,{root,manifest,manifestSha256:manifestStored.sha256,bridge:bundle,
+      forensicSha256:forensic.sha256,sourceAuditSha256:audit.sha256,oldResultSha256:reconciliation.INVALID_RESULT_SHA256,
+      testReportSha256:bundleV2.record.zeroRenderVerifierTestReportSha256});
+    recoveryReconciliationCompatibilitySha256=bundleV2.sha256;
+    if(admin[0].recoveryReconciliationCompatibilitySha256!==recoveryReconciliationCompatibilitySha256)
+      throw new Error('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY: journal binding differs from v2 sidecar');
+  }
+  return {pass:true,identity:manifest.identity,compatibilitySha256,recoveryReconciliationCompatibilitySha256,
+    auditSha256:audit.sha256,amendmentResultSha256:amendmentResult.resultSha256};
 }
 function acquireWriterLock({root=search.ROOT,phase='low',executionIdentity}={}){
   if(!executionIdentity)throw new Error('BLOCKED_STAGE3E_WRITER_LOCK_IDENTITY: missing execution identity');
@@ -281,21 +297,38 @@ function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=
   else if(requireCompatibility)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: v2 sidecar absent');
   const v3Files=[compatibilityV3.RELATIVE,compatibilityV3.SHA_RELATIVE,compatibilityV3.ARCHIVE_RELATIVE,compatibilityV3.ARCHIVE_SHA_RELATIVE];
   const v3Exists=v3Files.some(relative=>fs.existsSync(path.join(roots.primary,relative))||fs.existsSync(path.join(roots.secondary,relative)));
+  let forensicFile=null;
   if(v3Exists){
     bundle=compatibilityV3.readBundle(roots);compatibility=bundle.record;compatibilitySha256=bundle.sha256;
-    const forensic=readDualBytes(roots,compatibilityV3.FORENSIC_RELATIVE);
+    forensicFile=readDualBytes(roots,compatibilityV3.FORENSIC_RELATIVE);
     compatibilityV3.validateRecord(bundle.record,{root,manifest,head:execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),
       v1Sha256:v2Bundle?.v1Sha256,v2Sha256:v2Bundle?.sha256,sourceAuditSha256:audit.sha256,
-      inventorySha256:compatibilityV2.fixedInventorySha(audit.audit),preAbortEvidenceSha256:forensic.sha256});
+      inventorySha256:compatibilityV2.fixedInventorySha(audit.audit),preAbortEvidenceSha256:forensicFile.sha256,
+      pinned:bundle.record.pinnedExecutorHashes});
   }else if(requireCompatibility)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: v3 bridge absent');
-  const ledgerStored=readDualBytes(roots,'low/low-ledger.json');
+  const entries=readTransitionEntries(roots,manifest),administrative=entries.filter(entry=>entry.eventType==='ADMIN_REQUEUE_NO_RENDER');
+  let reconciliationCompatibilitySha256=null;
+  if(administrative.length){
+    if(administrative.length!==1)throw new Error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: duplicate administrative requeue event');
+    const reconciliation=require('./stage3e-recovery-reconciliation-v2.cjs');
+    const bundleV2=reconciliation.readCompatibility(roots);
+    reconciliation.validateCompatibilityRecord(bundleV2.record,{root,manifest,manifestSha256:manifestStored.sha256,bridge:bundle,
+      forensicSha256:forensicFile?.sha256,sourceAuditSha256:audit.sha256,
+      oldResultSha256:reconciliation.INVALID_RESULT_SHA256,
+      testReportSha256:bundleV2.record.zeroRenderVerifierTestReportSha256});
+    reconciliationCompatibilitySha256=bundleV2.sha256;
+    if(administrative[0].recoveryReconciliationCompatibilitySha256!==reconciliationCompatibilitySha256)
+      throw new Error('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY: administrative event binding differs');
+  }
+  const ledgerStored=readLowLedgerBytes(roots);
   const ledgerSummary=validateSearchLedger({roots,manifestBytes:manifestStored.bytes,ledgerBytes:ledgerStored.bytes,compatibilitySha256,
-    historicalCompatibilitySha256:v2Bundle?.sha256});
+    historicalCompatibilitySha256:v2Bundle?.sha256,recoveryReconciliationCompatibilitySha256});
   const extras=audit.inventoryValidation;
   return {decision:'STAGE3E_SEARCH_PREFLIGHT_READY',builds:0,renders:0,acousticRenders:0,evidenceWrites:0,
     capability,auditSha256:audit.sha256,amendmentResultSha256:amendmentResult.resultSha256,
     manifestSha256:manifestStored.sha256,ledgerSha256:ledgerStored.sha256,ledgerSummary,
     compatibilitySha256,compatibility,compatibilityArchiveSha256:bundle?.archiveSha256,historicalCompatibilitySha256:v2Bundle?.sha256,
+    recoveryReconciliationCompatibilitySha256,
     inventory:{frozenCount:extras.frozenCount,additionCount:extras.additionCount},
     roots,manifest,creatorIdentity:manifest.identity,currentVerifierIdentity:currentFiles(root),sourceAudit:audit.audit};
 }

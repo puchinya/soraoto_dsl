@@ -10,6 +10,7 @@ const SEARCH_MANIFEST_SHA256='27bdbee7735e32a468370a1166d4901d12fa3a9ca0774bc669
 const LOW_GENESIS_SHA256='d8b2b7e299174b605c1cdcb576ab70645ec725cbfa03d76c003abe92854e754d';
 const AMENDMENT='generation-2/midi41-derivative-amendment-v1/';
 const SEARCH='generation-2/search-v1/';
+const RECOVERY_V2=SEARCH+'recovery-reconciliation-v2/';
 
 function sha256(bytes){return crypto.createHash('sha256').update(bytes).digest('hex');}
 function jsonBytes(value){return Buffer.from(JSON.stringify(value,null,2)+'\n');}
@@ -95,6 +96,15 @@ function isAmendmentAddition(relative){
 
 function isSearchAddition(relative,{authorizedKeys=[]}={}){
   if(isAmendmentAddition(relative))return true;
+  const recoveryV2Files=new Set([
+    'source-audit.json','invalid-recovery-disposition.json','authorization-v2.json','transaction-intent.json',
+    'transaction-receipt.json','reconciliation-result.json','evidence-manifest.json','evidence-manifest.sha256',
+    'recovery-transaction-compatibility-v2.json','recovery-transaction-compatibility-v2.sha256',
+    'staging/low-ledger-post.json','staging/transition-000002.json',
+    'archives/recovery-transaction-compatibility-v2.tar.gz','archives/recovery-transaction-compatibility-v2.tar.gz.sha256',
+    'archives/recovery-reconciliation-v2.tar.gz'
+  ]);
+  if(relative.startsWith(RECOVERY_V2)&&recoveryV2Files.has(relative.slice(RECOVERY_V2.length)))return true;
   if(relative===SEARCH+'generation-2-manifest.json'||relative===SEARCH+'verifier-compatibility-v1.json'||
      relative===SEARCH+'verifier-compatibility-v2.json'||relative===SEARCH+'verifier-compatibility-v2.sha256'||
      relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz'||relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz.sha256')return true;
@@ -194,7 +204,7 @@ function validateLedgerTransitions({genesisLedgerBytes,currentLedgerBytes,transi
      current.generation!==genesis.generation||current.executionId!==genesis.executionId||current.authorizedCellCount!==genesis.authorizedCellCount)fail('ledger identity changed');
   const replay=new Map(expectedCells.map(cell=>[cell.key,{state:'PENDING',sha256:null,identity:cell,startTransitionSequence:null,startLedgerSha256:null,aborted:false,requeueCount:0}]));
   const acceptedCompatibility=new Set([bindings.compatibilitySha256,...(bindings.acceptedCompatibilitySha256s||[])].filter(Boolean));
-  const markersByTransition=new Map();let markerSequence=0;
+  const markersByTransition=new Map();let markerSequence=0,administrativeRequeues=0;
   for(const marker of renderStartEntries){
     markerSequence++;
     if(!marker||marker.schemaVersion!==1||marker.kind!=='STAGE3E_RENDER_START'||marker.sequence!==markerSequence||
@@ -233,6 +243,22 @@ function validateLedgerTransitions({genesisLedgerBytes,currentLedgerBytes,transi
          !/^[0-9a-f]{64}$/.test(entry.oldCodeSha256||'')||!/^[0-9a-f]{64}$/.test(entry.newCodeSha256||'')||!state.aborted||state.requeueCount!==0||
          markersByTransition.has(state.startTransitionSequence)||
          (bindings.recoveryCompatibilitySha256!==undefined&&entry.compatibilitySha256!==bindings.recoveryCompatibilitySha256))fail(`invalid authorized requeue event at ${sequence}`);
+      state.state='PENDING';state.sha256=null;state.startTransitionSequence=null;state.startLedgerSha256=null;state.aborted=false;state.requeueCount++;
+    }else if(entry.eventType==='ADMIN_REQUEUE_NO_RENDER'){
+      administrativeRequeues++;
+      if(administrativeRequeues!==1||entry.cellKey!=='low-screen-L1-M1-H0-midi-036-v110'||
+         entry.oldState!=='IN_PROGRESS'||entry.newState!=='PENDING'||entry.nextLedgerSha256===entry.previousLedgerSha256||
+         entry.newRenderCount!==renderCount||entry.capturedCellSha256!==null||renderCount!==0||state.requeueCount!==0||
+         state.aborted||markersByTransition.has(state.startTransitionSequence)||
+         !/^[0-9a-f]{64}$/.test(entry.recoveryAuthorizationSha256||'')||
+         !/^[0-9a-f]{64}$/.test(entry.transactionIntentSha256||'')||
+         !/^[0-9a-f]{64}$/.test(entry.sourceAuditSha256||'')||
+         !/^[0-9a-f]{64}$/.test(entry.invalidRecoveryResultSha256||'')||
+         !/^[0-9a-f]{64}$/.test(entry.recoveryReconciliationCompatibilitySha256||'')||
+         (bindings.recoveryCompatibilitySha256!==undefined&&entry.compatibilitySha256!==bindings.recoveryCompatibilitySha256)||
+         (bindings.recoveryReconciliationCompatibilitySha256!==undefined&&
+          entry.recoveryReconciliationCompatibilitySha256!==bindings.recoveryReconciliationCompatibilitySha256))
+        fail(`invalid administrative no-render requeue at ${sequence}`);
       state.state='PENDING';state.sha256=null;state.startTransitionSequence=null;state.startLedgerSha256=null;state.aborted=false;state.requeueCount++;
     }else if(entry.oldState==='PENDING'&&entry.newState==='IN_PROGRESS'){
       if(entry.eventType!==undefined)fail(`unexpected event type at ${sequence}`);
@@ -275,7 +301,7 @@ function validateLedgerTransitions({genesisLedgerBytes,currentLedgerBytes,transi
 }
 
 module.exports={
-  SOURCE_AUDIT_SHA256,SEARCH_MANIFEST_SHA256,LOW_GENESIS_SHA256,AMENDMENT,SEARCH,
+  SOURCE_AUDIT_SHA256,SEARCH_MANIFEST_SHA256,LOW_GENESIS_SHA256,AMENDMENT,SEARCH,RECOVERY_V2,
   sha256,jsonBytes,stable,same,safeRelative,walkFiles,validateFrozenSide,isAmendmentAddition,
   isSearchAddition,validateNamespaceAdditions,verifyDualFile,validateLowGenesis,validateLedgerTransitions
 };
