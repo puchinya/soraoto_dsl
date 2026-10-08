@@ -161,27 +161,34 @@ function run({mode,root=ROOT,home=process.env.HOME,preflight=evidencePreflight,e
     baselineReferenceSetId:baseline.referenceSet.referenceSetId,baselineReferenceSetSha256:baseline.sha256,
     baselineEvidence:baseline.files,searchEnabled:true};
 }
-function establishVerifierCompatibility({root=ROOT,home=process.env.HOME}={}){
+function establishVerifierCompatibilityV2({root=ROOT,home=process.env.HOME}={}){
   const readiness=searchPreflight.preflight({root,home,requireCompatibility:false,
     verifySourceAudit:midi41Amendment.assertSourceAudit,verifyAmendment:midi41Amendment.verify});
-  const primary=path.join(readiness.roots.primary,'verifier-compatibility-v1.json');
-  const secondary=path.join(readiness.roots.secondary,'verifier-compatibility-v1.json');
-  if(fs.existsSync(primary)||fs.existsSync(secondary)){
-    if(!fs.existsSync(primary)||!fs.existsSync(secondary))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: partial compatibility sidecar');
-    const stored=durable.verifyDualCopy(primary,secondary),compatibility=JSON.parse(stored.bytes.toString('utf8'));
-    searchPreflight.validateCompatibility({root,compatibility,manifestIdentity:readiness.creatorIdentity,current:searchPreflight.currentFiles(root)});
+  const v2=require('./stage3e-search-compatibility.cjs');
+  const v2Relatives=[v2.V2_RELATIVE,v2.V2_SHA_RELATIVE,v2.V2_ARCHIVE_RELATIVE,v2.V2_ARCHIVE_SHA_RELATIVE];
+  const anyExists=v2Relatives.some(relative=>fs.existsSync(path.join(readiness.roots.primary,relative))||
+    fs.existsSync(path.join(readiness.roots.secondary,relative)));
+  if(anyExists){
+    const bundle=v2.readBundle(readiness.roots);
     const verified=searchPreflight.preflight({root,home,verifySourceAudit:midi41Amendment.assertSourceAudit,verifyAmendment:midi41Amendment.verify});
-    return {decision:'STAGE3E_SEARCH_VERIFIER_COMPATIBLE',sidecarSha256:stored.sha256,evidenceWrites:0,...verified};
+    if(verified.compatibilitySha256!==bundle.sha256)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: immutable v2 differs');
+    return {decision:'STAGE3E_SEARCH_VERIFIER_COMPATIBLE',sidecarSha256:bundle.sha256,archiveSha256:bundle.archiveSha256,evidenceWrites:0,...verified};
   }
-  const record=searchPreflight.buildCompatibilityRecord({root,manifestIdentity:readiness.creatorIdentity});
-  const bytes=Buffer.from(JSON.stringify(searchPreflight.stable(record),null,2)+'\n');
-  const stored=durable.writeDualCopy(primary,secondary,bytes);
+  const record=searchPreflight.buildCompatibilityV2Record({root,manifestIdentity:readiness.creatorIdentity,
+    sourceAudit:readiness.sourceAudit});
+  const stored=v2.writeBundle(readiness.roots,record);
   const verified=searchPreflight.preflight({root,home,verifySourceAudit:midi41Amendment.assertSourceAudit,verifyAmendment:midi41Amendment.verify});
-  return {decision:record.decision,sidecarSha256:stored.sha256,evidenceWrites:1,...verified};
+  if(verified.compatibilitySha256!==stored.sha256||verified.compatibilityArchiveSha256!==stored.archiveSha256)
+    throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: new v2 bundle failed read-only replay');
+  return {decision:record.decision,sidecarSha256:stored.sha256,archiveSha256:stored.archiveSha256,evidenceWrites:4,...verified};
+}
+function establishVerifierCompatibility(){
+  throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: v1 is immutable; use v2 adoption');
 }
 function main(argv=process.argv.slice(2)){
-  if(argv.length===1&&argv[0]==='--establish-verifier-compatibility'){
-    process.stdout.write(JSON.stringify(establishVerifierCompatibility())+'\n');return;
+  if(argv.length===1&&argv[0]==='--establish-verifier-compatibility')return establishVerifierCompatibility();
+  if(argv.length===1&&argv[0]==='--establish-verifier-compatibility-v2'){
+    process.stdout.write(JSON.stringify(establishVerifierCompatibilityV2())+'\n');return;
   }
   if(argv.length===1&&['--dry-run','--baseline','--low','--mid','--finalize'].includes(argv[0]))
     return require('./run-stage3e-generation2.cjs').main(argv);
@@ -190,4 +197,4 @@ function main(argv=process.argv.slice(2)){
 }
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
 module.exports={ROOT,GENERATION_1_EXECUTION_ID,GENERATION_1_LEDGER_SHA256,GENERATION_1_WASM_SHA256,BASELINE_EVIDENCE_RELATIVE_PATHS,LAUNCH_GRID,BASS_HARDNESS_GRID,MID_GRID,SCREEN_VELOCITIES,OFFICIAL_VELOCITIES,BASELINE_EQUIVALENCE_CELLS,MIDI41_NORMALIZED,sha256,same,fileSha,currentProtectedIdentity,
-  counts,lowGridTuples,midGridTuples,gridCells,lowScreenCells,lowFullCells,midScreenCells,midFullCells,smoothstep,registerGate,stage3eResponse,rankLowCandidates,rankMidCandidates,topFive,gitCommonDir,generation1TombstonePath,preflightDiagnosticCapabilities,assertGeneration1Abandoned,assertGeneration2Ledger,generation2EvidenceRoot,historicalBaselinePaths,assertHistoricalBaselineEvidence,evidencePreflight,establishVerifierCompatibility,run,main};
+  counts,lowGridTuples,midGridTuples,gridCells,lowScreenCells,lowFullCells,midScreenCells,midFullCells,smoothstep,registerGate,stage3eResponse,rankLowCandidates,rankMidCandidates,topFive,gitCommonDir,generation1TombstonePath,preflightDiagnosticCapabilities,assertGeneration1Abandoned,assertGeneration2Ledger,generation2EvidenceRoot,historicalBaselinePaths,assertHistoricalBaselineEvidence,evidencePreflight,establishVerifierCompatibility,establishVerifierCompatibilityV2,run,main};

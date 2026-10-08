@@ -9,42 +9,94 @@ const generation2=require('./run-stage3e-generation2.cjs');
 const amendment=require('./run-stage3e-midi41-evidence-amendment.cjs');
 const velocity=require('./run-stage3e-velocity-response.cjs');
 
-function digest(value){return require('node:crypto').createHash('sha256').update(Buffer.from(JSON.stringify(preflight.stable(value)))).digest('hex');}
+const compatibilityV2=require('./stage3e-search-compatibility.cjs');
+const validator=require('./stage3e-evidence-validator.cjs');
+
 {
+  const root=path.resolve(__dirname,'../../../../../../');
+  const accepted='a'.repeat(40),descendant='b'.repeat(40),fakeRoot=os.tmpdir();
   const protectedIdentity={candidateId:'stage2n-r3-candidate-01',diagnosticWasmSha256:'1'.repeat(64),sourcePluginSha256:'2'.repeat(64),
     stage3eCaptureHelperSha256:'3'.repeat(64),stage3eRunnerSha256:'4'.repeat(64),presetsSha256:'5'.repeat(64),profileSha256:'6'.repeat(64),
     configSha256:'7'.repeat(64),referenceFixtureSha256:'8'.repeat(64)};
-  const manifestIdentity={creatorRevision:'79121646babd0e1031de03aae1a5bed486e59f8a',runnerSha256:'9'.repeat(64),
-    captureHelperSha256:'3'.repeat(64),coreSha256:'f'.repeat(64),protectedIdentity};
-  const current={generation2RunnerSha256:'a'.repeat(64),captureHelperSha256:'3'.repeat(64),candidateId:protectedIdentity.candidateId,
-    coreSha256:'f'.repeat(64),
-    diagnosticWasmSha256:protectedIdentity.diagnosticWasmSha256,sourcePluginSha256:protectedIdentity.sourcePluginSha256,
-    stage3eCaptureHelperSha256:protectedIdentity.stage3eCaptureHelperSha256,stage3eRunnerSha256:protectedIdentity.stage3eRunnerSha256,
-    presetsSha256:protectedIdentity.presetsSha256,profileSha256:protectedIdentity.profileSha256,configSha256:protectedIdentity.configSha256,
-    referenceFixtureSha256:protectedIdentity.referenceFixtureSha256};
-  const captureControls={sampleRate:48000,durationMs:380,stage2mFactorMask:3,stage3eBaselineResponse:{low:1,mid:1,bassHardness:1}};
-  const root=path.resolve(__dirname,'../../../../../../');
-  const head=execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
-  const testResults=[{file:'injected-fixture',exitCode:0,outputSha256:'e'.repeat(64)}];
-  const diff=preflight.trackedDiff(root,'79121646babd0e1031de03aae1a5bed486e59f8a',head);
-  const compatibility={schemaVersion:1,decision:'STAGE3E_SEARCH_VERIFIER_COMPATIBLE',originalLocalCommit:'79121646babd0e1031de03aae1a5bed486e59f8a',
-    verifierFixCommit:head,originalProofSha256:preflight.PROOF_SHA256,originalAmendmentResultSha256:preflight.AMENDMENT_RESULT_SHA256,
-    originalSearchManifestSha256:preflight.MANIFEST_SHA256,lowGenesisLedgerSha256:preflight.GENESIS_SHA256,
-    originalRunnerSha256:manifestIdentity.runnerSha256,newRunnerSha256:current.generation2RunnerSha256,
-    originalCaptureHelperSha256:manifestIdentity.captureHelperSha256,newCaptureHelperSha256:current.captureHelperSha256,
-    stage3eWasmSha256:protectedIdentity.diagnosticWasmSha256,configSha256:protectedIdentity.configSha256,
-    profileSha256:protectedIdentity.profileSha256,presetsSha256:protectedIdentity.presetsSha256,fixtureSha256:protectedIdentity.referenceFixtureSha256,
-    originalVelocityResponseRunnerSha256:protectedIdentity.stage3eRunnerSha256,newVelocityResponseRunnerSha256:current.stage3eRunnerSha256,
-    originalCaptureHelperSha256FromCandidate:protectedIdentity.stage3eCaptureHelperSha256,newCaptureHelperSha256FromCandidate:current.stage3eCaptureHelperSha256,
-    allowedVerifierOnlyDiffSha256:diff.sha256,unitAndInjectedIntegrationResultSha256:require('node:crypto').createHash('sha256').update(Buffer.from(JSON.stringify(preflight.stable(testResults))+'\n')).digest('hex'),
-    zeroRenderTestResults:testResults,captureControls,
-    captureControlsSha256:digest(captureControls),primarySecondaryIntegrity:'PASS'};
-  const testOnlyClean=()=>true;
-  assert.equal(preflight.validateCompatibility({root,compatibility,manifestIdentity,current,assertClean:testOnlyClean}).pass,true);
-  assert.throws(()=>preflight.validateCompatibility({root,compatibility:{...compatibility,newCaptureHelperSha256:'e'.repeat(64)},manifestIdentity,current,assertClean:testOnlyClean}),
-    /BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY/);
-  assert.throws(()=>preflight.validateCompatibility({root,compatibility,manifestIdentity,current:{...current,configSha256:'f'.repeat(64)},assertClean:testOnlyClean}),
-    /BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY/);
+  const manifestIdentity={creatorRevision:'79121646babd0e1031de03aae1a5bed486e59f8a',candidateId:protectedIdentity.candidateId,
+    captureHelperSha256:'3'.repeat(64),protectedIdentity};
+  const v1={schemaVersion:1,decision:'STAGE3E_SEARCH_VERIFIER_COMPATIBLE',
+    originalLocalCommit:compatibilityV2.ORIGINAL_LOCAL_COMMIT,verifierFixCommit:compatibilityV2.V1_FIX_COMMIT};
+  const artifacts={verifierModules:{'stage3e-preflight.cjs':'9'.repeat(64)},
+    protectedSearchArtifacts:{trackedFiles:{'plugin.c':'2'.repeat(64)},stage3eWasm:{path:'/private/build/plugin.wasm',sha256:'1'.repeat(64),cmakeOptions:{stage3e:'ON'}}}};
+  const diff={files:['stage3e-preflight.cjs'],sha256:'c'.repeat(64)};
+  const commands=[{file:'injected',exitCode:0,outputSha256:'d'.repeat(64)}];
+  const record={schemaVersion:2,kind:'STAGE3E_SEARCH_VERIFIER_COMPATIBILITY',decision:'STAGE3E_SEARCH_VERIFIER_COMPATIBLE',
+    predecessorV1Sha256:compatibilityV2.V1_SHA256,originalLocalCommit:compatibilityV2.ORIGINAL_LOCAL_COMMIT,
+    originalVerifierFixCommit:compatibilityV2.V1_FIX_COMMIT,correctionBaseCommit:compatibilityV2.CORRECTION_BASE_COMMIT,
+    acceptedVerifierCommit:accepted,predecessorIdentityScopeProofSha256:'e6cc3049b6f5f20529c50c2bcab5bfa66a6afdfbe5bf9241b5b9cf7f53a130eb',
+    sourceAuditSha256:validator.SOURCE_AUDIT_SHA256,midi41AmendmentResultSha256:compatibilityV2.AMENDMENT_RESULT_SHA256,
+    searchManifestSha256:compatibilityV2.SEARCH_MANIFEST_SHA256,initialLowLedgerSha256:compatibilityV2.LOW_GENESIS_SHA256,
+    searchLedgerBootstrap:{authorized:1512,pending:1512,inProgress:0,complete:0,renderCalls:0,cellPayloadFiles:0},
+    originalFixedInventorySha256:'f'.repeat(64),protectedSearchArtifacts:artifacts.protectedSearchArtifacts,
+    verifierModules:artifacts.verifierModules,candidateIdentity:{candidateId:protectedIdentity.candidateId,
+      sourcePluginSha256:protectedIdentity.sourcePluginSha256,diagnosticWasmSha256:protectedIdentity.diagnosticWasmSha256,
+      configSha256:protectedIdentity.configSha256,profileSha256:protectedIdentity.profileSha256,presetsSha256:protectedIdentity.presetsSha256,
+      referenceFixtureSha256:protectedIdentity.referenceFixtureSha256,captureHelperSha256:manifestIdentity.captureHelperSha256,
+      stage3eCaptureHelperSha256:protectedIdentity.stage3eCaptureHelperSha256},
+    baselineAcceptance:{decision:'STAGE3E_GENERATION2_BASELINE_EQUIVALENT',effectivePassCount:12,effectiveCellCount:12,
+      maxMetricDifference:0,tolerance:0.000001,amendmentResultSha256:compatibilityV2.AMENDMENT_RESULT_SHA256},
+    allowedVerifierOnlyDiffSha256:diff.sha256,allowedVerifierOnlyDiffFiles:diff.files,testedCommands:commands,
+    unitAndInjectedIntegrationResultSha256:compatibilityV2.jsonDigest(commands),primarySecondaryIntegrity:'PASS'};
+  function ancestor(_root,from,to){
+    if(from===compatibilityV2.V1_FIX_COMMIT||from===compatibilityV2.CORRECTION_BASE_COMMIT)return to===accepted;
+    if(from===accepted)return to===accepted||to===descendant;
+    return false;
+  }
+  function validate(change={},head=accepted){
+    return compatibilityV2.validateRecord({root:fakeRoot,compatibility:{...record,...change},v1,
+      v1Sha256:compatibilityV2.V1_SHA256,manifestIdentity,sourceAuditSha256:validator.SOURCE_AUDIT_SHA256,
+      inventorySha256:'f'.repeat(64),artifacts,diff,head,isAncestorCheck:ancestor,assertClean:()=>true});
+  }
+  assert.equal(validate().acceptedVerifierCommit,accepted,'anchor HEAD is valid');
+  assert.equal(validate({},descendant).currentHead,descendant,'a pinned-hash-identical descendant is valid');
+  assert.throws(()=>validate({},'c'.repeat(40)),/not an ancestor of current HEAD/);
+  assert.throws(()=>validate({predecessorV1Sha256:'0'.repeat(64)}),/predecessorV1Sha256 mismatch/);
+  assert.throws(()=>validate({verifierModules:{'stage3e-preflight.cjs':'0'.repeat(64)}}),/pinned verifier or acoustic artifact SHA changed/);
+  assert.throws(()=>compatibilityV2.validateRecord({root:fakeRoot,compatibility:record,v1,v1Sha256:'0'.repeat(64),
+    manifestIdentity,sourceAuditSha256:validator.SOURCE_AUDIT_SHA256,inventorySha256:'f'.repeat(64),artifacts,diff,
+    head:accepted,isAncestorCheck:ancestor,assertClean:()=>true}),/immutable v1 predecessor identity mismatch/);
+}
+
+{
+  const root=path.resolve(__dirname,'../../../../../../'),roots=preflight.searchRoots(root);
+  const manifestBytes=fs.readFileSync(path.join(roots.primary,'generation-2-manifest.json'));
+  const ledgerPath=path.join(roots.primary,'low/low-ledger.json');
+  const currentLedgerBytes=fs.readFileSync(ledgerPath);
+  const journalDir=path.join(roots.primary,'low/ledger-transition-journal');
+  const genesisPath=path.join(journalDir,'genesis-ledger.json');
+  const genesisBytes=fs.existsSync(genesisPath)?fs.readFileSync(genesisPath):currentLedgerBytes;
+  assert.equal(require('node:crypto').createHash('sha256').update(genesisBytes).digest('hex'),preflight.GENESIS_SHA256);
+  const live=preflight.validateSearchLedger({roots,manifestBytes,ledgerBytes:currentLedgerBytes,compatibilitySha256:'a'.repeat(64)});
+  assert.equal(live.inProgress,0);
+  assert.equal(live.pending+live.complete,1512);
+  const base=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-genesis-fixture-'));
+  const pRoot=path.join(base,'primary'),sRoot=path.join(base,'secondary');
+  try{
+    for(const evidenceRoot of [pRoot,sRoot]){
+      fs.mkdirSync(path.join(evidenceRoot,'low'),{recursive:true});
+      fs.mkdirSync(path.join(evidenceRoot,'low/ledger-transition-journal'),{recursive:true});
+      fs.writeFileSync(path.join(evidenceRoot,'generation-2-manifest.json'),manifestBytes);
+      fs.writeFileSync(path.join(evidenceRoot,'low/low-ledger.json'),genesisBytes);
+      fs.writeFileSync(path.join(evidenceRoot,'low/ledger-transition-journal/genesis-ledger.json'),genesisBytes);
+    }
+    const ledger=JSON.parse(genesisBytes.toString('utf8'));
+    const attestation={schemaVersion:1,decision:'STAGE3E_SEARCH_LEDGER_GENESIS',phase:'low',
+      genesisLedgerSha256:preflight.GENESIS_SHA256,manifestSha256:preflight.MANIFEST_SHA256,
+      proofSha256:preflight.PROOF_SHA256,compatibilitySha256:'a'.repeat(64),identity:ledger.identity,
+      authorizedCellCount:1512,renderCalls:0};
+    const recordBytes=Buffer.from(JSON.stringify(attestation));
+    for(const evidenceRoot of [pRoot,sRoot])fs.writeFileSync(path.join(evidenceRoot,'low/ledger-transition-journal/genesis.json'),recordBytes);
+    const accepted=preflight.validateSearchLedger({roots:{primary:pRoot,secondary:sRoot},manifestBytes,
+      ledgerBytes:genesisBytes,compatibilitySha256:'a'.repeat(64)});
+    assert.equal(accepted.genesisRequired,false,'raw ledger snapshot and attestation are separate files');
+    assert.equal(accepted.renderCalls,0);
+  }finally{fs.rmSync(base,{recursive:true,force:true});}
 }
 
 // Import direction is part of the regression: CLI wrappers may depend on the

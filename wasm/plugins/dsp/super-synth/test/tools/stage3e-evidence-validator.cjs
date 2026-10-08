@@ -70,6 +70,10 @@ function isAmendmentAddition(relative){
     AMENDMENT+'archives/midi41-derivative-amendment.tar.gz',
     SEARCH+'generation-2-manifest.json',
     SEARCH+'verifier-compatibility-v1.json',
+    SEARCH+'verifier-compatibility-v2.json',
+    SEARCH+'verifier-compatibility-v2.sha256',
+    SEARCH+'archives/verifier-compatibility-v2.tar.gz',
+    SEARCH+'archives/verifier-compatibility-v2.tar.gz.sha256',
     SEARCH+'ledger-transition-journal/genesis.json',
     SEARCH+'ledger-transition-journal/genesis-ledger.json'
   ]);
@@ -80,7 +84,9 @@ function isAmendmentAddition(relative){
 
 function isSearchAddition(relative,{authorizedKeys=[]}={}){
   if(isAmendmentAddition(relative))return true;
-  if(relative===SEARCH+'generation-2-manifest.json'||relative===SEARCH+'verifier-compatibility-v1.json')return true;
+  if(relative===SEARCH+'generation-2-manifest.json'||relative===SEARCH+'verifier-compatibility-v1.json'||
+     relative===SEARCH+'verifier-compatibility-v2.json'||relative===SEARCH+'verifier-compatibility-v2.sha256'||
+     relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz'||relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz.sha256')return true;
   if(relative.startsWith(SEARCH+'ledger-transition-journal/')){
     const leaf=relative.slice((SEARCH+'ledger-transition-journal/').length);
     return leaf==='genesis.json'||leaf==='genesis-ledger.json'||/^transition-[0-9]{6}\.json$/.test(leaf);

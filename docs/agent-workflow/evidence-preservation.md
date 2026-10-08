@@ -29,6 +29,9 @@ For Stage3E search recovery, classify evidence instead of comparing the whole du
 
 When only verifier code changes after an acoustic creator has produced evidence, preserve the creator hashes and add a separately immutable compatibility record. It must bind the old proof, amendment result, search manifest, low-ledger genesis, new verifier commit, exact allowed source diff, unchanged capture helper/acoustic inputs, and passing zero-render tests. A pure preflight module is imported by both the CLI wrapper and phase runner; it must not import either runner. Do not re-sign old evidence or treat a changed acoustic input as a verifier-only change.
 
+
+For Stage3E search-v1, the v2 compatibility record pins an accepted verifier commit as a minimum ancestor anchor. Require the immutable v1 verifier-fix commit to be its ancestor and the accepted commit to be an ancestor of current `HEAD`; never require exact `HEAD` equality or reissue v2 for later docs/status/test-only descendants. During search, changes to pinned verifier modules, capture helper, diagnostic WASM, candidate inputs, or search semantics are a hard identity blocker.
+
 ## Cell completion
 
 A cell may transition to `COMPLETE` only after all of these steps succeed:
