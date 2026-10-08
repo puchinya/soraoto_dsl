@@ -41,6 +41,11 @@ function sidecarRoots(roots){return {primary:path.join(roots.primary,RECOVERY_DI
 function currentHead(root){return execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();}
 function counts(ledger){return Object.fromEntries(['PENDING','IN_PROGRESS','COMPLETE'].map(state=>[state,Object.values(ledger.cells||{}).filter(row=>row.state===state).length]));}
 function error(token,detail){throw new Error(`${token}: ${detail}`);}
+function lowLedgerIdentityMatchesManifest(ledgerIdentity,manifest){
+  const base=manifest?.identity,referenceSetSha256=base?.referenceSetSha256;
+  if(typeof referenceSetSha256!=='string'||!/^[0-9a-f]{64}$/.test(referenceSetSha256))return false;
+  return same(ledgerIdentity,generation2.lowPhaseIdentity(base,referenceSetSha256));
+}
 function priorExecutionLogMatches(bytes,prior){
   if(!Buffer.isBuffer(bytes)||!prior||typeof prior.content!=='string'||!Number.isInteger(prior.sizeBytes)||
      !/^[0-9a-f]{64}$/.test(prior.sha256||'')||sha256(bytes)!==prior.sha256||bytes.length!==prior.sizeBytes)return false;
@@ -86,7 +91,7 @@ function readOriginalArtifacts({root=ROOT,home=process.env.HOME}={}){
     error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','immutable pre-abort ledger snapshot does not match current ledger');
   const ledger=JSON.parse(ledgerFile.bytes.toString('utf8')),cells=search.expectedLowScreenCells();
   if(ledger.authorizedCellCount!==1512||!same(Object.keys(ledger.cells||{}),cells.map(cell=>cell.key))||
-     !same(ledger.identity,manifest.identity)||ledger.accounting?.renderCalls!==0||!same(counts(ledger),{PENDING:1511,IN_PROGRESS:1,COMPLETE:0}))
+     !lowLedgerIdentityMatchesManifest(ledger.identity,manifest)||ledger.accounting?.renderCalls!==0||!same(counts(ledger),{PENDING:1511,IN_PROGRESS:1,COMPLETE:0}))
     error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','low ledger state/count/order changed');
   const inProgress=Object.entries(ledger.cells).filter(([,row])=>row.state==='IN_PROGRESS');
   if(inProgress.length!==1||inProgress[0][0]!==TARGET_KEY||!same(inProgress[0][1].identity,TARGET))
@@ -345,5 +350,5 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`${error
 
 module.exports={ROOT,RECOVERY_DIR,PRE_ABORT_LEDGER,FORENSIC,AUTHORIZATION,RESULT,ARCHIVE,TARGET_KEY,OLD_HEAD,OLD_LEDGER_SHA256,
   FORENSIC_SHA256,V1_SHA256,V2_SHA256,TARGET,sha256,jsonBytes,stable,same,rootPaths,sidecarRoots,counts,validateAbortForensic,
-  priorExecutionLogMatches,readOriginalArtifacts,readAndValidateBridge,createCompatibilityV3,recoveryLedger,verifyRecoveredState,verifyBridgeAndPreAbort,
+  lowLedgerIdentityMatchesManifest,priorExecutionLogMatches,readOriginalArtifacts,readAndValidateBridge,createCompatibilityV3,recoveryLedger,verifyRecoveredState,verifyBridgeAndPreAbort,
   executeRecovery,dryRun,run,main};

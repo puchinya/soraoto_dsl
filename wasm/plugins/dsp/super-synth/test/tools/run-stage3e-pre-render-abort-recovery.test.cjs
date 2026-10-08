@@ -5,6 +5,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 const {execFileSync}=require('node:child_process');
 const recovery=require('./run-stage3e-pre-render-abort-recovery.cjs');
+const generation2=require('./run-stage3e-generation2.cjs');
 
 const OLD_HELPER='wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs';
 
@@ -63,6 +64,15 @@ assert.deepEqual(reproduceOriginalAbort(),{
   assert.equal(recovery.priorExecutionLogMatches(Buffer.from(content),prior),false,'truncated bytes do not match the recorded SHA/size');
   assert.equal(recovery.priorExecutionLogMatches(Buffer.from(content+'\n\n'),prior),false,'more than one trailing LF is not accepted');
   assert.equal(recovery.priorExecutionLogMatches(Buffer.from(content+' changed\n'),prior),false,'changed log bytes are rejected');
+}
+
+{
+  const manifest={identity:{candidateId:'stage3e-gen2',referenceSetSha256:'a'.repeat(64)}};
+  const expected=generation2.lowPhaseIdentity(manifest.identity,manifest.identity.referenceSetSha256);
+  assert.equal(recovery.lowLedgerIdentityMatchesManifest(expected,manifest),true,'the low ledger binds the manifest through its full phase-specific identity');
+  assert.equal(recovery.lowLedgerIdentityMatchesManifest(manifest.identity,manifest),false,'the unextended manifest identity is not the low ledger identity');
+  const changed={...expected,phase:'mid'};
+  assert.equal(recovery.lowLedgerIdentityMatchesManifest(changed,manifest),false,'another phase identity is rejected');
 }
 
 {
