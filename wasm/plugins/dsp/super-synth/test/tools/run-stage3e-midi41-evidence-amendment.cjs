@@ -270,6 +270,17 @@ function currentBuildIdentities({root=ROOT,baseline}={}){
 }
 function normalizeMeasurementOnlyCaptureSource(source){
   return source
+    .replace(/function requireResponse\(values\)\{[\s\S]*?\n\}/,'function requireResponse(values){/* canonical response validation */}')
+    .replace(/function render\(pitch,velocity,response=(?:\[1,1,1\]|DEFAULT_RESPONSE),options=\{\}\)/,
+      'function render(pitch,velocity,response=DEFAULT_RESPONSE,options={})')
+    .replace(/function renderNormalized\(pitch,velocityNormalized,response=(?:\[1,1,1\]|DEFAULT_RESPONSE),options=\{\}\)\{[\s\S]*?(?=\n  const harness=)/,
+      'function renderNormalized(pitch,velocityNormalized,response=DEFAULT_RESPONSE,options={}){')
+    .replace(/function captureMatrix\(\{rows,response=(?:\[1,1,1\]|DEFAULT_RESPONSE),parameters=\{\},renderCell=render\}=\{\}\)/,
+      'function captureMatrix({rows,response=DEFAULT_RESPONSE,parameters={},renderCell=render}={})')
+    .replace('e.soraoto_supersynth_stage3e_set_velocity_response(...response)',
+      'e.soraoto_supersynth_stage3e_set_velocity_response(response.low,response.mid,response.bassHardness)')
+    .replace('metrics.stage3eVelocityResponse={low:response[0],mid:response[1],bassHardness:response[2]};',
+      'metrics.stage3eVelocityResponse={low:response.low,mid:response.mid,bassHardness:response.bassHardness};')
     .replace(/function velocityDerivativeWindow\([\s\S]*?\nfunction render\(/,'function render(')
     .replace('  if(options.includeVelocityDerivative)velocityDerivativeWindow(options);\n','')
     .replace('    applyVelocityDerivative(metrics,left,options);\n','')
@@ -277,11 +288,31 @@ function normalizeMeasurementOnlyCaptureSource(source){
     .replace(/\.\.\.derivativeOptions/g,'')
     .replace(/(velocityNormalized:row\.velocityNormalized),\}/g,'$1}')
     .replace(/\{parameters,\}/g,'{parameters}')
-    .replace(',velocityDerivativeWindow,derivative,applyVelocityDerivative','');
+    .replace(',velocityDerivativeWindow,derivative,applyVelocityDerivative','')
+    .replace(',DEFAULT_RESPONSE,requireResponse,validateCaptureRequest',',requireResponse');
+}
+function assertNamedObjectCaptureApi(source){
+  const required=[
+    'const low=values.low,mid=values.mid,bass=values.bassHardness;',
+    'return {low,mid,bassHardness:bass};',
+    'const DEFAULT_RESPONSE=Object.freeze({low:1,mid:1,bassHardness:1});',
+    'response=validateCaptureRequest(pitch,velocityNormalized,response,options);',
+    'e.soraoto_supersynth_stage3e_set_velocity_response(response.low,response.mid,response.bassHardness)',
+    'metrics.stage3eVelocityResponse={low:response.low,mid:response.mid,bassHardness:response.bassHardness};',
+  ];
+  if(required.some(fragment=>!source.includes(fragment))||source.includes('Object.values(response)')||
+     !/function render\(pitch,velocity,response=DEFAULT_RESPONSE,options=\{\}\)/.test(source)||
+     !/function renderNormalized\(pitch,velocityNormalized,response=DEFAULT_RESPONSE,options=\{\}\)/.test(source))
+    throw new Error('BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT: named response API differs from the authorized Stage3E contract');
+  const requestCheck=source.indexOf('response=validateCaptureRequest(pitch,velocityNormalized,response,options);');
+  const harnessCreate=source.indexOf('new PluginHarness',requestCheck);
+  if(requestCheck<0||harnessCreate<0)throw new Error('BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT: response validation is not before audio harness creation');
+  return true;
 }
 function assertMeasurementOnlyCaptureChange(root,baseline){
   const old=creatorBlob(root,CREATOR_REVISION,CREATOR_PATHS.capture).toString('utf8');
   const current=fs.readFileSync(path.join(root,CREATOR_PATHS.capture),'utf8');
+  assertNamedObjectCaptureApi(current);
   if(normalizeMeasurementOnlyCaptureSource(old)!==normalizeMeasurementOnlyCaptureSource(current)||
     baseline.candidateIdentityProof.creatorRecomputedIdentity.diagnosticWasmSha256!==STAGE3E_WASM_SHA256)
     throw new Error('BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT: capture change is not measurement-only');
@@ -701,7 +732,7 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`${error
 module.exports={ROOT,EXECUTION_ID,AMENDMENT_ID,AMENDMENT_RELATIVE,IDENTITY_PROOF_FILE,CREATOR_REVISION,CANDIDATE_ID,SOURCE_AUDIT_SHA256,REFERENCE_SHA256,REFERENCE_MANIFEST_SHA256,GENERATION2_LEDGER_SHA256,
   STAGE3D_WASM_SHA256,STAGE3E_WASM_SHA256,HISTORICAL_PRODUCTION,STAGE3E_AUDIO_IDENTITY_KEYS,STAGE3A_DERIVATIVES,MIDI41,TOLERANCE,sha256,fileSha,jsonBytes,stable,same,
   stage3eRoots,amendmentRoots,generation2Roots,surrogateRoots,stage3dBuildRoot,assertSourceAudit,fileInventory,rowKey,missingDerivative,loadBaselineRows,
-  creatorBlob,verifyGeneration2CreatorIdentity,sameSideCandidateIdentity,currentBuildIdentities,normalizeMeasurementOnlyCaptureSource,assertMeasurementOnlyCaptureChange,parseTrackedDiffNames,changedTrackedFiles,
+  creatorBlob,verifyGeneration2CreatorIdentity,sameSideCandidateIdentity,currentBuildIdentities,normalizeMeasurementOnlyCaptureSource,assertNamedObjectCaptureApi,assertMeasurementOnlyCaptureChange,parseTrackedDiffNames,changedTrackedFiles,
   makeIdentityProofPayload,identityProofRoots,validateIdentityProofBytes,assertPreAmendmentIdentityProof,proveIdentity,
   exactSupplementIdentities,makeAuthorization,makeCaptureIdentity,assertCurrentCaptureIdentity,assertAuthorization,
   freshLedger,ledgerCounts,compareOriginalMetrics,validateSupplementCell,assertLedger,loadOrCreateImmutable,initialize,loadLedgerOrCreate,

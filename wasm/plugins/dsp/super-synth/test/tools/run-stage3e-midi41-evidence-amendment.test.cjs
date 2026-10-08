@@ -56,6 +56,16 @@ function baselineFixture(){
     /BLOCKED_STAGE3E_ORIGINAL_CANDIDATE_IDENTITY_UNPROVEN/);
   assert.deepEqual(amendment.parseTrackedDiffNames('Changes:\nfile-a\nfile-b\n'),['file-a','file-b'],
     'RTK summary headings are not treated as changed repository paths');
+  const oldCapture=amendment.creatorBlob(amendment.ROOT,amendment.CREATOR_REVISION,
+    'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs').toString('utf8');
+  const currentCapture=fs.readFileSync(path.join(amendment.ROOT,'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs'),'utf8');
+  assert.equal(amendment.assertNamedObjectCaptureApi(currentCapture),true);
+  assert.equal(amendment.normalizeMeasurementOnlyCaptureSource(oldCapture),amendment.normalizeMeasurementOnlyCaptureSource(currentCapture),
+    'the v8 named-object request correction and derivative measurement are the only capture-helper changes');
+  const unrelatedCaptureChange=currentCapture.replace('const count=Math.floor(SAMPLE_RATE*DURATION_MS/1000)',
+    'const count=Math.floor(SAMPLE_RATE*DURATION_MS/1000)+1');
+  assert.notEqual(amendment.normalizeMeasurementOnlyCaptureSource(oldCapture),amendment.normalizeMeasurementOnlyCaptureSource(unrelatedCaptureChange),
+    'unrelated audio-frame changes remain outside the authorized capture correction');
   const proofBytes=amendment.jsonBytes({decision:'STAGE3E_MEASUREMENT_IDENTITY_SCOPES_VERIFIED',creatorRevision:amendment.CREATOR_REVISION});
   const proofSha=amendment.sha256(proofBytes);
   assert.equal(amendment.validateIdentityProofBytes(proofBytes,proofSha).decision,'STAGE3E_MEASUREMENT_IDENTITY_SCOPES_VERIFIED');
