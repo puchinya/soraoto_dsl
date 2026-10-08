@@ -329,7 +329,7 @@ function makeIdentityProofPayload({audit,baseline,buildIdentity,root=ROOT,execut
     acceptedEvidence:{surrogateResultSha256:REFERENCE_SHA256,surrogateManifestSha256:REFERENCE_MANIFEST_SHA256,
       surrogateLedgerSha256:baseline.referenceLedgerSha256,generation2ManifestSha256:baseline.generation2ManifestSha256,
       generation2LedgerSha256:GENERATION2_LEDGER_SHA256,originalCellCount:24,nonDerivativeMaxDifference:baseline.maxNonDerivativeDifference,
-      surrogateCells,generation2Cells},surrogateMidi41Derivatives:derivatives,
+      surrogateCells,generation2Cells:gen2Cells},surrogateMidi41Derivatives:derivatives,
     authorizedSupplementIdentities:exactSupplementIdentities(baseline),maxAdditionalAcousticCalls:6,
     expectedSupplementAcousticCalls:exactSupplementIdentities(baseline).length,productionCandidateDelta:0,stage3Calls:0,stage4Calls:0};
 }
