@@ -501,8 +501,10 @@ function assertCurrentCaptureIdentity(expected,{root=ROOT,home=process.env.HOME,
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: immutable measurement identity binding changed');
   for(const key of ['authoritativeProductionWasmSha256','historicalProductionIdentity','stage3dWasmSha256','stage3eWasmSha256',
     'stage3dSourceSha256','stage3eSourceSha256','stage3dCaptureHelperSha256','sampleRate','durationMs',
-    'stage2mFactorMask','stage3dVariant','baselineResponse'])
+    'stage2mFactorMask','stage3dVariant'])
     if(!same(historicalBuild?.[key],buildIdentity[key]))throw new Error(`BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: acoustic identity changed: ${key}`);
+  if(!same(canonicalOriginalResponse(historicalBuild?.baselineResponse),canonicalOriginalResponse(buildIdentity.baselineResponse)))
+    throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: baseline response identity changed');
   assertMeasurementOnlyCaptureChange(root,baseline);
   const currentHead=buildIdentity.sourceRevision;
   try{execFileSync('rtk',['git','merge-base','--is-ancestor',expected.executionSourceRevision,currentHead],{cwd:root,stdio:'ignore'});}catch{throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: current HEAD is not descended from capture commit');}
@@ -536,8 +538,10 @@ function assertExistingAmendmentIdentity({auth,captureIdentity,audit,baseline,cu
   if(!same(currentAudio,proofPayload.identityDomains.stage3eGeneration2Candidate.currentAudioIdentity))fail('current candidate audio identity changed');
   for(const key of ['authoritativeProductionWasmSha256','historicalProductionIdentity','stage3dWasmSha256','stage3eWasmSha256',
     'stage3dSourceSha256','stage3eSourceSha256','stage3dCaptureHelperSha256','sampleRate','durationMs',
-    'stage2mFactorMask','stage3dVariant','baselineResponse'])
+    'stage2mFactorMask','stage3dVariant'])
     if(!same(historicalBuild[key],currentBuildIdentity[key]))fail(`acoustic identity changed: ${key}`);
+  if(!same(canonicalOriginalResponse(historicalBuild.baselineResponse),canonicalOriginalResponse(currentBuildIdentity.baselineResponse)))
+    fail('baseline response identity changed');
   const expectedAuth=makeAuthorization({audit,baseline,buildIdentity:historicalBuild,identityProofSha256});
   if(!same(auth,expectedAuth))fail('immutable authorization fields disagree with original identity');
   const expectedCapture=makeCaptureIdentity({baseline,buildIdentity:historicalBuild,
