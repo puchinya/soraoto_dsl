@@ -93,9 +93,13 @@ function fixedInventorySha(sourceAudit){
   const inventory=sourceAudit&&sourceAudit.immutablePreexistingFileInventory;
   const primary=inventory&&inventory.primary&&inventory.primary.files;
   const secondary=inventory&&inventory.secondary&&inventory.secondary.files;
-  if(!Array.isArray(primary)||primary.length!==35||!Array.isArray(secondary)||secondary.length!==35||!same(primary,secondary))
-    fail('fixed 35-file inventory is unavailable or differs between stores','BLOCKED_STAGE3E_AMENDMENT_EVIDENCE');
-  return jsonDigest(primary);
+  const identityFields=files=>Array.isArray(files)?files.map(({path,sizeBytes,sha256})=>({path,sizeBytes,sha256})).sort((a,b)=>a.path.localeCompare(b.path)):null;
+  const primaryIdentity=identityFields(primary),secondaryIdentity=identityFields(secondary);
+  const valid=files=>Array.isArray(files)&&files.length===35&&new Set(files.map(item=>item.path)).size===35&&
+    files.every(item=>typeof item.path==='string'&&Number.isSafeInteger(item.sizeBytes)&&item.sizeBytes>=0&&/^[0-9a-f]{64}$/.test(item.sha256||''));
+  if(!valid(primary)||!valid(secondary)||!same(primaryIdentity,secondaryIdentity))
+    fail('fixed 35-file path/size/SHA inventory is unavailable or differs between stores','BLOCKED_STAGE3E_AMENDMENT_EVIDENCE');
+  return jsonDigest(primaryIdentity);
 }
 function validateV1(v1,sha){
   if(sha!==V1_SHA256||!v1||v1.schemaVersion!==1||v1.decision!=='STAGE3E_SEARCH_VERIFIER_COMPATIBLE'||

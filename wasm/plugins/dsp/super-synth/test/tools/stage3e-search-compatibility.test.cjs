@@ -40,6 +40,15 @@ function isAncestor(_root,from,to){
 function validate(change={},head=accepted,currentArtifacts=artifacts){return compatibility.validateRecord({root,compatibility:{...record,...change},
   v1,v1Sha256:compatibility.V1_SHA256,manifestIdentity,sourceAuditSha256:validator.SOURCE_AUDIT_SHA256,
   inventorySha256:'a'.repeat(64),artifacts:currentArtifacts,diff,head,isAncestorCheck:isAncestor,assertClean:()=>true});}
+
+const inventoryFiles=Array.from({length:35},(_,index)=>({path:`original/${String(index).padStart(2,'0')}.json`,
+  sizeBytes:index,sha256:String(index).padStart(64,'0'),mtimeNs:String(1000+index)}));
+const inventorySource={immutablePreexistingFileInventory:{primary:{files:inventoryFiles},
+  secondary:{files:inventoryFiles.map(file=>({...file,mtimeNs:String(Number(file.mtimeNs)+100)}))}}};
+assert.equal(compatibility.fixedInventorySha(inventorySource),compatibility.jsonDigest(inventoryFiles.map(({path,sizeBytes,sha256})=>({path,sizeBytes,sha256}))));
+assert.throws(()=>compatibility.fixedInventorySha({...inventorySource,immutablePreexistingFileInventory:{
+  ...inventorySource.immutablePreexistingFileInventory,secondary:{files:inventoryFiles.map((file,index)=>index===0?{...file,sha256:'f'.repeat(64)}:file)}}}),
+  /BLOCKED_STAGE3E_AMENDMENT_EVIDENCE/);
 assert.equal(validate().acceptedVerifierCommit,accepted);
 assert.equal(validate({},descendant).currentHead,descendant);
 assert.throws(()=>validate({},bad),/not an ancestor of current HEAD/);
