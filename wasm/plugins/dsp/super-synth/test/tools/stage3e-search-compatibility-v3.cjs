@@ -82,7 +82,7 @@ function buildRecord({root,manifest,manifestSha256,v1Sha256,v2Sha256,sourceAudit
     v1Sha256,v2Sha256,v2AcceptedCommit:V2_ACCEPTED_COMMIT,recoveryCommit,originalProofSha256:v2.PROOF_SHA256,originalManifestSha256:manifestSha256,
     bootstrapLedgerSha256:validator.LOW_GENESIS_SHA256,preAbortLedgerSha256:PRE_ABORT_LEDGER_SHA256,
     protectedStage3eWasmSha256:v2.STAGE3E_WASM_SHA256,fixed35InventorySha256:inventorySha256,
-    preRenderAbortEvidenceSha256,originalJournalSha256:preAbortEvidence.originalJournalSha256,
+    preRenderAbortEvidenceSha256:preAbortEvidenceSha256,originalJournalSha256:preAbortEvidence.originalJournalSha256,
     pinnedExecutorHashes:pinnedExecutorHashes(root),acousticCriticalInputs:acoustic,
     baselineAcceptance:{decision:'STAGE3E_GENERATION2_BASELINE_EQUIVALENT',effectiveCellCount:12,effectivePassCount:12,
       maximumDifference:0,tolerance:1e-6,amendmentResultSha256:v2.AMENDMENT_RESULT_SHA256},
