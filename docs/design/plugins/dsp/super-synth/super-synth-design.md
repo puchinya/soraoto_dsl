@@ -265,6 +265,12 @@ rebuild. That run contains 480 direct-reference cells plus six sentinels (486 ca
 pre-commit/non-authoritative duplicate matrix is run. Stage4 remains locked until authoritative
 Stage3 passes.
 
+The Stage3E master orchestrator is the sole execution entry point for the resumed search through
+review handoff. Its read-only preflight and phase dry-runs must pass before execution; low search,
+mid search, selection, focused regressions, selected-values commit, one authoritative Stage3 run,
+Stage4, and final review delivery are gated in that order. A failed acoustic or identity gate stops
+all later phases. Dry-run and verify modes do not write evidence or build artifacts.
+
 ### 5.3 Stage2L revision-2 string-loss and velocity-response model carried by Stage2N revision 3
 
 Stage2L introduced the internal revision-2 `grand_piano_v1` model; Stage2N carries its N/V equations

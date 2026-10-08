@@ -112,6 +112,7 @@ if(BUILD_TESTING AND SORAOTO_NODE_EXECUTABLE)
   set(SORAOTO_STAGE3E_EVIDENCE_TESTS
     durable-evidence.test.cjs
     capture-supersynth-stage3e-matrix.test.cjs
+    run-stage3e-master-orchestrator.test.cjs
     run-stage3e-velocity-response.test.cjs
     stage3e-generation2-core.test.cjs
     run-stage3e-generation2.test.cjs
