@@ -396,6 +396,18 @@ function canonicalOriginalResponse(value){
   if(value&&!Array.isArray(value)&&same(value,canonical))return canonical;
   throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: original response identity is not canonical');
 }
+function normalizeAuthorizationResponseDomain(value){
+  const normalized=JSON.parse(JSON.stringify(value));
+  if(!Array.isArray(normalized.authorizedCells))throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: authorization cells are missing');
+  normalized.authorizedCells=normalized.authorizedCells.map(cell=>({...cell,response:cell.response===null?null:canonicalOriginalResponse(cell.response)}));
+  return normalized;
+}
+function normalizeCaptureResponseDomain(value){
+  const normalized=JSON.parse(JSON.stringify(value));
+  if(!normalized.acousticControls)throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: capture acoustic controls are missing');
+  normalized.acousticControls.generation2Response=canonicalOriginalResponse(normalized.acousticControls.generation2Response);
+  return normalized;
+}
 function normalizeIdentityProofPayloadForV8(payload,{observedCaptureHelperSha256,historicalCaptureHelperSha256}={}){
   if(!payload||!historicalCaptureHelperSha256||payload.captureChange?.currentCaptureHelperSha256!==observedCaptureHelperSha256)
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: original capture-helper identity is unproven');
@@ -515,7 +527,8 @@ function assertAuthorization(auth,expected,{identityProofSha256}={}){
      auth.sourceEvidenceAuditSha256!==SOURCE_AUDIT_SHA256||auth.surrogateResultSha256!==REFERENCE_SHA256||
      auth.surrogateManifestSha256!==REFERENCE_MANIFEST_SHA256||auth.generation2BaselineLedgerSha256!==GENERATION2_LEDGER_SHA256||
      auth.preAmendmentIdentityProofSha256!==identityProofSha256||
-     !same(auth.authorizedCells,expected)||auth.authorizedRenderCount!==expected.length||auth.authorizedRenderCount>6||auth.maxAdditionalAcousticCalls!==6||
+     !same(normalizeAuthorizationResponseDomain({authorizedCells:auth.authorizedCells}),normalizeAuthorizationResponseDomain({authorizedCells:expected}))||
+     auth.authorizedRenderCount!==expected.length||auth.authorizedRenderCount>6||auth.maxAdditionalAcousticCalls!==6||
      auth.stage2mFactorMask!==3||auth.stage3dVariant!==0||!same(auth.velocityDerivativeWindowMs,[30,180])||auth.tolerance!==TOLERANCE)
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_RENDER_BUDGET');
   return auth;
@@ -543,10 +556,12 @@ function assertExistingAmendmentIdentity({auth,captureIdentity,audit,baseline,cu
   if(!same(canonicalOriginalResponse(historicalBuild.baselineResponse),canonicalOriginalResponse(currentBuildIdentity.baselineResponse)))
     fail('baseline response identity changed');
   const expectedAuth=makeAuthorization({audit,baseline,buildIdentity:historicalBuild,identityProofSha256});
-  if(!same(auth,expectedAuth))fail('immutable authorization fields disagree with original identity');
+  if(!same(normalizeAuthorizationResponseDomain(auth),normalizeAuthorizationResponseDomain(expectedAuth)))
+    fail('immutable authorization fields disagree with original identity');
   const expectedCapture=makeCaptureIdentity({baseline,buildIdentity:historicalBuild,
     authorizationSha256:sha256(jsonBytes(auth)),identityProofSha256});
-  if(!same(captureIdentity,expectedCapture))fail('immutable capture identity disagrees with authorization');
+  if(!same(normalizeCaptureResponseDomain(captureIdentity),normalizeCaptureResponseDomain(expectedCapture)))
+    fail('immutable capture identity disagrees with authorization');
   return {auth,captureIdentity,historicalBuild};
 }
 function freshLedger(auth,authorizationSha256,captureIdentity,captureIdentitySha256,now=()=>new Date().toISOString()){
@@ -760,7 +775,8 @@ module.exports={ROOT,EXECUTION_ID,AMENDMENT_ID,AMENDMENT_RELATIVE,IDENTITY_PROOF
   STAGE3D_WASM_SHA256,STAGE3E_WASM_SHA256,HISTORICAL_PRODUCTION,STAGE3E_AUDIO_IDENTITY_KEYS,STAGE3A_DERIVATIVES,MIDI41,TOLERANCE,sha256,fileSha,jsonBytes,stable,same,
   stage3eRoots,amendmentRoots,generation2Roots,surrogateRoots,stage3dBuildRoot,assertSourceAudit,fileInventory,rowKey,missingDerivative,loadBaselineRows,
   creatorBlob,verifyGeneration2CreatorIdentity,sameSideCandidateIdentity,currentBuildIdentities,normalizeMeasurementOnlyCaptureSource,assertNamedObjectCaptureApi,assertMeasurementOnlyCaptureChange,parseTrackedDiffNames,changedTrackedFiles,
-  makeIdentityProofPayload,identityProofRoots,validateIdentityProofBytes,canonicalOriginalResponse,normalizeIdentityProofPayloadForV8,assertPreAmendmentIdentityProof,proveIdentity,
+  makeIdentityProofPayload,identityProofRoots,validateIdentityProofBytes,canonicalOriginalResponse,normalizeAuthorizationResponseDomain,normalizeCaptureResponseDomain,
+  normalizeIdentityProofPayloadForV8,assertPreAmendmentIdentityProof,proveIdentity,
   exactSupplementIdentities,makeAuthorization,makeCaptureIdentity,assertCurrentCaptureIdentity,assertAuthorization,
   freshLedger,ledgerCounts,compareOriginalMetrics,validateSupplementCell,assertLedger,loadOrCreateImmutable,initialize,loadLedgerOrCreate,
   renderSupplement,effectiveRows,resultFromPersisted,verifyFinalized,dryRun,execute,finalize,verify,run,main};

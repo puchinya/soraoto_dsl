@@ -74,6 +74,12 @@ function baselineFixture(){
     {observedCaptureHelperSha256:'a'.repeat(64),historicalCaptureHelperSha256:'a'.repeat(64)}),/original response identity is not canonical/);
   assert.throws(()=>amendment.normalizeIdentityProofPayloadForV8(storedPayload,
     {observedCaptureHelperSha256:'c'.repeat(64),historicalCaptureHelperSha256:'a'.repeat(64)}),/original capture-helper identity is unproven/);
+  const oldAuthorization={authorizedCells:[{key:'g2-v250',response:[1,1,1]},{key:'surrogate-v250',response:null}]};
+  const newAuthorization={authorizedCells:[{key:'g2-v250',response:{...canonical}},{key:'surrogate-v250',response:null}]};
+  assert.deepEqual(amendment.normalizeAuthorizationResponseDomain(oldAuthorization),amendment.normalizeAuthorizationResponseDomain(newAuthorization));
+  assert.throws(()=>amendment.normalizeAuthorizationResponseDomain({authorizedCells:[{key:'g2-v250',response:[1,2,1]}]}),/original response identity is not canonical/);
+  assert.deepEqual(amendment.normalizeCaptureResponseDomain({acousticControls:{generation2Response:[1,1,1]}}),
+    amendment.normalizeCaptureResponseDomain({acousticControls:{generation2Response:canonical}}));
   const unrelatedCaptureChange=currentCapture.replace('const count=Math.floor(SAMPLE_RATE*DURATION_MS/1000)',
     'const count=Math.floor(SAMPLE_RATE*DURATION_MS/1000)+1');
   assert.notEqual(amendment.normalizeMeasurementOnlyCaptureSource(oldCapture),amendment.normalizeMeasurementOnlyCaptureSource(unrelatedCaptureChange),
