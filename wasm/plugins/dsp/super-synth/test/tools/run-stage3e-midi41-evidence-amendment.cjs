@@ -16,6 +16,7 @@ const ROOT=path.resolve(__dirname,'../../../../../../');
 const EXECUTION_ID='generation-2';
 const AMENDMENT_ID='midi41-derivative-amendment-v1';
 const AMENDMENT_RELATIVE=`generation-2/${AMENDMENT_ID}`;
+const STAGE3D_PLUGIN_WASM='plugins/dsp/super-synth/plugin.wasm';
 const SOURCE_AUDIT_SHA256='eda9e25c490162e4b46e8e72e98da25e84bfd4980afe16c1df773d9020c53560';
 const REFERENCE_SHA256='813a3069d384656419f1cf976c2b501a567909dfd2de5703fc58277f0096c0d8';
 const REFERENCE_MANIFEST_SHA256='1df4c3ce0f0ebf79a662a53aedd215a4240d73401f0dcf1d0cb217151df2b816';
@@ -153,7 +154,7 @@ function exactSupplementIdentities(baseline){
     velocityDerivativeWindowMs:[30,180],includeSoundboardDiagnostics:true})).sort((a,b)=>a.key.localeCompare(b.key));
 }
 function currentBuildIdentities({root=ROOT}={}){
-  const env=process.env.SORAOTO_WASM_BUILD_DIR,wasm3e=path.join(capture3e.buildRoot(root),capture3e.WASM),wasm3d=path.join(stage3dBuildRoot(root),capture3d.WASM);
+  const env=process.env.SORAOTO_WASM_BUILD_DIR,wasm3e=path.join(capture3e.buildRoot(root),capture3e.WASM),wasm3d=path.join(stage3dBuildRoot(root),STAGE3D_PLUGIN_WASM);
   if(env!==undefined)process.env.SORAOTO_WASM_BUILD_DIR=path.join(root,'build/wasm-stage3e');
   let stage3e;try{stage3e=capture3e.identity();}finally{if(env===undefined)delete process.env.SORAOTO_WASM_BUILD_DIR;else process.env.SORAOTO_WASM_BUILD_DIR=env;}
   const stage3dSha=fileSha(wasm3d),stage3eSha=fileSha(wasm3e);
