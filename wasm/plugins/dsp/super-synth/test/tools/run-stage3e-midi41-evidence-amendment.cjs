@@ -140,7 +140,7 @@ function loadBaselineRows({root=ROOT,home=process.env.HOME}={}){
   return {roots:{surrogate:sr,generation2:gr},referenceSet:ref.referenceSet,referenceSetSha256:ref.sha256,
     referenceManifestSha256:REFERENCE_MANIFEST_SHA256,referenceLedgerSha256:sha256(fs.readFileSync(path.join(sr.primary,'ledger.json'))),
     generation2ManifestSha256:genManifest.sha256,generation2BaselineLedgerSha256:GENERATION2_LEDGER_SHA256,
-    historicalGeneration2Identity,
+    historicalGeneration2Identity:historicalGen2Identity,
     historicalCaptureIdentity:{creatorRevision:historicalGen2Identity.creatorRevision,
       helperSha256:historicalGen2Identity.captureHelperSha256,runnerSha256:historicalGen2Identity.runnerSha256},
     productionProvenanceClassification:provenance.classification,refRows,genRows,refMissing,genMissing,maxNonDerivativeDifference};
