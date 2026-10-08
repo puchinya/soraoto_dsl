@@ -14,16 +14,16 @@ function setup(){
     SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS:'OFF',SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS:'ON'};
   fs.writeFileSync(path.join(build,'CMakeCache.txt'),Object.entries(flags).map(([k,v])=>`${k}:BOOL=${v}`).join('\n')+'\n');
   const old=process.env.SORAOTO_WASM_BUILD_DIR;process.env.SORAOTO_WASM_BUILD_DIR=build;
-  let response=[1,1,1];
+  let response={low:1,mid:1,bassHardness:1};
   const e={
     soraoto_supersynth_guard_hit_count:()=>0,
     soraoto_supersynth_stage2m_set_factor_mask:v=>v===3?0:-1,
     soraoto_supersynth_stage2m_get_factor_mask:()=>3,
     soraoto_supersynth_stage2m_hammer_diag_reset:()=>{},
     soraoto_supersynth_stage2m_hammer_diag_value:()=>0,
-    soraoto_supersynth_stage3e_set_velocity_response:(l,m,h)=>{if(![l,m,h].every(Number.isFinite)||l<.35||l>1||m<.35||m>1||h<0||h>2)return -1;response=[l,m,h];return 0;},
-    soraoto_supersynth_stage3e_get_low:()=>response[0],soraoto_supersynth_stage3e_get_mid:()=>response[1],
-    soraoto_supersynth_stage3e_get_bass_hardness:()=>response[2],
+    soraoto_supersynth_stage3e_set_velocity_response:(l,m,h)=>{if(![l,m,h].every(Number.isFinite)||l<.35||l>1||m<.35||m>1||h<0||h>2)return -1;response={low:l,mid:m,bassHardness:h};return 0;},
+    soraoto_supersynth_stage3e_get_low:()=>response.low,soraoto_supersynth_stage3e_get_mid:()=>response.mid,
+    soraoto_supersynth_stage3e_get_bass_hardness:()=>response.bassHardness,
   };
   let closed=false;
   return {dir,build,old,e,get closed(){return closed;},restore(){if(old===undefined)delete process.env.SORAOTO_WASM_BUILD_DIR;else process.env.SORAOTO_WASM_BUILD_DIR=old;fs.rmSync(dir,{recursive:true,force:true});},factory:()=>({e,close(){closed=true;}})};
@@ -58,8 +58,13 @@ function stage3dDerivative(samples,startSeconds,endSeconds){
     assert.throws(()=>capture.preflightDiagnosticCapabilities({root:x.dir,harnessFactory:x.factory}),/mutually-exclusive/);
   }finally{x.restore();}
 }
-for(const tuple of [[.349,1,1],[1,1,2.001],[1,NaN,1]])assert.throws(()=>capture.requireResponse(tuple),/approved profile bounds/);
-assert.deepEqual(capture.requireResponse([1,1,1]),[1,1,1]);
+for(const response of [{low:.349,mid:1,bassHardness:1},{low:1,mid:1,bassHardness:2.001},{low:1,mid:NaN,bassHardness:1}])
+  assert.throws(()=>capture.requireResponse(response),/approved profile bounds/);
+assert.deepEqual(capture.requireResponse({low:1,mid:1,bassHardness:1}),{low:1,mid:1,bassHardness:1});
+for(const response of [[1,1,1],{low:1,mid:1},{low:1,mid:1,bassHardness:1,extra:0},null])
+  assert.throws(()=>capture.requireResponse(response),/canonical named object|exactly low, mid, and bassHardness/);
+assert.throws(()=>capture.validateCaptureRequest(36,.11,[1,1,1],{}),/canonical named object/);
+assert.deepEqual(capture.validateCaptureRequest(36,.11,{low:1,mid:1,bassHardness:0},{}),{low:1,mid:1,bassHardness:0});
 {
   const left=new Float32Array(capture.SAMPLE_RATE*capture.DURATION_MS/1000);
   for(let i=0;i<left.length;i++)left[i]=Math.sin(i*.031)+.2*Math.sin(i*.127);

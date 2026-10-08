@@ -12,6 +12,8 @@ const validator=require('./stage3e-evidence-validator.cjs');
 const search=require('./stage3e-search-core.cjs');
 const capture=require('./capture-supersynth-stage3e-matrix.cjs');
 const compatibilityV2=require('./stage3e-search-compatibility.cjs');
+const evidencePaths=require('./stage3e-evidence-paths.cjs');
+const compatibilityV3=require('./stage3e-search-compatibility-v3.cjs');
 
 const MANIFEST_SHA256=validator.SEARCH_MANIFEST_SHA256;
 const GENESIS_SHA256=validator.LOW_GENESIS_SHA256;
@@ -20,9 +22,10 @@ const AMENDMENT_RESULT_SHA256='690221637732fe46c4c7420254175b1b36720b181051b6c04
 const REFERENCE_SHA256='813a3069d384656419f1cf976c2b501a567909dfd2de5703fc58277f0096c0d8';
 const V1_COMPATIBILITY_RELATIVE='verifier-compatibility-v1.json';
 const COMPATIBILITY_RELATIVE=compatibilityV2.V2_RELATIVE;
-const GENESIS_RELATIVE='low/ledger-transition-journal/genesis-ledger.json';
-const GENESIS_RECORD_RELATIVE='low/ledger-transition-journal/genesis.json';
-const JOURNAL_RELATIVE='low/ledger-transition-journal';
+const COMPATIBILITY_V3_RELATIVE=compatibilityV3.RELATIVE;
+const GENESIS_RELATIVE='ledger-transition-journal/genesis-ledger.json';
+const GENESIS_RECORD_RELATIVE='ledger-transition-journal/genesis.json';
+const JOURNAL_RELATIVE='ledger-transition-journal';
 const ALLOWED_TRACKED_DIFFS=new Set([
   'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-midi41-evidence-amendment.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-midi41-evidence-amendment.test.cjs',
@@ -142,8 +145,8 @@ function validateCompatibility({root=search.ROOT,compatibility,manifestIdentity,
     sourceAuditSha256,inventorySha256,artifacts:artifacts||compatibilityV2.currentArtifacts(root),
     diff:fixedDiff,head:actualHead,isAncestorCheck,assertClean});
 }
-function readTransitionEntries(roots){
-  const primary=path.join(roots.primary,JOURNAL_RELATIVE),secondary=path.join(roots.secondary,JOURNAL_RELATIVE);
+function readTransitionEntries(roots,manifest){
+  const resolved=evidencePaths.resolveStage3eEvidencePaths(roots,manifest),primary=resolved.primary.journalRoot,secondary=resolved.secondary.journalRoot;
   if(!fs.existsSync(primary)&&!fs.existsSync(secondary))return [];
   if(!fs.existsSync(primary)||!fs.existsSync(secondary))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: partial transition journal');
   const names=fs.readdirSync(primary).filter(name=>/^transition-[0-9]{6}\.json$/.test(name)).sort();
@@ -151,15 +154,24 @@ function readTransitionEntries(roots){
   if(!same(names,secondNames))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: transition journal path sets differ');
   return names.map(name=>JSON.parse(durable.verifyDualCopy(path.join(primary,name),path.join(secondary,name)).bytes.toString('utf8')));
 }
-function validateSearchLedger({roots,manifestBytes,ledgerBytes,compatibilitySha256,proofSha256=PROOF_SHA256}={}){
+function readRenderStartEntries(roots,manifest){
+  const resolved=evidencePaths.resolveStage3eEvidencePaths(roots,manifest),primary=resolved.primary.journalRoot,secondary=resolved.secondary.journalRoot;
+  if(!fs.existsSync(primary)&&!fs.existsSync(secondary))return [];
+  if(!fs.existsSync(primary)||!fs.existsSync(secondary))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: partial render-start journal');
+  const pattern=/^render-start-[0-9]{6}\.json$/,names=fs.readdirSync(primary).filter(name=>pattern.test(name)).sort(),secondaryNames=fs.readdirSync(secondary).filter(name=>pattern.test(name)).sort();
+  if(!same(names,secondaryNames))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: render-start path sets differ');
+  return names.map(name=>{const stored=durable.verifyDualCopy(path.join(primary,name),path.join(secondary,name));return {...JSON.parse(stored.bytes.toString('utf8')),_sha256:stored.sha256};});
+}
+function validateSearchLedger({roots,manifestBytes,ledgerBytes,compatibilitySha256,historicalCompatibilitySha256,proofSha256=PROOF_SHA256}={}){
   const cells=search.expectedLowScreenCells(),ledger=JSON.parse(ledgerBytes.toString('utf8'));
   if(sha256(manifestBytes)!==MANIFEST_SHA256)throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: search manifest SHA mismatch');
   const manifest=JSON.parse(manifestBytes.toString('utf8'));
+  const resolved=evidencePaths.resolveStage3eEvidencePaths(roots,manifest);
   const expectedLedgerIdentity={...manifest.identity,phase:'low',referenceSetSha256:manifest.identity.referenceSetSha256,
     authorizedGrid:search.lowGridTuples(),screenCoordinates:search.lowScreenCells()};
-  const journal=path.join(roots.primary,JOURNAL_RELATIVE),journalSecondary=path.join(roots.secondary,JOURNAL_RELATIVE);
-  const snapshotPrimary=path.join(roots.primary,GENESIS_RELATIVE),snapshotSecondary=path.join(roots.secondary,GENESIS_RELATIVE);
-  const recordPrimary=path.join(roots.primary,GENESIS_RECORD_RELATIVE),recordSecondary=path.join(roots.secondary,GENESIS_RECORD_RELATIVE);
+  const journal=resolved.primary.journalRoot,journalSecondary=resolved.secondary.journalRoot;
+  const snapshotPrimary=resolved.primary.genesisLedger,snapshotSecondary=resolved.secondary.genesisLedger;
+  const recordPrimary=resolved.primary.genesisRecord,recordSecondary=resolved.secondary.genesisRecord;
   const snapshotExists=fs.existsSync(snapshotPrimary)||fs.existsSync(snapshotSecondary);
   const recordExists=fs.existsSync(recordPrimary)||fs.existsSync(recordSecondary);
   const journalExists=fs.existsSync(journal)||fs.existsSync(journalSecondary);
@@ -171,18 +183,20 @@ function validateSearchLedger({roots,manifestBytes,ledgerBytes,compatibilitySha2
   if(!snapshotExists||!recordExists||!fs.existsSync(snapshotPrimary)||!fs.existsSync(snapshotSecondary)||
      !fs.existsSync(recordPrimary)||!fs.existsSync(recordSecondary))
     throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: partial or absent low genesis snapshot/attestation');
-  const genesisFile=readDualBytes(roots,GENESIS_RELATIVE),recordFile=readDualBytes(roots,GENESIS_RECORD_RELATIVE);
+  const genesisFile=durable.verifyDualCopy(snapshotPrimary,snapshotSecondary),recordFile=durable.verifyDualCopy(recordPrimary,recordSecondary);
   const genesisRecord=JSON.parse(recordFile.bytes.toString('utf8'));
   if(genesisFile.sha256!==GENESIS_SHA256||genesisRecord.genesisLedgerSha256!==GENESIS_SHA256||
      genesisRecord.manifestSha256!==MANIFEST_SHA256||genesisRecord.proofSha256!==proofSha256||
-     genesisRecord.compatibilitySha256!==compatibilitySha256||genesisRecord.schemaVersion!==1||
+     genesisRecord.compatibilitySha256!==(historicalCompatibilitySha256||compatibilitySha256)||genesisRecord.schemaVersion!==1||
      genesisRecord.decision!=='STAGE3E_SEARCH_LEDGER_GENESIS'||genesisRecord.phase!=='low'||
      genesisRecord.authorizedCellCount!==1512||genesisRecord.renderCalls!==0||
      !same(genesisRecord.identity,ledger.identity)||!same(genesisRecord.identity,expectedLedgerIdentity))
     throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: genesis attestation identity mismatch');
-  const entries=readTransitionEntries(roots);
+  const entries=readTransitionEntries(roots,manifest),renderStarts=readRenderStartEntries(roots,manifest);
   const result=validator.validateLedgerTransitions({genesisLedgerBytes:genesisFile.bytes,currentLedgerBytes:ledgerBytes,
-    transitionEntries:entries,expectedCells:cells,bindings:{manifestSha256:MANIFEST_SHA256,proofSha256,compatibilitySha256}});
+    transitionEntries:entries,renderStartEntries:renderStarts,expectedCells:cells,bindings:{manifestSha256:MANIFEST_SHA256,proofSha256,
+      compatibilitySha256,acceptedCompatibilitySha256s:historicalCompatibilitySha256?[historicalCompatibilitySha256]:[],
+      recoveryCompatibilitySha256:compatibilitySha256}});
   if(result.inProgress!==0)throw new Error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: unresolved IN_PROGRESS cell');
   for(const cell of cells){
     const state=ledger.cells[cell.key];
@@ -212,12 +226,12 @@ function validateRuntimeIdentity({root=search.ROOT,home=process.env.HOME,manifes
   if(manifestStored.sha256!==MANIFEST_SHA256)throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: initial search manifest changed');
   const manifest=JSON.parse(manifestStored.bytes.toString('utf8'));
   if(!same(manifest.identity,manifestIdentity))throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: creator manifest identity changed');
-  const bundle=compatibilityV2.readBundle(roots);
-  if(bundle.sha256!==compatibilitySha256)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: v2 sidecar bytes changed');
-  const current=currentFiles(root),artifacts=compatibilityV2.currentArtifacts(root);
-  validateCompatibility({root,compatibility:bundle.record,manifestIdentity:manifest.identity,current,
-    sourceAudit:audit.audit,v1:bundle.v1,v1Sha256:bundle.v1Sha256,sourceAuditSha256:audit.sha256,
-    inventorySha256:compatibilityV2.fixedInventorySha(audit.audit),artifacts});
+  const v2Bundle=compatibilityV2.readBundle(roots),bundle=compatibilityV3.readBundle(roots);
+  if(bundle.sha256!==compatibilitySha256)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: v3 sidecar bytes changed');
+  const forensic=readDualBytes(roots,compatibilityV3.FORENSIC_RELATIVE);
+  compatibilityV3.validateRecord(bundle.record,{root,manifest,head:execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),
+    v1Sha256:v2Bundle.v1Sha256,v2Sha256:v2Bundle.sha256,sourceAuditSha256:audit.sha256,
+    inventorySha256:compatibilityV2.fixedInventorySha(audit.audit),preAbortEvidenceSha256:forensic.sha256});
   return {pass:true,identity:manifest.identity,compatibilitySha256,auditSha256:audit.sha256,amendmentResultSha256:amendmentResult.resultSha256};
 }
 function acquireWriterLock({root=search.ROOT,phase='low',executionIdentity}={}){
@@ -262,26 +276,31 @@ function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=
   const v2Files=[compatibilityV2.V2_RELATIVE,compatibilityV2.V2_SHA_RELATIVE,
     compatibilityV2.V2_ARCHIVE_RELATIVE,compatibilityV2.V2_ARCHIVE_SHA_RELATIVE];
   const v2Exists=v2Files.some(relative=>fs.existsSync(path.join(roots.primary,relative))||fs.existsSync(path.join(roots.secondary,relative)));
-  let compatibility=null,compatibilitySha256=null,bundle=null;
-  if(v2Exists){
-    bundle=compatibilityV2.readBundle(roots);compatibility=bundle.record;compatibilitySha256=bundle.sha256;
-    const current=currentFiles(root),artifacts=compatibilityV2.currentArtifacts(root);
-    validateCompatibility({root,compatibility,manifestIdentity:manifest.identity,current,sourceAudit:audit.audit,
-      v1:bundle.v1,v1Sha256:bundle.v1Sha256,sourceAuditSha256:audit.sha256,
-      inventorySha256:compatibilityV2.fixedInventorySha(audit.audit),artifacts});
-  }else if(requireCompatibility)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: v2 sidecar absent');
+  let compatibility=null,compatibilitySha256=null,bundle=null,v2Bundle=null;
+  if(v2Exists)v2Bundle=compatibilityV2.readBundle(roots);
+  else if(requireCompatibility)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: v2 sidecar absent');
+  const v3Files=[compatibilityV3.RELATIVE,compatibilityV3.SHA_RELATIVE,compatibilityV3.ARCHIVE_RELATIVE,compatibilityV3.ARCHIVE_SHA_RELATIVE];
+  const v3Exists=v3Files.some(relative=>fs.existsSync(path.join(roots.primary,relative))||fs.existsSync(path.join(roots.secondary,relative)));
+  if(v3Exists){
+    bundle=compatibilityV3.readBundle(roots);compatibility=bundle.record;compatibilitySha256=bundle.sha256;
+    const forensic=readDualBytes(roots,compatibilityV3.FORENSIC_RELATIVE);
+    compatibilityV3.validateRecord(bundle.record,{root,manifest,head:execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),
+      v1Sha256:v2Bundle?.v1Sha256,v2Sha256:v2Bundle?.sha256,sourceAuditSha256:audit.sha256,
+      inventorySha256:compatibilityV2.fixedInventorySha(audit.audit),preAbortEvidenceSha256:forensic.sha256});
+  }else if(requireCompatibility)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: v3 bridge absent');
   const ledgerStored=readDualBytes(roots,'low/low-ledger.json');
-  const ledgerSummary=validateSearchLedger({roots,manifestBytes:manifestStored.bytes,ledgerBytes:ledgerStored.bytes,compatibilitySha256});
+  const ledgerSummary=validateSearchLedger({roots,manifestBytes:manifestStored.bytes,ledgerBytes:ledgerStored.bytes,compatibilitySha256,
+    historicalCompatibilitySha256:v2Bundle?.sha256});
   const extras=audit.inventoryValidation;
   return {decision:'STAGE3E_SEARCH_PREFLIGHT_READY',builds:0,renders:0,acousticRenders:0,evidenceWrites:0,
     capability,auditSha256:audit.sha256,amendmentResultSha256:amendmentResult.resultSha256,
     manifestSha256:manifestStored.sha256,ledgerSha256:ledgerStored.sha256,ledgerSummary,
-    compatibilitySha256,compatibility,compatibilityArchiveSha256:bundle?.archiveSha256,
+    compatibilitySha256,compatibility,compatibilityArchiveSha256:bundle?.archiveSha256,historicalCompatibilitySha256:v2Bundle?.sha256,
     inventory:{frozenCount:extras.frozenCount,additionCount:extras.additionCount},
     roots,manifest,creatorIdentity:manifest.identity,currentVerifierIdentity:currentFiles(root),sourceAudit:audit.audit};
 }
 
-module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,
+module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,COMPATIBILITY_V3_RELATIVE,
   GENESIS_RELATIVE,GENESIS_RECORD_RELATIVE,JOURNAL_RELATIVE,ALLOWED_TRACKED_DIFFS,sha256,stable,same,searchRoots,currentFiles,
-  validateCompatibility,readTransitionEntries,validateSearchLedger,validateRuntimeIdentity,acquireWriterLock,
+  validateCompatibility,readTransitionEntries,readRenderStartEntries,validateSearchLedger,validateRuntimeIdentity,acquireWriterLock,
   trackedDiff,assertTrackedWorktreeClean,runCompatibilityTests,buildCompatibilityV2Record,preflight};

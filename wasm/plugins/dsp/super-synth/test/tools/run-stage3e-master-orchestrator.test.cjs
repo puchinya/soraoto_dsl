@@ -11,6 +11,8 @@ function fakeAdapters(overrides={}){
   const adapters={
     preflight:()=>{calls.push('preflight');return {decision:'READY'};},
     stage3eDryRun:()=>{calls.push('stage3eDryRun');return {decision:'READY',builds:0,renders:0,acousticRenders:0,evidenceWrites:0};},
+    phaseEntryDryRun:()=>{calls.push('phaseEntryDryRun');return {decision:'STAGE3E_PIPELINE_PHASES_DRY_RUN_READY',builds:0,renders:0,acousticRenders:0,evidenceWrites:0,
+      stage3:{authorizedRenderCount:486},stage4:{authorizedRenderCount:1423}};},
     low:()=>{calls.push('low');return {decision:'STAGE3E_LOW_RESPONSE_FAMILY_PASS'};},
     mid:()=>{calls.push('mid');return {decision:'STAGE3E_MID_RESPONSE_FAMILY_PASS'};},
     selection:()=>{calls.push('selection');return {decision:'STAGE3E_SELECTION_READY_FOR_PRODUCTION_PREFLIGHT',selection:{selected:{low:.8,mid:.9,bassHardness:1.1}}};},
@@ -34,7 +36,7 @@ function testDryRunIsReadOnlyAndStopsBeforeAnyExecution(){
   const result=master.runPipeline({mode:'--dry-run',adapters});
   assert.equal(result.decision,'STAGE3E_MASTER_DRY_RUN_READY');
   assert.equal(result.renders,0);assert.equal(result.builds,0);assert.equal(result.evidenceWrites,0);
-  assert.deepEqual(calls,['preflight','stage3eDryRun']);
+  assert.deepEqual(calls,['preflight','stage3eDryRun','phaseEntryDryRun']);
 }
 function testDryRunDoesNotReturnMutableLedgerPayload(){
   const {adapters}=fakeAdapters({stage3eDryRun:()=>({decision:'READY',builds:0,renders:0,acousticRenders:0,evidenceWrites:0,
@@ -74,6 +76,13 @@ function testMissingPreflightExportBlocksBeforeAnyPhase(){
 function testRealDependencyExportsAreImportable(){
   assert.equal(master.requirePreflightExports(),undefined);
 }
+function testRealStage3AndStage4PhaseSchemasAreReadOnly(){
+  const result=master.validatePipelinePhaseContracts();
+  assert.equal(result.decision,'STAGE3E_PIPELINE_PHASES_DRY_RUN_READY');
+  assert.equal(result.stage3.authorizedDirectCells,480);assert.equal(result.stage3.authorizedSentinels,6);
+  assert.equal(result.stage4.authorizedLifecycleCells,1408);assert.equal(result.stage4.authorizedRepeatCells,15);
+  assert.equal(result.builds,0);assert.equal(result.renders,0);assert.equal(result.evidenceWrites,0);
+}
 function testWrongRenderBudgetsFailClosed(){
   const {calls,adapters}=fakeAdapters({stage3Execute:()=>{calls.push('stage3Execute');return {renders:485};}});
   assert.throws(()=>master.runPipeline({mode:'--execute',adapters}),/spend exactly 486 calls/);
@@ -97,5 +106,5 @@ function testExclusiveMasterLockFailsClosed(){
 for(const test of [testDryRunIsReadOnlyAndStopsBeforeAnyExecution,testHappyPathGatesEveryPhaseAndReachesReview,
   testDryRunDoesNotReturnMutableLedgerPayload,testNoEligibleLowStopsBeforeMidOrLater,testStage3FailureNeverStartsStage4,
   testStage4FailureNeverStartsReview,testMissingPreflightExportBlocksBeforeAnyPhase,testRealDependencyExportsAreImportable,
-  testWrongRenderBudgetsFailClosed,testStage3eExportDetection,testExclusiveMasterLockFailsClosed])test();
+  testRealStage3AndStage4PhaseSchemasAreReadOnly,testWrongRenderBudgetsFailClosed,testStage3eExportDetection,testExclusiveMasterLockFailsClosed])test();
 process.stdout.write('Stage3E master-orchestrator tests passed\n');

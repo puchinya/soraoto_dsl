@@ -68,22 +68,22 @@ const validator=require('./stage3e-evidence-validator.cjs');
   const manifestBytes=fs.readFileSync(path.join(roots.primary,'generation-2-manifest.json'));
   const ledgerPath=path.join(roots.primary,'low/low-ledger.json');
   const currentLedgerBytes=fs.readFileSync(ledgerPath);
-  const journalDir=path.join(roots.primary,'low/ledger-transition-journal');
+  const journalDir=path.join(roots.primary,'ledger-transition-journal');
   const genesisPath=path.join(journalDir,'genesis-ledger.json');
   const genesisBytes=fs.existsSync(genesisPath)?fs.readFileSync(genesisPath):currentLedgerBytes;
   assert.equal(require('node:crypto').createHash('sha256').update(genesisBytes).digest('hex'),preflight.GENESIS_SHA256);
-  const live=preflight.validateSearchLedger({roots,manifestBytes,ledgerBytes:currentLedgerBytes,compatibilitySha256:'a'.repeat(64)});
-  assert.equal(live.inProgress,0);
-  assert.equal(live.pending+live.complete,1512);
+  assert.throws(()=>preflight.validateSearchLedger({roots,manifestBytes,ledgerBytes:currentLedgerBytes,compatibilitySha256:'a'.repeat(64)}),
+    /BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: genesis attestation identity mismatch|BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING/,
+    'the durable pre-render IN_PROGRESS row remains fail-closed until its authorized recovery');
   const base=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-genesis-fixture-'));
   const pRoot=path.join(base,'primary'),sRoot=path.join(base,'secondary');
   try{
     for(const evidenceRoot of [pRoot,sRoot]){
       fs.mkdirSync(path.join(evidenceRoot,'low'),{recursive:true});
-      fs.mkdirSync(path.join(evidenceRoot,'low/ledger-transition-journal'),{recursive:true});
+      fs.mkdirSync(path.join(evidenceRoot,'ledger-transition-journal'),{recursive:true});
       fs.writeFileSync(path.join(evidenceRoot,'generation-2-manifest.json'),manifestBytes);
       fs.writeFileSync(path.join(evidenceRoot,'low/low-ledger.json'),genesisBytes);
-      fs.writeFileSync(path.join(evidenceRoot,'low/ledger-transition-journal/genesis-ledger.json'),genesisBytes);
+      fs.writeFileSync(path.join(evidenceRoot,'ledger-transition-journal/genesis-ledger.json'),genesisBytes);
     }
     const ledger=JSON.parse(genesisBytes.toString('utf8'));
     const attestation={schemaVersion:1,decision:'STAGE3E_SEARCH_LEDGER_GENESIS',phase:'low',
@@ -91,7 +91,7 @@ const validator=require('./stage3e-evidence-validator.cjs');
       proofSha256:preflight.PROOF_SHA256,compatibilitySha256:'a'.repeat(64),identity:ledger.identity,
       authorizedCellCount:1512,renderCalls:0};
     const recordBytes=Buffer.from(JSON.stringify(attestation));
-    for(const evidenceRoot of [pRoot,sRoot])fs.writeFileSync(path.join(evidenceRoot,'low/ledger-transition-journal/genesis.json'),recordBytes);
+    for(const evidenceRoot of [pRoot,sRoot])fs.writeFileSync(path.join(evidenceRoot,'ledger-transition-journal/genesis.json'),recordBytes);
     const accepted=preflight.validateSearchLedger({roots:{primary:pRoot,secondary:sRoot},manifestBytes,
       ledgerBytes:genesisBytes,compatibilitySha256:'a'.repeat(64)});
     assert.equal(accepted.genesisRequired,false,'raw ledger snapshot and attestation are separate files');

@@ -32,6 +32,10 @@ When only verifier code changes after an acoustic creator has produced evidence,
 
 For Stage3E search-v1, the v2 compatibility record pins an accepted verifier commit as a minimum ancestor anchor. Require the immutable v1 verifier-fix commit to be its ancestor and the accepted commit to be an ancestor of current `HEAD`; never require exact `HEAD` equality or reissue v2 for later docs/status/test-only descendants. During search, changes to pinned verifier modules, capture helper, diagnostic WASM, candidate inputs, or search semantics are a hard identity blocker.
 
+The one-time pre-render-abort recovery is limited to the forensic-bound MIDI 36 / velocity 14 low-screen row whose original error occurred before `PluginHarness` construction. Preserve the dual-copy pre-abort ledger snapshot and append `ABORTED_BEFORE_RENDER` followed by `REQUEUE_AUTHORIZED`; never reset any other `IN_PROGRESS` row. The v3 bridge is created once after the verifier fix is committed, binds that commit and the unchanged acoustic identity, and remains valid for descendant commits while all pinned executor hashes match.
+
+Before a Stage3E cell enters `IN_PROGRESS`, validate the complete named response object `{low, mid, bassHardness}`, normalized velocity, MIDI coordinate, capture options, and helper request without constructing a render harness. Bind and dual-save a render-start marker before the first audio `process()` call. A synchronous pre-marker failure is recoverable only when the same execution records the exact abort; any interruption after the marker or any unknown render accounting remains blocked.
+
 ## Cell completion
 
 A cell may transition to `COMPLETE` only after all of these steps succeed:

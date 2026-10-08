@@ -13,6 +13,7 @@ const historical=require('./run-stage3e-historical-reference-requalification.cjs
 const midi41Amendment=require('./run-stage3e-midi41-evidence-amendment.cjs');
 const searchPreflight=require('./stage3e-preflight.cjs');
 const evidenceValidator=require('./stage3e-evidence-validator.cjs');
+const evidencePaths=require('./stage3e-evidence-paths.cjs');
 
 const ROOT=legacy.ROOT;
 const EXECUTION_ID='generation-2';
@@ -105,6 +106,11 @@ function loadLedger(roots,phase,identity,cells,{create=false}={}){
 }
 function writeCellState(roots,ledger){return writeDualJson(roots,`${ledger.phase}-ledger.json`,ledger);}
 function ledgerJournalRoots(base,relative='ledger-transition-journal'){
+  const primaryManifest=path.join(base.primary,'generation-2-manifest.json'),secondaryManifest=path.join(base.secondary,'generation-2-manifest.json');
+  if(relative==='ledger-transition-journal'&&fs.existsSync(primaryManifest)&&fs.existsSync(secondaryManifest)){
+    const manifest=readDualJson(base,'generation-2-manifest.json'),resolved=evidencePaths.resolveStage3eEvidencePaths(base,manifest);
+    return {primary:resolved.primary.journalRoot,secondary:resolved.secondary.journalRoot};
+  }
   return {primary:path.join(base.primary,relative),secondary:path.join(base.secondary,relative)};
 }
 function immutableDualBytes(roots,relative,bytes){
@@ -124,6 +130,13 @@ function transitionEntries(roots){
   const s=fs.readdirSync(roots.secondary).filter(name=>/^transition-[0-9]{6}\.json$/.test(name)).sort();
   if(!same(p,s))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: journal path sets differ');
   return p.map(name=>JSON.parse(durable.verifyDualCopy(path.join(roots.primary,name),path.join(roots.secondary,name)).bytes.toString('utf8')));
+}
+function renderStartEntries(roots){
+  if(!fs.existsSync(roots.primary)&&!fs.existsSync(roots.secondary))return [];
+  if(!fs.existsSync(roots.primary)||!fs.existsSync(roots.secondary))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: partial render-start journal');
+  const pattern=/^render-start-[0-9]{6}\.json$/,p=fs.readdirSync(roots.primary).filter(name=>pattern.test(name)).sort(),s=fs.readdirSync(roots.secondary).filter(name=>pattern.test(name)).sort();
+  if(!same(p,s))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: render-start journal path sets differ');
+  return p.map(name=>{const stored=durable.verifyDualCopy(path.join(roots.primary,name),path.join(roots.secondary,name));return {...JSON.parse(stored.bytes.toString('utf8')),_sha256:stored.sha256};});
 }
 function ensureLedgerGenesis({roots,ledger,identity,compatibilitySha256,journalRoots,manifestSha256,proofSha256}={}){
   const ledgerFile=`${ledger.phase}-ledger.json`,stored=durable.verifyDualCopy(path.join(roots.primary,ledgerFile),path.join(roots.secondary,ledgerFile));
@@ -151,7 +164,8 @@ function ensureLedgerGenesis({roots,ledger,identity,compatibilitySha256,journalR
   return {sha256:stored.sha256,bytes:stored.bytes,roots:ledgerPathRoots,records:[]};
 }
 function appendLedgerTransition({roots,ledger,cell,oldState,newState,previousRenderCount,newRenderCount,capturedCellSha256,
-  manifestSha256,proofSha256,compatibilitySha256,journalRoots}={}){
+  manifestSha256,proofSha256,compatibilitySha256,journalRoots,renderStartMarkerSha256=null,eventType=null,
+  recoveryAuthorizationSha256=null,recoveryResultSha256=null,abortEvidenceSha256=null,attemptIndex=null,abortedBeforeRenderCalls=null,oldCodeSha256=null,newCodeSha256=null}={}){
   const ledgerFile=`${ledger.phase}-ledger.json`,current=durable.verifyDualCopy(path.join(roots.primary,ledgerFile),path.join(roots.secondary,ledgerFile));
   const journal=journalRoots||ledgerJournalRoots(roots),entries=transitionEntries(journal);
   const genesis=durable.verifyDualCopy(path.join(journal.primary,'genesis-ledger.json'),path.join(journal.secondary,'genesis-ledger.json'));
@@ -162,9 +176,31 @@ function appendLedgerTransition({roots,ledger,cell,oldState,newState,previousRen
   const entry={schemaVersion:1,sequence:entries.length+1,previousLedgerSha256:oldSha,nextLedgerSha256:next.sha256,
     cellKey:cell.key,cellIdentity:cell,oldState,newState,previousRenderCount,newRenderCount,capturedCellSha256,
     manifestSha256,proofSha256,compatibilitySha256,transitionedAt:new Date().toISOString()};
+  if(renderStartMarkerSha256)entry.renderStartMarkerSha256=renderStartMarkerSha256;
+  if(eventType)entry.eventType=eventType;
+  if(recoveryAuthorizationSha256)entry.recoveryAuthorizationSha256=recoveryAuthorizationSha256;
+  if(abortEvidenceSha256)entry.abortEvidenceSha256=abortEvidenceSha256;
+  if(recoveryResultSha256)entry.recoveryResultSha256=recoveryResultSha256;
+  if(attemptIndex!==null)entry.attemptIndex=attemptIndex;
+  if(abortedBeforeRenderCalls!==null)entry.abortedBeforeRenderCalls=abortedBeforeRenderCalls;
+  if(oldCodeSha256)entry.oldCodeSha256=oldCodeSha256;
+  if(newCodeSha256)entry.newCodeSha256=newCodeSha256;
   const name=`transition-${String(entry.sequence).padStart(6,'0')}.json`;
   immutableDualJson(journal,name,entry);
   return {entry,previousLedgerSha256:oldSha,nextLedgerSha256:next.sha256,previousLedgerBytes:oldBytes};
+}
+function appendRenderStartMarker({journalRoots,ledger,cell,manifestSha256,proofSha256,compatibilitySha256,transition}={}){
+  if(!journalRoots||!transition?.entry||transition.entry.newState!=='IN_PROGRESS')
+    throw new Error('BLOCKED_STAGE3E_RENDER_START: PENDING to IN_PROGRESS journal transition is required');
+  const prefix='render-start-',names=fs.existsSync(journalRoots.primary)?fs.readdirSync(journalRoots.primary).filter(name=>/^render-start-[0-9]{6}\.json$/.test(name)).sort():[];
+  const secondaryNames=fs.existsSync(journalRoots.secondary)?fs.readdirSync(journalRoots.secondary).filter(name=>/^render-start-[0-9]{6}\.json$/.test(name)).sort():[];
+  if(!same(names,secondaryNames))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: render-start path sets differ');
+  const sequence=names.length+1,name=`${prefix}${String(sequence).padStart(6,'0')}.json`,marker={schemaVersion:1,kind:'STAGE3E_RENDER_START',sequence,
+    cellKey:cell.key,cellIdentity:cell,ledgerSha256:transition.nextLedgerSha256,transitionSequence:transition.entry.sequence,
+    transitionSha256:sha256(jsonBytes(transition.entry)),manifestSha256,proofSha256,compatibilitySha256,
+    renderCallIndex:ledger.accounting.renderCalls+1,startedAt:new Date().toISOString()};
+  const stored=immutableDualJson(journalRoots,name,marker);
+  return {relativePath:name,sha256:stored.sha256,marker};
 }
 function validateReferenceSet(roots){return core.loadFinalizedReferenceSet(roots);}
 function assertBaselineReferenceIdentity(currentSha256,expectedSha256){
@@ -172,34 +208,57 @@ function assertBaselineReferenceIdentity(currentSha256,expectedSha256){
   return currentSha256;
 }
 function renderOne(cell,response,capture){
-  const effectiveResponse=response??cell.response??[1,1,1];
+  const effectiveResponse=response??cell.response??capture.DEFAULT_RESPONSE;
+  const options=captureOptionsForCell(cell);
   if(cell.velocityNormalized!==undefined){
-    const diagnostics=cell.pitch===41||cell.phase==='baseline';
-    const captured=capture.renderNormalized(cell.pitch,cell.velocityNormalized,effectiveResponse,{stage2mFactorMask:diagnostics?3:undefined,
-      includeVelocityDerivative:cell.pitch===41,velocityDerivativeStartMs:30,velocityDerivativeEndMs:180,
-      includeSoundboardDiagnostics:diagnostics});
+    const captured=capture.renderNormalized(cell.pitch,cell.velocityNormalized,effectiveResponse,options);
     return {pitch:cell.pitch,velocity:Math.round(cell.velocityNormalized*127),velocityNormalized:cell.velocityNormalized,kind:cell.kind||'search',metrics:captured.metrics};
   }
-  const captured=capture.render(cell.pitch,cell.velocity,effectiveResponse,{});return {pitch:cell.pitch,velocity:cell.velocity,velocityNormalized:cell.velocity/127,kind:cell.kind||'search',metrics:captured.metrics};
+  const captured=capture.render(cell.pitch,cell.velocity,effectiveResponse,options);return {pitch:cell.pitch,velocity:cell.velocity,velocityNormalized:cell.velocity/127,kind:cell.kind||'search',metrics:captured.metrics};
+}
+function captureOptionsForCell(cell){
+  const diagnostics=cell.pitch===41||cell.phase==='baseline';
+  return {stage2mFactorMask:diagnostics?3:undefined,includeVelocityDerivative:cell.pitch===41,
+    velocityDerivativeStartMs:30,velocityDerivativeEndMs:180,includeSoundboardDiagnostics:diagnostics};
 }
 function capturePhaseRows({roots,ledger,cells,identity,capture= captureDefaults,render=renderOne,response,identityNow,
   now=()=>new Date().toISOString(),journalContext=null}={}){
   let calls=0;
+  for(const cell of cells){
+    const state=ledger.cells[cell.key];
+    if(!state)throw new Error(`BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: missing ledger row ${cell.key}`);
+    if(state.state==='COMPLETE')continue;
+    if(state.state!=='PENDING')throw new Error(`BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: ${cell.key} is ${state.state}`);
+    const requestedResponse=response??cell.response??capture.DEFAULT_RESPONSE;
+    if(typeof capture.validateCaptureRequest==='function')
+      capture.validateCaptureRequest(cell.pitch,cell.velocityNormalized??cell.velocity/127,requestedResponse,captureOptionsForCell(cell));
+    else if(typeof capture.requireResponse==='function')capture.requireResponse(requestedResponse);
+  }
   if(journalContext)ensureLedgerGenesis({roots,ledger,identity,...journalContext});
   for(const cell of cells){
     const state=ledger.cells[cell.key];if(state.state==='COMPLETE')continue;
     if(state.state!=='PENDING')throw new Error(`BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: ${cell.key} is ${state.state}`);
     const current=identityNow();if(!sameExecutionIdentity(current,identity))throw new Error(`BLOCKED_STAGE3E_DIAGNOSTIC_BUILD_IDENTITY: identity drift before ${cell.key}`);
+    const effectiveResponse=response??cell.response??capture.DEFAULT_RESPONSE;
+    if(typeof capture.validateCaptureRequest==='function')
+      capture.validateCaptureRequest(cell.pitch,cell.velocityNormalized??cell.velocity/127,effectiveResponse,captureOptionsForCell(cell));
+    else if(typeof capture.requireResponse==='function')capture.requireResponse(effectiveResponse);
+    if(journalContext&&renderStartEntries(journalContext.journalRoots).some(marker=>marker.cellKey===cell.key))
+      throw new Error(`BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: prior render-start marker exists for ${cell.key}`);
     const previousRenderCount=ledger.accounting.renderCalls;
     state.state='IN_PROGRESS';state.startedAt=now();
-    if(journalContext)appendLedgerTransition({roots,ledger,cell,oldState:'PENDING',newState:'IN_PROGRESS',
-      previousRenderCount,newRenderCount:previousRenderCount,capturedCellSha256:null,...journalContext});
-    else writeCellState(roots,ledger);
-    const measured=render(cell,response??cell.response??[1,1,1],capture);const row={schemaVersion:1,cellKey:cell.key,cell,identity,pitch:measured.pitch,velocity:measured.velocity,velocityNormalized:measured.velocityNormalized,kind:measured.kind,metrics:measured.metrics,capturedAt:now()};
+    let renderStart=null;
+    if(journalContext){
+      const transition=appendLedgerTransition({roots,ledger,cell,oldState:'PENDING',newState:'IN_PROGRESS',
+        previousRenderCount,newRenderCount:previousRenderCount,capturedCellSha256:null,...journalContext});
+      renderStart=appendRenderStartMarker({journalRoots:journalContext.journalRoots,ledger,cell,...journalContext,transition});
+    }else writeCellState(roots,ledger);
+    const measured=render(cell,effectiveResponse,capture);const row={schemaVersion:1,cellKey:cell.key,cell,identity,pitch:measured.pitch,velocity:measured.velocity,velocityNormalized:measured.velocityNormalized,kind:measured.kind,metrics:measured.metrics,capturedAt:now()};
     const bytes=jsonBytes(row),sha=durable.writeDualCopy(path.join(roots.primary,state.relativePath),path.join(roots.secondary,state.relativePath),bytes);
     state.state='COMPLETE';state.sha256=sha.sha256;state.completedAt=now();ledger.accounting.renderCalls++;calls++;
     if(journalContext)appendLedgerTransition({roots,ledger,cell,oldState:'IN_PROGRESS',newState:'COMPLETE',
-      previousRenderCount,newRenderCount:ledger.accounting.renderCalls,capturedCellSha256:sha.sha256,...journalContext});
+      previousRenderCount,newRenderCount:ledger.accounting.renderCalls,capturedCellSha256:sha.sha256,
+      renderStartMarkerSha256:renderStart?.sha256,...journalContext});
     else writeCellState(roots,ledger);
   }
   return {ledger,calls,counts:ledgerCounts(ledger)};
@@ -241,11 +300,34 @@ function baselineCells(){
   return [...legacy.BASELINE_EQUIVALENCE_CELLS.map(([pitch,velocity])=>({kind:'production',pitch,velocity,velocityNormalized:velocity/127})),...legacy.MIDI41_NORMALIZED.map(velocityNormalized=>({kind:'stage3a',pitch:41,velocity:Math.round(velocityNormalized*127),velocityNormalized}))];
 }
 function buildFixtureMap(root){return core.loadReferenceFixture(root);}
-function makeResponse(tuple){return [tuple.low,tuple.mid,tuple.bassHardness];}
+function makeResponse(tuple){return {low:tuple.low,mid:tuple.mid,bassHardness:tuple.bassHardness};}
 function lowCandidateScreenCells(tuple){return [...legacy.lowScreenCells()].map(cell=>({...cell,response:{low:tuple.low,mid:1,bassHardness:tuple.bassHardness}}));}
 function midCandidateScreenCells(tuple){return [...legacy.midScreenCells()].map(cell=>({...cell,response:{low:tuple.low,mid:tuple.mid,bassHardness:tuple.bassHardness}}));}
 function fullCellsFor(tuple,pitches,phase){return [...legacy.gridCells(pitches,OFFICIAL_VELOCITIES)].map(cell=>({...cell,phase,response:{...tuple}}));}
 function fullLowCells(tuple){return [...fullCellsFor(tuple,[33,36,39,42,45],'low-full'),...legacy.MIDI41_NORMALIZED.map(velocityNormalized=>({phase:'low-full',pitch:41,velocity:Math.round(velocityNormalized*127),velocityNormalized,response:{...tuple}}))];}
+function validateCaptureCells(cells,capture=captureDefaults){
+  if(typeof capture?.validateCaptureRequest!=='function')throw new Error('BLOCKED_STAGE3E_CAPTURE_PREFLIGHT: pure capture request validator is unavailable');
+  for(const cell of cells){
+    const response=cell.response??capture.DEFAULT_RESPONSE;
+    capture.validateCaptureRequest(cell.pitch,cell.velocityNormalized??cell.velocity/127,response,captureOptionsForCell(cell));
+  }
+  return cells.length;
+}
+function validateAuthorizedSearchResponses(capture=captureDefaults){
+  let lowCount=0,lowFullCandidateCellCount=0,midCount=0,midFullCandidateCellCount=0;
+  for(const tuple of legacy.lowGridTuples()){
+    lowCount+=validateCaptureCells(lowCandidateScreenCells(tuple),capture);
+    lowFullCandidateCellCount+=validateCaptureCells(cellSpecs(`low-full-${tuple.low}-${tuple.bassHardness}`,
+      fullLowCells({low:tuple.low,mid:1,bassHardness:tuple.bassHardness})),capture);
+  }
+  for(const low of legacy.lowGridTuples())for(const mid of legacy.MID_GRID){
+    const tuple={low:low.low,mid,bassHardness:low.bassHardness};
+    midCount+=validateCaptureCells(midCandidateScreenCells(tuple),capture);
+    midFullCandidateCellCount+=validateCaptureCells(cellSpecs(`mid-full-${mid}`,
+      fullCellsFor(tuple,[48,51,54,57],`mid-full-${mid}`)),capture);
+  }
+  return {lowCount,lowFullCandidateCellCount,midCount,midFullCandidateCellCount};
+}
 function candidateSummary(rows,tuple,fixture,kind){return kind==='low'?core.lowScreenResult(tuple,rows,fixture):core.midScreenResult(tuple,rows,fixture);}
 function evidencePreflight({root=ROOT,home=process.env.HOME}={}){
   return searchPreflight.preflight({root,home,verifySourceAudit:midi41Amendment.assertSourceAudit,verifyAmendment:midi41Amendment.verify});
@@ -255,7 +337,7 @@ function lowPhaseIdentity(identity,referenceSetSha256){return phaseIdentity(iden
 function midPhaseIdentity(identity,referenceSetSha256,selected){return phaseIdentity(identity,'mid',referenceSetSha256,{authorizedGrid:legacy.midGridTuples(selected),screenCoordinates:legacy.midScreenCells(),lowSelection:selected});}
 function writeReferenceComparison(roots,result,now){
   const phase='baseline';const cells=cellSpecs(phase,baselineCells());
-  const identity=phaseIdentity(result.identity,phase,result.referenceSetSha256,{response:[1,1,1],tolerance:TOLERANCE});
+  const identity=phaseIdentity(result.identity,phase,result.referenceSetSha256,{response:captureDefaults.DEFAULT_RESPONSE,tolerance:TOLERANCE});
   const ledger=loadLedger(phaseRoots(roots,phase),phase,identity,cells,{create:false});
   const rows=readCompletedRows(phaseRoots(roots,phase),ledger,cells);
   const comparison=core.validateBaselineRows(result.referenceSet,rows,{tolerance:TOLERANCE});
@@ -285,6 +367,9 @@ function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,
   const fixture=buildFixtureMap(ROOT),screenRows=[];
   const tuples=legacy.lowGridTuples();
   const screenCells=tuples.flatMap(tuple=>lowCandidateScreenCells(tuple));
+  validateCaptureCells(screenCells,capture);
+  for(const tuple of tuples)validateCaptureCells(cellSpecs(`low-full-${tuple.low}-${tuple.bassHardness}`,
+    fullLowCells({low:tuple.low,mid:1,bassHardness:tuple.bassHardness})),capture);
   const screenId=lowPhaseIdentity(identity,referenceSet.sha256);
   const existing=loadResult(phaseRoots(roots,'low'),'low',screenId);if(existing)return existing;
   const screen=screenLedgerRows(roots,'low',screenId,cellSpecs('low-screen',screenCells),capture,null,identityNow,now,render,compatibilitySha256);
@@ -318,6 +403,9 @@ function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,
   const expectedLowId=lowPhaseIdentity(identity,referenceSet.sha256);
   if(!same(low.identity,expectedLowId)||low.decision!=='STAGE3E_LOW_RESPONSE_FAMILY_PASS'||!low.selected)throw new Error('BLOCKED_STAGE3E_LOW_RESPONSE_FAMILY');
   const fixture=buildFixtureMap(ROOT),tuples=legacy.midGridTuples(low.selected),screenCells=tuples.flatMap(tuple=>midCandidateScreenCells(tuple));
+  validateCaptureCells(screenCells,capture);
+  for(const tuple of tuples)validateCaptureCells(cellSpecs(`mid-full-${tuple.mid}`,
+    fullCellsFor({low:low.selected.low,mid:tuple.mid,bassHardness:low.selected.bassHardness},[48,51,54,57],`mid-full-${tuple.mid}`)),capture);
   const screenId=midPhaseIdentity(identity,referenceSet.sha256,low.selected);
   const existing=loadResult(phaseRoots(roots,'mid'),'mid',screenId);if(existing)return existing;
   const screen=screenLedgerRows(roots,'mid',screenId,cellSpecs('mid-screen',screenCells),capture,null,identityNow,now,render,compatibilitySha256);
@@ -342,7 +430,7 @@ function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,
   const archive=durable.createPhaseArchive({primaryRoot:aggregate.primary,secondaryRoot:aggregate.secondary,phase:'mid-selection'});
   if(!selected)throw new Error('BLOCKED_STAGE3E_MID_RESPONSE_FAMILY');return {...result,archiveSha256:archive.sha256};
 }
-function dryRun({root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT,preflight=evidencePreflight,amendmentCheck=midi41Amendment.verify}={}){
+function dryRun({root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT,preflight=evidencePreflight,amendmentCheck=midi41Amendment.verify,capture=captureDefaults}={}){
   const readiness=preflight({root,home});legacy.assertGeneration1Abandoned(root);const refs=validateReferenceSet(historicalRoots(root,home));const roots=getGeneration2Roots({root,home,evidenceRoot});
   const amendment=amendmentCheck({root,home});
   if(amendment.result?.decision!=='STAGE3E_GENERATION2_BASELINE_EQUIVALENT'||amendment.result?.effectivePassCount!==12||amendment.result?.effectiveCellCount!==12)
@@ -352,15 +440,17 @@ function dryRun({root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOT
     historicalGeneration2ManifestSha256:prior.sha256});
   const manifestFile=path.join(roots.primary,'generation-2-manifest.json');
   if(fs.existsSync(manifestFile))assertExistingGenerationManifest(roots,identity);
+  const capturePreflight=validateAuthorizedSearchResponses(capture);
   return {decision:'GENERATION2_SEARCH_READY',builds:0,renders:0,acousticRenders:0,generation:2,searchEpoch:'search-v1',
     baselineRowsReused:12,baselineRenders:0,midi41AmendmentDecision:amendment.result.decision,midi41AmendmentResultSha256:amendment.resultSha256,
     historicalGeneration2ManifestSha256:prior.sha256,lowGridCandidates:legacy.lowGridTuples().length,midCandidates:legacy.MID_GRID.length,
+    preflightValidatedLowScreenRows:capturePreflight.lowCount,preflightValidatedMidScreenRows:capturePreflight.midCount,
     historicalReferenceSetSha256:refs.sha256,activeSearchRoot:roots.primary,identity,searchEnabled:true};
 }
 function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT,preflight=evidencePreflight,capture=captureDefaults,render=renderOne,now=()=>new Date().toISOString(),amendmentCheck=midi41Amendment.verify}={}){
   const allowed=['--dry-run','--baseline','--low','--mid','--finalize'];if(!allowed.includes(mode))throw new Error(`explicit Generation-2 mode required: ${allowed.join(' or ')}`);
   if(mode==='--baseline')throw new Error('BLOCKED_STAGE3E_BASELINE_CAPTURE_RETIRED: no Generation-2 baseline rerender is authorized');
-  if(mode==='--dry-run')return dryRun({root,home,evidenceRoot,preflight,amendmentCheck});
+  if(mode==='--dry-run')return dryRun({root,home,evidenceRoot,preflight,amendmentCheck,capture});
   const readiness=preflight({root,home});legacy.assertGeneration1Abandoned(root);
   const refs=validateReferenceSet(historicalRoots(root,home)),roots=getGeneration2Roots({root,home,evidenceRoot});
   const amendment=amendmentCheck({root,home});
@@ -416,4 +506,4 @@ function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORA
 }
 function main(argv=process.argv.slice(2)){if(argv.length!==1)throw new Error('one explicit mode is required');const result=run({mode:argv[0]});process.stdout.write(JSON.stringify(result)+'\n');}
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
-module.exports={ROOT,EXECUTION_ID,TOLERANCE,LOW_SCREEN_VELOCITIES,MID_SCREEN_VELOCITIES,OFFICIAL_VELOCITIES,sha256,jsonBytes,stable,same,sameExecutionIdentity,cellId,historicalRoots,generationRoots,phaseRoots,readDualJson,writeDualJson,immutableDualJson,getGeneration2Roots,currentGenerationIdentity,assertGenerationManifest,cellSpecs,freshCellLedger,ledgerCounts,loadLedger,writeCellState,ledgerJournalRoots,transitionEntries,ensureLedgerGenesis,appendLedgerTransition,validateReferenceSet,assertBaselineReferenceIdentity,renderOne,capturePhaseRows,readCompletedRows,finalizePhase,loadResult,baselineCells,buildFixtureMap,makeResponse,lowCandidateScreenCells,midCandidateScreenCells,fullCellsFor,fullLowCells,candidateSummary,phaseIdentity,lowPhaseIdentity,midPhaseIdentity,runBaseline,executeLow,executeMid,dryRun,run,main};
+module.exports={ROOT,EXECUTION_ID,TOLERANCE,LOW_SCREEN_VELOCITIES,MID_SCREEN_VELOCITIES,OFFICIAL_VELOCITIES,sha256,jsonBytes,stable,same,sameExecutionIdentity,cellId,historicalRoots,generationRoots,phaseRoots,readDualJson,writeDualJson,immutableDualJson,getGeneration2Roots,currentGenerationIdentity,assertGenerationManifest,cellSpecs,freshCellLedger,ledgerCounts,loadLedger,writeCellState,ledgerJournalRoots,transitionEntries,renderStartEntries,ensureLedgerGenesis,appendLedgerTransition,appendRenderStartMarker,validateReferenceSet,assertBaselineReferenceIdentity,renderOne,captureOptionsForCell,capturePhaseRows,readCompletedRows,finalizePhase,loadResult,baselineCells,buildFixtureMap,makeResponse,lowCandidateScreenCells,midCandidateScreenCells,fullCellsFor,fullLowCells,candidateSummary,validateCaptureCells,validateAuthorizedSearchResponses,phaseIdentity,lowPhaseIdentity,midPhaseIdentity,runBaseline,executeLow,executeMid,dryRun,run,main};

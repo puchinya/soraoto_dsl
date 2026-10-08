@@ -8,8 +8,20 @@ const durable=require('./durable-evidence.cjs');
 const runner=require('./run-stage3e-generation2.cjs');
 const legacy=require('./run-stage3e-velocity-response.cjs');
 const evidenceValidator=require('./stage3e-evidence-validator.cjs');
+const captureDefaults=require('./capture-supersynth-stage3e-matrix.cjs');
 
 assert.equal(typeof legacy.preflightDiagnosticCapabilities,'function');
+
+{
+  let validated=0,renderCalls=0;
+  const capture={...captureDefaults,validateCaptureRequest(pitch,velocity,response,options){
+    validated++;return captureDefaults.validateCaptureRequest(pitch,velocity,response,options);
+  },renderNormalized(){renderCalls++;throw new Error('audio capture is forbidden in request dry-check');}};
+  const counts=runner.validateAuthorizedSearchResponses(capture);
+  assert.deepEqual(counts,{lowCount:1512,lowFullCandidateCellCount:10458,midCount:13608,midFullCandidateCellCount:72576});
+  assert.equal(validated,98154,'every authorized screen and full-validation request is normalized before capture');
+  assert.equal(renderCalls,0,'request dry-check never constructs the audio capture path');
+}
 
 function tempRoots(){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-gen2-runner-'));
@@ -62,9 +74,11 @@ function rowMetrics(){return {finite:true,outputGuardHits:0,peakDbfs:-12,fullRen
     const genesis=durable.verifyDualCopy(path.join(journalRoots.primary,'genesis-ledger.json'),path.join(journalRoots.secondary,'genesis-ledger.json'));
     const current=durable.verifyDualCopy(path.join(roots.primary,'journal-screen-ledger.json'),path.join(roots.secondary,'journal-screen-ledger.json'));
     const events=runner.transitionEntries(journalRoots);
+    const renderStarts=runner.renderStartEntries(journalRoots);
     const replay=evidenceValidator.validateLedgerTransitions({genesisLedgerBytes:genesis.bytes,currentLedgerBytes:current.bytes,
-      transitionEntries:events,expectedCells:cells,bindings:journalContext});
+      transitionEntries:events,renderStartEntries:renderStarts,expectedCells:cells,bindings:journalContext});
     assert.equal(replay.transitionCount,2);assert.equal(replay.renderCalls,1);assert.equal(replay.complete,1);
+    assert.equal(renderStarts.length,1);assert.equal(renderStarts[0].cellKey,cells[0].key);
     assert.equal(events[0].oldState,'PENDING');assert.equal(events[0].newState,'IN_PROGRESS');
     assert.equal(events[1].oldState,'IN_PROGRESS');assert.equal(events[1].newState,'COMPLETE');
   }finally{fs.rmSync(root,{recursive:true,force:true});}
@@ -84,8 +98,25 @@ function rowMetrics(){return {finite:true,outputGuardHits:0,peakDbfs:-12,fullRen
 }
 
 {
+  const {root,roots}=tempRoots();
+  try{
+    const base=baseIdentity(),identity=runner.phaseIdentity(base,'invalid-screen','c'.repeat(64));
+    const cells=runner.cellSpecs('invalid-screen',[{pitch:36,velocity:14,response:[1,1,0]}]);
+    const ledger=runner.freshCellLedger('invalid-screen',identity,cells),journalRoots=runner.ledgerJournalRoots(roots);
+    let renders=0;
+    assert.throws(()=>runner.capturePhaseRows({roots,ledger,cells,identity,capture:captureDefaults,journalContext:{journalRoots,
+      manifestSha256:'1'.repeat(64),proofSha256:'2'.repeat(64),compatibilitySha256:'3'.repeat(64)},
+      identityNow:()=>base,render(){renders++;throw new Error('audio rendering is forbidden');}}),/exactly low, mid, and bassHardness/);
+    assert.equal(renders,0);
+    assert.equal(ledger.cells[cells[0].key].state,'PENDING');
+    assert.equal(fs.existsSync(path.join(roots.primary,'invalid-screen-ledger.json')),false);
+    assert.equal(fs.existsSync(journalRoots.primary),false,'request validation precedes genesis and ledger side effects');
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+}
+
+{
   const received=[];const capture={renderNormalized(pitch,velocity,response,options){received.push({pitch,velocity,response,options});return {metrics:rowMetrics()};}};
-  const cell={pitch:41,velocityNormalized:.55,response:[.85,.9,1.25],kind:'screen'};
+  const cell={pitch:41,velocityNormalized:.55,response:{low:.85,mid:.9,bassHardness:1.25},kind:'screen'};
   const row=runner.renderOne(cell,null,capture);
   assert.deepEqual(received[0].response,cell.response,'normalized capture honors cell-level response');
   assert.deepEqual(received[0].options,{stage2mFactorMask:3,includeVelocityDerivative:true,velocityDerivativeStartMs:30,velocityDerivativeEndMs:180,includeSoundboardDiagnostics:true});
@@ -95,7 +126,7 @@ function rowMetrics(){return {finite:true,outputGuardHits:0,peakDbfs:-12,fullRen
 {
   const received=[];const capture={renderNormalized(pitch,velocity,response,options){received.push({pitch,velocity,response,options});return {metrics:rowMetrics()};}};
   const cell={phase:'baseline',pitch:36,velocity:14,velocityNormalized:14/127,kind:'production'};
-  runner.renderOne(cell,[1,1,1],capture);
+  runner.renderOne(cell,{low:1,mid:1,bassHardness:1},capture);
   assert.equal(received[0].options.stage2mFactorMask,3);
   assert.equal(received[0].options.includeSoundboardDiagnostics,true);
   assert.equal(received[0].options.includeVelocityDerivative,false,

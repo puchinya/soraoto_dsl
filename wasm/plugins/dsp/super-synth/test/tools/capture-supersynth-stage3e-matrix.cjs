@@ -68,10 +68,15 @@ function preflightDiagnosticCapabilities({root=REPO,harnessFactory=(R,file,optio
   }finally{harness.close();}
 }
 function requireResponse(values){
-  const [low,mid,bass]=values;
+  if(!values||typeof values!=='object'||Array.isArray(values))
+    throw new Error('Stage3E response must be the canonical named object {low, mid, bassHardness}');
+  const keys=Object.keys(values).sort();
+  if(keys.length!==3||keys[0]!=='bassHardness'||keys[1]!=='low'||keys[2]!=='mid')
+    throw new Error('Stage3E response must contain exactly low, mid, and bassHardness');
+  const low=values.low,mid=values.mid,bass=values.bassHardness;
   if(![low,mid,bass].every(Number.isFinite)||low<0.35||low>1||mid<0.35||mid>1||bass<0||bass>2)
     throw new Error('Stage3E response tuple is outside approved profile bounds');
-  return values;
+  return {low,mid,bassHardness:bass};
 }
 function assertSoundboardDiagnostics(e){
   const required=['soraoto_supersynth_soundboard_diag_reset','soraoto_supersynth_soundboard_diag_sum_squares',
@@ -117,11 +122,18 @@ function applyVelocityDerivative(metrics,left,options={}){
   metrics.velocityDerivativeWindowMs=[startMs,endMs];
   return metrics;
 }
-function render(pitch,velocity,response=[1,1,1],options={}){return renderNormalized(pitch,options.velocityNormalized??velocity/127,response,options);}
-function renderNormalized(pitch,velocityNormalized,response=[1,1,1],options={}){
+function validateCaptureRequest(pitch,velocityNormalized,response,options={}){
+  if(!Number.isInteger(pitch)||pitch<0||pitch>127)throw new Error('Stage3E MIDI pitch must be an integer in [0,127]');
   if(!Number.isFinite(velocityNormalized)||velocityNormalized<0||velocityNormalized>1)throw new Error('Stage3E normalized velocity must be in [0,1]');
   if(options.includeVelocityDerivative)velocityDerivativeWindow(options);
-  requireResponse(response);
+  if(options.includeSoundboardDiagnostics!==undefined&&typeof options.includeSoundboardDiagnostics!=='boolean')
+    throw new Error('Stage3E soundboard diagnostic option must be boolean');
+  return requireResponse(response);
+}
+const DEFAULT_RESPONSE=Object.freeze({low:1,mid:1,bassHardness:1});
+function render(pitch,velocity,response=DEFAULT_RESPONSE,options={}){return renderNormalized(pitch,options.velocityNormalized??velocity/127,response,options);}
+function renderNormalized(pitch,velocityNormalized,response=DEFAULT_RESPONSE,options={}){
+  response=validateCaptureRequest(pitch,velocityNormalized,response,options);
   const harness=new PluginHarness(REPO,WASM,{sampleRate:SAMPLE_RATE,maxFrames:BLOCK});
   try{
     const e=harness.e;
@@ -131,7 +143,7 @@ function renderNormalized(pitch,velocityNormalized,response=[1,1,1],options={}){
     for(const [name,value] of [['voice_drift',0],['lfo1_pitch',0],['chorus_mix',0]])harness.setPlain(name,value);
     for(const [name,value] of Object.entries(options.parameters||{}))harness.setPlain(name,value);
     if((e.soraoto_supersynth_stage2m_set_factor_mask(3)>>>0)!==0||(e.soraoto_supersynth_stage2m_get_factor_mask()>>>0)!==3)throw new Error('Stage2M mask 3 unavailable');
-    if((e.soraoto_supersynth_stage3e_set_velocity_response(...response)|0)!==0)throw new Error('Stage3E response tuple rejected');
+    if((e.soraoto_supersynth_stage3e_set_velocity_response(response.low,response.mid,response.bassHardness)|0)!==0)throw new Error('Stage3E response tuple rejected');
     e.soraoto_supersynth_stage2m_hammer_diag_reset();
     if(options.includeSoundboardDiagnostics)e.soraoto_supersynth_soundboard_diag_reset();
     const guardCount=typeof e.soraoto_supersynth_guard_hit_count==='function'?e.soraoto_supersynth_guard_hit_count():null;
@@ -155,12 +167,12 @@ function renderNormalized(pitch,velocityNormalized,response=[1,1,1],options={}){
     metrics.outputGuardHits=guardCount===null?null:e.soraoto_supersynth_guard_hit_count()-guardCount;
     metrics.stage2mFactorMask=3;
     metrics.stage2mHammer={effectiveHardness:e.soraoto_supersynth_stage2m_hammer_diag_value(0),initialHammerVelocity:e.soraoto_supersynth_stage2m_hammer_diag_value(1),contactDurationSamples:e.soraoto_supersynth_stage2m_hammer_diag_value(2),peakForce:e.soraoto_supersynth_stage2m_hammer_diag_value(3),maxCompression:e.soraoto_supersynth_stage2m_hammer_diag_value(4),postContactTransverseEnergy:e.soraoto_supersynth_stage2m_hammer_diag_value(5)};
-    metrics.stage3eVelocityResponse={low:response[0],mid:response[1],bassHardness:response[2]};
+    metrics.stage3eVelocityResponse={low:response.low,mid:response.mid,bassHardness:response.bassHardness};
     if(options.includeSoundboardDiagnostics)metrics.soundboardDiagnostics=readSoundboardDiagnostics(e);
     return {pitch,velocity:Math.round(velocityNormalized*127),velocityNormalized,metrics};
   }finally{harness.close();}
 }
-function captureMatrix({rows,response=[1,1,1],parameters={},renderCell=render}={}){
+function captureMatrix({rows,response=DEFAULT_RESPONSE,parameters={},renderCell=render}={}){
   if(!Array.isArray(rows)||rows.length===0)throw new Error('Stage3E capture requires an explicit non-empty cell list');
   return rows.map(row=>{
     const window=row.velocityDerivativeWindowMs;
@@ -176,4 +188,4 @@ function identity(){
   const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   return {wasmPath:wasm,wasmSha256:sha(wasm),sourceSha256:sha(source),presetsSha256:sha(presets)};
 }
-module.exports={REPO,WASM,SAMPLE_RATE,BLOCK,DURATION_MS,STAGE2M_EXPORTS,STAGE3E_EXPORTS,FORBIDDEN_EXPORTS,REQUIRED_GUARD_EXPORTS,buildRoot,assertDiagnosticMode,preflightDiagnosticCapabilities,requireResponse,assertSoundboardDiagnostics,readSoundboardDiagnostics,velocityDerivativeWindow,derivative,applyVelocityDerivative,render,renderNormalized,captureMatrix,identity};
+module.exports={REPO,WASM,SAMPLE_RATE,BLOCK,DURATION_MS,STAGE2M_EXPORTS,STAGE3E_EXPORTS,FORBIDDEN_EXPORTS,REQUIRED_GUARD_EXPORTS,buildRoot,assertDiagnosticMode,preflightDiagnosticCapabilities,DEFAULT_RESPONSE,requireResponse,validateCaptureRequest,assertSoundboardDiagnostics,readSoundboardDiagnostics,velocityDerivativeWindow,derivative,applyVelocityDerivative,render,renderNormalized,captureMatrix,identity};

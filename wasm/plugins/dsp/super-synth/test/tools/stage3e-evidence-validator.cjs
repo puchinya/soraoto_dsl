@@ -74,6 +74,17 @@ function isAmendmentAddition(relative){
     SEARCH+'verifier-compatibility-v2.sha256',
     SEARCH+'archives/verifier-compatibility-v2.tar.gz',
     SEARCH+'archives/verifier-compatibility-v2.tar.gz.sha256',
+    SEARCH+'verifier-compatibility-v3.json',
+    SEARCH+'verifier-compatibility-v3.sha256',
+    SEARCH+'archives/verifier-compatibility-v3.tar.gz',
+    SEARCH+'archives/verifier-compatibility-v3.tar.gz.sha256',
+    SEARCH+'pre-render-abort-recovery-v1/pre-abort-low-ledger.json',
+    SEARCH+'pre-render-abort-recovery-v1/forensic-evidence.json',
+    SEARCH+'pre-render-abort-recovery-v1/recovery-authorization.json',
+    SEARCH+'pre-render-abort-recovery-v1/recovery-result.json',
+    SEARCH+'pre-render-abort-recovery-v1/evidence-manifest.json',
+    SEARCH+'pre-render-abort-recovery-v1/evidence-manifest.sha256',
+    SEARCH+'pre-render-abort-recovery-v1/archives/pre-render-abort-recovery-v1.tar.gz',
     SEARCH+'ledger-transition-journal/genesis.json',
     SEARCH+'ledger-transition-journal/genesis-ledger.json'
   ]);
@@ -89,7 +100,8 @@ function isSearchAddition(relative,{authorizedKeys=[]}={}){
      relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz'||relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz.sha256')return true;
   if(relative.startsWith(SEARCH+'ledger-transition-journal/')){
     const leaf=relative.slice((SEARCH+'ledger-transition-journal/').length);
-    return leaf==='genesis.json'||leaf==='genesis-ledger.json'||/^transition-[0-9]{6}\.json$/.test(leaf);
+    return leaf==='genesis.json'||leaf==='genesis-ledger.json'||leaf==='genesis-location-reconciliation-v1.json'||
+      /^transition-[0-9]{6}\.json$/.test(leaf)||/^render-start-[0-9]{6}\.json$/.test(leaf);
   }
   if(!relative.startsWith(SEARCH))return false;
   const rest=relative.slice(SEARCH.length);
@@ -101,7 +113,8 @@ function isSearchAddition(relative,{authorizedKeys=[]}={}){
   if(leaf==='archives/'+phase+'-selection.tar.gz'||leaf==='archives/'+phase+'-validation.tar.gz')return true;
   if(leaf.startsWith('ledger-transition-journal/')){
     const name=leaf.slice('ledger-transition-journal/'.length);
-    return name==='genesis.json'||name==='genesis-ledger.json'||/^transition-[0-9]{6}\.json$/.test(name);
+    return name==='genesis.json'||name==='genesis-ledger.json'||name==='genesis-location-reconciliation-v1.json'||
+      /^transition-[0-9]{6}\.json$/.test(name)||/^render-start-[0-9]{6}\.json$/.test(name);
   }
   if(leaf.startsWith('cells/')){
     const key=leaf.slice('cells/'.length).replace(/\.json$/,'');
@@ -115,7 +128,7 @@ function isSearchAddition(relative,{authorizedKeys=[]}={}){
        /^(?:low-full|mid-full)-validation\.json$/.test(relativeValidation)||
        relativeValidation==='evidence-manifest.json'||relativeValidation==='evidence-manifest.sha256'||
        /^archives\/(?:low-full|mid-full)-[A-Za-z0-9._-]+\.tar\.gz$/.test(relativeValidation)||
-       /^ledger-transition-journal\/(?:genesis\.json|genesis-ledger\.json|transition-[0-9]{6}\.json)$/.test(relativeValidation))return true;
+       /^ledger-transition-journal\/(?:genesis\.json|genesis-ledger\.json|genesis-location-reconciliation-v1\.json|transition-[0-9]{6}\.json|render-start-[0-9]{6}\.json)$/.test(relativeValidation))return true;
     const validationCell=relativeValidation.match(/^cells\/([A-Za-z0-9._-]+)\.json$/);
     return Boolean(validationCell&&authorizedKeys.includes(validationCell[1]));
   }
@@ -170,34 +183,76 @@ function validateLowGenesis({manifestBytes,ledgerBytes,expectedCells,expectedLed
     authorizedCellCount:1512,pending:1512,inProgress:0,complete:0,renderCalls:0};
 }
 
-function validateLedgerTransitions({genesisLedgerBytes,currentLedgerBytes,transitionEntries=[],expectedCells,bindings={}}={}){
+function validateLedgerTransitions({genesisLedgerBytes,currentLedgerBytes,transitionEntries=[],renderStartEntries=[],expectedCells,bindings={}}={}){
   const fail=(detail)=>{throw new Error(`BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: ledger transition ${detail}`);};
-  if(!Buffer.isBuffer(genesisLedgerBytes)||!Buffer.isBuffer(currentLedgerBytes)||!Array.isArray(transitionEntries)||!Array.isArray(expectedCells))fail('input schema');
+  if(!Buffer.isBuffer(genesisLedgerBytes)||!Buffer.isBuffer(currentLedgerBytes)||!Array.isArray(transitionEntries)||!Array.isArray(renderStartEntries)||!Array.isArray(expectedCells))fail('input schema');
   const genesisSha256=sha256(genesisLedgerBytes),currentSha256=sha256(currentLedgerBytes);
   const genesis=JSON.parse(genesisLedgerBytes.toString('utf8')),current=JSON.parse(currentLedgerBytes.toString('utf8'));
   const genesisCells=genesis.cells||{},currentCells=current.cells||{},expectedByKey=new Map(expectedCells.map(cell=>[cell.key,cell]));
   if(expectedByKey.size!==expectedCells.length||!same(Object.keys(genesisCells),expectedCells.map(cell=>cell.key)))fail('genesis identities/order');
   if(!same(Object.keys(currentCells),Object.keys(genesisCells))||!same(current.identity,genesis.identity)||current.phase!==genesis.phase||
      current.generation!==genesis.generation||current.executionId!==genesis.executionId||current.authorizedCellCount!==genesis.authorizedCellCount)fail('ledger identity changed');
-  const replay=new Map(expectedCells.map(cell=>[cell.key,{state:'PENDING',sha256:null,identity:cell}]));
+  const replay=new Map(expectedCells.map(cell=>[cell.key,{state:'PENDING',sha256:null,identity:cell,startTransitionSequence:null,startLedgerSha256:null,aborted:false,requeueCount:0}]));
+  const acceptedCompatibility=new Set([bindings.compatibilitySha256,...(bindings.acceptedCompatibilitySha256s||[])].filter(Boolean));
+  const markersByTransition=new Map();let markerSequence=0;
+  for(const marker of renderStartEntries){
+    markerSequence++;
+    if(!marker||marker.schemaVersion!==1||marker.kind!=='STAGE3E_RENDER_START'||marker.sequence!==markerSequence||
+       !expectedByKey.has(marker.cellKey)||!same(marker.cellIdentity,expectedByKey.get(marker.cellKey))||
+       !/^[0-9a-f]{64}$/.test(marker._sha256||'')||!Number.isInteger(marker.transitionSequence)||
+       markersByTransition.has(marker.transitionSequence))fail(`render-start marker schema/sequence ${markerSequence}`);
+    for(const key of ['manifestSha256','proofSha256'])if(bindings[key]!==undefined&&marker[key]!==bindings[key])fail(`render-start ${key} binding ${markerSequence}`);
+    if(acceptedCompatibility.size&&!acceptedCompatibility.has(marker.compatibilitySha256))fail(`render-start compatibilitySha256 binding ${markerSequence}`);
+    markersByTransition.set(marker.transitionSequence,marker);
+  }
   let lastLedgerSha256=genesisSha256,renderCount=0,sequence=0;
   for(const entry of transitionEntries){
     sequence++;
     if(!entry||entry.sequence!==sequence||entry.previousLedgerSha256!==lastLedgerSha256||
        !/^[0-9a-f]{64}$/.test(entry.nextLedgerSha256||'')||!expectedByKey.has(entry.cellKey)||
        !same(entry.cellIdentity,expectedByKey.get(entry.cellKey)))fail(`sequence/hash/identity at ${sequence}`);
-    for(const key of ['manifestSha256','proofSha256','compatibilitySha256'])if(bindings[key]!==undefined&&entry[key]!==bindings[key])fail(`${key} binding at ${sequence}`);
+    for(const key of ['manifestSha256','proofSha256'])if(bindings[key]!==undefined&&entry[key]!==bindings[key])fail(`${key} binding at ${sequence}`);
+    if(acceptedCompatibility.size&&!acceptedCompatibility.has(entry.compatibilitySha256))fail(`compatibilitySha256 binding at ${sequence}`);
     const state=replay.get(entry.cellKey);
-    if(entry.oldState!==state.state||!['PENDING>IN_PROGRESS','IN_PROGRESS>COMPLETE'].includes(`${entry.oldState}>${entry.newState}`))fail(`illegal transition at ${sequence}`);
+    if(entry.oldState!==state.state)fail(`illegal transition at ${sequence}`);
     if(entry.previousRenderCount!==renderCount)fail(`render count predecessor at ${sequence}`);
-    if(entry.oldState==='PENDING'){
+    if(entry.eventType==='ABORTED_BEFORE_RENDER'){
+      if(entry.oldState!=='IN_PROGRESS'||entry.newState!=='IN_PROGRESS'||entry.nextLedgerSha256!==entry.previousLedgerSha256||
+         entry.newRenderCount!==renderCount||entry.capturedCellSha256!==null||entry.abortedBeforeRenderCalls!==0||entry.attemptIndex!==1||
+         !/^[0-9a-f]{64}$/.test(entry.abortEvidenceSha256||'')||!/^[0-9a-f]{64}$/.test(entry.recoveryAuthorizationSha256||'')||
+         !/^[0-9a-f]{64}$/.test(entry.recoveryResultSha256||'')||
+         !/^[0-9a-f]{64}$/.test(entry.oldCodeSha256||'')||!/^[0-9a-f]{64}$/.test(entry.newCodeSha256||'')||state.aborted||
+         markersByTransition.has(state.startTransitionSequence)||
+         (bindings.recoveryCompatibilitySha256!==undefined&&entry.compatibilitySha256!==bindings.recoveryCompatibilitySha256))fail(`invalid pre-render abort event at ${sequence}`);
+      state.aborted=true;
+    }else if(entry.eventType==='REQUEUE_AUTHORIZED'){
+      if(entry.oldState!=='IN_PROGRESS'||entry.newState!=='PENDING'||entry.nextLedgerSha256===entry.previousLedgerSha256||
+         entry.newRenderCount!==renderCount||entry.capturedCellSha256!==null||entry.abortedBeforeRenderCalls!==0||entry.attemptIndex!==1||
+         !/^[0-9a-f]{64}$/.test(entry.abortEvidenceSha256||'')||!/^[0-9a-f]{64}$/.test(entry.recoveryAuthorizationSha256||'')||
+         !/^[0-9a-f]{64}$/.test(entry.recoveryResultSha256||'')||
+         !/^[0-9a-f]{64}$/.test(entry.oldCodeSha256||'')||!/^[0-9a-f]{64}$/.test(entry.newCodeSha256||'')||!state.aborted||state.requeueCount!==0||
+         markersByTransition.has(state.startTransitionSequence)||
+         (bindings.recoveryCompatibilitySha256!==undefined&&entry.compatibilitySha256!==bindings.recoveryCompatibilitySha256))fail(`invalid authorized requeue event at ${sequence}`);
+      state.state='PENDING';state.sha256=null;state.startTransitionSequence=null;state.startLedgerSha256=null;state.aborted=false;state.requeueCount++;
+    }else if(entry.oldState==='PENDING'&&entry.newState==='IN_PROGRESS'){
+      if(entry.eventType!==undefined)fail(`unexpected event type at ${sequence}`);
       if(entry.newRenderCount!==renderCount||entry.capturedCellSha256!==null)fail(`pre-render accounting at ${sequence}`);
-      state.state='IN_PROGRESS';
-    }else{
+      if(entry.renderStartMarkerSha256!==undefined)fail(`render-start marker attached before it exists at ${sequence}`);
+      state.state='IN_PROGRESS';state.startTransitionSequence=sequence;state.startLedgerSha256=entry.nextLedgerSha256;state.aborted=false;
+    }else if(entry.oldState==='IN_PROGRESS'&&entry.newState==='COMPLETE'){
+      if(entry.eventType!==undefined)fail(`unexpected event type at ${sequence}`);
       if(entry.newRenderCount!==renderCount+1||!/^[0-9a-f]{64}$/.test(entry.capturedCellSha256||''))fail(`completed-cell accounting at ${sequence}`);
+      const marker=markersByTransition.get(state.startTransitionSequence);
+      if(!marker||marker.cellKey!==entry.cellKey||marker.ledgerSha256!==state.startLedgerSha256||
+         entry.renderStartMarkerSha256!==marker._sha256||marker.renderCallIndex!==renderCount+1)
+        fail(`missing or mismatched durable render-start marker at ${sequence}`);
+      const startEntry=transitionEntries[state.startTransitionSequence-1];
+      const expectedTransitionSha=sha256(jsonBytes(startEntry));
+      if(marker.transitionSha256!==expectedTransitionSha)fail(`render-start transition SHA at ${sequence}`);
       renderCount++;
       state.state='COMPLETE';state.sha256=entry.capturedCellSha256;
-    }
+      state.startTransitionSequence=null;state.startLedgerSha256=null;
+    }else fail(`illegal transition at ${sequence}`);
     lastLedgerSha256=entry.nextLedgerSha256;
   }
   if(currentSha256!==lastLedgerSha256)fail('current ledger is not the journal tip');
@@ -206,6 +261,12 @@ function validateLedgerTransitions({genesisLedgerBytes,currentLedgerBytes,transi
     const actual=currentCells[key];
     if(!actual||actual.state!==expectedState.state||actual.sha256!==expectedState.sha256||!same(actual.identity,expectedState.identity))fail(`replayed state mismatch for ${key}`);
     if(expectedState.state==='IN_PROGRESS'&&actual.state!=='IN_PROGRESS')fail(`unfinished render state mismatch for ${key}`);
+  }
+  for(const marker of renderStartEntries){
+    const state=replay.get(marker.cellKey);
+    if(!state||!['IN_PROGRESS','COMPLETE'].includes(state.state)||marker.transitionSequence>transitionEntries.length||
+       transitionEntries[marker.transitionSequence-1]?.newState!=='IN_PROGRESS')
+      fail(`orphan render-start marker for ${marker.cellKey}`);
   }
   return {genesisLedgerSha256:genesisSha256,currentLedgerSha256:currentSha256,transitionCount:transitionEntries.length,
     renderCalls:renderCount,pending:[...replay.values()].filter(row=>row.state==='PENDING').length,

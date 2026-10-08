@@ -241,7 +241,7 @@ function supplementId(row){return `${row._side}-midi-041-v${String(Math.round(ro
 function exactSupplementIdentities(baseline){
   return [...baseline.refMissing,...baseline.genMissing].map(row=>({key:supplementId(row),side:row._side,pitch:41,
     velocityNormalized:row.velocityNormalized,originalCellRelativePath:row._relativePath,originalCellSha256:row._sha256,
-    response:row._side==='generation2'?[1,1,1]:null,stage3dVariant:row._side==='surrogate'?0:null,stage2mFactorMask:3,
+    response:row._side==='generation2'?{low:1,mid:1,bassHardness:1}:null,stage3dVariant:row._side==='surrogate'?0:null,stage2mFactorMask:3,
     velocityDerivativeWindowMs:[30,180],includeSoundboardDiagnostics:true})).sort((a,b)=>a.key.localeCompare(b.key));
 }
 function currentBuildIdentities({root=ROOT,baseline}={}){
@@ -266,7 +266,7 @@ function currentBuildIdentities({root=ROOT,baseline}={}){
     stage3eGeneration2RunnerSha256:fileSha(path.join(root,'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-generation2.cjs')),
     stage3eCoreSha256:fileSha(path.join(root,'wasm/plugins/dsp/super-synth/test/tools/stage3e-generation2-core.cjs')),
     sourceRevision:execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),sampleRate:capture3e.SAMPLE_RATE,durationMs:capture3e.DURATION_MS,
-    stage2mFactorMask:3,stage3dVariant:0,baselineResponse:[1,1,1]};
+    stage2mFactorMask:3,stage3dVariant:0,baselineResponse:{low:1,mid:1,bassHardness:1}};
 }
 function normalizeMeasurementOnlyCaptureSource(source){
   return source
@@ -342,7 +342,7 @@ function makeIdentityProofPayload({audit,baseline,buildIdentity,root=ROOT,execut
     amendmentMeasurementProgramHashes:amendmentProgramHashesAtRevision(root,executionSourceRevision),
     captureChange,changedTrackedFiles:changed,protectedAcousticInputsUnchanged:candidateCompare.pass,
     acousticControls:{sampleRate:buildIdentity.sampleRate,durationMs:buildIdentity.durationMs,preset:'concert_grand',
-      stage2mFactorMask:3,stage3dVariant:0,generation2Response:[1,1,1],normalizedMidi41:MIDI41,derivativeWindowMs:[30,180]},
+      stage2mFactorMask:3,stage3dVariant:0,generation2Response:{low:1,mid:1,bassHardness:1},normalizedMidi41:MIDI41,derivativeWindowMs:[30,180]},
     sourceEvidenceAuditSha256:audit.sha256,preexistingFileInventory:{primary:inventory.primary.files,secondary:inventory.secondary.files},
     acceptedEvidence:{surrogateResultSha256:REFERENCE_SHA256,surrogateManifestSha256:REFERENCE_MANIFEST_SHA256,
       surrogateLedgerSha256:baseline.referenceLedgerSha256,generation2ManifestSha256:baseline.generation2ManifestSha256,
@@ -429,7 +429,7 @@ function makeCaptureIdentity({baseline,buildIdentity,authorizationSha256,identit
       velocityRunnerSha256:buildIdentity.stage3eVelocityRunnerSha256,generation2RunnerSha256:buildIdentity.stage3eGeneration2RunnerSha256,
       stage3eCoreSha256:buildIdentity.stage3eCoreSha256},buildIdentity,
     acousticControls:{sampleRate:48000,durationMs:380,preset:'concert_grand',stage2mFactorMask:3,stage3dVariant:0,
-      generation2Response:[1,1,1],normalizedVelocities:MIDI41,derivativeWindowMs:[30,180]},
+      generation2Response:{low:1,mid:1,bassHardness:1},normalizedVelocities:MIDI41,derivativeWindowMs:[30,180]},
     acousticIdentityDelta:'measurement and verifier only; plugin source, fixed WASM identities, presets, profile, config, fixture, sample rate, duration, and controls are bound above'};
 }
 function assertCurrentCaptureIdentity(expected,{root=ROOT,home=process.env.HOME,baseline,authorizationSha256}={}){
@@ -579,7 +579,7 @@ function withBuildDirectory(root,dir,callback){const prior=process.env.SORAOTO_W
 function renderSupplement(cell,{root=ROOT,captureGeneration2=capture3e.renderNormalized,captureSurrogate=capture3d.renderNormalized}={}){
   const options={includeVelocityDerivative:true,velocityDerivativeStartMs:30,velocityDerivativeEndMs:180,includeSoundboardDiagnostics:true};
   let captured;
-  if(cell.side==='generation2')captured=withBuildDirectory(root,path.join(root,'build/wasm-stage3e'),()=>captureGeneration2(cell.pitch,cell.velocityNormalized,[1,1,1],options));
+  if(cell.side==='generation2')captured=withBuildDirectory(root,path.join(root,'build/wasm-stage3e'),()=>captureGeneration2(cell.pitch,cell.velocityNormalized,{low:1,mid:1,bassHardness:1},options));
   else captured=withBuildDirectory(root,stage3dBuildRoot(root),()=>captureSurrogate(cell.pitch,cell.velocityNormalized,{},
     {...options,stage2mFactorMask:3,stage3dVariant:0}));
   if(!captured||captured.pitch!==41||captured.velocityNormalized!==cell.velocityNormalized||!captured.metrics)

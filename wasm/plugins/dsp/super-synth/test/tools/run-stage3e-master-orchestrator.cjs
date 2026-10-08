@@ -56,7 +56,7 @@ function runCommand(program,args,{root=ROOT,env=process.env,quiet=false}={}){
   catch(error){const tail=String(error.stdout||'')+'\n'+String(error.stderr||'');throw new Error(`BLOCKED_STAGE3E_MASTER_COMMAND: ${program} ${args.join(' ')}\n${tail.slice(-3000)}`);}
 }
 function requireApi(adapters){
-  const names=['preflight','stage3eDryRun','low','mid','selection','promoteAndRegress','commitSelectedValues','productionBuild','stage3DryRun','stage3Execute','stage3Finalize','stage4DryRun','stage4Execute','stage4Finalize','fullVerification','reviewHandoff'];
+  const names=['preflight','stage3eDryRun','phaseEntryDryRun','low','mid','selection','promoteAndRegress','commitSelectedValues','productionBuild','stage3DryRun','stage3Execute','stage3Finalize','stage4DryRun','stage4Execute','stage4Finalize','fullVerification','reviewHandoff'];
   for(const name of names)if(typeof adapters?.[name]!=='function')throw new Error(`BLOCKED_STAGE3E_MASTER_API: ${name} is not a function`);
   return adapters;
 }
@@ -67,6 +67,20 @@ function assertDecision(result,expected,stage){
 function assertZeroRender(result,stage){
   if(result?.renders!==0||result?.acousticRenders!==0||result?.builds!==0||(result?.evidenceWrites??0)!==0)
     throw new Error(`BLOCKED_STAGE3E_MASTER_${stage.toUpperCase()}: dry-run must be zero-build, zero-render, zero-write`);
+}
+function validatePipelinePhaseContracts({stage3Api=stage3,stage4Api=stage4}={}){
+  if(typeof stage3Api?.run!=='function'||typeof stage3Api?.exactCells!=='function'||typeof stage3Api?.key!=='function'||
+     typeof stage4Api?.run!=='function'||typeof stage4Api?.exactCells!=='function'||typeof stage4Api?.key!=='function')
+    throw new Error('BLOCKED_STAGE3E_MASTER_API: Stage3/Stage4 phase entry exports are incomplete');
+  const stage3Cells=stage3Api.exactCells(),stage4Cells=stage4Api.exactCells();
+  if(!Array.isArray(stage3Cells)||stage3Cells.length!==486||new Set(stage3Cells.map(stage3Api.key)).size!==486)
+    throw new Error('BLOCKED_STAGE3E_MASTER_STAGE3_SCHEMA: expected 480 direct + 6 sentinel identities');
+  if(!Array.isArray(stage4Cells)||stage4Cells.length!==1423||new Set(stage4Cells.map(stage4Api.key)).size!==1423||
+     stage4Api.MAIN_COUNT!==1408||stage4Api.REPEAT_COUNT!==15||stage4Api.CELL_COUNT!==1423)
+    throw new Error('BLOCKED_STAGE3E_MASTER_STAGE4_SCHEMA: expected 1408 lifecycle + 15 repeat identities');
+  return {decision:'STAGE3E_PIPELINE_PHASES_DRY_RUN_READY',builds:0,renders:0,acousticRenders:0,evidenceWrites:0,
+    stage3:{authorizedDirectCells:480,authorizedSentinels:6,authorizedRenderCount:stage3Cells.length},
+    stage4:{authorizedLifecycleCells:stage4Api.MAIN_COUNT,authorizedRepeatCells:stage4Api.REPEAT_COUNT,authorizedRenderCount:stage4Cells.length}};
 }
 function summarizePreflight(result){
   const summary={};
@@ -225,8 +239,15 @@ function runPipeline({mode,adapters}={}){
     const identity=adapters.preflight();
     const dry=adapters.stage3eDryRun();
     assertZeroRender(dry,'dry-run');
+    const phaseEntry=adapters.phaseEntryDryRun();
+    if(phaseEntry?.decision!=='STAGE3E_PIPELINE_PHASES_DRY_RUN_READY')
+      throw new Error(`BLOCKED_STAGE3E_MASTER_PHASE_ENTRY: phase contract dry-run failed: ${phaseEntry?.decision||'no decision'}`);
+    assertZeroRender(phaseEntry,'phase-entry-dry-run');
+    if(phaseEntry.stage3?.authorizedRenderCount!==486||phaseEntry.stage4?.authorizedRenderCount!==1423)
+      throw new Error('BLOCKED_STAGE3E_MASTER_PHASE_ENTRY: Stage3/Stage4 authorization schema mismatch');
     return {decision:'STAGE3E_MASTER_DRY_RUN_READY',builds:0,renders:0,acousticRenders:0,evidenceWrites:0,
-      identity:summarizePreflight(identity),stage3e:summarizeStage3eDryRun(dry),stage3eSearchEnabled:true,stage3: 'LOCKED_UNTIL_STAGE3E_SELECTION',stage4:'LOCKED_UNTIL_STAGE3_READY'};
+      identity:summarizePreflight(identity),stage3e:summarizeStage3eDryRun(dry),phaseEntry,stage3eSearchEnabled:true,
+      stage3:'LOCKED_UNTIL_STAGE3E_SELECTION',stage4:'LOCKED_UNTIL_STAGE3_READY'};
   }
   if(mode!=='--execute')throw new Error('explicit master mode required: --dry-run or --execute');
   const results={};
@@ -303,6 +324,7 @@ function createRealAdapters({root=ROOT,home=process.env.HOME}={}){
   return {
     preflight:()=>withBuildDirectory(buildStage3e,()=>stage3e.evidencePreflight({root,home})),
     stage3eDryRun:()=>withBuildDirectory(buildStage3e,()=>generation2.run({mode:'--dry-run',root,home})),
+    phaseEntryDryRun:()=>validatePipelinePhaseContracts(),
     low:()=>stage3ePhase('--low'),mid:()=>stage3ePhase('--mid'),selection:()=>stage3ePhase('--finalize'),
     promoteAndRegress,
     commitSelectedValues:()=>{
@@ -368,4 +390,4 @@ function main(argv=process.argv.slice(2)){
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
 module.exports={ROOT,REGRESSIONS,SELECTED_INPUTS,STATUS_FILE,PR_BRANCH,REPORT_MARKER,sha256,runCommand,withBuildDirectory,stage3eExportNames,stage3eExports,
   acquireMasterExecutionLock,requireApi,assertDecision,assertZeroRender,summarizePreflight,summarizeStage3eDryRun,summarizeStageResult,
-  phaseReportLines,completionReport,updateStatusAndCommit,publishReviewHandoff,runPipeline,requirePreflightExports,createRealAdapters,run,main};
+  validatePipelinePhaseContracts,phaseReportLines,completionReport,updateStatusAndCommit,publishReviewHandoff,runPipeline,requirePreflightExports,createRealAdapters,run,main};

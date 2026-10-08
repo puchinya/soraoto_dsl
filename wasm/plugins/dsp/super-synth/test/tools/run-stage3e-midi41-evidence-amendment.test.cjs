@@ -68,7 +68,7 @@ function syntheticBaseline(){
   const genRows=refRows.map(row=>({...row,metrics:metrics()}));
   const missing=genRows.map(row=>({...row,_side:'generation2',_key:`g2-${row.velocityNormalized}`,_relativePath:`cells/${row.velocityNormalized}.json`,_sha256:(String(row.velocityNormalized).replace('.','')+'0').padEnd(64,'0')}));
   const identities=missing.map(row=>({key:row._key,side:'generation2',pitch:41,velocityNormalized:row.velocityNormalized,originalCellRelativePath:row._relativePath,originalCellSha256:row._sha256,
-    response:[1,1,1],stage3dVariant:null,stage2mFactorMask:3,velocityDerivativeWindowMs:[30,180],includeSoundboardDiagnostics:true}));
+    response:{low:1,mid:1,bassHardness:1},stage3dVariant:null,stage2mFactorMask:3,velocityDerivativeWindowMs:[30,180],includeSoundboardDiagnostics:true}));
   return {refRows,genRows,missing,identities};
 }
 
@@ -100,7 +100,7 @@ function syntheticBaseline(){
     const gen=amendment.renderSupplement(genCell,{root,captureGeneration2:(pitch,velocity,response,options)=>{
       generation2Call={pitch,velocity,response,options};return {pitch,velocityNormalized:velocity,metrics:metrics({derivative:.4})};
     }});
-    assert.equal(generation2Call.pitch,41);assert.equal(generation2Call.velocity,.55);assert.deepEqual(generation2Call.response,[1,1,1]);
+    assert.equal(generation2Call.pitch,41);assert.equal(generation2Call.velocity,.55);assert.deepEqual(generation2Call.response,{low:1,mid:1,bassHardness:1});
     assert.deepEqual([generation2Call.options.velocityDerivativeStartMs,generation2Call.options.velocityDerivativeEndMs],[30,180]);
     assert.equal(generation2Call.options.includeVelocityDerivative,true);assert.equal(generation2Call.options.includeSoundboardDiagnostics,true);
     assert.equal(gen.velocityNormalized,.55,'normalized velocity must not be integerized');

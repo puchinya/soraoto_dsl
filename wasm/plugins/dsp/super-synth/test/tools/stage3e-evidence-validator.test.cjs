@@ -69,9 +69,46 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
   const bindings={manifestSha256:'a'.repeat(64),proofSha256:'b'.repeat(64),compatibilitySha256:'c'.repeat(64)};
   const first={sequence:1,previousLedgerSha256:genesisSha,nextLedgerSha256:'d'.repeat(64),cellKey:'cell-a',cellIdentity:expectedCells[0],oldState:'PENDING',newState:'IN_PROGRESS',previousRenderCount:0,newRenderCount:0,capturedCellSha256:null,...bindings};
   const second={sequence:2,previousLedgerSha256:first.nextLedgerSha256,nextLedgerSha256:currentSha,cellKey:'cell-a',cellIdentity:expectedCells[0],oldState:'IN_PROGRESS',newState:'COMPLETE',previousRenderCount:0,newRenderCount:1,capturedCellSha256:'f'.repeat(64),...bindings};
-  const accepted=validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:currentBytes,transitionEntries:[first,second],expectedCells,bindings});
+  second.renderStartMarkerSha256='9'.repeat(64);
+  const marker={schemaVersion:1,kind:'STAGE3E_RENDER_START',sequence:1,cellKey:'cell-a',cellIdentity:expectedCells[0],
+    ledgerSha256:first.nextLedgerSha256,transitionSequence:1,transitionSha256:validator.sha256(validator.jsonBytes(first)),
+    manifestSha256:bindings.manifestSha256,proofSha256:bindings.proofSha256,compatibilitySha256:bindings.compatibilitySha256,
+    renderCallIndex:1,_sha256:second.renderStartMarkerSha256};
+  const accepted=validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:currentBytes,transitionEntries:[first,second],renderStartEntries:[marker],expectedCells,bindings});
   assert.deepEqual({pending:accepted.pending,inProgress:accepted.inProgress,complete:accepted.complete,renderCalls:accepted.renderCalls},{pending:1,inProgress:0,complete:1,renderCalls:1});
-  assert.throws(()=>validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:currentBytes,transitionEntries:[first,{...second,newRenderCount:2}],expectedCells,bindings}),/BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE/);
-  assert.throws(()=>validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:currentBytes,transitionEntries:[first,second],expectedCells,bindings:{...bindings,proofSha256:'e'.repeat(64)}}),/BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE/);
+  assert.throws(()=>validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:currentBytes,transitionEntries:[first,{...second,newRenderCount:2}],renderStartEntries:[marker],expectedCells,bindings}),/BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE/);
+  assert.throws(()=>validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:currentBytes,transitionEntries:[first,second],expectedCells,bindings}),/missing or mismatched durable render-start marker/);
+  assert.throws(()=>validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:currentBytes,transitionEntries:[first,second],renderStartEntries:[marker],expectedCells,bindings:{...bindings,proofSha256:'e'.repeat(64)}}),/BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE/);
+}
+
+{
+  const cell={key:'low-screen-L1-M1-H0-midi-036-v110',pitch:36,velocity:14,response:{low:1,mid:1,bassHardness:0}};
+  const genesis={generation:2,executionId:'generation-2',phase:'low',authorizedCellCount:1,identity:{id:'fixed'},accounting:{renderCalls:0},
+    cells:{[cell.key]:{state:'PENDING',identity:cell,relativePath:`cells/${cell.key}.json`,sha256:null}}};
+  const genesisBytes=Buffer.from(JSON.stringify(genesis)),genesisSha=validator.sha256(genesisBytes);
+  const inProgress=JSON.parse(JSON.stringify(genesis));inProgress.cells[cell.key].state='IN_PROGRESS';inProgress.cells[cell.key].startedAt='old-run';
+  const inProgressBytes=Buffer.from(JSON.stringify(inProgress)),inProgressSha=validator.sha256(inProgressBytes);
+  const requeued=JSON.parse(JSON.stringify(inProgress));requeued.cells[cell.key].state='PENDING';delete requeued.cells[cell.key].startedAt;
+  const requeuedBytes=Buffer.from(JSON.stringify(requeued)),requeuedSha=validator.sha256(requeuedBytes);
+  const v2='2'.repeat(64),v3='3'.repeat(64),abort='4'.repeat(64),authorization='5'.repeat(64),recoveryResult='8'.repeat(64),oldCode='6'.repeat(64),newCode='7'.repeat(64);
+  const common={manifestSha256:'a'.repeat(64),proofSha256:'b'.repeat(64)};
+  const first={sequence:1,previousLedgerSha256:genesisSha,nextLedgerSha256:inProgressSha,cellKey:cell.key,cellIdentity:cell,
+    oldState:'PENDING',newState:'IN_PROGRESS',previousRenderCount:0,newRenderCount:0,capturedCellSha256:null,compatibilitySha256:v2,...common};
+  const aborted={sequence:2,previousLedgerSha256:inProgressSha,nextLedgerSha256:inProgressSha,cellKey:cell.key,cellIdentity:cell,
+    oldState:'IN_PROGRESS',newState:'IN_PROGRESS',previousRenderCount:0,newRenderCount:0,capturedCellSha256:null,
+    eventType:'ABORTED_BEFORE_RENDER',compatibilitySha256:v3,recoveryAuthorizationSha256:authorization,recoveryResultSha256:recoveryResult,abortEvidenceSha256:abort,
+    attemptIndex:1,abortedBeforeRenderCalls:0,oldCodeSha256:oldCode,newCodeSha256:newCode,...common};
+  const requeue={sequence:3,previousLedgerSha256:inProgressSha,nextLedgerSha256:requeuedSha,cellKey:cell.key,cellIdentity:cell,
+    oldState:'IN_PROGRESS',newState:'PENDING',previousRenderCount:0,newRenderCount:0,capturedCellSha256:null,
+    eventType:'REQUEUE_AUTHORIZED',compatibilitySha256:v3,recoveryAuthorizationSha256:authorization,recoveryResultSha256:recoveryResult,abortEvidenceSha256:abort,
+    attemptIndex:1,abortedBeforeRenderCalls:0,oldCodeSha256:oldCode,newCodeSha256:newCode,...common};
+  const accepted=validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:requeuedBytes,
+    transitionEntries:[first,aborted,requeue],expectedCells:[cell],bindings:{...common,compatibilitySha256:v3,
+      acceptedCompatibilitySha256s:[v2],recoveryCompatibilitySha256:v3}});
+  assert.deepEqual({pending:accepted.pending,inProgress:accepted.inProgress,complete:accepted.complete,renderCalls:accepted.renderCalls},
+    {pending:1,inProgress:0,complete:0,renderCalls:0});
+  assert.throws(()=>validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:requeuedBytes,
+    transitionEntries:[first,aborted,requeue,requeue],expectedCells:[cell],bindings:{...common,compatibilitySha256:v3,
+      acceptedCompatibilitySha256s:[v2],recoveryCompatibilitySha256:v3}}),/BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE/);
 }
 console.log('PASS Stage3E frozen inventory, append-only namespace, dual-copy, and ledger transition validation');

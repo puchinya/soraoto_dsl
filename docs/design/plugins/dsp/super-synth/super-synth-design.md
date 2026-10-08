@@ -274,6 +274,22 @@ mid search, selection, focused regressions, selected-values commit, one authorit
 Stage4, and final review delivery are gated in that order. A failed acoustic or identity gate stops
 all later phases. Dry-run and verify modes do not write evidence or build artifacts.
 
+Stage3E search responses use only the named `{low, mid, bassHardness}` object. Validate the entire
+authorized screen and full-validation request space before low-search audio begins, and validate the
+selected mid-search request space before mid-search audio begins. The caller and capture helper both
+reject arrays, missing or extra fields, non-finite values, and out-of-grid values before any ledger
+transition. The setter call uses the explicit `low`, `mid`, `bassHardness` field order.
+
+The pre-render-abort exception applies only to the forensic-bound MIDI 36 / velocity 14 low-screen
+cell that was marked `IN_PROGRESS` before the named response reached the capture helper. Its old
+ledger remains immutable as a dual-copy snapshot. After the isolated old-source reproduction proves
+the exception happened before harness construction and audio processing, recovery appends exactly
+`ABORTED_BEFORE_RENDER` and `REQUEUE_AUTHORIZED`, returning that one cell to `PENDING` with zero
+render calls. All later cells follow `PENDING` → `IN_PROGRESS` → durable render-start marker → audio
+processing → dual-copy cell persistence → `COMPLETE`; an unknown interruption after render-start
+remains blocked. The v3 verifier bridge is created once after the fix commit and is validated by
+commit ancestry plus pinned file hashes, never by exact `HEAD` equality or by re-signing v1/v2.
+
 ### 5.3 Stage2L revision-2 string-loss and velocity-response model carried by Stage2N revision 3
 
 Stage2L introduced the internal revision-2 `grand_piano_v1` model; Stage2N carries its N/V equations
