@@ -167,6 +167,9 @@ for(const mutate of [
     git('add','.');git('commit','-q','-m','base');const base=git('rev-parse','HEAD').trim();
     const changedRuntime=path.join(temp,'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs');
     fs.writeFileSync(changedRuntime,'verifier fix\n');git('add','.');git('commit','-q','-m','verifier fix');const anchor=git('rev-parse','HEAD').trim();
+    const diff=recovery.verifierDiff(temp,anchor,base),rawDiff=execFileSync('rtk',['proxy','git','diff','--binary',`${base}..${anchor}`,'--',...diff.changedPaths],{cwd:temp});
+    assert.deepEqual(diff.changedPaths,['wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs']);
+    assert.equal(diff.sha256,recovery.sha256(rawDiff),'compatibility hash binds raw verifier-only diff bytes');
     fs.writeFileSync(path.join(temp,'docs.md'),'later documentation only\n');git('add','.');git('commit','-q','-m','docs only');let current=git('rev-parse','HEAD').trim();
     const identity=recovery.assertCurrentVerifierAtAnchor(temp,anchor,current,base);
     assert.equal(identity.files['wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs'],recovery.sha256(Buffer.from('verifier fix\n')));

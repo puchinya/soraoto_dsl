@@ -87,8 +87,8 @@ function readDual(roots,relative){return durable.verifyDualCopy(join(roots.prima
 function currentHead(root){return execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();}
 function ensureClean(root){const result=execFileSync('rtk',['git','status','--porcelain','--untracked-files=all'],{cwd:root,encoding:'utf8'}).trim();if(result)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','worktree must be clean before evidence transaction');}
 function fileSha(root,relative){const file=path.join(root,relative);if(!fs.existsSync(file)||!fs.statSync(file).isFile())fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','missing verifier input '+relative);return sha256(fs.readFileSync(file));}
-function git(root,args){return execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'});}
-function gitBytes(root,args){return execFileSync('rtk',['git',...args],{cwd:root});}
+function git(root,args){return execFileSync('rtk',['proxy','git',...args],{cwd:root,encoding:'utf8'});}
+function gitBytes(root,args){return execFileSync('rtk',['proxy','git',...args],{cwd:root});}
 function isAncestor(root,ancestor,descendant){try{execFileSync('rtk',['git','merge-base','--is-ancestor',ancestor,descendant],{cwd:root,stdio:'ignore'});return true;}catch{return false;}}
 function countStates(ledger){return Object.fromEntries(['PENDING','IN_PROGRESS','COMPLETE'].map(state=>[state,Object.values(ledger.cells||{}).filter(row=>row.state===state).length]));}
 
@@ -124,10 +124,10 @@ function assertCurrentVerifierAtAnchor(root,anchorCommit,head=currentHead(root),
 }
 function verifierDiff(root,head,base=OLD_HEAD){
   if(!isAncestor(root,base,head)&&head!==base)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','reconciliation commit is outside accepted ancestry');
-  const names=git(root,['diff','--name-only',`${OLD_HEAD}..${head}`]).trim().split(/\r?\n/).filter(Boolean).sort();
+  const names=git(root,['diff','--name-only',`${base}..${head}`]).trim().split(/\r?\n/).map(name=>name.trim()).filter(name=>name&&name!=='Changes:').sort();
   const disallowed=names.filter(name=>!ALLOWED_DIFF_PATHS.has(name));
   if(disallowed.length)fail('BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT','changed tracked path outside verifier-only allowlist: '+disallowed.join(', '));
-  const diff=execFileSync('rtk',['git','diff','--binary',`${OLD_HEAD}..${head}`,'--',...names],{cwd:root});
+  const diff=execFileSync('rtk',['proxy','git','diff','--binary',`${base}..${head}`,'--',...names],{cwd:root});
   return {changedPaths:names,sha256:sha256(diff)};
 }
 function buildCompatibilityRecord({root,manifest,manifestSha256,bridge,forensicSha256,sourceAuditSha256,oldResultSha256,head=currentHead(root),testReportSha256,allowHistoricalAnchor=false}={}){
