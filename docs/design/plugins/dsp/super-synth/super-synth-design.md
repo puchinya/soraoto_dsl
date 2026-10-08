@@ -248,8 +248,10 @@ proof/amendment/manifest/ledger identities alongside the new verifier commit and
 diff. It may accept new verifier hashes only when the capture helper, WASM, candidate audio
 identity, control parameters, search ordering, render arguments, and evaluation behavior remain
 unchanged. Read-only preflight is a standalone importable module; the CLI wrapper may call the
-phase runner, but the phase runner never imports its wrapper. These checks preserve creator
-provenance without rewriting or re-signing acoustic evidence.
+phase runner, but the phase runner never imports its wrapper. The pre-abort forensic reader is
+also an importable evidence module; reconciliation consumes it directly instead of requiring its
+CLI wrapper during module initialization. These checks preserve creator provenance without
+rewriting or re-signing acoustic evidence.
 
 Issue #7 Stage3E evidence uses the canonical primary root
 `<GIT_COMMON_DIR>/soraoto-agent-state/7/stage3e/` and secondary root

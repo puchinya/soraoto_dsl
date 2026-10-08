@@ -10,6 +10,12 @@ const search=require('./stage3e-search-core.cjs');
 const validator=require('./stage3e-evidence-validator.cjs');
 const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
 const gen2=require('./run-stage3e-generation2.cjs');
+const preAbortEvidence=require('./stage3e-pre-render-abort-evidence.cjs');
+
+assert.equal(typeof preAbortEvidence.readOriginalArtifacts,'function');
+assert.equal(typeof preAbortEvidence.validateAbortForensic,'function');
+assert.doesNotMatch(fs.readFileSync(require.resolve('./stage3e-recovery-reconciliation-v2.cjs'),'utf8'),
+  /require\(['"]\.\/run-stage3e-pre-render-abort-recovery\.cjs/,'reconciliation depends on the pure evidence module, not its CLI wrapper');
 
 function fixture(){
   const cells=search.expectedLowScreenCells(),states=Object.fromEntries(cells.map(cell=>[cell.key,{identity:cell,state:'PENDING',sha256:null}]));

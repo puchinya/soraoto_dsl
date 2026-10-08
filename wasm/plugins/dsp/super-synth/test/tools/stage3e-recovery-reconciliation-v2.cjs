@@ -41,12 +41,14 @@ const ALLOWED_DIFF_PATHS=new Set([
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-paths.cjs','wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-paths.test.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs','wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs','wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-pre-render-abort-evidence.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs','wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.test.cjs'
 ]);
 const VERIFIER_RUNTIME_PATHS=Object.freeze([
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-paths.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-pre-render-abort-evidence.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-pre-render-abort-recovery.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-midi41-evidence-amendment.cjs',
@@ -223,7 +225,7 @@ function readBaseline({root=ROOT,home=process.env.HOME}={}){
   return {roots,resolved,manifest,manifestSha256:manifestFile.sha256,snapshot,forensic,forensicSha256:forensicFile.sha256,
     oldAuthSha256:oldAuth.sha256,oldResultSha256:oldResult.sha256,v1v2,bridge,audit,amendment,genesis,journal1};
 }
-function recoveryApi(){return require('./run-stage3e-pre-render-abort-recovery.cjs');}
+function recoveryApi(){return require('./stage3e-pre-render-abort-evidence.cjs');}
 
 function makeTransaction(state,compatibility){
   const base=state.roots,live=durable.verifyDualCopy(state.resolved.primary.lowLedger,state.resolved.secondary.lowLedger);
