@@ -280,9 +280,10 @@ function assertMeasurementOnlyCaptureChange(root,baseline){
   return {pass:true,oldCaptureHelperSha256:sha256(Buffer.from(old)),currentCaptureHelperSha256:sha256(Buffer.from(current)),
     normalization:'remove only derivative calculation, derivative option forwarding, and derivative exports; remaining helper source is byte-identical'};
 }
+function parseTrackedDiffNames(output){return output.split('\n').map(x=>x.trim()).filter(x=>x&&x!=='Changes:').sort();}
 function changedTrackedFiles(root,revision){
   const output=execFileSync('rtk',['git','diff','--name-only',CREATOR_REVISION,revision],{cwd:root,encoding:'utf8'});
-  return output.split('\n').map(x=>x.trim()).filter(Boolean).sort();
+  return parseTrackedDiffNames(output);
 }
 function makeIdentityProofPayload({audit,baseline,buildIdentity,root=ROOT,executionSourceRevision=buildIdentity.sourceRevision}={}){
   const allowed=new Set(['docs/agent-workflow/evidence-preservation.md','docs/design/plugins/dsp/super-synth/super-synth-design.md',
@@ -635,7 +636,7 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`${error
 module.exports={ROOT,EXECUTION_ID,AMENDMENT_ID,AMENDMENT_RELATIVE,IDENTITY_PROOF_FILE,CREATOR_REVISION,CANDIDATE_ID,SOURCE_AUDIT_SHA256,REFERENCE_SHA256,REFERENCE_MANIFEST_SHA256,GENERATION2_LEDGER_SHA256,
   STAGE3D_WASM_SHA256,STAGE3E_WASM_SHA256,HISTORICAL_PRODUCTION,STAGE3E_AUDIO_IDENTITY_KEYS,STAGE3A_DERIVATIVES,MIDI41,TOLERANCE,sha256,fileSha,jsonBytes,stable,same,
   stage3eRoots,amendmentRoots,generation2Roots,surrogateRoots,stage3dBuildRoot,assertSourceAudit,fileInventory,rowKey,missingDerivative,loadBaselineRows,
-  creatorBlob,verifyGeneration2CreatorIdentity,sameSideCandidateIdentity,currentBuildIdentities,normalizeMeasurementOnlyCaptureSource,assertMeasurementOnlyCaptureChange,
+  creatorBlob,verifyGeneration2CreatorIdentity,sameSideCandidateIdentity,currentBuildIdentities,normalizeMeasurementOnlyCaptureSource,assertMeasurementOnlyCaptureChange,parseTrackedDiffNames,changedTrackedFiles,
   makeIdentityProofPayload,identityProofRoots,validateIdentityProofBytes,assertPreAmendmentIdentityProof,proveIdentity,
   exactSupplementIdentities,makeAuthorization,makeCaptureIdentity,assertCurrentCaptureIdentity,assertAuthorization,
   freshLedger,ledgerCounts,compareOriginalMetrics,validateSupplementCell,assertLedger,loadOrCreateImmutable,initialize,loadLedgerOrCreate,
