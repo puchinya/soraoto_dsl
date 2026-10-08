@@ -5,6 +5,7 @@ const core=require('./stage3e-generation2-core.cjs');
 const reference=require('./run-stage3e-historical-reference-requalification.cjs');
 
 const SIGNALS=['bridge_b','bridge_m','bridge_t','board_drive_b','board_drive_m','board_drive_t','modal_l','modal_r','residual_l','residual_r','pre_radiation_l','pre_radiation_r','post_radiation_l','post_radiation_r','dry_transverse','dry_bridge','dry_contact','dry_longitudinal','dry_mix','longitudinal_bridge_drive'];
+assert.equal(core.same({x:1,y:{a:2}},{y:{a:2},x:1}),true);
 function metric(kind,velocityNormalized){
   const value={onsetMs:2,peakDbfs:-10,fullRenderPeakDbfs:-9,spectralCentroidHz:1200,above2kPowerRatio:.2,envelopeDbfs:[-50,-30,-12,-10,-14],envelope20msDbfs:[-40,-25,-10,-10,-11,-12],harmonicRatiosH2ToH6:[.1,.05,.02,.01,.005],stereoWidth:.4,stereoPan:0,inharmonicityB:.001,spectralSpreadHz:8,finite:true,outputGuardHits:0,
     stage2mFactorMask:3,stage2mHammer:{effectiveHardness:.2,initialHammerVelocity:2,contactDurationSamples:100,peakForce:3,maxCompression:.1,postContactTransverseEnergy:.5},

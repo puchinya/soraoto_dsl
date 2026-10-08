@@ -12,6 +12,8 @@ const DIAGNOSTIC_METRIC_FIELDS=['stage2mFactorMask','stage2mHammer','soundboardD
 const MIDI41_DIAGNOSTIC_FIELDS=['velocityDerivative','velocityDerivativeWindowMs'];
 const KEY=(pitch,velocity)=>`${pitch}:${velocity}`;
 
+function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])]));return value;}
+function same(a,b){return JSON.stringify(stable(a))===JSON.stringify(stable(b));}
 function compareValue(expected,actual,{tolerance,pathName='value'}={}){
   if(typeof expected==='number'||typeof actual==='number'){
     if(!Number.isFinite(expected)||!Number.isFinite(actual))return {pass:false,maxDifference:Infinity,failures:[`${pathName}: non-finite`]};
@@ -157,4 +159,4 @@ function validateLowFullRows(rows,fixture){
   return {...acoustic,brightness,derivatives,pass:acoustic.pass&&brightness};
 }
 
-module.exports={BASELINE_METRIC_FIELDS,DIAGNOSTIC_METRIC_FIELDS,LIMITS,KEY,compareValue,projectMetrics,validateHistoricalReferenceSet,loadFinalizedReferenceSet,compareReferenceRow,validateBaselineRows,loadReferenceFixture,safetyPass,groupRows,expectedRowsFor,screenSpanErrors,derivativeSet,lowScreenResult,midScreenResult,firstFivePassing,validateFullRows,validateLowFullRows};
+module.exports={BASELINE_METRIC_FIELDS,DIAGNOSTIC_METRIC_FIELDS,LIMITS,KEY,stable,same,compareValue,projectMetrics,validateHistoricalReferenceSet,loadFinalizedReferenceSet,compareReferenceRow,validateBaselineRows,loadReferenceFixture,safetyPass,groupRows,expectedRowsFor,screenSpanErrors,derivativeSet,lowScreenResult,midScreenResult,firstFivePassing,validateFullRows,validateLowFullRows};
