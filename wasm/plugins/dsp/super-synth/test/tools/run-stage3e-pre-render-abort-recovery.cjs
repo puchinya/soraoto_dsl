@@ -41,6 +41,12 @@ function sidecarRoots(roots){return {primary:path.join(roots.primary,RECOVERY_DI
 function currentHead(root){return execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();}
 function counts(ledger){return Object.fromEntries(['PENDING','IN_PROGRESS','COMPLETE'].map(state=>[state,Object.values(ledger.cells||{}).filter(row=>row.state===state).length]));}
 function error(token,detail){throw new Error(`${token}: ${detail}`);}
+function priorExecutionLogMatches(bytes,prior){
+  if(!Buffer.isBuffer(bytes)||!prior||typeof prior.content!=='string'||!Number.isInteger(prior.sizeBytes)||
+     !/^[0-9a-f]{64}$/.test(prior.sha256||'')||sha256(bytes)!==prior.sha256||bytes.length!==prior.sizeBytes)return false;
+  const recorded=Buffer.from(prior.content,'utf8');
+  return bytes.equals(recorded)||(!prior.content.endsWith('\n')&&bytes.length===recorded.length+1&&bytes[bytes.length-1]===0x0a&&bytes.subarray(0,-1).equals(recorded));
+}
 function reproductionCount(forensic){return forensic?.isolatedOldSourceReproduction?.harnessConstructionCount??null;}
 
 function validateAbortForensic(forensic,sha=FORENSIC_SHA256){
@@ -58,7 +64,7 @@ function validateAbortForensic(forensic,sha=FORENSIC_SHA256){
   const prior=forensic.priorExecutionLog;
   if(prior&&fs.existsSync(prior.path)){
     const bytes=fs.readFileSync(prior.path);
-    if(sha256(bytes)!==prior.sha256||bytes.length!==prior.sizeBytes||bytes.toString('utf8')!==prior.content)
+    if(!priorExecutionLogMatches(bytes,prior))
       error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','saved original execution log changed');
   }
   return true;
@@ -339,5 +345,5 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`${error
 
 module.exports={ROOT,RECOVERY_DIR,PRE_ABORT_LEDGER,FORENSIC,AUTHORIZATION,RESULT,ARCHIVE,TARGET_KEY,OLD_HEAD,OLD_LEDGER_SHA256,
   FORENSIC_SHA256,V1_SHA256,V2_SHA256,TARGET,sha256,jsonBytes,stable,same,rootPaths,sidecarRoots,counts,validateAbortForensic,
-  readOriginalArtifacts,readAndValidateBridge,createCompatibilityV3,recoveryLedger,verifyRecoveredState,verifyBridgeAndPreAbort,
+  priorExecutionLogMatches,readOriginalArtifacts,readAndValidateBridge,createCompatibilityV3,recoveryLedger,verifyRecoveredState,verifyBridgeAndPreAbort,
   executeRecovery,dryRun,run,main};

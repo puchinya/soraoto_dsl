@@ -56,6 +56,16 @@ assert.deepEqual(reproduceOriginalAbort(),{
 });
 
 {
+  const content='pre-render abort before harness construction';
+  const bytes=Buffer.from(content+'\n');
+  const prior={content,sha256:recovery.sha256(bytes),sizeBytes:bytes.length};
+  assert.equal(recovery.priorExecutionLogMatches(bytes,prior),true,'exact SHA/size bytes may have one recorded line terminator omitted from the content field');
+  assert.equal(recovery.priorExecutionLogMatches(Buffer.from(content),prior),false,'truncated bytes do not match the recorded SHA/size');
+  assert.equal(recovery.priorExecutionLogMatches(Buffer.from(content+'\n\n'),prior),false,'more than one trailing LF is not accepted');
+  assert.equal(recovery.priorExecutionLogMatches(Buffer.from(content+' changed\n'),prior),false,'changed log bytes are rejected');
+}
+
+{
   const before=fixtureLedger();
   const after=recovery.recoveryLedger(before,recovery.TARGET_KEY);
   assert.equal(before.cells[recovery.TARGET_KEY].state,'IN_PROGRESS','input ledger remains immutable');
