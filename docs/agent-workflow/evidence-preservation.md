@@ -22,6 +22,9 @@ Secondary: $HOME/.soraoto-agent-archive/soraoto_dsl/7/stage3e/
 
 Historical phase data and new execution namespaces live below these roots. Do not relocate or copy existing evidence, search an alternate `issues/7` tree as a fallback, or promote a worktree `.agent-state/` copy. A legacy Generation-1 tombstone may be read only at its explicitly bound historical location; it is not a current Stage3E evidence root and receives no new writes.
 
+
+Before the Stage3E MIDI41 derivative amendment can dry-run, persist an immutable, dual-copy identity proof at `generation-2/midi41-derivative-amendment-v1/pre-amendment-identity-proof.json` under both canonical roots. The proof separates historical Stage2Q production lineage, the Stage3D variant-0 surrogate, and the Stage3E Generation-2 candidate. Reconstruct the Generation-2 candidate identity from its creator commit and original immutable manifest/cells; compare later measurements only against that same candidate domain. Bind the proof's exact SHA-256 into amendment authorization, ledger, and result. Never rewrite earlier manifests or adopt observed values without creator-bound evidence.
+
 ## Cell completion
 
 A cell may transition to `COMPLETE` only after all of these steps succeed:

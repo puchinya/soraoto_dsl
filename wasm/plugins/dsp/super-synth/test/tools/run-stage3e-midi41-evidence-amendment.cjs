@@ -16,6 +16,9 @@ const ROOT=path.resolve(__dirname,'../../../../../../');
 const EXECUTION_ID='generation-2';
 const AMENDMENT_ID='midi41-derivative-amendment-v1';
 const AMENDMENT_RELATIVE=`generation-2/${AMENDMENT_ID}`;
+const IDENTITY_PROOF_FILE='pre-amendment-identity-proof.json';
+const CREATOR_REVISION='4988234cbf3391d91e275bfc62115a66dbaea8a9';
+const CANDIDATE_ID='stage2n-r3-candidate-01';
 const STAGE3D_PLUGIN_WASM='plugins/dsp/super-synth/plugin.wasm';
 const SOURCE_AUDIT_SHA256='eda9e25c490162e4b46e8e72e98da25e84bfd4980afe16c1df773d9020c53560';
 const REFERENCE_SHA256='813a3069d384656419f1cf976c2b501a567909dfd2de5703fc58277f0096c0d8';
@@ -23,11 +26,18 @@ const REFERENCE_MANIFEST_SHA256='1df4c3ce0f0ebf79a662a53aedd215a4240d73401f0dcf1
 const GENERATION2_LEDGER_SHA256='99c40b2f33b01d95c4b7ecc41d32b1c67afc1f5d93ed7e7673cf1fda2f6ab5b7';
 const STAGE3D_WASM_SHA256='9883b54eaa888b5a8d2e4d9da0490de92dd4c31915fb0d97d47cc03ce123a63a';
 const STAGE3E_WASM_SHA256='6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221';
-const FIXED={production:'9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2',
+const HISTORICAL_PRODUCTION={production:'9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2',
   config:'792c563e3ae6ffbf6bef72b18a6c841a24598e1bc20ad5ec7dd39a4c0832513d',
   profile:'cf3d4adabd055b1b9895820bcaeee95b4a4999d6a245bea06c07fb14eeb7eb66',
   presets:'cbe58468911ee583d535c7d3ce09bd40199aeb93183def0a8204d591feac4431',
   fixture:'5d27b6beae2a3c478e21ef0e260e588fdfd22bd1fea4181c74c0d00520a08cd7'};
+const STAGE3E_AUDIO_IDENTITY_KEYS=['candidateId','diagnosticWasmSha256','sourcePluginSha256','presetsSha256','profileSha256','configSha256','referenceFixtureSha256'];
+const CREATOR_PATHS={plugin:'wasm/plugins/dsp/super-synth/src/plugin.c',presets:'wasm/plugins/dsp/super-synth/presets.json',
+  profile:'wasm/shared/generated/super-synth_grand_profiles.h',fixture:'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json',
+  capture:'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs',
+  velocityRunner:'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-velocity-response.cjs',
+  generation2Runner:'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-generation2.cjs',
+  generation2Core:'wasm/plugins/dsp/super-synth/test/tools/stage3e-generation2-core.cjs'};
 const STAGE3A_DERIVATIVES=[0.06299055264228781,0.05389008449437237,0.24231471764008602];
 const MIDI41=[.25,.55,.90];
 const TOLERANCE=1e-6;
@@ -37,6 +47,59 @@ function fileSha(file){return sha256(fs.readFileSync(file));}
 function jsonBytes(value){return Buffer.from(JSON.stringify(value,null,2)+'\n');}
 function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])]));return value;}
 function same(a,b){return JSON.stringify(stable(a))===JSON.stringify(stable(b));}
+function creatorBlob(root,revision,relativePath){
+  try{return execFileSync('rtk',['git','show',`${revision}:${relativePath}`],{cwd:root,maxBuffer:32*1024*1024});}
+  catch{throw new Error('BLOCKED_STAGE3E_ORIGINAL_CANDIDATE_IDENTITY_UNPROVEN: creator input blob is unavailable');}
+}
+function extractFunction(source,signature,nextSignature){
+  const start=source.indexOf(signature);if(start<0)throw new Error('BLOCKED_STAGE3E_ORIGINAL_CANDIDATE_IDENTITY_UNPROVEN: identity source function missing');
+  const end=source.indexOf(nextSignature,start);if(end<0)throw new Error('BLOCKED_STAGE3E_ORIGINAL_CANDIDATE_IDENTITY_UNPROVEN: identity source boundary missing');
+  return source.slice(start,end);
+}
+function sameSideCandidateIdentity(original,current){
+  const differences=STAGE3E_AUDIO_IDENTITY_KEYS.filter(key=>original?.[key]!==current?.[key]);
+  if(differences.length)throw new Error(`BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT: Stage3E candidate fields changed (${differences.join(', ')})`);
+  return {pass:true,comparedFields:[...STAGE3E_AUDIO_IDENTITY_KEYS]};
+}
+function verifyGeneration2CreatorIdentity({root=ROOT,manifestIdentity,ledger,rows}={}){
+  const fail=()=>{throw new Error('BLOCKED_STAGE3E_ORIGINAL_CANDIDATE_IDENTITY_UNPROVEN');};
+  if(!manifestIdentity||!manifestIdentity.protectedIdentity||!Array.isArray(rows)||rows.length!==12||
+    manifestIdentity.generation!==2||manifestIdentity.executionId!==EXECUTION_ID||manifestIdentity.creatorRevision!==CREATOR_REVISION||
+    manifestIdentity.protectedIdentity.sourceRevision!==CREATOR_REVISION||manifestIdentity.protectedIdentity.candidateId!==CANDIDATE_ID||
+    !ledger||ledger.generation!==2||ledger.executionId!==EXECUTION_ID||
+    !same(Object.fromEntries(Object.keys(manifestIdentity).map(key=>[key,ledger.identity?.[key]])),manifestIdentity)||
+    rows.some(row=>!same(Object.fromEntries(Object.keys(manifestIdentity).map(key=>[key,row.identity?.[key]])),manifestIdentity)))fail();
+  const blobs=Object.fromEntries(Object.entries(CREATOR_PATHS).map(([key,relative])=>[key,creatorBlob(root,CREATOR_REVISION,relative)]));
+  const creatorRunner=blobs.velocityRunner.toString('utf8');
+  const currentRunner=fs.readFileSync(path.join(root,CREATOR_PATHS.velocityRunner),'utf8');
+  if(extractFunction(creatorRunner,'function currentProtectedIdentity(', '\nfunction counts(')!==
+     extractFunction(currentRunner,'function currentProtectedIdentity(', '\nfunction counts('))fail();
+  const creatorCapture=blobs.capture.toString('utf8');
+  const currentCapture=fs.readFileSync(path.join(root,CREATOR_PATHS.capture),'utf8');
+  const sampleRate=source=>Number(source.match(/const SAMPLE_RATE=(\d+);/)?.[1]);
+  const duration=source=>Number(source.match(/const DURATION_MS=(\d+);/)?.[1]);
+  if(sampleRate(creatorCapture)!==48000||sampleRate(currentCapture)!==48000||duration(creatorCapture)!==380||duration(currentCapture)!==380)fail();
+  const presets=JSON.parse(blobs.presets.toString('utf8'));
+  const calibrationConfig=JSON.parse(JSON.stringify(presets.concert_grand));
+  delete calibrationConfig.engine_config.soundboard.radiation_scale;
+  const computed={candidateId:CANDIDATE_ID,sourceRevision:CREATOR_REVISION,
+    diagnosticWasmSha256:manifestIdentity.protectedIdentity.diagnosticWasmSha256,
+    sourcePluginSha256:sha256(blobs.plugin),stage3eCaptureHelperSha256:sha256(blobs.capture),
+    stage3eRunnerSha256:sha256(blobs.velocityRunner),presetsSha256:sha256(blobs.presets),
+    profileSha256:sha256(blobs.profile),configSha256:sha256(Buffer.from(JSON.stringify(calibrationConfig))),
+    referenceFixtureSha256:sha256(blobs.fixture)};
+  if(!same(computed,manifestIdentity.protectedIdentity)||
+     manifestIdentity.captureHelperSha256!==computed.stage3eCaptureHelperSha256||
+     manifestIdentity.runnerSha256!==sha256(blobs.generation2Runner)||
+     manifestIdentity.coreSha256!==sha256(blobs.generation2Core)||
+     manifestIdentity.referenceSetSha256!==REFERENCE_SHA256)fail();
+  if(rows.some(row=>row.metrics?.stage2mFactorMask!==3||!same(row.metrics?.stage3eVelocityResponse,{low:1,mid:1,bassHardness:1})))fail();
+  return {creatorRevision:CREATOR_REVISION,originalCandidateIdentity:manifestIdentity.protectedIdentity,
+    creatorRecomputedIdentity:computed,creatorProgramHashes:{captureHelperSha256:sha256(blobs.capture),velocityRunnerSha256:sha256(blobs.velocityRunner),
+      generation2RunnerSha256:sha256(blobs.generation2Runner),generation2CoreSha256:sha256(blobs.generation2Core)},
+    sampleRate:sampleRate(creatorCapture),durationMs:duration(creatorCapture),stage2mFactorMask:3,response:{low:1,mid:1,bassHardness:1},
+    rawGeneration2Rows:rows.length,allRowsBoundToManifest:true};
+}
 function readJson(file){return JSON.parse(fs.readFileSync(file,'utf8'));}
 function stage3eRoots(root=ROOT,home=process.env.HOME){
   const common=durable.commonDir(root),repository=path.basename(path.resolve(root));
@@ -90,8 +153,10 @@ function assertWritable(rootSet){
 function assertImmutableIdentityFiles(ctx){
   const authorization=durable.verifyDualCopy(path.join(ctx.roots.primary,'authorization.json'),path.join(ctx.roots.secondary,'authorization.json'));
   const captureIdentity=durable.verifyDualCopy(path.join(ctx.roots.primary,'capture-identity.json'),path.join(ctx.roots.secondary,'capture-identity.json'));
+  const identityProof=durable.verifyDualCopy(path.join(ctx.roots.primary,IDENTITY_PROOF_FILE),path.join(ctx.roots.secondary,IDENTITY_PROOF_FILE));
   if(authorization.sha256!==ctx.authorizationSha256||!authorization.bytes.equals(jsonBytes(ctx.auth))||
-     captureIdentity.sha256!==ctx.captureIdentitySha256||!captureIdentity.bytes.equals(jsonBytes(ctx.captureIdentity)))
+     captureIdentity.sha256!==ctx.captureIdentitySha256||!captureIdentity.bytes.equals(jsonBytes(ctx.captureIdentity))||
+     identityProof.sha256!==ctx.identityProofSha256)
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: authorization or capture identity changed');
 }
 function rowKey(row){return row.kind==='stage3a'?`stage3a-midi-041-v${String(Math.round(row.velocityNormalized*1000)).padStart(3,'0')}`:row.cellKey;}
@@ -117,6 +182,7 @@ function loadBaselineRows({root=ROOT,home=process.env.HOME}={}){
   });
   const refRows=readCells(refLedger,sr,'surrogate'),genRows=readCells(genLedger,{primary:path.join(gr.primary,'baseline'),secondary:path.join(gr.secondary,'baseline')},'generation2');
   if(refRows.length!==12||genRows.length!==12)throw new Error('BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: expected 12 rows per baseline');
+  const candidateIdentityProof=verifyGeneration2CreatorIdentity({root,manifestIdentity:historicalGen2Identity,ledger:genLedger,rows:genRows});
   const refByKey=new Map(ref.referenceSet.rows.map(row=>[row.cellKey,row]));
   for(const row of refRows){const canonical=refByKey.get(row.cellKey);if(!canonical||canonical.rowFileSha256!==row._sha256)throw new Error(`BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: surrogate row binding mismatch ${row.cellKey}`);}
   const stripDerivative=metrics=>{const result={...metrics};delete result.velocityDerivative;delete result.velocityDerivativeWindowMs;return result;};
@@ -134,14 +200,31 @@ function loadBaselineRows({root=ROOT,home=process.env.HOME}={}){
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: derivative missing set differs from source audit');
   for(let i=0;i<3;i++){const row=refRows.find(x=>x.pitch===41&&x.velocityNormalized===exactReference[i]);
     if(row.metrics.velocityDerivative!==STAGE3A_DERIVATIVES[i]||!same(row.metrics.velocityDerivativeWindowMs,[30,180]))throw new Error('BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: surrogate derivative reference mismatch');}
-  const provenance=readDualJson(sr,'production-provenance.json');
+  const provenanceBytes=durable.verifyDualCopy(path.join(sr.primary,'production-provenance.json'),path.join(sr.secondary,'production-provenance.json'));
+  const provenance=JSON.parse(provenanceBytes.bytes.toString('utf8'));
   if(!['EXACT_REBUILD_PROVENANCE','SUFFICIENT_METADATA_PROVENANCE'].includes(provenance.classification))throw new Error('BLOCKED_STAGE3E_PRODUCTION_PROVENANCE_UNRESOLVED');
-  if(historicalGen2Identity?.protectedIdentity?.sourcePluginSha256!==fileSha(path.join(root,'wasm/plugins/dsp/super-synth/src/plugin.c')))
-    throw new Error('BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT: production DSP source differs from historical Generation-2 baseline');
+  const historicalLineage={authoritativeHistoricalProductionWasmSha256:ref.referenceSet.authoritativeHistoricalProductionWasmSha256,
+    configSha256:ref.referenceSet.configSha256,profileSha256:ref.referenceSet.profileSha256,presetsSha256:ref.referenceSet.presetsSha256,
+    referenceFixtureSha256:ref.referenceSet.referenceFixtureSha256};
+  const expectedHistoricalLineage={authoritativeHistoricalProductionWasmSha256:HISTORICAL_PRODUCTION.production,
+    configSha256:HISTORICAL_PRODUCTION.config,profileSha256:HISTORICAL_PRODUCTION.profile,presetsSha256:HISTORICAL_PRODUCTION.presets,
+    referenceFixtureSha256:HISTORICAL_PRODUCTION.fixture};
+  if(!same(historicalLineage,expectedHistoricalLineage)||provenanceBytes.sha256!==ref.referenceSet.productionProvenanceSha256||
+    provenance.authoritativeProductionWasmSha256!==HISTORICAL_PRODUCTION.production||
+    !same(provenance.fixedIdentities,{productionWasm:HISTORICAL_PRODUCTION.production,presets:HISTORICAL_PRODUCTION.presets,
+      profile:HISTORICAL_PRODUCTION.profile,referenceFixture:HISTORICAL_PRODUCTION.fixture,config:HISTORICAL_PRODUCTION.config})||
+    provenance.preflightReady!==true||!['EXACT_REBUILD_PROVENANCE','SUFFICIENT_METADATA_PROVENANCE'].includes(provenance.classification))
+    throw new Error('BLOCKED_STAGE3E_PRODUCTION_PROVENANCE_UNRESOLVED: historical production lineage identity mismatch');
+  if(!same(ref.referenceSet.derivativeReferences?.midi41,STAGE3A_DERIVATIVES)){
+    const derivatives=ref.referenceSet.rows.filter(row=>row.pitch===41).sort((a,b)=>a.velocityNormalized-b.velocityNormalized)
+      .map(row=>row.metrics?.velocityDerivative);
+    if(!same(derivatives,STAGE3A_DERIVATIVES))throw new Error('BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: surrogate MIDI41 derivatives differ from accepted Stage3A values');
+  }
   return {roots:{surrogate:sr,generation2:gr},referenceSet:ref.referenceSet,referenceSetSha256:ref.sha256,
     referenceManifestSha256:REFERENCE_MANIFEST_SHA256,referenceLedgerSha256:sha256(fs.readFileSync(path.join(sr.primary,'ledger.json'))),
     generation2ManifestSha256:genManifest.sha256,generation2BaselineLedgerSha256:GENERATION2_LEDGER_SHA256,
-    historicalGeneration2Identity:historicalGen2Identity,
+    historicalGeneration2Identity:historicalGen2Identity,candidateIdentityProof,productionProvenance:provenance,
+    productionProvenanceSha256:provenanceBytes.sha256,historicalProductionIdentity:historicalLineage,
     historicalCaptureIdentity:{creatorRevision:historicalGen2Identity.creatorRevision,
       helperSha256:historicalGen2Identity.captureHelperSha256,runnerSha256:historicalGen2Identity.runnerSha256},
     productionProvenanceClassification:provenance.classification,refRows,genRows,refMissing,genMissing,maxNonDerivativeDifference};
@@ -153,21 +236,22 @@ function exactSupplementIdentities(baseline){
     response:row._side==='generation2'?[1,1,1]:null,stage3dVariant:row._side==='surrogate'?0:null,stage2mFactorMask:3,
     velocityDerivativeWindowMs:[30,180],includeSoundboardDiagnostics:true})).sort((a,b)=>a.key.localeCompare(b.key));
 }
-function currentBuildIdentities({root=ROOT}={}){
-  const env=process.env.SORAOTO_WASM_BUILD_DIR,wasm3e=path.join(capture3e.buildRoot(root),capture3e.WASM),wasm3d=path.join(stage3dBuildRoot(root),STAGE3D_PLUGIN_WASM);
-  if(env!==undefined)process.env.SORAOTO_WASM_BUILD_DIR=path.join(root,'build/wasm-stage3e');
-  let stage3e;try{stage3e=capture3e.identity();}finally{if(env===undefined)delete process.env.SORAOTO_WASM_BUILD_DIR;else process.env.SORAOTO_WASM_BUILD_DIR=env;}
-  const stage3dSha=fileSha(wasm3d),stage3eSha=fileSha(wasm3e);
-  if(stage3dSha!==STAGE3D_WASM_SHA256||stage3eSha!==STAGE3E_WASM_SHA256)throw new Error('BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT: diagnostic WASM mismatch');
-  const profile=path.join(root,'wasm/shared/generated/super-synth_grand_profiles.h'),presets=path.join(root,'wasm/plugins/dsp/super-synth/presets.json'),source3d=path.join(root,'wasm/plugins/dsp/super-synth/src/plugin_stage3d.c');
-  const presetDocument=JSON.parse(fs.readFileSync(presets,'utf8')),calibration=JSON.parse(JSON.stringify(presetDocument.concert_grand));delete calibration.engine_config.soundboard.radiation_scale;
-  const configSha256=sha256(Buffer.from(JSON.stringify(calibration)));
-  if(configSha256!==FIXED.config||fileSha(presets)!==FIXED.presets||fileSha(profile)!==FIXED.profile||fileSha(path.join(root,'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json'))!==FIXED.fixture)
-    throw new Error('BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT: protected product inputs changed');
+function currentBuildIdentities({root=ROOT,baseline}={}){
+  if(!baseline?.candidateIdentityProof)throw new Error('BLOCKED_STAGE3E_ORIGINAL_CANDIDATE_IDENTITY_UNPROVEN');
+  const env=process.env.SORAOTO_WASM_BUILD_DIR,wasm3d=path.join(stage3dBuildRoot(root),STAGE3D_PLUGIN_WASM);
+  process.env.SORAOTO_WASM_BUILD_DIR=path.join(root,'build/wasm-stage3e');
+  let currentCandidateIdentity;
+  try{currentCandidateIdentity=legacy.currentProtectedIdentity(root);}finally{if(env===undefined)delete process.env.SORAOTO_WASM_BUILD_DIR;else process.env.SORAOTO_WASM_BUILD_DIR=env;}
+  const stage3dSha=fileSha(wasm3d),stage3eSha=currentCandidateIdentity.diagnosticWasmSha256;
+  if(stage3dSha!==STAGE3D_WASM_SHA256||stage3eSha!==STAGE3E_WASM_SHA256)
+    throw new Error('BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT: diagnostic WASM mismatch');
+  sameSideCandidateIdentity(baseline.candidateIdentityProof.originalCandidateIdentity,currentCandidateIdentity);
+  const source3d=path.join(root,'wasm/plugins/dsp/super-synth/src/plugin_stage3d.c');
   if(fileSha(source3d)!=='968488b7d325c42e41570c1d7add10003050ab4c87779774a6e5337244c64886')
     throw new Error('BLOCKED_STAGE3E_SURROGATE_REBUILD_PROVENANCE: Stage3D source identity changed');
-  return {authoritativeProductionWasmSha256:FIXED.production,stage3dWasmSha256:stage3dSha,stage3eWasmSha256:stage3eSha,stage3dSourceSha256:fileSha(source3d),stage3eSourceSha256:fileSha(path.join(root,'wasm/plugins/dsp/super-synth/src/plugin.c')),
-    configSha256:FIXED.config,profileSha256:fileSha(profile),presetsSha256:fileSha(presets),referenceFixtureSha256:FIXED.fixture,
+  return {authoritativeProductionWasmSha256:HISTORICAL_PRODUCTION.production,historicalProductionIdentity:baseline.historicalProductionIdentity,
+    stage3dWasmSha256:stage3dSha,stage3eWasmSha256:stage3eSha,stage3dSourceSha256:fileSha(source3d),stage3eSourceSha256:currentCandidateIdentity.sourcePluginSha256,
+    stage3eCandidateIdentity:currentCandidateIdentity,stage3eOriginalCandidateIdentity:baseline.candidateIdentityProof.originalCandidateIdentity,
     stage3dCaptureHelperSha256:fileSha(path.join(root,'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3d-matrix.cjs')),
     stage3eCaptureHelperSha256:fileSha(path.join(root,'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs')),
     stage3eAmendmentRunnerSha256:fileSha(__filename),stage3eVelocityRunnerSha256:fileSha(path.join(root,'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-velocity-response.cjs')),
@@ -176,20 +260,150 @@ function currentBuildIdentities({root=ROOT}={}){
     sourceRevision:execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),sampleRate:capture3e.SAMPLE_RATE,durationMs:capture3e.DURATION_MS,
     stage2mFactorMask:3,stage3dVariant:0,baselineResponse:[1,1,1]};
 }
-function makeAuthorization({audit,baseline,buildIdentity}){
+function normalizeMeasurementOnlyCaptureSource(source){
+  return source
+    .replace(/function velocityDerivativeWindow\([\s\S]*?\nfunction render\(/,'function render(')
+    .replace('  if(options.includeVelocityDerivative)velocityDerivativeWindow(options);\n','')
+    .replace('    applyVelocityDerivative(metrics,left,options);\n','')
+    .replace(/    const window=row\.velocityDerivativeWindowMs;\n    const derivativeOptions=window===undefined\?\{\}:\{includeVelocityDerivative:true,velocityDerivativeStartMs:window\[0\],velocityDerivativeEndMs:window\[1\]\};\n/,'')
+    .replace(/\.\.\.derivativeOptions/g,'')
+    .replace(/(velocityNormalized:row\.velocityNormalized),\}/g,'$1}')
+    .replace(/\{parameters,\}/g,'{parameters}')
+    .replace(',velocityDerivativeWindow,derivative,applyVelocityDerivative','');
+}
+function assertMeasurementOnlyCaptureChange(root,baseline){
+  const old=creatorBlob(root,CREATOR_REVISION,CREATOR_PATHS.capture).toString('utf8');
+  const current=fs.readFileSync(path.join(root,CREATOR_PATHS.capture),'utf8');
+  if(normalizeMeasurementOnlyCaptureSource(old)!==normalizeMeasurementOnlyCaptureSource(current)||
+    baseline.candidateIdentityProof.creatorRecomputedIdentity.diagnosticWasmSha256!==STAGE3E_WASM_SHA256)
+    throw new Error('BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT: capture change is not measurement-only');
+  return {pass:true,oldCaptureHelperSha256:sha256(Buffer.from(old)),currentCaptureHelperSha256:sha256(Buffer.from(current)),
+    normalization:'remove only derivative calculation, derivative option forwarding, and derivative exports; remaining helper source is byte-identical'};
+}
+function changedTrackedFiles(root,revision){
+  const output=execFileSync('rtk',['git','diff','--name-only',CREATOR_REVISION,revision],{cwd:root,encoding:'utf8'});
+  return output.split('\n').map(x=>x.trim()).filter(Boolean).sort();
+}
+function makeIdentityProofPayload({audit,baseline,buildIdentity,root=ROOT,executionSourceRevision=buildIdentity.sourceRevision}={}){
+  const allowed=new Set(['docs/agent-workflow/evidence-preservation.md','docs/design/plugins/dsp/super-synth/super-synth-design.md',
+    'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.test.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-generation2.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-midi41-evidence-amendment.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-midi41-evidence-amendment.test.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-velocity-response.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-velocity-response.test.cjs']);
+  const changed=changedTrackedFiles(root,executionSourceRevision);
+  if(changed.some(file=>!allowed.has(file)))throw new Error('BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT: change set includes an unapproved path');
+  const captureChange=assertMeasurementOnlyCaptureChange(root,baseline);
+  const inventory=audit.audit.immutablePreexistingFileInventory;
+  if(inventory?.primary?.files?.length!==35||inventory?.secondary?.files?.length!==35||
+    !same(audit.inventory.primary,inventory.primary.files)||!same(audit.inventory.secondary,inventory.secondary.files))
+    throw new Error('BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: original 35-file inventory changed');
+  const gen2Cells=baseline.genRows.map(row=>({path:row._relativePath,sha256:row._sha256})).sort((a,b)=>a.path.localeCompare(b.path));
+  const surrogateCells=baseline.refRows.map(row=>({path:row._relativePath,sha256:row._sha256})).sort((a,b)=>a.path.localeCompare(b.path));
+  const derivatives=baseline.refRows.filter(row=>row.pitch===41).sort((a,b)=>a.velocityNormalized-b.velocityNormalized).map(row=>({
+    velocityNormalized:row.velocityNormalized,derivative:row.metrics.velocityDerivative,windowMs:row.metrics.velocityDerivativeWindowMs}));
+  if(derivatives.length!==3||derivatives.some((row,i)=>row.velocityNormalized!==MIDI41[i]||
+    !Number.isFinite(row.derivative)||!same(row.windowMs,[30,180])||Math.abs(row.derivative-STAGE3A_DERIVATIVES[i])>TOLERANCE))
+    throw new Error('BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: surrogate derivative source is invalid');
+  const originalCandidate=baseline.candidateIdentityProof.originalCandidateIdentity;
+  const currentCandidate=Object.fromEntries(STAGE3E_AUDIO_IDENTITY_KEYS.map(key=>[key,buildIdentity.stage3eCandidateIdentity[key]]));
+  const candidateCompare=sameSideCandidateIdentity(originalCandidate,currentCandidate);
+  return {schemaVersion:1,decision:'STAGE3E_MEASUREMENT_IDENTITY_SCOPES_VERIFIED',creatorRevision:CREATOR_REVISION,
+    executionSourceRevision,identityDomains:{historicalProductionLineage:{...baseline.historicalProductionIdentity,
+        productionProvenanceClassification:baseline.productionProvenance.classification,productionProvenanceSha256:baseline.productionProvenanceSha256},
+      historicalStage3dSurrogate:{wasmSha256:STAGE3D_WASM_SHA256,referenceSetSha256:REFERENCE_SHA256,manifestSha256:REFERENCE_MANIFEST_SHA256,
+        stage3dVariant:0,stage2mFactorMask:3},stage3eGeneration2Candidate:{creatorIdentity:originalCandidate,
+        creatorRecomputedIdentity:baseline.candidateIdentityProof.creatorRecomputedIdentity,currentAudioIdentity:currentCandidate,
+        sameSideComparison:candidateCompare}},
+    creatorProgramHashes:baseline.candidateIdentityProof.creatorProgramHashes,
+    amendmentMeasurementProgramHashes:{captureHelperSha256:buildIdentity.stage3eCaptureHelperSha256,
+      velocityRunnerSha256:buildIdentity.stage3eVelocityRunnerSha256,generation2RunnerSha256:buildIdentity.stage3eGeneration2RunnerSha256,
+      amendmentRunnerSha256:buildIdentity.stage3eAmendmentRunnerSha256,generation2CoreSha256:buildIdentity.stage3eCoreSha256},
+    captureChange,changedTrackedFiles:changed,protectedAcousticInputsUnchanged:candidateCompare.pass,
+    acousticControls:{sampleRate:buildIdentity.sampleRate,durationMs:buildIdentity.durationMs,preset:'concert_grand',
+      stage2mFactorMask:3,stage3dVariant:0,generation2Response:[1,1,1],normalizedMidi41:MIDI41,derivativeWindowMs:[30,180]},
+    sourceEvidenceAuditSha256:audit.sha256,preexistingFileInventory:{primary:inventory.primary.files,secondary:inventory.secondary.files},
+    acceptedEvidence:{surrogateResultSha256:REFERENCE_SHA256,surrogateManifestSha256:REFERENCE_MANIFEST_SHA256,
+      surrogateLedgerSha256:baseline.referenceLedgerSha256,generation2ManifestSha256:baseline.generation2ManifestSha256,
+      generation2LedgerSha256:GENERATION2_LEDGER_SHA256,originalCellCount:24,nonDerivativeMaxDifference:baseline.maxNonDerivativeDifference,
+      surrogateCells,generation2Cells},surrogateMidi41Derivatives:derivatives,
+    authorizedSupplementIdentities:exactSupplementIdentities(baseline),maxAdditionalAcousticCalls:6,
+    expectedSupplementAcousticCalls:exactSupplementIdentities(baseline).length,productionCandidateDelta:0,stage3Calls:0,stage4Calls:0};
+}
+function identityProofRoots(root=ROOT,home=process.env.HOME){const roots=amendmentRoots(root,home);return {primary:path.join(roots.primary,IDENTITY_PROOF_FILE),secondary:path.join(roots.secondary,IDENTITY_PROOF_FILE),base:roots};}
+function validateIdentityProofBytes(storedBytes,expectedSha256){
+  if(!Buffer.isBuffer(storedBytes)||sha256(storedBytes)!==expectedSha256)throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: identity proof SHA changed');
+  const proof=JSON.parse(storedBytes.toString('utf8'));
+  if(proof.decision!=='STAGE3E_MEASUREMENT_IDENTITY_SCOPES_VERIFIED'||proof.creatorRevision!==CREATOR_REVISION)
+    throw new Error('BLOCKED_STAGE3E_ORIGINAL_CANDIDATE_IDENTITY_UNPROVEN');
+  return proof;
+}
+function assertPreAmendmentIdentityProof({audit,baseline,buildIdentity,root=ROOT,home=process.env.HOME,expectedSha256}={}){
+  const files=identityProofRoots(root,home),stored=durable.verifyDualCopy(files.primary,files.secondary);
+  if(expectedSha256&&stored.sha256!==expectedSha256)throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: identity proof binding changed');
+  const proof=validateIdentityProofBytes(stored.bytes,stored.sha256);
+  const head=execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+  try{execFileSync('rtk',['git','merge-base','--is-ancestor',proof.executionSourceRevision,head],{cwd:root,stdio:'ignore'});}
+  catch{throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: proof source is not an ancestor of current HEAD');}
+  const expected=makeIdentityProofPayload({audit,baseline,buildIdentity,root,executionSourceRevision:proof.executionSourceRevision});
+  if(!same(proof.payload,expected))throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: proof payload changed');
+  return {proof,sha256:stored.sha256,files};
+}
+function assertTrackedClean(root){
+  for(const args of [['diff','--quiet'],['diff','--cached','--quiet']]){
+    try{execFileSync('rtk',['git',...args],{cwd:root,stdio:'ignore'});}
+    catch{throw new Error('BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT: tracked changes must be committed before identity proof');}
+  }
+}
+function proveIdentity({root=ROOT,home=process.env.HOME,now=()=>new Date().toISOString()}={}){
+  assertTrackedClean(root);
+  const audit=assertSourceAudit({root,home}),baseline=loadBaselineRows({root,home}),buildIdentity=currentBuildIdentities({root,baseline});
+  const roots=identityProofRoots(root,home);
+  let priorProof=null;
+  if(fs.existsSync(roots.primary)&&fs.existsSync(roots.secondary)){
+    const prior=durable.verifyDualCopy(roots.primary,roots.secondary);priorProof=validateIdentityProofBytes(prior.bytes,prior.sha256);
+  }
+  const executionSourceRevision=priorProof?.executionSourceRevision||buildIdentity.sourceRevision;
+  const payload=makeIdentityProofPayload({audit,baseline,buildIdentity,root,executionSourceRevision});
+  const target=roots.base;
+  let stored;
+  if(fs.existsSync(roots.primary)||fs.existsSync(roots.secondary)){
+    if(!fs.existsSync(roots.primary)||!fs.existsSync(roots.secondary))throw new Error('BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: partial identity proof');
+    stored=durable.verifyDualCopy(roots.primary,roots.secondary);
+    const existing=validateIdentityProofBytes(stored.bytes,stored.sha256);
+    if(!same(existing.payload,payload))throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: proof inputs changed');
+  }else{
+    assertWritable(target);
+    const proof={schemaVersion:1,decision:'STAGE3E_MEASUREMENT_IDENTITY_SCOPES_VERIFIED',creatorRevision:CREATOR_REVISION,
+      executionSourceRevision,createdAt:now(),payload};
+    stored=durable.writeDualCopy(roots.primary,roots.secondary,jsonBytes(proof));
+  }
+  const proofContext=assertPreAmendmentIdentityProof({audit,baseline,buildIdentity,root,home,expectedSha256:stored.sha256});
+  const ctx=initialize({root,home,createRecords:true});
+  return {decision:'STAGE3E_MEASUREMENT_IDENTITY_SCOPES_VERIFIED',proofSha256:proofContext.sha256,
+    candidateId:CANDIDATE_ID,originalCreatorRevision:CREATOR_REVISION,executionSourceRevision:buildIdentity.sourceRevision,
+    expectedSupplementAcousticCalls:ctx.auth.authorizedRenderCount,authorizedCells:ctx.auth.authorizedCells,
+    builds:0,acousticRenders:0,originalEvidenceUnchanged:true,primarySecondaryProofShaMatch:true};
+}
+function makeAuthorization({audit,baseline,buildIdentity,identityProofSha256}){
+  if(!/^[a-f0-9]{64}$/.test(identityProofSha256||''))throw new Error('BLOCKED_STAGE3E_ORIGINAL_CANDIDATE_IDENTITY_UNPROVEN');
   const identities=exactSupplementIdentities(baseline);
   if(identities.length>6||identities.some(x=>x.pitch!==41||!MIDI41.includes(x.velocityNormalized)||!same(x.velocityDerivativeWindowMs,[30,180])))
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_RENDER_BUDGET');
   return {schemaVersion:1,decision:'STAGE3E_MIDI41_DERIVATIVE_AMENDMENT_AUTHORIZED',amendmentId:AMENDMENT_ID,
-    sourceEvidenceAuditSha256:audit.sha256,sourceEvidenceAuditDecision:audit.audit.decision,sourceSnapshotSha256ByStore:{primary:sha256(jsonBytes(audit.audit.immutablePreexistingFileInventory.primary.files)),secondary:sha256(jsonBytes(audit.audit.immutablePreexistingFileInventory.secondary.files))},
+    sourceEvidenceAuditSha256:audit.sha256,sourceEvidenceAuditDecision:audit.audit.decision,preAmendmentIdentityProofSha256:identityProofSha256,
+    sourceSnapshotSha256ByStore:{primary:sha256(jsonBytes(audit.audit.immutablePreexistingFileInventory.primary.files)),secondary:sha256(jsonBytes(audit.audit.immutablePreexistingFileInventory.secondary.files))},
     surrogateResultSha256:REFERENCE_SHA256,surrogateManifestSha256:REFERENCE_MANIFEST_SHA256,generation2BaselineLedgerSha256:GENERATION2_LEDGER_SHA256,
     generation2ManifestSha256:baseline.generation2ManifestSha256,authorizedCells:identities,authorizedRenderCount:identities.length,
     maxAdditionalAcousticCalls:6,stage2mFactorMask:3,stage3dVariant:0,velocityDerivativeWindowMs:[30,180],tolerance:TOLERANCE,
     productionCandidateDelta:0,stage3SearchCalls:0,stage3Calls:0,stage4Calls:0,buildIdentity:buildIdentity};
 }
-function makeCaptureIdentity({baseline,buildIdentity,authorizationSha256}){
+function makeCaptureIdentity({baseline,buildIdentity,authorizationSha256,identityProofSha256}){
   return {schemaVersion:1,decision:'STAGE3E_MIDI41_AMENDMENT_CAPTURE_IDENTITY',amendmentId:AMENDMENT_ID,
     executionSourceRevision:buildIdentity.sourceRevision,authorizationSha256,sourceAuditSha256:SOURCE_AUDIT_SHA256,
+    preAmendmentIdentityProofSha256:identityProofSha256,
     historicalCaptureIdentity:baseline.historicalCaptureIdentity,historicalGeneration2ManifestSha256:baseline.generation2ManifestSha256,
     historicalGeneration2BaselineLedgerSha256:GENERATION2_LEDGER_SHA256,amendmentCaptureIdentity:{stage3eCaptureHelperSha256:buildIdentity.stage3eCaptureHelperSha256,
       stage3dCaptureHelperSha256:buildIdentity.stage3dCaptureHelperSha256,amendmentRunnerSha256:buildIdentity.stage3eAmendmentRunnerSha256,
@@ -199,18 +413,21 @@ function makeCaptureIdentity({baseline,buildIdentity,authorizationSha256}){
       generation2Response:[1,1,1],normalizedVelocities:MIDI41,derivativeWindowMs:[30,180]},
     acousticIdentityDelta:'measurement and verifier only; plugin source, fixed WASM identities, presets, profile, config, fixture, sample rate, duration, and controls are bound above'};
 }
-function assertCurrentCaptureIdentity(expected,{root=ROOT,baseline,authorizationSha256}={}){
-  const current=makeCaptureIdentity({baseline,buildIdentity:currentBuildIdentities({root}),authorizationSha256});
+function assertCurrentCaptureIdentity(expected,{root=ROOT,home=process.env.HOME,baseline,authorizationSha256}={}){
+  const audit=assertSourceAudit({root,home}),buildIdentity=currentBuildIdentities({root,baseline});
+  const proof=assertPreAmendmentIdentityProof({audit,baseline,buildIdentity,root,home,expectedSha256:expected.preAmendmentIdentityProofSha256});
+  const current=makeCaptureIdentity({baseline,buildIdentity,authorizationSha256,identityProofSha256:proof.sha256});
   const comparison={...current,executionSourceRevision:expected.executionSourceRevision};
   if(!same(comparison,expected))throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: measurement capture identity changed');
   const currentHead=current.buildIdentity.sourceRevision;
   try{execFileSync('rtk',['git','merge-base','--is-ancestor',expected.executionSourceRevision,currentHead],{cwd:root,stdio:'ignore'});}catch{throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: current HEAD is not descended from capture commit');}
   return expected;
 }
-function assertAuthorization(auth,expected){
+function assertAuthorization(auth,expected,{identityProofSha256}={}){
   if(!auth||auth.decision!=='STAGE3E_MIDI41_DERIVATIVE_AMENDMENT_AUTHORIZED'||auth.amendmentId!==AMENDMENT_ID||
      auth.sourceEvidenceAuditSha256!==SOURCE_AUDIT_SHA256||auth.surrogateResultSha256!==REFERENCE_SHA256||
      auth.surrogateManifestSha256!==REFERENCE_MANIFEST_SHA256||auth.generation2BaselineLedgerSha256!==GENERATION2_LEDGER_SHA256||
+     auth.preAmendmentIdentityProofSha256!==identityProofSha256||
      !same(auth.authorizedCells,expected)||auth.authorizedRenderCount!==expected.length||auth.authorizedRenderCount>6||auth.maxAdditionalAcousticCalls!==6||
      auth.stage2mFactorMask!==3||auth.stage3dVariant!==0||!same(auth.velocityDerivativeWindowMs,[30,180])||auth.tolerance!==TOLERANCE)
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_RENDER_BUDGET');
@@ -219,7 +436,8 @@ function assertAuthorization(auth,expected){
 function freshLedger(auth,authorizationSha256,captureIdentity,captureIdentitySha256,now=()=>new Date().toISOString()){
   const cells={};for(const cell of auth.authorizedCells)cells[cell.key]={state:'PENDING',identity:cell,relativePath:`cells/${cell.key}.json`,sha256:null};
   return {schemaVersion:1,decision:'STAGE3E_MIDI41_AMENDMENT_IN_PROGRESS',amendmentId:AMENDMENT_ID,identity:captureIdentity,
-    authorizationSha256,captureIdentitySha256,authorizedRenderCount:auth.authorizedRenderCount,accounting:{newRenderCalls:0},startedAt:now(),finalizedAt:null,cells};
+    authorizationSha256,captureIdentitySha256,preAmendmentIdentityProofSha256:captureIdentity.preAmendmentIdentityProofSha256,
+    authorizedRenderCount:auth.authorizedRenderCount,accounting:{newRenderCalls:0},startedAt:now(),finalizedAt:null,cells};
 }
 function ledgerCounts(ledger){return Object.fromEntries(['PENDING','IN_PROGRESS','COMPLETE'].map(state=>[state,Object.values(ledger.cells||{}).filter(cell=>cell.state===state).length]));}
 function compareOriginalMetrics(original,supplement){
@@ -249,7 +467,7 @@ function validateSupplementCell(cell,record,baseline){
 }
 function assertLedger(roots,ledger,auth,captureIdentity,authorizationSha256,captureIdentitySha256,baseline){
   if(!ledger||ledger.amendmentId!==AMENDMENT_ID||ledger.authorizationSha256!==authorizationSha256||ledger.captureIdentitySha256!==captureIdentitySha256||
-     !same(ledger.identity,captureIdentity)||ledger.authorizedRenderCount!==auth.authorizedRenderCount||Object.keys(ledger.cells||{}).length!==auth.authorizedCells.length)
+     ledger.preAmendmentIdentityProofSha256!==captureIdentity.preAmendmentIdentityProofSha256||!same(ledger.identity,captureIdentity)||ledger.authorizedRenderCount!==auth.authorizedRenderCount||Object.keys(ledger.cells||{}).length!==auth.authorizedCells.length)
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: ledger binding mismatch');
   const pending=[],complete=[];
   for(const cell of auth.authorizedCells){const state=ledger.cells[cell.key];if(!state||!same(state.identity,cell)||state.relativePath!==`cells/${cell.key}.json`)throw new Error('BLOCKED_STAGE3E_AMENDMENT_RENDER_BUDGET');
@@ -270,17 +488,19 @@ function loadOrCreateImmutable(roots,relative,value){const bytes=jsonBytes(value
   return durable.writeDualCopy(a,b,bytes);
 }
 function initialize({root=ROOT,home=process.env.HOME,createRecords=true}={}){
-  const audit=assertSourceAudit({root,home}),baseline=loadBaselineRows({root,home}),buildIdentity=currentBuildIdentities({root});
-  const auth=makeAuthorization({audit,baseline,buildIdentity});
+  const audit=assertSourceAudit({root,home}),baseline=loadBaselineRows({root,home}),buildIdentity=currentBuildIdentities({root,baseline});
+  const identityProof=assertPreAmendmentIdentityProof({audit,baseline,buildIdentity,root,home});
+  const auth=makeAuthorization({audit,baseline,buildIdentity,identityProofSha256:identityProof.sha256});
   const stored=(relative,value)=>{
     if(createRecords)return loadOrCreateImmutable(audit.roots,relative,value);
     return durable.verifyDualCopy(path.join(audit.roots.primary,relative),path.join(audit.roots.secondary,relative));
   };
   const authStored=stored('authorization.json',auth);if(!authStored.bytes.equals(jsonBytes(auth)))throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: authorization changed');
-  const captureIdentity=makeCaptureIdentity({baseline,buildIdentity,authorizationSha256:authStored.sha256});
+  const captureIdentity=makeCaptureIdentity({baseline,buildIdentity,authorizationSha256:authStored.sha256,identityProofSha256:identityProof.sha256});
   const captureStored=stored('capture-identity.json',captureIdentity);if(!captureStored.bytes.equals(jsonBytes(captureIdentity)))throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: capture identity changed');
-  assertAuthorization(JSON.parse(authStored.bytes.toString('utf8')),exactSupplementIdentities(baseline));
+  assertAuthorization(JSON.parse(authStored.bytes.toString('utf8')),exactSupplementIdentities(baseline),{identityProofSha256:identityProof.sha256});
   return {audit,baseline,buildIdentity,auth:JSON.parse(authStored.bytes.toString('utf8')),authorizationSha256:authStored.sha256,
+    identityProof:identityProof.proof,identityProofSha256:identityProof.sha256,
     captureIdentity:JSON.parse(captureStored.bytes.toString('utf8')),captureIdentitySha256:captureStored.sha256,roots:audit.roots};
 }
 function loadLedgerOrCreate(ctx,{create=false,now}={}){
@@ -320,6 +540,7 @@ function execute({root=ROOT,home=process.env.HOME,captureCell=renderSupplement,i
     state=assertLedger(ctx.roots,ledger,ctx.auth,ctx.captureIdentity,ctx.authorizationSha256,ctx.captureIdentitySha256,ctx.baseline);
   }
   assertSourceAudit({root,home});return {decision:'STAGE3E_MIDI41_AMENDMENT_CAPTURE_COMPLETE',builds:0,acousticRenders:calls,newAcousticCalls:ledger.accounting.newRenderCalls,
+    preAmendmentIdentityProofSha256:ctx.identityProofSha256,
     authorizedRenderCount:ctx.auth.authorizedRenderCount,counts:state.counts,authorizedCells:ctx.auth.authorizedCells,authorizationSha256:ctx.authorizationSha256,
     originalEvidenceUnchanged:true,primarySecondaryHashesMatch:true};
 }
@@ -344,6 +565,7 @@ function resultFromPersisted(ctx,ledger){
     sourceEvidenceAuditSha256:ctx.audit.sha256,authorizationSha256:ctx.authorizationSha256,captureIdentitySha256:ctx.captureIdentitySha256,
     historicalGeneration2ManifestSha256:ctx.baseline.generation2ManifestSha256,historicalGeneration2BaselineLedgerSha256:GENERATION2_LEDGER_SHA256,
     historicalCaptureIdentity:ctx.baseline.historicalCaptureIdentity,amendmentCaptureIdentity:ctx.captureIdentity.amendmentCaptureIdentity,
+    preAmendmentIdentityProofSha256:ctx.identityProofSha256,
     originalSurrogateRows:12,originalGeneration2Rows:12,supplementAuthorized:ctx.auth.authorizedRenderCount,
     supplementActual:ledger.accounting.newRenderCalls,supplements:ctx.auth.authorizedCells.map(cell=>({key:cell.key,side:cell.side,
       velocityNormalized:cell.velocityNormalized,sha256:ledger.cells[cell.key].sha256})),
@@ -361,7 +583,8 @@ function verifyFinalized(ctx){
   const inventory=durable.assertMatchingInventory(ctx.roots.primary,ctx.roots.secondary);
   if(!same(manifest.files,inventory)||manifest.decision!==result.decision||result.decision!=='STAGE3E_GENERATION2_BASELINE_EQUIVALENT'||
      result.sourceEvidenceAuditSha256!==SOURCE_AUDIT_SHA256||result.referenceSetSha256!==REFERENCE_SHA256||
-     manifest.amendmentResultSha256!==resultBytes.sha256||result.authorizationSha256!==ctx.authorizationSha256||result.captureIdentitySha256!==ctx.captureIdentitySha256)
+     manifest.amendmentResultSha256!==resultBytes.sha256||result.authorizationSha256!==ctx.authorizationSha256||result.captureIdentitySha256!==ctx.captureIdentitySha256||
+     result.preAmendmentIdentityProofSha256!==ctx.identityProofSha256)
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_EVIDENCE: finalized identity/inventory mismatch');
   const archive=durable.verifyDualCopy(path.join(ctx.roots.primary,'archives/midi41-derivative-amendment.tar.gz'),path.join(ctx.roots.secondary,'archives/midi41-derivative-amendment.tar.gz'));
   return {result,resultSha256:resultBytes.sha256,manifestSha256:manifestBytes.sha256,archiveSha256:archive.sha256,inventoryCount:inventory.length};
@@ -378,10 +601,12 @@ function finalize({root=ROOT,home=process.env.HOME,now=()=>new Date().toISOStrin
     metadata:{creatorRevision:ctx.captureIdentity.executionSourceRevision,executionId:AMENDMENT_ID,generation:2,runnerSha256:ctx.captureIdentity.amendmentCaptureIdentity.amendmentRunnerSha256,
       helperSha256:ctx.captureIdentity.amendmentCaptureIdentity.stage3eCaptureHelperSha256,wasmSha256:ctx.captureIdentity.buildIdentity.stage3eWasmSha256,
       startedAt:ledger.startedAt,finalizedAt:now(),decision:result.decision,amendmentResultSha256:stored.sha256,sourceEvidenceAuditSha256:SOURCE_AUDIT_SHA256,
-      historicalReferenceSha256:REFERENCE_SHA256,historicalGeneration2ManifestSha256:ctx.baseline.generation2ManifestSha256}});
+      historicalReferenceSha256:REFERENCE_SHA256,historicalGeneration2ManifestSha256:ctx.baseline.generation2ManifestSha256,
+      preAmendmentIdentityProofSha256:ctx.identityProofSha256}});
   const archive=durable.createPhaseArchive({primaryRoot:ctx.roots.primary,secondaryRoot:ctx.roots.secondary,phase:'midi41-derivative-amendment'});
   assertSourceAudit({root,home});
   return {decision:result.decision,builds:0,acousticRenders:0,newAcousticCalls:ledger.accounting.newRenderCalls,
+    preAmendmentIdentityProofSha256:ctx.identityProofSha256,
     authorizedRenderCount:ctx.auth.authorizedRenderCount,counts:ledgerCounts(ledger),resultSha256:stored.sha256,manifestSha256:manifest.sha256,archiveSha256:archive.sha256,
     maxMetricDifference:result.effectiveBaseline.maximumDifference,originalEvidenceUnchanged:true};
 }
@@ -396,19 +621,22 @@ function dryRun({root=ROOT,home=process.env.HOME,now}={}){
   if(ledger)assertLedger(ctx.roots,ledger,ctx.auth,ctx.captureIdentity,ctx.authorizationSha256,ctx.captureIdentitySha256,ctx.baseline);
   return {decision:'STAGE3E_MIDI41_AMENDMENT_READY',builds:0,acousticRenders:0,authorizedCells:ctx.auth.authorizedCells,
     authorizedRenderCount:ctx.auth.authorizedRenderCount,completed:ledger?ledgerCounts(ledger).COMPLETE:0,
-    originalEvidenceUnchanged:true,sourceAuditSha256:ctx.audit.sha256,authorizationSha256:ctx.authorizationSha256,
+    originalEvidenceUnchanged:true,sourceAuditSha256:ctx.audit.sha256,preAmendmentIdentityProofSha256:ctx.identityProofSha256,authorizationSha256:ctx.authorizationSha256,
     captureIdentitySha256:ctx.captureIdentitySha256,nonDerivativeMetricRows:12,maxNonDerivativeDifference:ctx.baseline.maxNonDerivativeDifference};
 }
 function run({mode,...options}={}){
+  if(mode==='--prove-identity')return proveIdentity(options);
   if(mode==='--dry-run')return dryRun(options);if(mode==='--execute')return execute(options);if(mode==='--finalize')return finalize(options);if(mode==='--verify')return verify(options);
-  throw new Error('explicit mode required: --dry-run, --execute, --finalize, or --verify');
+  throw new Error('explicit mode required: --prove-identity, --dry-run, --execute, --finalize, or --verify');
 }
 function main(argv=process.argv.slice(2)){if(argv.length!==1)throw new Error('one explicit mode required');const result=run({mode:argv[0]});process.stdout.write(JSON.stringify(result)+'\n');}
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
 
-module.exports={ROOT,EXECUTION_ID,AMENDMENT_ID,AMENDMENT_RELATIVE,SOURCE_AUDIT_SHA256,REFERENCE_SHA256,REFERENCE_MANIFEST_SHA256,GENERATION2_LEDGER_SHA256,
-  STAGE3D_WASM_SHA256,STAGE3E_WASM_SHA256,FIXED,STAGE3A_DERIVATIVES,MIDI41,TOLERANCE,sha256,fileSha,jsonBytes,stable,same,
+module.exports={ROOT,EXECUTION_ID,AMENDMENT_ID,AMENDMENT_RELATIVE,IDENTITY_PROOF_FILE,CREATOR_REVISION,CANDIDATE_ID,SOURCE_AUDIT_SHA256,REFERENCE_SHA256,REFERENCE_MANIFEST_SHA256,GENERATION2_LEDGER_SHA256,
+  STAGE3D_WASM_SHA256,STAGE3E_WASM_SHA256,HISTORICAL_PRODUCTION,STAGE3E_AUDIO_IDENTITY_KEYS,STAGE3A_DERIVATIVES,MIDI41,TOLERANCE,sha256,fileSha,jsonBytes,stable,same,
   stage3eRoots,amendmentRoots,generation2Roots,surrogateRoots,stage3dBuildRoot,assertSourceAudit,fileInventory,rowKey,missingDerivative,loadBaselineRows,
-  exactSupplementIdentities,currentBuildIdentities,makeAuthorization,makeCaptureIdentity,assertCurrentCaptureIdentity,assertAuthorization,
+  creatorBlob,verifyGeneration2CreatorIdentity,sameSideCandidateIdentity,currentBuildIdentities,normalizeMeasurementOnlyCaptureSource,assertMeasurementOnlyCaptureChange,
+  makeIdentityProofPayload,identityProofRoots,validateIdentityProofBytes,assertPreAmendmentIdentityProof,proveIdentity,
+  exactSupplementIdentities,makeAuthorization,makeCaptureIdentity,assertCurrentCaptureIdentity,assertAuthorization,
   freshLedger,ledgerCounts,compareOriginalMetrics,validateSupplementCell,assertLedger,loadOrCreateImmutable,initialize,loadLedgerOrCreate,
   renderSupplement,effectiveRows,resultFromPersisted,verifyFinalized,dryRun,execute,finalize,verify,run,main};

@@ -31,14 +31,36 @@ function baselineFixture(){
   });
   const ref={schemaVersion:1,decision:'STAGE3E_BASELINE_SURROGATE_REQUALIFIED',referenceSetId:'stage3e-baseline-surrogate-reference-v1',
     candidateId:historical.CANDIDATE_ID,productionProvenanceClassification:'SUFFICIENT_METADATA_PROVENANCE',productionProvenanceSha256:'a'.repeat(64),
-    authoritativeHistoricalProductionWasmSha256:amendment.FIXED.production,stage3dWasmSha256:amendment.STAGE3D_WASM_SHA256,
-    stage3dSourceSha256:'968488b7d325c42e41570c1d7add10003050ab4c87779774a6e5337244c64886',configSha256:amendment.FIXED.config,
-    profileSha256:amendment.FIXED.profile,presetsSha256:amendment.FIXED.presets,referenceFixtureSha256:amendment.FIXED.fixture,
+    authoritativeHistoricalProductionWasmSha256:amendment.HISTORICAL_PRODUCTION.production,stage3dWasmSha256:amendment.STAGE3D_WASM_SHA256,
+    stage3dSourceSha256:'968488b7d325c42e41570c1d7add10003050ab4c87779774a6e5337244c64886',configSha256:amendment.HISTORICAL_PRODUCTION.config,
+    profileSha256:amendment.HISTORICAL_PRODUCTION.profile,presetsSha256:amendment.HISTORICAL_PRODUCTION.presets,referenceFixtureSha256:amendment.HISTORICAL_PRODUCTION.fixture,
     stage3dVariant:0,stage2mFactorMask:3,authorizedCellCount:12,acousticRenderCalls:12,productionCandidateDelta:0,stage4Renders:0,rows};
   const genRows=rows.map(row=>({...row,metrics:{...row.metrics},cellKey:row.cellKey}));
   for(const row of genRows)if(row.kind==='stage3a'){delete row.metrics.velocityDerivative;delete row.metrics.velocityDerivativeWindowMs;}
   return {ref,genRows};
 }
+
+{
+  const historical={configSha256:amendment.HISTORICAL_PRODUCTION.config,profileSha256:amendment.HISTORICAL_PRODUCTION.profile,
+    presetsSha256:amendment.HISTORICAL_PRODUCTION.presets};
+  const candidate={candidateId:amendment.CANDIDATE_ID,diagnosticWasmSha256:amendment.STAGE3E_WASM_SHA256,
+    sourcePluginSha256:'a'.repeat(64),presetsSha256:'b'.repeat(64),profileSha256:'c'.repeat(64),configSha256:'d'.repeat(64),
+    referenceFixtureSha256:amendment.HISTORICAL_PRODUCTION.fixture};
+  assert.notDeepEqual([historical.configSha256,historical.profileSha256,historical.presetsSha256],
+    [candidate.configSha256,candidate.profileSha256,candidate.presetsSha256]);
+  assert.equal(amendment.sameSideCandidateIdentity(candidate,{...candidate}).pass,true,
+    'historical Stage2Q hashes in another identity domain do not invalidate same-side Gen2 identity');
+  assert.throws(()=>amendment.sameSideCandidateIdentity(candidate,{...candidate,configSha256:'e'.repeat(64)}),
+    /BLOCKED_STAGE3E_MEASUREMENT_IDENTITY_DRIFT/);
+  assert.throws(()=>amendment.verifyGeneration2CreatorIdentity({manifestIdentity:null,ledger:null,rows:[]}),
+    /BLOCKED_STAGE3E_ORIGINAL_CANDIDATE_IDENTITY_UNPROVEN/);
+  const proofBytes=amendment.jsonBytes({decision:'STAGE3E_MEASUREMENT_IDENTITY_SCOPES_VERIFIED',creatorRevision:amendment.CREATOR_REVISION});
+  const proofSha=amendment.sha256(proofBytes);
+  assert.equal(amendment.validateIdentityProofBytes(proofBytes,proofSha).decision,'STAGE3E_MEASUREMENT_IDENTITY_SCOPES_VERIFIED');
+  const replaced=Buffer.from(proofBytes.toString('utf8').replace('SCOPES_VERIFIED','SCOPES_REJECTED'));
+  assert.throws(()=>amendment.validateIdentityProofBytes(replaced,proofSha),/BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION/);
+}
+
 function syntheticBaseline(){
   const refRows=[.25,.55,.90].map(v=>({pitch:41,velocity:Math.round(v*127),velocityNormalized:v,kind:'stage3a',metrics:metrics({derivative:0.1+v})}));
   const genRows=refRows.map(row=>({...row,metrics:metrics()}));
@@ -52,12 +74,17 @@ function syntheticBaseline(){
   const fakeAudit={sha256:amendment.SOURCE_AUDIT_SHA256,audit:{decision:'STAGE3E_MIDI41_AMENDMENT_SOURCE_AUDIT',
     immutablePreexistingFileInventory:{primary:{files:[]},secondary:{files:[]}}}};
   const baseline={refMissing:[],genMissing:syntheticBaseline().missing,generation2ManifestSha256:'b'.repeat(64)};
-  const auth=amendment.makeAuthorization({audit:fakeAudit,baseline,buildIdentity:{}});
+  const proofSha='d'.repeat(64);
+  const auth=amendment.makeAuthorization({audit:fakeAudit,baseline,buildIdentity:{},identityProofSha256:proofSha});
+  assert.equal(auth.preAmendmentIdentityProofSha256,proofSha);
+  const boundLedger=amendment.freshLedger(auth,'a'.repeat(64),{preAmendmentIdentityProofSha256:proofSha},'b'.repeat(64),()=> 'fixed');
+  assert.equal(boundLedger.preAmendmentIdentityProofSha256,proofSha);
   assert.equal(auth.authorizedRenderCount,3);assert.deepEqual(auth.authorizedCells.map(x=>x.velocityNormalized),[.25,.55,.9]);
   assert.equal(auth.authorizedCells.every(x=>x.side==='generation2'&&x.pitch===41&&x.stage2mFactorMask===3),true);
   assert.equal(auth.maxAdditionalAcousticCalls,6);
   assert.throws(()=>amendment.makeAuthorization({audit:fakeAudit,baseline:{...baseline,
-    refMissing:[...baseline.genMissing,...baseline.genMissing,...baseline.genMissing]},buildIdentity:{}}),/BLOCKED_STAGE3E_AMENDMENT_RENDER_BUDGET/);
+    refMissing:[...baseline.genMissing,...baseline.genMissing,...baseline.genMissing]},buildIdentity:{},identityProofSha256:proofSha}),/BLOCKED_STAGE3E_AMENDMENT_RENDER_BUDGET/);
+  assert.throws(()=>amendment.makeAuthorization({audit:fakeAudit,baseline,buildIdentity:{}}),/BLOCKED_STAGE3E_ORIGINAL_CANDIDATE_IDENTITY_UNPROVEN/);
   assert.throws(()=>amendment.assertAuthorization({...auth,authorizedCells:[...auth.authorizedCells,{...auth.authorizedCells[0],pitch:45}],authorizedRenderCount:4},auth.authorizedCells),/BLOCKED_STAGE3E_AMENDMENT_RENDER_BUDGET/);
 }
 

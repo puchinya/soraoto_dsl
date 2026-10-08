@@ -240,6 +240,9 @@ Issue #7 Stage3E evidence uses the canonical primary root
 `$HOME/.soraoto-agent-archive/soraoto_dsl/7/stage3e/`. Do not search or fall back to an
 `issues/7` path, relocate existing evidence, or treat worktree `.agent-state/` as authoritative.
 
+
+The Stage3E MIDI41 amendment uses three separate identity domains. Historical Stage2Q production hashes establish production lineage only; the Stage3D variant-0 artifact and its accepted reference set establish surrogate identity; the Generation-2 candidate identity comes from its original manifest/cells plus the exact creator-commit inputs. Historical production config/profile/preset hashes are not expected to equal the Generation-2 candidate hashes. The pre-amendment proof records both domains and their source evidence, and its exact SHA-256 is required by amendment authorization, ledger, and result. A same-domain mismatch remains a hard identity blocker. The helper change is measurement-only: it computes the normalized MIDI41 velocity derivative from captured left-channel samples over the explicitly requested `[30,180] ms` window before those samples are discarded; it does not change acoustic render controls or DSP behavior.
+
 Production promotion requires the selected tuple, a regenerated profile, focused regressions, and
 exactly one authoritative Stage3 run after a dedicated selected-values commit and clean production
 rebuild. That run contains 480 direct-reference cells plus six sentinels (486 calls); no
