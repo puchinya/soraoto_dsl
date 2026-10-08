@@ -226,6 +226,20 @@ Stage3D variant 0 and Stage2M mask 3. The resulting twelve-cell set is new surro
 recovered historical Stage3/Stage3A evidence. Generation 2 must compare its `(1,1,1)` baseline to
 that exact finalized set at the existing `1e-6` tolerance before the fixed low/mid search proceeds.
 
+The historical Stage3E reference and Generation-2 baseline cells are immutable. MIDI41 derivative
+fields are required measurements over `[30,180] ms`; if a completed row lacks those fields, use a
+separate append-only amendment namespace and capture only the exact missing MIDI41 coordinates.
+Compare every pre-existing acoustic metric before applying an in-memory overlay, require the
+surrogate derivatives to match the accepted Stage3A values, and preserve both durable copies before
+marking a supplement COMPLETE. Never rewrite a baseline cell or ledger. A passing 12/12 effective
+comparison is a new amendment result; Generation 2 search then starts in a new identity-bound search
+epoch that references that result and the original baseline creator identity.
+
+Issue #7 Stage3E evidence uses the canonical primary root
+`<GIT_COMMON_DIR>/soraoto-agent-state/7/stage3e/` and secondary root
+`$HOME/.soraoto-agent-archive/soraoto_dsl/7/stage3e/`. Do not search or fall back to an
+`issues/7` path, relocate existing evidence, or treat worktree `.agent-state/` as authoritative.
+
 Production promotion requires the selected tuple, a regenerated profile, focused regressions, and
 exactly one authoritative Stage3 run after a dedicated selected-values commit and clean production
 rebuild. That run contains 480 direct-reference cells plus six sentinels (486 calls); no

@@ -28,6 +28,13 @@ function setup(){
   let closed=false;
   return {dir,build,old,e,get closed(){return closed;},restore(){if(old===undefined)delete process.env.SORAOTO_WASM_BUILD_DIR;else process.env.SORAOTO_WASM_BUILD_DIR=old;fs.rmSync(dir,{recursive:true,force:true});},factory:()=>({e,close(){closed=true;}})};
 }
+function stage3dDerivative(samples,startSeconds,endSeconds){
+  let squareDelta=0,squareSignal=0,count=0;
+  for(let i=Math.max(1,Math.floor(startSeconds*capture.SAMPLE_RATE));i<Math.min(samples.length,Math.floor(endSeconds*capture.SAMPLE_RATE));i++){
+    const delta=samples[i]-samples[i-1];squareDelta+=delta*delta;squareSignal+=samples[i]*samples[i];count++;
+  }
+  return Math.sqrt(squareDelta/Math.max(1,count))/Math.max(1e-12,Math.sqrt(squareSignal/Math.max(1,count)));
+}
 
 {
   const x=setup();
@@ -53,6 +60,29 @@ function setup(){
 }
 for(const tuple of [[.349,1,1],[1,1,2.001],[1,NaN,1]])assert.throws(()=>capture.requireResponse(tuple),/approved profile bounds/);
 assert.deepEqual(capture.requireResponse([1,1,1]),[1,1,1]);
+{
+  const left=new Float32Array(capture.SAMPLE_RATE*capture.DURATION_MS/1000);
+  for(let i=0;i<left.length;i++)left[i]=Math.sin(i*.031)+.2*Math.sin(i*.127);
+  const stage3e=capture.derivative(left,30,180),stage3dValue=stage3dDerivative(left,30/1000,180/1000);
+  assert(Math.abs(stage3e-stage3dValue)<=1e-12,`Stage3D derivative parity ${stage3e} vs ${stage3dValue}`);
+  const metrics={peakDbfs:-4};
+  capture.applyVelocityDerivative(metrics,left,{includeVelocityDerivative:true,velocityDerivativeStartMs:30,velocityDerivativeEndMs:180});
+  assert.equal(metrics.peakDbfs,-4);assert.equal(metrics.velocityDerivative,stage3e);assert.deepEqual(metrics.velocityDerivativeWindowMs,[30,180]);
+  assert.equal(capture.applyVelocityDerivative({ok:true},left,{includeVelocityDerivative:false}).velocityDerivative,undefined);
+  for(const options of [{},{velocityDerivativeStartMs:30,velocityDerivativeEndMs:30},{velocityDerivativeStartMs:NaN,velocityDerivativeEndMs:180},{velocityDerivativeStartMs:-1,velocityDerivativeEndMs:180}])
+    assert.throws(()=>capture.velocityDerivativeWindow(options),/window must be supplied explicitly/);
+  assert.throws(()=>capture.derivative(new Float32Array(),30,180),/samples are missing/);
+  assert.throws(()=>capture.derivative(new Float32Array(100),30,180),/contains no samples/);
+  const invalid=left.slice();invalid[2000]=Infinity;
+  assert.throws(()=>capture.derivative(invalid,30,180),/samples must be finite/);
+  let observed;
+  const rows=capture.captureMatrix({rows:[{pitch:41,velocityNormalized:.25,velocityDerivativeWindowMs:[30,180]}],renderCell:(pitch,velocity,response,options)=>{
+    observed={pitch,velocity,velocityNormalized:options.velocityNormalized,options};return {pitch,velocity,velocityNormalized:options.velocityNormalized,metrics:{}};
+  }});
+  assert.equal(observed.pitch,41);assert.equal(observed.velocity,Math.round(.25*127));
+  assert.equal(observed.velocityNormalized,.25);assert.deepEqual([observed.options.velocityDerivativeStartMs,observed.options.velocityDerivativeEndMs],[30,180]);
+  assert.equal(rows[0].velocityNormalized,.25);
+}
 {
   let reset=0;
   const e={soraoto_supersynth_soundboard_diag_reset(){reset++;},soraoto_supersynth_soundboard_diag_frames:()=>17760,

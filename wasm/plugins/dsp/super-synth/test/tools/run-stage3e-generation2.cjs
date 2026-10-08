@@ -10,6 +10,7 @@ const legacy=require('./run-stage3e-velocity-response.cjs');
 const captureDefaults=require('./capture-supersynth-stage3e-matrix.cjs');
 const core=require('./stage3e-generation2-core.cjs');
 const historical=require('./run-stage3e-historical-reference-requalification.cjs');
+const midi41Amendment=require('./run-stage3e-midi41-evidence-amendment.cjs');
 
 const ROOT=legacy.ROOT;
 const EXECUTION_ID='generation-2';
@@ -24,7 +25,8 @@ function stable(value){if(Array.isArray(value))return value.map(stable);if(value
 function same(a,b){return JSON.stringify(stable(a))===JSON.stringify(stable(b));}
 function sameExecutionIdentity(current,expected){
   const keys=['schemaVersion','generation','executionId','creatorRevision','candidateId','protectedIdentity',
-    'referenceSetSha256','captureHelperSha256','runnerSha256','coreSha256'];
+    'referenceSetSha256','captureHelperSha256','runnerSha256','coreSha256','searchEpoch',
+    'midi41AmendmentResultSha256','historicalGeneration2ManifestSha256','activeSearchCaptureIdentity'];
   return keys.every(key=>same(current?.[key],expected?.[key]));
 }
 function cellId(cell){
@@ -43,29 +45,40 @@ function readDualJson(roots,relative){return JSON.parse(durable.verifyDualCopy(p
 function writeDualJson(roots,relative,value){return durable.writeDualCopy(path.join(roots.primary,relative),path.join(roots.secondary,relative),jsonBytes(value));}
 function immutableDualJson(roots,relative,value){const a=path.join(roots.primary,relative),b=path.join(roots.secondary,relative),bytes=jsonBytes(value);if(fs.existsSync(a)||fs.existsSync(b)){if(!fs.existsSync(a)||!fs.existsSync(b))throw new Error('BLOCKED_STAGE3E_EVIDENCE_SECONDARY_PERSISTENCE');const stored=durable.verifyDualCopy(a,b);if(!stored.bytes.equals(bytes))throw new Error(`BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: immutable ${relative} changed`);return stored;}return durable.writeDualCopy(a,b,bytes);}
 function getGeneration2Roots({root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT}={}){
-  const roots=generationRoots(root,home),expected=path.resolve(roots.primary);
+  const base=generationRoots(root,home),roots={primary:path.join(base.primary,'search-v1'),secondary:path.join(base.secondary,'search-v1')},expected=path.resolve(roots.primary);
   if(evidenceRoot&&path.resolve(evidenceRoot)!==expected)throw new Error('BLOCKED_STAGE3E_EVIDENCE_ROOT_IDENTITY');
   const build=path.resolve(process.env.SORAOTO_WASM_BUILD_DIR||path.join(root,'build'));
   const within=(a,b)=>b===a||b.startsWith(a+path.sep);
   for(const candidate of [roots.primary,roots.secondary])if(within(path.resolve(root),candidate)||within(build,candidate))throw new Error('BLOCKED_STAGE3E_EVIDENCE_ROOT_INSIDE_WORKTREE_OR_BUILD');
   return roots;
 }
-function currentGenerationIdentity({root=ROOT,referenceSetSha256,protectedIdentity=legacy.currentProtectedIdentity(root)}={}){
+function currentGenerationIdentity({root=ROOT,referenceSetSha256,protectedIdentity=legacy.currentProtectedIdentity(root),midi41AmendmentResultSha256,historicalGeneration2ManifestSha256}={}){
+  if(!midi41AmendmentResultSha256||!historicalGeneration2ManifestSha256)throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: finalized MIDI41 amendment is required');
   const runnerFile=path.join(root,'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-generation2.cjs');
   const coreFile=path.join(root,'wasm/plugins/dsp/super-synth/test/tools/stage3e-generation2-core.cjs');
   const helperFile=path.join(root,'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs');
-  return {schemaVersion:1,generation:2,executionId:EXECUTION_ID,creatorRevision:protectedIdentity.sourceRevision,
-    candidateId:protectedIdentity.candidateId,protectedIdentity,referenceSetSha256,
-    captureHelperSha256:sha256(fs.readFileSync(helperFile)),runnerSha256:sha256(fs.readFileSync(runnerFile)),coreSha256:sha256(fs.readFileSync(coreFile))};
+  const captureHelperSha256=sha256(fs.readFileSync(helperFile)),runnerSha256=sha256(fs.readFileSync(runnerFile));
+  return {schemaVersion:1,generation:2,executionId:EXECUTION_ID,searchEpoch:'search-v1',creatorRevision:protectedIdentity.sourceRevision,
+    candidateId:protectedIdentity.candidateId,protectedIdentity,referenceSetSha256,midi41AmendmentResultSha256,historicalGeneration2ManifestSha256,
+    captureHelperSha256,runnerSha256,coreSha256:sha256(fs.readFileSync(coreFile)),
+    activeSearchCaptureIdentity:{captureHelperSha256,velocityResponseRunnerSha256:protectedIdentity.stage3eRunnerSha256,
+      generation2RunnerSha256:runnerSha256,midi41AmendmentResultSha256,historicalGeneration2ManifestSha256,searchEpoch:'search-v1'}};
 }
 function assertGenerationManifest(roots,identity,now=()=>new Date().toISOString()){
   const file='generation-2-manifest.json',a=path.join(roots.primary,file),b=path.join(roots.secondary,file);
-  const value={schemaVersion:1,executionId:EXECUTION_ID,generation:2,state:'ACTIVE',identity,createdAt:now(),authorizedCells:{baseline:12,lowGrid:legacy.lowGridTuples().length,midGrid:legacy.MID_GRID.length}};
+  const value={schemaVersion:1,executionId:EXECUTION_ID,searchEpoch:'search-v1',generation:2,state:'ACTIVE',identity,createdAt:now(),
+    authorizedCells:{baselineRowsReused:12,baselineRenders:0,lowGrid:legacy.lowGridTuples().length,midGrid:legacy.MID_GRID.length}};
   if(fs.existsSync(a)||fs.existsSync(b)){
     if(!fs.existsSync(a)||!fs.existsSync(b))throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: partial generation manifest');
     const old=readDualJson(roots,file);if(!same(old.identity,identity))throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_BUILD_IDENTITY');return old;
   }
   writeDualJson(roots,file,value);return value;
+}
+function assertExistingGenerationManifest(roots,identity){
+  const stored=durable.verifyDualCopy(path.join(roots.primary,'generation-2-manifest.json'),path.join(roots.secondary,'generation-2-manifest.json'));
+  const manifest=JSON.parse(stored.bytes.toString('utf8'));
+  if(manifest.searchEpoch!=='search-v1'||!same(manifest.identity,identity))throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_BUILD_IDENTITY: active search manifest mismatch');
+  return manifest;
 }
 function cellSpecs(phase,rows,response=null){return rows.map(row=>{const selectedResponse=response?{...response}:row.response?{...row.response}:null;return {...row,phase,response:selectedResponse,key:cellId({...row,phase,response:selectedResponse})};});}
 function freshCellLedger(phase,identity,cells){const states={};for(const cell of cells)states[cell.key]={state:'PENDING',identity:cell,relativePath:`cells/${cell.key}.json`,sha256:null};return {schemaVersion:1,generation:2,executionId:EXECUTION_ID,phase,identity,authorizedCellCount:cells.length,accounting:{renderCalls:0},cells:states};}
@@ -173,28 +186,22 @@ function writeReferenceComparison(roots,result,now){
   if(!comparison.pass)throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT');
   return finalizePhase({roots:phaseRoots(roots,phase),phase,identity,ledger,decision:'STAGE3E_BASELINE_EQUIVALENCE_PASS',result:comparison,now});
 }
-function assertBaselined(roots,identity){
-  const result=loadResult(phaseRoots(roots,'baseline'),'baseline',phaseIdentity(identity,'baseline',identity.referenceSetSha256,{response:[1,1,1],tolerance:TOLERANCE}));
-  if(!result||result.decision!=='STAGE3E_BASELINE_EQUIVALENCE_PASS')throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT');return result;
+function assertBaselined(roots,identity,amendmentEvidence){
+  const evidence=amendmentEvidence||midi41Amendment.verify({root:ROOT});
+  if(evidence.resultSha256!==identity.midi41AmendmentResultSha256||evidence.result?.decision!=='STAGE3E_GENERATION2_BASELINE_EQUIVALENT'||
+     evidence.result?.effectivePassCount!==12||evidence.result?.effectiveCellCount!==12)
+    throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT: MIDI41 amendment result is absent or changed');
+  return evidence.result;
 }
 function runBaseline({roots,identity,referenceSet,capture,preflight,identityNow,render,now}){
-  const phase='baseline',pr=phaseRoots(roots,phase),rows=baselineCells(),cells=cellSpecs(phase,rows),phaseId=phaseIdentity(identity,phase,referenceSet.sha256,{response:[1,1,1],tolerance:TOLERANCE});
-  const existing=loadResult(pr,phase,phaseId);if(existing)return existing;
-  const ledger=loadLedger(pr,phase,phaseId,cells,{create:true});
-  if(!ledger.startedAt){ledger.startedAt=now();writeCellState(pr,ledger);}
-  const done=capturePhaseRows({roots:pr,ledger,cells,identity:phaseId,capture,response:[1,1,1],identityNow,render,now});
-  if(done.counts.COMPLETE!==12)throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT: baseline rows incomplete');
-  if(!sameExecutionIdentity(identityNow(),identity))throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_BUILD_IDENTITY: identity changed before baseline comparison');
-  const measured=readCompletedRows(pr,ledger,cells),comparison=core.validateBaselineRows(referenceSet.referenceSet,measured,{tolerance:TOLERANCE});
-  if(!comparison.pass){finalizePhase({roots:pr,phase,identity:phaseId,ledger,decision:'BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT',result:comparison,now});throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT');}
-  return finalizePhase({roots:pr,phase,identity:phaseId,ledger,decision:'STAGE3E_BASELINE_EQUIVALENCE_PASS',result:comparison,now});
+  throw new Error('BLOCKED_STAGE3E_BASELINE_CAPTURE_RETIRED: immutable 12-cell Gen2 baseline cannot be rerendered; use the finalized MIDI41 amendment overlay');
 }
 function screenLedgerRows(roots,phase,identity,cells,capture,response,identityNow,now,render=renderOne){
   const pr=phaseRoots(roots,phase),ledger=loadLedger(pr,phase,identity,cells,{create:true});if(!ledger.startedAt){ledger.startedAt=now();writeCellState(pr,ledger);}
   capturePhaseRows({roots:pr,ledger,cells,identity,capture,response,identityNow,now,render});return {ledger,rows:readCompletedRows(pr,ledger,cells)};
 }
-function executeLow({roots,identity,referenceSet,capture,identityNow,render,now}){
-  assertBaselined(roots,identity);
+function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,amendmentEvidence}){
+  assertBaselined(roots,identity,amendmentEvidence);
   const fixture=buildFixtureMap(ROOT),screenRows=[];
   const tuples=legacy.lowGridTuples();
   const screenCells=tuples.flatMap(tuple=>lowCandidateScreenCells(tuple));
@@ -225,7 +232,8 @@ function executeLow({roots,identity,referenceSet,capture,identityNow,render,now}
   if(!selected)throw new Error('BLOCKED_STAGE3E_LOW_RESPONSE_FAMILY');
   return {...result,archiveSha256:archive.sha256};
 }
-function executeMid({roots,identity,referenceSet,capture,identityNow,render,now}){
+function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,amendmentEvidence}){
+  assertBaselined(roots,identity,amendmentEvidence);
   const low=readDualJson(phaseRoots(roots,'low'),'low-result.json');
   const expectedLowId=lowPhaseIdentity(identity,referenceSet.sha256);
   if(!same(low.identity,expectedLowId)||low.decision!=='STAGE3E_LOW_RESPONSE_FAMILY_PASS'||!low.selected)throw new Error('BLOCKED_STAGE3E_LOW_RESPONSE_FAMILY');
@@ -254,30 +262,44 @@ function executeMid({roots,identity,referenceSet,capture,identityNow,render,now}
   const archive=durable.createPhaseArchive({primaryRoot:aggregate.primary,secondaryRoot:aggregate.secondary,phase:'mid-selection'});
   if(!selected)throw new Error('BLOCKED_STAGE3E_MID_RESPONSE_FAMILY');return {...result,archiveSha256:archive.sha256};
 }
-function dryRun({root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT,preflight=legacy.preflightDiagnosticCapabilities}={}){
+function dryRun({root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT,preflight=legacy.preflightDiagnosticCapabilities,amendmentCheck=midi41Amendment.verify}={}){
   preflight({root});legacy.assertGeneration1Abandoned(root);const refs=validateReferenceSet(historicalRoots(root,home));const roots=getGeneration2Roots({root,home,evidenceRoot});
-  const identity=currentGenerationIdentity({root,referenceSetSha256:refs.sha256});
-  return {decision:'GENERATION2_READY_FOR_BASELINE_EQUIVALENCE',builds:0,renders:0,acousticRenders:0,generation:2,baselineCells:12,lowGridCandidates:legacy.lowGridTuples().length,midCandidates:legacy.MID_GRID.length,historicalReferenceSetSha256:refs.sha256,identity,searchEnabled:false};
+  const amendment=amendmentCheck({root,home});
+  if(amendment.result?.decision!=='STAGE3E_GENERATION2_BASELINE_EQUIVALENT'||amendment.result?.effectivePassCount!==12||amendment.result?.effectiveCellCount!==12)
+    throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT: MIDI41 amendment is not finalized 12/12');
+  const prior=durable.verifyDualCopy(path.join(generationRoots(root,home).primary,'generation-2-manifest.json'),path.join(generationRoots(root,home).secondary,'generation-2-manifest.json'));
+  const identity=currentGenerationIdentity({root,referenceSetSha256:refs.sha256,midi41AmendmentResultSha256:amendment.resultSha256,
+    historicalGeneration2ManifestSha256:prior.sha256});
+  const manifestFile=path.join(roots.primary,'generation-2-manifest.json');
+  if(fs.existsSync(manifestFile))assertExistingGenerationManifest(roots,identity);
+  return {decision:'GENERATION2_SEARCH_READY',builds:0,renders:0,acousticRenders:0,generation:2,searchEpoch:'search-v1',
+    baselineRowsReused:12,baselineRenders:0,midi41AmendmentDecision:amendment.result.decision,midi41AmendmentResultSha256:amendment.resultSha256,
+    historicalGeneration2ManifestSha256:prior.sha256,lowGridCandidates:legacy.lowGridTuples().length,midCandidates:legacy.MID_GRID.length,
+    historicalReferenceSetSha256:refs.sha256,activeSearchRoot:roots.primary,identity,searchEnabled:true};
 }
-function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT,preflight=legacy.preflightDiagnosticCapabilities,capture=captureDefaults,render=renderOne,now=()=>new Date().toISOString()}={}){
+function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT,preflight=legacy.preflightDiagnosticCapabilities,capture=captureDefaults,render=renderOne,now=()=>new Date().toISOString(),amendmentCheck=midi41Amendment.verify}={}){
   const allowed=['--dry-run','--baseline','--low','--mid','--finalize'];if(!allowed.includes(mode))throw new Error(`explicit Generation-2 mode required: ${allowed.join(' or ')}`);
-  if(mode==='--dry-run')return dryRun({root,home,evidenceRoot,preflight});
+  if(mode==='--baseline')throw new Error('BLOCKED_STAGE3E_BASELINE_CAPTURE_RETIRED: no Generation-2 baseline rerender is authorized');
+  if(mode==='--dry-run')return dryRun({root,home,evidenceRoot,preflight,amendmentCheck});
   preflight({root});legacy.assertGeneration1Abandoned(root);
   const refs=validateReferenceSet(historicalRoots(root,home)),roots=getGeneration2Roots({root,home,evidenceRoot});
-  const protectedIdentity=legacy.currentProtectedIdentity(root),identity=currentGenerationIdentity({root,referenceSetSha256:refs.sha256,protectedIdentity});
-  assertGenerationManifest(roots,identity,now);
+  const amendment=amendmentCheck({root,home});
+  if(amendment.result?.decision!=='STAGE3E_GENERATION2_BASELINE_EQUIVALENT'||amendment.result?.effectivePassCount!==12||amendment.result?.effectiveCellCount!==12)
+    throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT: MIDI41 amendment is not finalized 12/12');
+  const historicalRootsSet=generationRoots(root,home),historicalManifest=durable.verifyDualCopy(path.join(historicalRootsSet.primary,'generation-2-manifest.json'),path.join(historicalRootsSet.secondary,'generation-2-manifest.json'));
+  const protectedIdentity=legacy.currentProtectedIdentity(root),identity=currentGenerationIdentity({root,referenceSetSha256:refs.sha256,protectedIdentity,
+    midi41AmendmentResultSha256:amendment.resultSha256,historicalGeneration2ManifestSha256:historicalManifest.sha256});
+  if(mode==='--low'||mode==='--mid')assertGenerationManifest(roots,identity,now);else assertExistingGenerationManifest(roots,identity);
   const identityNow=()=>{
     const currentRefs=validateReferenceSet(historicalRoots(root,home));
     assertBaselineReferenceIdentity(currentRefs.sha256,refs.sha256);
-    return currentGenerationIdentity({root,referenceSetSha256:currentRefs.sha256,protectedIdentity:legacy.currentProtectedIdentity(root)});
+    const currentAmendment=amendmentCheck({root,home});if(currentAmendment.resultSha256!==amendment.resultSha256)throw new Error('BLOCKED_STAGE3E_BASELINE_REFERENCE_CHANGED: amendment result SHA changed');
+    return currentGenerationIdentity({root,referenceSetSha256:currentRefs.sha256,protectedIdentity:legacy.currentProtectedIdentity(root),
+      midi41AmendmentResultSha256:currentAmendment.resultSha256,historicalGeneration2ManifestSha256:historicalManifest.sha256});
   };
-  if(mode==='--baseline'){
-    const result=runBaseline({roots,identity,referenceSet:refs,capture,preflight,identityNow,render,now});
-    return {decision:result.decision,builds:0,renders:result.renderCalls,baselineCells:result.cellCount,baselineResultSha256:sha256(durable.verifyDualCopy(path.join(phaseRoots(roots,'baseline').primary,'baseline-result.json'),path.join(phaseRoots(roots,'baseline').secondary,'baseline-result.json')).bytes),phaseArchiveSha256:result.archiveSha256};
-  }
-  if(mode==='--low')return executeLow({roots,identity,referenceSet:refs,capture,identityNow,render,now});
+  if(mode==='--low')return executeLow({roots,identity,referenceSet:refs,capture,identityNow,render,now,amendmentEvidence:amendment});
   if(mode==='--mid'){
-    const result=executeMid({roots,identity,referenceSet:refs,capture,identityNow,render,now});
+    const result=executeMid({roots,identity,referenceSet:refs,capture,identityNow,render,now,amendmentEvidence:amendment});
     if(result.selected){
       const selectedRoots=phaseRoots(roots,'stage3e-selection');
       const selection={schemaVersion:1,decision:'STAGE3E_SELECTED_RESPONSE',identity,selected:result.selected,

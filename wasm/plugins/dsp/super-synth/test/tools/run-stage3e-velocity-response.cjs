@@ -15,8 +15,8 @@ const GENERATION_1_EXECUTION_ID='ae69731b7e0a9046';
 const GENERATION_1_LEDGER_SHA256='dfb3bd6eab4b8b6d3907713536ddab867e32bc7f2093094946471e03c542b7e4';
 const GENERATION_1_WASM_SHA256='7ff39592e48dd5e38a5c8a4fb251f373c47243d2538784482904126a5ce2d6c5';
 const BASELINE_EVIDENCE_RELATIVE_PATHS=[
-  `stage3e/${historicalReference.EXECUTION_ID}/${historicalReference.REFERENCE_FILE}`,
-  `stage3e/${historicalReference.EXECUTION_ID}/${historicalReference.REFERENCE_FILE}.sha256`,
+  `7/stage3e/${historicalReference.REFERENCE_SET_ID}/${historicalReference.REFERENCE_FILE}`,
+  `7/stage3e/${historicalReference.REFERENCE_SET_ID}/${historicalReference.REFERENCE_FILE}.sha256`,
 ];
 const LAUNCH_GRID=[1,.95,.90,.85,.80,.75,.70,.65,.60,.55,.50,.45,.40,.35];
 const BASS_HARDNESS_GRID=[0,.25,.50,.75,1,1.25,1.50,1.75,2];
@@ -117,7 +117,7 @@ function assertGeneration2Ledger(ledger){
 function generation2EvidenceRoot(root=ROOT,env=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT){
   if(!env)throw new Error('BLOCKED_STAGE3E_EVIDENCE_ROOT_REQUIRED');
   const common=gitCommonDir(root);
-  const expected=path.resolve(common,'soraoto-agent-state/issues/7/stage3e/generation-2');
+  const expected=path.resolve(common,'soraoto-agent-state/7/stage3e/generation-2/search-v1');
   const actual=path.resolve(env);
   if(actual!==expected)throw new Error('BLOCKED_STAGE3E_EVIDENCE_ROOT_IDENTITY: evidence must be the Git-common-dir Generation-2 root');
   const rootPath=path.resolve(root),buildPath=path.resolve(process.env.SORAOTO_WASM_BUILD_DIR||path.join(root,'build'));
@@ -126,9 +126,9 @@ function generation2EvidenceRoot(root=ROOT,env=process.env.SORAOTO_STAGE3E_EVIDE
   return actual;
 }
 function historicalBaselinePaths(commonDir,home=process.env.HOME){
-  const execution=historicalReference.EXECUTION_ID,repository=path.basename(ROOT);
-  const primary=path.join(commonDir,'soraoto-agent-state/issues/7/stage3e',execution);
-  const secondary=path.join(home,'.soraoto-agent-archive',repository,'7/stage3e',execution);
+  const execution=historicalReference.REFERENCE_SET_ID,repository=path.basename(ROOT);
+  const primary=path.join(commonDir,'soraoto-agent-state','7','stage3e',execution);
+  const secondary=path.join(home,'.soraoto-agent-archive',repository,'7','stage3e',execution);
   return {primary:{referenceSet:path.join(primary,historicalReference.REFERENCE_FILE),sha:path.join(primary,`${historicalReference.REFERENCE_FILE}.sha256`)},
     secondary:{referenceSet:path.join(secondary,historicalReference.REFERENCE_FILE),sha:path.join(secondary,`${historicalReference.REFERENCE_FILE}.sha256`)}};
 }
@@ -148,9 +148,13 @@ function run({mode,root=ROOT,home=process.env.HOME,preflight=preflightDiagnostic
   assertGeneration1Abandoned(root);
   if(mode==='--execute')generation2EvidenceRoot(root,evidenceRoot);
   const baseline=assertHistoricalBaselineEvidence(historicalBaselinePaths(gitCommonDir(root),home));
-  return {decision:'GENERATION2_READY_FOR_BASELINE_EQUIVALENCE',generation:2,builds:0,renders:0,
-    freshBaselineCells:12,baselineReferenceSetId:baseline.referenceSet.referenceSetId,baselineReferenceSetSha256:baseline.sha256,
-    baselineEvidence:baseline.files,searchEnabled:false};
+  const amendment=require('./run-stage3e-midi41-evidence-amendment.cjs').verify({root,home});
+  if(amendment.result.decision!=='STAGE3E_GENERATION2_BASELINE_EQUIVALENT'||amendment.result.effectivePassCount!==12)
+    throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT: MIDI41 amendment not finalized');
+  return {decision:'GENERATION2_SEARCH_READY',generation:2,searchEpoch:'search-v1',builds:0,renders:0,acousticRenders:0,
+    freshBaselineCells:0,baselineRowsReused:12,amendmentResultSha256:amendment.resultSha256,
+    baselineReferenceSetId:baseline.referenceSet.referenceSetId,baselineReferenceSetSha256:baseline.sha256,
+    baselineEvidence:baseline.files,searchEnabled:true};
 }
 function main(argv=process.argv.slice(2)){
   if(argv.length===1&&['--dry-run','--baseline','--low','--mid','--finalize'].includes(argv[0]))

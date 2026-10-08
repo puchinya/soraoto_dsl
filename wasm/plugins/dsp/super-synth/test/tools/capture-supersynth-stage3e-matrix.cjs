@@ -87,9 +87,40 @@ function readSoundboardDiagnostics(e){
     name,{rms:Math.sqrt(e.soraoto_supersynth_soundboard_diag_sum_squares(index)/frames),peak:e.soraoto_supersynth_soundboard_diag_peak(index)},
   ]))};
 }
+function velocityDerivativeWindow(options={}){
+  const startMs=options.velocityDerivativeStartMs,endMs=options.velocityDerivativeEndMs;
+  if(!Number.isFinite(startMs)||!Number.isFinite(endMs)||startMs<0||endMs<=startMs)
+    throw new Error('Stage3E velocity derivative window must be supplied explicitly and be valid');
+  return [startMs,endMs];
+}
+function derivative(left,startMs,endMs){
+  if(!left||!Number.isInteger(left.length)||left.length===0)throw new Error('Stage3E velocity derivative samples are missing');
+  if(!Number.isFinite(startMs)||!Number.isFinite(endMs)||startMs<0||endMs<=startMs)
+    throw new Error('Stage3E velocity derivative window must be supplied explicitly and be valid');
+  const startIndex=Math.max(1,Math.floor(startMs/1000*SAMPLE_RATE));
+  const endIndex=Math.min(left.length,Math.floor(endMs/1000*SAMPLE_RATE));
+  if(endIndex<=startIndex)throw new Error('Stage3E velocity derivative window contains no samples');
+  let squareDelta=0,squareSignal=0,count=0;
+  for(let i=startIndex;i<endIndex;i++){
+    const current=left[i],previous=left[i-1];
+    if(!Number.isFinite(current)||!Number.isFinite(previous))throw new Error('Stage3E velocity derivative samples must be finite');
+    const delta=current-previous;squareDelta+=delta*delta;squareSignal+=current*current;count++;
+  }
+  const value=Math.sqrt(squareDelta/Math.max(1,count))/Math.max(1e-12,Math.sqrt(squareSignal/Math.max(1,count)));
+  if(!Number.isFinite(value))throw new Error('Stage3E velocity derivative is non-finite');
+  return value;
+}
+function applyVelocityDerivative(metrics,left,options={}){
+  if(options.includeVelocityDerivative!==true)return metrics;
+  const [startMs,endMs]=velocityDerivativeWindow(options);
+  metrics.velocityDerivative=derivative(left,startMs,endMs);
+  metrics.velocityDerivativeWindowMs=[startMs,endMs];
+  return metrics;
+}
 function render(pitch,velocity,response=[1,1,1],options={}){return renderNormalized(pitch,options.velocityNormalized??velocity/127,response,options);}
 function renderNormalized(pitch,velocityNormalized,response=[1,1,1],options={}){
   if(!Number.isFinite(velocityNormalized)||velocityNormalized<0||velocityNormalized>1)throw new Error('Stage3E normalized velocity must be in [0,1]');
+  if(options.includeVelocityDerivative)velocityDerivativeWindow(options);
   requireResponse(response);
   const harness=new PluginHarness(REPO,WASM,{sampleRate:SAMPLE_RATE,maxFrames:BLOCK});
   try{
@@ -118,6 +149,7 @@ function renderNormalized(pitch,velocityNormalized,response=[1,1,1],options={}){
       offset+=frames;
     }
     const metrics=analyzeStereo(left,right,pitch,{sampleRate:SAMPLE_RATE});
+    applyVelocityDerivative(metrics,left,options);
     metrics.finite=finite;
     metrics.fullRenderPeakDbfs=fullPeak>0?20*Math.log10(fullPeak):null;
     metrics.outputGuardHits=guardCount===null?null:e.soraoto_supersynth_guard_hit_count()-guardCount;
@@ -131,9 +163,11 @@ function renderNormalized(pitch,velocityNormalized,response=[1,1,1],options={}){
 function captureMatrix({rows,response=[1,1,1],parameters={},renderCell=render}={}){
   if(!Array.isArray(rows)||rows.length===0)throw new Error('Stage3E capture requires an explicit non-empty cell list');
   return rows.map(row=>{
+    const window=row.velocityDerivativeWindowMs;
+    const derivativeOptions=window===undefined?{}:{includeVelocityDerivative:true,velocityDerivativeStartMs:window[0],velocityDerivativeEndMs:window[1]};
     const captured=row.velocityNormalized!==undefined
-      ?renderCell(row.pitch,Math.round(row.velocityNormalized*127),response,{parameters,velocityNormalized:row.velocityNormalized})
-      :renderCell(row.pitch,row.velocity,response,{parameters});
+      ?renderCell(row.pitch,Math.round(row.velocityNormalized*127),response,{parameters,velocityNormalized:row.velocityNormalized,...derivativeOptions})
+      :renderCell(row.pitch,row.velocity,response,{parameters,...derivativeOptions});
     return {...captured,phase:row.phase||null};
   });
 }
@@ -142,4 +176,4 @@ function identity(){
   const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   return {wasmPath:wasm,wasmSha256:sha(wasm),sourceSha256:sha(source),presetsSha256:sha(presets)};
 }
-module.exports={REPO,WASM,SAMPLE_RATE,BLOCK,DURATION_MS,STAGE2M_EXPORTS,STAGE3E_EXPORTS,FORBIDDEN_EXPORTS,REQUIRED_GUARD_EXPORTS,buildRoot,assertDiagnosticMode,preflightDiagnosticCapabilities,requireResponse,assertSoundboardDiagnostics,readSoundboardDiagnostics,render,renderNormalized,captureMatrix,identity};
+module.exports={REPO,WASM,SAMPLE_RATE,BLOCK,DURATION_MS,STAGE2M_EXPORTS,STAGE3E_EXPORTS,FORBIDDEN_EXPORTS,REQUIRED_GUARD_EXPORTS,buildRoot,assertDiagnosticMode,preflightDiagnosticCapabilities,requireResponse,assertSoundboardDiagnostics,readSoundboardDiagnostics,velocityDerivativeWindow,derivative,applyVelocityDerivative,render,renderNormalized,captureMatrix,identity};

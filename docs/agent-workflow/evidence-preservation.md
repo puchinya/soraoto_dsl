@@ -13,6 +13,15 @@ Secondary: $HOME/.soraoto-agent-archive/<repository>/<issue>/<task>/<execution>/
 
 The Git common directory is resolved with `git rev-parse --path-format=absolute --git-common-dir`; it is shared by linked worktrees. The secondary root is outside the repository. Never treat a worktree `.agent-state/**` directory as authoritative; it is only a compatibility/cache location. Neither durable root may be committed.
 
+For Issue #7 Stage3E, the canonical task roots are exactly:
+
+```text
+Primary:   <GIT_COMMON_DIR>/soraoto-agent-state/7/stage3e/
+Secondary: $HOME/.soraoto-agent-archive/soraoto_dsl/7/stage3e/
+```
+
+Historical phase data and new execution namespaces live below these roots. Do not relocate or copy existing evidence, search an alternate `issues/7` tree as a fallback, or promote a worktree `.agent-state/` copy. A legacy Generation-1 tombstone may be read only at its explicitly bound historical location; it is not a current Stage3E evidence root and receives no new writes.
+
 ## Cell completion
 
 A cell may transition to `COMPLETE` only after all of these steps succeed:

@@ -67,8 +67,11 @@ function tempGitRoot(){
   const root=tempGitRoot();
   try{
     const common=runner.gitCommonDir(root);
-    const expected=path.join(common,'soraoto-agent-state/issues/7/stage3e/generation-2');
+    const expected=path.join(common,'soraoto-agent-state/7/stage3e/generation-2/search-v1');
     assert.equal(runner.generation2EvidenceRoot(root,expected),expected);
+    const obsolete=path.join(common,'soraoto-agent-state/issues/7/stage3e/generation-2/search-v1');
+    assert.throws(()=>runner.generation2EvidenceRoot(root,obsolete),/BLOCKED_STAGE3E_EVIDENCE_ROOT_IDENTITY/,
+      'the obsolete issues/7 tree must never be accepted as a current Generation-2 root');
     assert.throws(()=>runner.generation2EvidenceRoot(root,path.join(root,'generation-2')),/BLOCKED_STAGE3E_EVIDENCE_ROOT_IDENTITY/);
     const priorBuild=process.env.SORAOTO_WASM_BUILD_DIR;
     process.env.SORAOTO_WASM_BUILD_DIR=expected;
@@ -106,7 +109,7 @@ function tempGitRoot(){
     assert.equal(preflightCalled,1,'capability preflight runs before historical evidence validation');
     assert.deepEqual(fs.readdirSync(root).sort(),['.git','home']);
     const common=runner.gitCommonDir(root);
-    assert.equal(fs.existsSync(path.join(common,'soraoto-agent-state/issues/7/stage3e/generation-2')),false,
+    assert.equal(fs.existsSync(path.join(common,'soraoto-agent-state/7/stage3e/generation-2/search-v1')),false,
       'blocked dry-run must not create Generation 2 ledger/evidence state');
     assert.throws(()=>runner.run({root,home,mode:'--execute',preflight(){},evidenceRoot:path.join(root,'generation-2')}),/BLOCKED_STAGE3E_EVIDENCE_ROOT_IDENTITY/);
     assert.throws(()=>runner.run({root,mode:'--unsupported',preflight(){throw new Error('must not run');}}),/explicit mode required/);
