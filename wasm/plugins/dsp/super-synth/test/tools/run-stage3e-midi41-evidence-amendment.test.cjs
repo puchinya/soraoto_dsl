@@ -62,6 +62,18 @@ function baselineFixture(){
   assert.equal(amendment.assertNamedObjectCaptureApi(currentCapture),true);
   assert.equal(amendment.normalizeMeasurementOnlyCaptureSource(oldCapture),amendment.normalizeMeasurementOnlyCaptureSource(currentCapture),
     'the v8 named-object request correction and derivative measurement are the only capture-helper changes');
+  const canonical={low:1,mid:1,bassHardness:1};
+  const storedPayload={captureChange:{currentCaptureHelperSha256:'a'.repeat(64)},
+    acousticControls:{generation2Response:[1,1,1]},authorizedSupplementIdentities:[{response:[1,1,1]}]};
+  const currentPayload={captureChange:{currentCaptureHelperSha256:'b'.repeat(64)},
+    acousticControls:{generation2Response:canonical},authorizedSupplementIdentities:[{response:{...canonical}}]};
+  const oldCanonical=amendment.normalizeIdentityProofPayloadForV8(storedPayload,{observedCaptureHelperSha256:'a'.repeat(64),historicalCaptureHelperSha256:'a'.repeat(64)});
+  const newCanonical=amendment.normalizeIdentityProofPayloadForV8(currentPayload,{observedCaptureHelperSha256:'b'.repeat(64),historicalCaptureHelperSha256:'a'.repeat(64)});
+  assert.deepEqual(newCanonical,oldCanonical,'immutable v5 array responses and current v8 named responses normalize only to the same fixed response identity');
+  assert.throws(()=>amendment.normalizeIdentityProofPayloadForV8({...storedPayload,acousticControls:{generation2Response:[1,1.001,1]}},
+    {observedCaptureHelperSha256:'a'.repeat(64),historicalCaptureHelperSha256:'a'.repeat(64)}),/original response identity is not canonical/);
+  assert.throws(()=>amendment.normalizeIdentityProofPayloadForV8(storedPayload,
+    {observedCaptureHelperSha256:'c'.repeat(64),historicalCaptureHelperSha256:'a'.repeat(64)}),/original capture-helper identity is unproven/);
   const unrelatedCaptureChange=currentCapture.replace('const count=Math.floor(SAMPLE_RATE*DURATION_MS/1000)',
     'const count=Math.floor(SAMPLE_RATE*DURATION_MS/1000)+1');
   assert.notEqual(amendment.normalizeMeasurementOnlyCaptureSource(oldCapture),amendment.normalizeMeasurementOnlyCaptureSource(unrelatedCaptureChange),

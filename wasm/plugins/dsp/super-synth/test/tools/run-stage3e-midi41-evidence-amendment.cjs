@@ -390,6 +390,23 @@ function validateIdentityProofBytes(storedBytes,expectedSha256){
     throw new Error('BLOCKED_STAGE3E_ORIGINAL_CANDIDATE_IDENTITY_UNPROVEN');
   return proof;
 }
+function canonicalOriginalResponse(value){
+  const canonical={low:1,mid:1,bassHardness:1};
+  if(Array.isArray(value)&&same(value,[1,1,1]))return canonical;
+  if(value&&!Array.isArray(value)&&same(value,canonical))return canonical;
+  throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: original response identity is not canonical');
+}
+function normalizeIdentityProofPayloadForV8(payload,{observedCaptureHelperSha256,historicalCaptureHelperSha256}={}){
+  if(!payload||!historicalCaptureHelperSha256||payload.captureChange?.currentCaptureHelperSha256!==observedCaptureHelperSha256)
+    throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: original capture-helper identity is unproven');
+  const normalized=JSON.parse(JSON.stringify(payload));
+  normalized.captureChange.currentCaptureHelperSha256=historicalCaptureHelperSha256;
+  normalized.acousticControls.generation2Response=canonicalOriginalResponse(normalized.acousticControls.generation2Response);
+  if(!Array.isArray(normalized.authorizedSupplementIdentities))
+    throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: original supplement identities are missing');
+  for(const row of normalized.authorizedSupplementIdentities)row.response=canonicalOriginalResponse(row.response);
+  return normalized;
+}
 function assertPreAmendmentIdentityProof({audit,baseline,buildIdentity,root=ROOT,home=process.env.HOME,expectedSha256}={}){
   const files=identityProofRoots(root,home),stored=durable.verifyDualCopy(files.primary,files.secondary);
   if(expectedSha256&&stored.sha256!==expectedSha256)throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: identity proof binding changed');
@@ -398,7 +415,13 @@ function assertPreAmendmentIdentityProof({audit,baseline,buildIdentity,root=ROOT
   try{execFileSync('rtk',['git','merge-base','--is-ancestor',proof.executionSourceRevision,head],{cwd:root,stdio:'ignore'});}
   catch{throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: proof source is not an ancestor of current HEAD');}
   const expected=makeIdentityProofPayload({audit,baseline,buildIdentity,root,executionSourceRevision:proof.executionSourceRevision});
-  if(!same(proof.payload,expected))throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: proof payload changed');
+  const historicalCaptureHelperSha256=sha256(creatorBlob(root,proof.executionSourceRevision,CREATOR_PATHS.capture));
+  const currentCaptureHelperSha256=sha256(fs.readFileSync(path.join(root,CREATOR_PATHS.capture)));
+  const originalPayload=normalizeIdentityProofPayloadForV8(proof.payload,{observedCaptureHelperSha256:historicalCaptureHelperSha256,
+    historicalCaptureHelperSha256});
+  const currentPayload=normalizeIdentityProofPayloadForV8(expected,{observedCaptureHelperSha256:currentCaptureHelperSha256,
+    historicalCaptureHelperSha256});
+  if(!same(originalPayload,currentPayload))throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: proof payload changed outside the v8 response-API correction');
   return {proof,sha256:stored.sha256,files};
 }
 function assertTrackedClean(root){
@@ -733,7 +756,7 @@ module.exports={ROOT,EXECUTION_ID,AMENDMENT_ID,AMENDMENT_RELATIVE,IDENTITY_PROOF
   STAGE3D_WASM_SHA256,STAGE3E_WASM_SHA256,HISTORICAL_PRODUCTION,STAGE3E_AUDIO_IDENTITY_KEYS,STAGE3A_DERIVATIVES,MIDI41,TOLERANCE,sha256,fileSha,jsonBytes,stable,same,
   stage3eRoots,amendmentRoots,generation2Roots,surrogateRoots,stage3dBuildRoot,assertSourceAudit,fileInventory,rowKey,missingDerivative,loadBaselineRows,
   creatorBlob,verifyGeneration2CreatorIdentity,sameSideCandidateIdentity,currentBuildIdentities,normalizeMeasurementOnlyCaptureSource,assertNamedObjectCaptureApi,assertMeasurementOnlyCaptureChange,parseTrackedDiffNames,changedTrackedFiles,
-  makeIdentityProofPayload,identityProofRoots,validateIdentityProofBytes,assertPreAmendmentIdentityProof,proveIdentity,
+  makeIdentityProofPayload,identityProofRoots,validateIdentityProofBytes,canonicalOriginalResponse,normalizeIdentityProofPayloadForV8,assertPreAmendmentIdentityProof,proveIdentity,
   exactSupplementIdentities,makeAuthorization,makeCaptureIdentity,assertCurrentCaptureIdentity,assertAuthorization,
   freshLedger,ledgerCounts,compareOriginalMetrics,validateSupplementCell,assertLedger,loadOrCreateImmutable,initialize,loadLedgerOrCreate,
   renderSupplement,effectiveRows,resultFromPersisted,verifyFinalized,dryRun,execute,finalize,verify,run,main};
