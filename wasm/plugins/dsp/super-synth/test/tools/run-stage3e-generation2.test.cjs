@@ -16,6 +16,11 @@ function baseIdentity(){return {schemaVersion:1,generation:2,executionId:'genera
 function rowMetrics(){return {finite:true,outputGuardHits:0,peakDbfs:-12,fullRenderPeakDbfs:-11};}
 
 {
+  assert.equal(runner.assertBaselineReferenceIdentity('c'.repeat(64),'c'.repeat(64)),'c'.repeat(64));
+  assert.throws(()=>runner.assertBaselineReferenceIdentity('d'.repeat(64),'c'.repeat(64)),/BLOCKED_STAGE3E_BASELINE_REFERENCE_CHANGED/);
+}
+
+{
   const {root,roots}=tempRoots();
   try{
     const base=baseIdentity(),identity=runner.phaseIdentity(base,'screen','c'.repeat(64),{authorizedGrid:[{low:1}],screenCoordinates:[{pitch:36,velocity:14}]});
@@ -56,6 +61,16 @@ function rowMetrics(){return {finite:true,outputGuardHits:0,peakDbfs:-12,fullRen
   assert.deepEqual(received[0].response,cell.response,'normalized capture honors cell-level response');
   assert.deepEqual(received[0].options,{stage2mFactorMask:3,includeVelocityDerivative:true,velocityDerivativeStartMs:30,velocityDerivativeEndMs:180,includeSoundboardDiagnostics:true});
   assert.equal(row.metrics.finite,true);
+}
+
+{
+  const received=[];const capture={renderNormalized(pitch,velocity,response,options){received.push({pitch,velocity,response,options});return {metrics:rowMetrics()};}};
+  const cell={phase:'baseline',pitch:36,velocity:14,velocityNormalized:14/127,kind:'production'};
+  runner.renderOne(cell,[1,1,1],capture);
+  assert.equal(received[0].options.stage2mFactorMask,3);
+  assert.equal(received[0].options.includeSoundboardDiagnostics,true);
+  assert.equal(received[0].options.includeVelocityDerivative,false,
+    'direct style baseline uses canonical windows without MIDI41 derivative analysis');
 }
 
 {

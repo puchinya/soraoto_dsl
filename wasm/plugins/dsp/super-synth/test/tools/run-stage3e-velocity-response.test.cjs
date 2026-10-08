@@ -4,7 +4,32 @@ const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 const {execFileSync}=require('node:child_process');
+const durable=require('./durable-evidence.cjs');
 const runner=require('./run-stage3e-velocity-response.cjs');
+const reference=require('./run-stage3e-historical-reference-requalification.cjs');
+
+const SIGNALS=require('./capture-supersynth-stage3d-matrix.cjs').SOUNDBOARD_DIAGNOSTIC_NAMES;
+function makeSurrogateReference(){
+  const rows=reference.exactCellList().map(cell=>{
+    const metrics={onsetMs:2,peakDbfs:-10,fullRenderPeakDbfs:-9,spectralCentroidHz:1200,above2kPowerRatio:.2,
+      envelopeDbfs:[-50,-30,-12,-10,-14],envelope20msDbfs:[-40,-25,-10,-10,-11,-12],harmonicRatiosH2ToH6:[.1,.05,.02,.01,.005],
+      stereoWidth:.4,stereoPan:0,inharmonicityB:.001,spectralSpreadHz:8,finite:true,outputGuardHits:0,stage2mFactorMask:3,
+      stage2mHammer:{effectiveHardness:.2,initialHammerVelocity:2,contactDurationSamples:100,peakForce:3,maxCompression:.1,postContactTransverseEnergy:.5},
+      soundboardDiagnostics:{frames:17760,signals:Object.fromEntries(SIGNALS.map(name=>[name,{rms:.1,peak:.2}]))}};
+    if(cell.kind==='stage3a'){const i=reference.STAGE3A_CELLS.findIndex(row=>row.velocityNormalized===cell.velocityNormalized);metrics.velocityDerivative=reference.DERIVATIVE_EXPECTED[i];metrics.velocityDerivativeWindowMs=[30,180];}
+    return {...reference.makeRow(cell,metrics),rowFileSha256:'b'.repeat(64)};
+  });
+  return {schemaVersion:1,decision:'STAGE3E_BASELINE_SURROGATE_REQUALIFIED',referenceSetId:reference.REFERENCE_SET_ID,
+    candidateId:reference.CANDIDATE_ID,productionProvenanceClassification:'SUFFICIENT_METADATA_PROVENANCE',
+    productionProvenanceSha256:'a'.repeat(64),authoritativeHistoricalProductionWasmSha256:'b'.repeat(64),
+    stage3dWasmSha256:'9883b54eaa888b5a8d2e4d9da0490de92dd4c31915fb0d97d47cc03ce123a63a',
+    stage3dSourceSha256:'968488b7d325c42e41570c1d7add10003050ab4c87779774a6e5337244c64886',
+    configSha256:'792c563e3ae6ffbf6bef72b18a6c841a24598e1bc20ad5ec7dd39a4c0832513d',
+    profileSha256:'cf3d4adabd055b1b9895820bcaeee95b4a4999d6a245bea06c07fb14eeb7eb66',
+    presetsSha256:'cbe58468911ee583d535c7d3ce09bd40199aeb93183def0a8204d591feac4431',
+    referenceFixtureSha256:'5d27b6beae2a3c478e21ef0e260e588fdfd22bd1fea4181c74c0d00520a08cd7',
+    stage3dVariant:0,stage2mFactorMask:3,authorizedCellCount:12,acousticRenderCalls:12,productionCandidateDelta:0,stage4Renders:0,rows};
+}
 
 function tempGitRoot(){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-generation2-'));
@@ -55,17 +80,20 @@ function tempGitRoot(){
 {
   const root=tempGitRoot();
   try{
-    const paths=runner.historicalBaselinePaths(runner.gitCommonDir(root));
-    assert.deepEqual(Object.keys(paths),runner.BASELINE_EVIDENCE_RELATIVE_PATHS);
-    assert(paths['calibration-optuna/stage3/direct-capture.json'].endsWith('/calibration-optuna/stage3/direct-capture.json'));
+    const home=path.join(root,'home');fs.mkdirSync(home);
+    const paths=runner.historicalBaselinePaths(runner.gitCommonDir(root),home);
     assert.throws(()=>runner.assertHistoricalBaselineEvidence(paths),error=>{
       assert.match(error.message,/BLOCKED_STAGE3E_BASELINE_EVIDENCE_MISSING/);
-      return Object.values(paths).every(file=>error.message.includes(file));
+      return [paths.primary.referenceSet,paths.primary.sha,paths.secondary.referenceSet,paths.secondary.sha].every(file=>error.message.includes(file));
     });
-    for(const file of Object.values(paths)){fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,'historical evidence fixture');}
+    const bytes=Buffer.from(JSON.stringify(makeSurrogateReference(),null,2)+'\n'),sha=require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+    for(const file of [paths.primary.referenceSet,paths.secondary.referenceSet]){fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);}
+    const shaBytes=Buffer.from(`${sha}\n`);fs.writeFileSync(paths.primary.sha,shaBytes);fs.writeFileSync(paths.secondary.sha,shaBytes);
     const accepted=runner.assertHistoricalBaselineEvidence(paths);
-    assert.equal(Object.keys(accepted).length,4);
-    for(const item of Object.values(accepted))assert.match(item.sha256,/^[0-9a-f]{64}$/);
+    assert.equal(accepted.referenceSet.referenceSetId,'stage3e-baseline-surrogate-reference-v1');
+    assert.equal(accepted.sha256,sha);
+    fs.writeFileSync(paths.secondary.referenceSet,Buffer.from('mutated'));
+    assert.throws(()=>runner.assertHistoricalBaselineEvidence(paths),/BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE/);
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 }
 
@@ -73,13 +101,14 @@ function tempGitRoot(){
   const root=tempGitRoot();
   try{
     let preflightCalled=0;
-    assert.throws(()=>runner.run({root,mode:'--dry-run',preflight(){preflightCalled++;}}),/BLOCKED_STAGE3E_BASELINE_EVIDENCE_MISSING/);
+    const home=path.join(root,'home');fs.mkdirSync(home);
+    assert.throws(()=>runner.run({root,home,mode:'--dry-run',preflight(){preflightCalled++;}}),/BLOCKED_STAGE3E_BASELINE_EVIDENCE_MISSING/);
     assert.equal(preflightCalled,1,'capability preflight runs before historical evidence validation');
-    assert.deepEqual(fs.readdirSync(root),['.git']);
+    assert.deepEqual(fs.readdirSync(root).sort(),['.git','home']);
     const common=runner.gitCommonDir(root);
     assert.equal(fs.existsSync(path.join(common,'soraoto-agent-state/issues/7/stage3e/generation-2')),false,
       'blocked dry-run must not create Generation 2 ledger/evidence state');
-    assert.throws(()=>runner.run({root,mode:'--execute',preflight(){},evidenceRoot:path.join(root,'generation-2')}),/BLOCKED_STAGE3E_EVIDENCE_ROOT_IDENTITY/);
+    assert.throws(()=>runner.run({root,home,mode:'--execute',preflight(){},evidenceRoot:path.join(root,'generation-2')}),/BLOCKED_STAGE3E_EVIDENCE_ROOT_IDENTITY/);
     assert.throws(()=>runner.run({root,mode:'--unsupported',preflight(){throw new Error('must not run');}}),/explicit mode required/);
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 }

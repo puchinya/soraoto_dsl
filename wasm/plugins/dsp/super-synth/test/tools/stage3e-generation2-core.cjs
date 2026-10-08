@@ -2,17 +2,22 @@
 
 const fs=require('node:fs');
 const path=require('node:path');
+const {execFileSync}=require('node:child_process');
+const durable=require('./durable-evidence.cjs');
 const {evaluateDirectReferenceMatrix,LIMITS,dynamicSpanMetrics}=require('./stage3-direct-reference-metrics.cjs');
 const requalification=require('./run-stage3e-historical-reference-requalification.cjs');
 
-const BASELINE_METRIC_FIELDS=['onsetMs','peakDbfs','fullRenderPeakDbfs','spectralCentroidHz','above2kPowerRatio','envelopeDbfs','envelope20msDbfs','harmonicRatiosH2ToH6','stereoWidth','stereoPan','inharmonicityB','spectralSpreadHz','finite'];
-const DIAGNOSTIC_METRIC_FIELDS=['stage2mFactorMask','velocityDerivative','velocityDerivativeWindowMs','stage2mHammer','soundboardDiagnostics'];
+const BASELINE_METRIC_FIELDS=['onsetMs','peakDbfs','fullRenderPeakDbfs','spectralCentroidHz','above2kPowerRatio','envelopeDbfs','envelope20msDbfs','harmonicRatiosH2ToH6','stereoWidth','stereoPan','inharmonicityB','spectralSpreadHz','finite','outputGuardHits'];
+const DIAGNOSTIC_METRIC_FIELDS=['stage2mFactorMask','stage2mHammer','soundboardDiagnostics'];
+const MIDI41_DIAGNOSTIC_FIELDS=['velocityDerivative','velocityDerivativeWindowMs'];
 const KEY=(pitch,velocity)=>`${pitch}:${velocity}`;
 
 function compareValue(expected,actual,{tolerance,pathName='value'}={}){
   if(typeof expected==='number'||typeof actual==='number'){
     if(!Number.isFinite(expected)||!Number.isFinite(actual))return {pass:false,maxDifference:Infinity,failures:[`${pathName}: non-finite`]};
-    const difference=Math.abs(expected-actual);return {pass:difference<=tolerance,maxDifference:difference,failures:difference<=tolerance?[]:[`${pathName}: ${difference} > ${tolerance}`]};
+    const difference=Math.abs(expected-actual),exact=/(?:^|\.)(?:frames|outputGuardHits|stage2mFactorMask|contactDurationSamples)$|(?:^|\.)velocityDerivativeWindowMs\[\d+\]$/.test(pathName)
+      ||(Number.isInteger(expected)&&Number.isInteger(actual)),pass=exact?difference===0:difference<=tolerance;
+    return {pass,maxDifference:difference,failures:pass?[]:[`${pathName}: ${difference} ${exact?'!=':'>'} ${exact?0:tolerance}`]};
   }
   if(expected===null||actual===null||typeof expected!=='object'||typeof actual!=='object'){
     const pass=expected===actual;return {pass,maxDifference:pass?0:Infinity,failures:pass?[]:[`${pathName}: exact value mismatch`]};
@@ -30,25 +35,40 @@ function compareValue(expected,actual,{tolerance,pathName='value'}={}){
 }
 function projectMetrics(metrics,kind){
   if(!metrics||typeof metrics!=='object')throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: metric payload missing');
-  const fields=kind==='stage3a'?[...BASELINE_METRIC_FIELDS,...DIAGNOSTIC_METRIC_FIELDS]:BASELINE_METRIC_FIELDS;
+  const fields=[...BASELINE_METRIC_FIELDS,...DIAGNOSTIC_METRIC_FIELDS,...(kind==='stage3a'?MIDI41_DIAGNOSTIC_FIELDS:[])];
   const result={};for(const field of fields){if(!(field in metrics))throw new Error(`BLOCKED_STAGE3E_BASELINE_EVIDENCE: missing canonical metric ${field}`);result[field]=metrics[field];}
-  if(kind==='stage3a'){
-    const names=Object.keys(metrics.soundboardDiagnostics?.signals||{}).sort();
-    if(names.length!==20||metrics.stage2mFactorMask!==3||JSON.stringify(metrics.velocityDerivativeWindowMs)!==JSON.stringify([30,180]))throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: Stage3A diagnostic identity mismatch');
-  }
+  const names=Object.keys(metrics.soundboardDiagnostics?.signals||{}).sort();
+  if(names.length!==20||metrics.stage2mFactorMask!==3||!metrics.stage2mHammer||!Number.isInteger(metrics.soundboardDiagnostics?.frames))
+    throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: Stage2M/soundboard diagnostic identity mismatch');
+  if(kind==='stage3a'&&(!Number.isFinite(metrics.velocityDerivative)||JSON.stringify(metrics.velocityDerivativeWindowMs)!==JSON.stringify([30,180])))
+    throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: MIDI41 derivative window mismatch');
+  if(kind==='production'&&('velocityDerivative' in metrics||'velocityDerivativeWindowMs' in metrics))
+    throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: direct row has non-canonical derivative metrics');
   return result;
 }
 function validateHistoricalReferenceSet(referenceSet,{expectedSource=requalification}={}){
-  if(!referenceSet||referenceSet.schemaVersion!==1||referenceSet.decision!=='STAGE3E_HISTORICAL_REFERENCE_REQUALIFIED'
-    ||referenceSet.candidateId!==expectedSource.CANDIDATE_ID||referenceSet.productionRevision!==expectedSource.PRODUCTION_REVISION
-    ||referenceSet.stage3aRevision!==expectedSource.STAGE3A_REVISION||referenceSet.acousticRenderCalls!==12
-    ||referenceSet.productionCandidateDelta!==0||referenceSet.stage4Renders!==0||referenceSet.rows?.length!==12)
+  if(!referenceSet||referenceSet.schemaVersion!==1||referenceSet.decision!=='STAGE3E_BASELINE_SURROGATE_REQUALIFIED'
+    ||referenceSet.referenceSetId!=='stage3e-baseline-surrogate-reference-v1'
+    ||referenceSet.candidateId!==expectedSource.CANDIDATE_ID||referenceSet.acousticRenderCalls!==12
+    ||referenceSet.authorizedCellCount!==12||referenceSet.productionCandidateDelta!==0||referenceSet.stage4Renders!==0
+    ||referenceSet.stage3dVariant!==0||referenceSet.stage2mFactorMask!==3
+    ||referenceSet.stage3dWasmSha256!=='9883b54eaa888b5a8d2e4d9da0490de92dd4c31915fb0d97d47cc03ce123a63a'
+    ||referenceSet.stage3dSourceSha256!=='968488b7d325c42e41570c1d7add10003050ab4c87779774a6e5337244c64886'
+    ||referenceSet.configSha256!=='792c563e3ae6ffbf6bef72b18a6c841a24598e1bc20ad5ec7dd39a4c0832513d'
+    ||referenceSet.profileSha256!=='cf3d4adabd055b1b9895820bcaeee95b4a4999d6a245bea06c07fb14eeb7eb66'
+    ||referenceSet.presetsSha256!=='cbe58468911ee583d535c7d3ce09bd40199aeb93183def0a8204d591feac4431'
+    ||referenceSet.referenceFixtureSha256!=='5d27b6beae2a3c478e21ef0e260e588fdfd22bd1fea4181c74c0d00520a08cd7'
+    ||!/^([0-9a-f]{64})$/.test(referenceSet.productionProvenanceSha256||'')
+    ||!['EXACT_REBUILD_PROVENANCE','SUFFICIENT_METADATA_PROVENANCE'].includes(referenceSet.productionProvenanceClassification)
+    ||referenceSet.rows?.length!==12)
     throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: historical reference set header mismatch');
   const expected=new Map(expectedSource.exactCellList().map(cell=>[cell.key,cell]));const observed=new Set();
   for(const row of referenceSet.rows){
     const cell=expected.get(row.cellKey);if(!cell||observed.has(row.cellKey))throw new Error(`BLOCKED_STAGE3E_BASELINE_EVIDENCE: unauthorized or duplicate ${row.cellKey}`);
     observed.add(row.cellKey);if(row.pitch!==cell.pitch||row.velocity!==cell.velocity||row.kind!==cell.kind||!row.metrics)throw new Error(`BLOCKED_STAGE3E_BASELINE_EVIDENCE: row identity mismatch ${row.cellKey}`);
     projectMetrics(row.metrics,row.kind);
+    if(row.metrics.finite!==true||row.metrics.outputGuardHits!==0||row.metrics.peakDbfs>=0||row.metrics.fullRenderPeakDbfs>=0)
+      throw new Error(`BLOCKED_STAGE3E_BASELINE_EVIDENCE: unsafe surrogate row ${row.cellKey}`);
     const body={...row};delete body.rowFileSha256;delete body.rowSha256;
     const candidateHashes=[row.rowSha256,row.rowFileSha256].filter(Boolean);
     if(candidateHashes.length===0)throw new Error(`BLOCKED_STAGE3E_BASELINE_EVIDENCE: row SHA absent ${row.cellKey}`);
@@ -62,14 +82,32 @@ function validateHistoricalReferenceSet(referenceSet,{expectedSource=requalifica
   return referenceSet;
 }
 function loadFinalizedReferenceSet(rootsSet){
-  const stored=requalification.durableRead(rootsSet,'historical-reference-set.json');
-  const hash=requalification.durableRead(rootsSet,'historical-reference-set.sha256');
+  const stored=durable.verifyDualCopy(path.join(rootsSet.primary,requalification.REFERENCE_FILE),path.join(rootsSet.secondary,requalification.REFERENCE_FILE));
+  const hash=durable.verifyDualCopy(path.join(rootsSet.primary,`${requalification.REFERENCE_FILE}.sha256`),path.join(rootsSet.secondary,`${requalification.REFERENCE_FILE}.sha256`));
   if(hash.bytes.toString('utf8')!==`${stored.sha256}\n`)throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: reference-set SHA file mismatch');
   const value=JSON.parse(stored.bytes.toString('utf8'));validateHistoricalReferenceSet(value);
+  for(const row of value.rows){
+    const cell=expectedCellPath(row),cellStored=durable.verifyDualCopy(path.join(rootsSet.primary,cell),path.join(rootsSet.secondary,cell));
+    if(cellStored.sha256!==row.rowFileSha256)throw new Error(`BLOCKED_STAGE3E_BASELINE_EVIDENCE: surrogate cell file hash mismatch ${row.cellKey}`);
+    const cellRow=JSON.parse(cellStored.bytes.toString('utf8')),{rowFileSha256,...referenceRow}=row;
+    if(!same(cellRow,referenceRow))throw new Error(`BLOCKED_STAGE3E_BASELINE_EVIDENCE: reference row differs from durable cell ${row.cellKey}`);
+  }
+  const manifestStored=durable.verifyDualCopy(path.join(rootsSet.primary,'evidence-manifest.json'),path.join(rootsSet.secondary,'evidence-manifest.json'));
+  const manifestHash=durable.verifyDualCopy(path.join(rootsSet.primary,'evidence-manifest.sha256'),path.join(rootsSet.secondary,'evidence-manifest.sha256'));
+  if(manifestHash.bytes.toString('utf8')!==`${manifestStored.sha256}\n`)throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: finalized manifest SHA mismatch');
+  const manifest=JSON.parse(manifestStored.bytes.toString('utf8'));
+  const inventory=durable.assertMatchingInventory(rootsSet.primary,rootsSet.secondary);
+  if(manifest.state!=='FINALIZED'||manifest.decision!==value.decision||manifest.generation!==value.referenceSetId
+      ||!same(manifest.files,inventory))throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: finalized manifest identity/inventory mismatch');
+  const archive=durable.verifyDualCopy(path.join(rootsSet.primary,'archives/historical-reference-requalification.tar.gz'),path.join(rootsSet.secondary,'archives/historical-reference-requalification.tar.gz'));
+  const entries=execFileSync('tar',['-tzf',path.join(rootsSet.primary,'archives/historical-reference-requalification.tar.gz')],{encoding:'utf8'});
+  if(!entries.includes(REFERENCE_FILE)||archive.sizeBytes===0)throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: finalized phase archive is incomplete');
   return {referenceSet:value,sha256:stored.sha256};
 }
+function expectedCellPath(row){return `cells/${row.cellKey}.json`;}
 function compareReferenceRow(referenceRow,measuredRow,{tolerance=1e-6}={}){
-  if(referenceRow.pitch!==measuredRow.pitch||referenceRow.velocity!==measuredRow.velocity||referenceRow.kind!==measuredRow.kind)
+  if(referenceRow.pitch!==measuredRow.pitch||referenceRow.velocity!==measuredRow.velocity||referenceRow.kind!==measuredRow.kind
+      ||(referenceRow.kind==='stage3a'&&referenceRow.velocityNormalized!==measuredRow.velocityNormalized))
     return {pass:false,maxDifference:Infinity,failures:['cell identity mismatch']};
   const a=projectMetrics(referenceRow.metrics,referenceRow.kind),b=projectMetrics(measuredRow.metrics,referenceRow.kind);
   return compareValue(a,b,{tolerance,pathName:KEY(referenceRow.pitch,referenceRow.velocity)});
@@ -77,9 +115,12 @@ function compareReferenceRow(referenceRow,measuredRow,{tolerance=1e-6}={}){
 function validateBaselineRows(referenceSet,measuredRows,{tolerance=1e-6}={}){
   validateHistoricalReferenceSet(referenceSet);
   if(!Array.isArray(measuredRows)||measuredRows.length!==12)throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT: expected exactly 12 fresh baseline rows');
-  const ref=new Map(referenceSet.rows.map(row=>[row.cellKey,row]));const keys=new Set();let maximumDifference=0;
+  const keyFor=row=>row.kind==='production'
+    ?`production-midi-${String(row.pitch).padStart(3,'0')}-velocity-${String(row.velocity).padStart(3,'0')}`
+    :`stage3a-midi-041-v${String(Math.round(row.velocityNormalized*1000)).padStart(3,'0')}`;
+  const ref=new Map(referenceSet.rows.map(row=>[keyFor(row),row]));const keys=new Set();let maximumDifference=0;
   const cells=measuredRows.map(row=>{
-    const key=row.cellKey||`${row.kind}-${String(row.pitch).padStart(3,'0')}-${row.kind==='production'?`velocity-${String(row.velocity).padStart(3,'0')}`:`v${String(Math.round(row.velocityNormalized*1000)).padStart(3,'0')}`}`;
+    const key=keyFor(row);
     if(keys.has(key)||!ref.has(key))throw new Error(`BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT: unauthorized or duplicate measured cell ${key}`);keys.add(key);
     const comparison=compareReferenceRow(ref.get(key),row,{tolerance});maximumDifference=Math.max(maximumDifference,comparison.maxDifference);
     return {cellKey:key,pass:comparison.pass,maxDifference:comparison.maxDifference,failures:comparison.failures};

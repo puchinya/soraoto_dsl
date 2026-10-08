@@ -19,6 +19,31 @@ assert.equal(runner.CELL_SPECS.filter(x=>x.kind==='direct').length,480);
 assert.equal(runner.CELL_SPECS.filter(x=>x.kind==='sentinel').length,6);
 assert.equal(new Set(runner.CELL_SPECS.map(runner.key)).size,486);
 assert.throws(()=>runner.exactCells(runner.CELL_SPECS.slice(1)),/BLOCKED_STAGE3_CAPTURE_COVERAGE/);
+assert.throws(()=>runner.stage3Roots(process.cwd(),process.env.HOME,'preflight'),/one authoritative execution only/);
+assert.equal(runner.stage3Roots(process.cwd(),process.env.HOME,'authoritative').primary.endsWith('/authoritative'),true);
+assert.equal(runner.validateSelectedValuesCommitMetadata({subject:runner.SELECTED_VALUES_COMMIT_SUBJECT,dirtyPaths:[],
+  selectedTuple:{low:.75,mid:.85,bassHardness:1.25},presetTuple:{low:.75,mid:.85,bassHardness:1.25}}),true);
+assert.throws(()=>runner.validateSelectedValuesCommitMetadata({subject:'other',dirtyPaths:[],selectedTuple:{low:1,mid:1,bassHardness:1},
+  presetTuple:{low:1,mid:1,bassHardness:1}}),/selected-values commit is required/);
+assert.throws(()=>runner.validateSelectedValuesCommitMetadata({subject:runner.SELECTED_VALUES_COMMIT_SUBJECT,dirtyPaths:[' M presets.json'],
+  selectedTuple:{low:1,mid:1,bassHardness:1},presetTuple:{low:1,mid:1,bassHardness:1}}),/tracked production inputs are dirty/);
+assert.throws(()=>runner.validateSelectedValuesCommitMetadata({subject:runner.SELECTED_VALUES_COMMIT_SUBJECT,dirtyPaths:[],
+  selectedTuple:{low:.5,mid:1,bassHardness:1},presetTuple:{low:1,mid:1,bassHardness:1}}),/do not match the committed concert_grand preset/);
+const ordinaryCache=['SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS:BOOL=OFF','SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS:BOOL=OFF',
+  'SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS:BOOL=OFF','SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS:BOOL=OFF'].join('\n');
+assert.equal(runner.assertOrdinaryProductionCache(ordinaryCache),true);
+for(const option of ['STAGE3B','STAGE3C','STAGE3D','STAGE3E'])
+  assert.throws(()=>runner.assertOrdinaryProductionCache(ordinaryCache.replace(`${option}_DIAGNOSTICS:BOOL=OFF`,`${option}_DIAGNOSTICS:BOOL=ON`)),
+    new RegExp(`ordinary production build requires SORAOTO_SUPERSYNTH_${option}_DIAGNOSTICS=OFF`));
+{
+  const {dir,roots}=tempRoots();
+  try{
+    assert.equal(runner.assertFreshStage3Execution(roots),true);
+    fs.mkdirSync(roots.primary,{recursive:true});
+    fs.writeFileSync(path.join(roots.primary,'stage3-result.json'),'{}\n');
+    assert.throws(()=>runner.assertFreshStage3Execution(roots),/BLOCKED_STAGE3_DUPLICATE_EXECUTION/);
+  }finally{fs.rmSync(dir,{recursive:true,force:true});}
+}
 
 const good={cell:{kind:'direct',pitch:21,velocity:14},metrics:{finite:true,outputGuardHits:0,peakDbfs:-2,fullRenderPeakDbfs:-2}};
 assert.doesNotThrow(()=>runner.assertSafe(good));

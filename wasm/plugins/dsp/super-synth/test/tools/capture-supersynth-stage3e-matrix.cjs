@@ -6,6 +6,7 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const {PluginHarness}=require('../../../../../test/helpers/plugin-harness.cjs');
 const {analyzeStereo}=require('./salamander-metrics.cjs');
+const {SOUNDBOARD_DIAGNOSTIC_NAMES}=require('./capture-supersynth-stage3d-matrix.cjs');
 
 const REPO=path.resolve(__dirname,'../../../../../../');
 const WASM='plugins/dsp/super-synth/plugin.wasm';
@@ -72,6 +73,20 @@ function requireResponse(values){
     throw new Error('Stage3E response tuple is outside approved profile bounds');
   return values;
 }
+function assertSoundboardDiagnostics(e){
+  const required=['soraoto_supersynth_soundboard_diag_reset','soraoto_supersynth_soundboard_diag_sum_squares',
+    'soraoto_supersynth_soundboard_diag_peak','soraoto_supersynth_soundboard_diag_frames'];
+  const missing=required.filter(name=>typeof e?.[name]!=='function');
+  if(missing.length)throw new Error(`Stage3E soundboard diagnostics require guard-diagnostic exports: ${missing.join(', ')}`);
+}
+function readSoundboardDiagnostics(e){
+  assertSoundboardDiagnostics(e);
+  const frames=e.soraoto_supersynth_soundboard_diag_frames();
+  if(!Number.isInteger(frames)||frames<=0)throw new Error('Stage3E soundboard diagnostic frame count is invalid');
+  return {frames,signals:Object.fromEntries(SOUNDBOARD_DIAGNOSTIC_NAMES.map((name,index)=>[
+    name,{rms:Math.sqrt(e.soraoto_supersynth_soundboard_diag_sum_squares(index)/frames),peak:e.soraoto_supersynth_soundboard_diag_peak(index)},
+  ]))};
+}
 function render(pitch,velocity,response=[1,1,1],options={}){return renderNormalized(pitch,options.velocityNormalized??velocity/127,response,options);}
 function renderNormalized(pitch,velocityNormalized,response=[1,1,1],options={}){
   if(!Number.isFinite(velocityNormalized)||velocityNormalized<0||velocityNormalized>1)throw new Error('Stage3E normalized velocity must be in [0,1]');
@@ -80,12 +95,14 @@ function renderNormalized(pitch,velocityNormalized,response=[1,1,1],options={}){
   try{
     const e=harness.e;
     for(const name of [...STAGE2M_EXPORTS,...STAGE3E_EXPORTS])if(typeof e[name]!=='function')throw new Error(`Stage3E diagnostic WASM is missing ${name}`);
+    if(options.includeSoundboardDiagnostics)assertSoundboardDiagnostics(e);
     harness.applyPreset('concert_grand');
     for(const [name,value] of [['voice_drift',0],['lfo1_pitch',0],['chorus_mix',0]])harness.setPlain(name,value);
     for(const [name,value] of Object.entries(options.parameters||{}))harness.setPlain(name,value);
     if((e.soraoto_supersynth_stage2m_set_factor_mask(3)>>>0)!==0||(e.soraoto_supersynth_stage2m_get_factor_mask()>>>0)!==3)throw new Error('Stage2M mask 3 unavailable');
     if((e.soraoto_supersynth_stage3e_set_velocity_response(...response)|0)!==0)throw new Error('Stage3E response tuple rejected');
     e.soraoto_supersynth_stage2m_hammer_diag_reset();
+    if(options.includeSoundboardDiagnostics)e.soraoto_supersynth_soundboard_diag_reset();
     const guardCount=typeof e.soraoto_supersynth_guard_hit_count==='function'?e.soraoto_supersynth_guard_hit_count():null;
     const count=Math.floor(SAMPLE_RATE*DURATION_MS/1000),left=new Float32Array(count),right=new Float32Array(count);
     let offset=0,finite=true,fullPeak=0;
@@ -107,6 +124,7 @@ function renderNormalized(pitch,velocityNormalized,response=[1,1,1],options={}){
     metrics.stage2mFactorMask=3;
     metrics.stage2mHammer={effectiveHardness:e.soraoto_supersynth_stage2m_hammer_diag_value(0),initialHammerVelocity:e.soraoto_supersynth_stage2m_hammer_diag_value(1),contactDurationSamples:e.soraoto_supersynth_stage2m_hammer_diag_value(2),peakForce:e.soraoto_supersynth_stage2m_hammer_diag_value(3),maxCompression:e.soraoto_supersynth_stage2m_hammer_diag_value(4),postContactTransverseEnergy:e.soraoto_supersynth_stage2m_hammer_diag_value(5)};
     metrics.stage3eVelocityResponse={low:response[0],mid:response[1],bassHardness:response[2]};
+    if(options.includeSoundboardDiagnostics)metrics.soundboardDiagnostics=readSoundboardDiagnostics(e);
     return {pitch,velocity:Math.round(velocityNormalized*127),velocityNormalized,metrics};
   }finally{harness.close();}
 }
@@ -124,4 +142,4 @@ function identity(){
   const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   return {wasmPath:wasm,wasmSha256:sha(wasm),sourceSha256:sha(source),presetsSha256:sha(presets)};
 }
-module.exports={REPO,WASM,SAMPLE_RATE,BLOCK,DURATION_MS,STAGE2M_EXPORTS,STAGE3E_EXPORTS,FORBIDDEN_EXPORTS,REQUIRED_GUARD_EXPORTS,buildRoot,assertDiagnosticMode,preflightDiagnosticCapabilities,requireResponse,render,renderNormalized,captureMatrix,identity};
+module.exports={REPO,WASM,SAMPLE_RATE,BLOCK,DURATION_MS,STAGE2M_EXPORTS,STAGE3E_EXPORTS,FORBIDDEN_EXPORTS,REQUIRED_GUARD_EXPORTS,buildRoot,assertDiagnosticMode,preflightDiagnosticCapabilities,requireResponse,assertSoundboardDiagnostics,readSoundboardDiagnostics,render,renderNormalized,captureMatrix,identity};

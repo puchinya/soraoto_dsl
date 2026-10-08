@@ -6,16 +6,17 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const {execFileSync}=require('node:child_process');
 const {preflightDiagnosticCapabilities}=require('./capture-supersynth-stage3e-matrix.cjs');
+const durable=require('./durable-evidence.cjs');
+const historicalReference=require('./run-stage3e-historical-reference-requalification.cjs');
+const generation2Core=require('./stage3e-generation2-core.cjs');
 
 const ROOT=path.resolve(__dirname,'../../../../../../');
 const GENERATION_1_EXECUTION_ID='ae69731b7e0a9046';
 const GENERATION_1_LEDGER_SHA256='dfb3bd6eab4b8b6d3907713536ddab867e32bc7f2093094946471e03c542b7e4';
 const GENERATION_1_WASM_SHA256='7ff39592e48dd5e38a5c8a4fb251f373c47243d2538784482904126a5ce2d6c5';
 const BASELINE_EVIDENCE_RELATIVE_PATHS=[
-  'calibration-optuna/stage3/direct-capture.json',
-  'stage3a/recovery/ledger.json',
-  'stage3a/recovery/velocity-diagnostic.json',
-  'stage3a/recovery/supplemental-3-render-result.json',
+  `stage3e/${historicalReference.EXECUTION_ID}/${historicalReference.REFERENCE_FILE}`,
+  `stage3e/${historicalReference.EXECUTION_ID}/${historicalReference.REFERENCE_FILE}.sha256`,
 ];
 const LAUNCH_GRID=[1,.95,.90,.85,.80,.75,.70,.65,.60,.55,.50,.45,.40,.35];
 const BASS_HARDNESS_GRID=[0,.25,.50,.75,1,1.25,1.50,1.75,2];
@@ -124,23 +125,32 @@ function generation2EvidenceRoot(root=ROOT,env=process.env.SORAOTO_STAGE3E_EVIDE
   if(within(rootPath,actual)||within(buildPath,actual))throw new Error('BLOCKED_STAGE3E_EVIDENCE_ROOT_INSIDE_WORKTREE_OR_BUILD');
   return actual;
 }
-function historicalBaselinePaths(commonDir){
-  const base=path.join(commonDir,'soraoto-agent-state/issues/7');
-  return Object.fromEntries(BASELINE_EVIDENCE_RELATIVE_PATHS.map(relative=>[relative,path.join(base,relative)]));
+function historicalBaselinePaths(commonDir,home=process.env.HOME){
+  const execution=historicalReference.EXECUTION_ID,repository=path.basename(ROOT);
+  const primary=path.join(commonDir,'soraoto-agent-state/issues/7/stage3e',execution);
+  const secondary=path.join(home,'.soraoto-agent-archive',repository,'7/stage3e',execution);
+  return {primary:{referenceSet:path.join(primary,historicalReference.REFERENCE_FILE),sha:path.join(primary,`${historicalReference.REFERENCE_FILE}.sha256`)},
+    secondary:{referenceSet:path.join(secondary,historicalReference.REFERENCE_FILE),sha:path.join(secondary,`${historicalReference.REFERENCE_FILE}.sha256`)}};
 }
 function assertHistoricalBaselineEvidence(paths){
-  const missing=Object.values(paths).filter(file=>!fs.existsSync(file));
+  const missing=[paths.primary?.referenceSet,paths.primary?.sha,paths.secondary?.referenceSet,paths.secondary?.sha].filter(file=>!file||!fs.existsSync(file));
   if(missing.length)throw new Error(`BLOCKED_STAGE3E_BASELINE_EVIDENCE_MISSING: ${missing.join(', ')}`);
-  return Object.fromEntries(Object.entries(paths).map(([key,file])=>[key,{path:file,sha256:fileSha(file)}]));
+  const result=durable.verifyDualCopy(paths.primary.referenceSet,paths.secondary.referenceSet);
+  const shaFile=durable.verifyDualCopy(paths.primary.sha,paths.secondary.sha),sha=result.sha256;
+  if(shaFile.bytes.toString('utf8')!==`${sha}\n`)throw new Error('BLOCKED_STAGE3E_BASELINE_EVIDENCE: surrogate reference SHA file mismatch');
+  const bytes=result.bytes;
+  const referenceSet=JSON.parse(bytes.toString('utf8'));generation2Core.validateHistoricalReferenceSet(referenceSet);
+  return {referenceSet,sha256:sha,files:{primary:{path:paths.primary.referenceSet,sha256:sha},secondary:{path:paths.secondary.referenceSet,sha256:sha},shaFileSha256:shaFile.sha256}};
 }
-function run({mode,root=ROOT,preflight=preflightDiagnosticCapabilities,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT}={}){
+function run({mode,root=ROOT,home=process.env.HOME,preflight=preflightDiagnosticCapabilities,evidenceRoot=process.env.SORAOTO_STAGE3E_EVIDENCE_ROOT}={}){
   if(!['--dry-run','--execute'].includes(mode))throw new Error('explicit mode required: --dry-run or --execute');
   preflight({root});
   assertGeneration1Abandoned(root);
   if(mode==='--execute')generation2EvidenceRoot(root,evidenceRoot);
-  const baseline=assertHistoricalBaselineEvidence(historicalBaselinePaths(gitCommonDir(root)));
+  const baseline=assertHistoricalBaselineEvidence(historicalBaselinePaths(gitCommonDir(root),home));
   return {decision:'GENERATION2_READY_FOR_BASELINE_EQUIVALENCE',generation:2,builds:0,renders:0,
-    freshBaselineCells:12,baselineEvidence:baseline,searchEnabled:false};
+    freshBaselineCells:12,baselineReferenceSetId:baseline.referenceSet.referenceSetId,baselineReferenceSetSha256:baseline.sha256,
+    baselineEvidence:baseline.files,searchEnabled:false};
 }
 function main(argv=process.argv.slice(2)){
   if(argv.length===1&&['--dry-run','--baseline','--low','--mid','--finalize'].includes(argv[0]))

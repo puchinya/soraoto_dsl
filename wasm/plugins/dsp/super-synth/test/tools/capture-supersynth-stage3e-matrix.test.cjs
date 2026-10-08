@@ -4,6 +4,7 @@ const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 const capture=require('./capture-supersynth-stage3e-matrix.cjs');
+const stage3d=require('./capture-supersynth-stage3d-matrix.cjs');
 
 function setup(){
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-preflight-'));
@@ -52,4 +53,17 @@ function setup(){
 }
 for(const tuple of [[.349,1,1],[1,1,2.001],[1,NaN,1]])assert.throws(()=>capture.requireResponse(tuple),/approved profile bounds/);
 assert.deepEqual(capture.requireResponse([1,1,1]),[1,1,1]);
+{
+  let reset=0;
+  const e={soraoto_supersynth_soundboard_diag_reset(){reset++;},soraoto_supersynth_soundboard_diag_frames:()=>17760,
+    soraoto_supersynth_soundboard_diag_sum_squares:index=>index+1,
+    soraoto_supersynth_soundboard_diag_peak:index=>index/10};
+  capture.assertSoundboardDiagnostics(e);e.soraoto_supersynth_soundboard_diag_reset();
+  const result=capture.readSoundboardDiagnostics(e);
+  assert.equal(reset,1);assert.equal(result.frames,17760);
+  assert.deepEqual(Object.keys(result.signals),stage3d.SOUNDBOARD_DIAGNOSTIC_NAMES);
+  assert.equal(result.signals.bridge_b.rms,Math.sqrt(1/17760));
+  assert.equal(result.signals.longitudinal_bridge_drive.peak,1.9);
+  assert.throws(()=>capture.readSoundboardDiagnostics({}),/guard-diagnostic exports/);
+}
 console.log('PASS Stage3E capability preflight and response bounds');

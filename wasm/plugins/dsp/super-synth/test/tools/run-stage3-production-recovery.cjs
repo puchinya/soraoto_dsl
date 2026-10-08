@@ -13,6 +13,9 @@ const generation=require('./run-stage3e-generation2.cjs');
 const ROOT=path.resolve(__dirname,'../../../../../../');
 const WASM_RELATIVE='plugins/dsp/super-synth/plugin.wasm';
 const ISSUE='7',TASK='stage3',CELL_COUNT=486,TOLERANCE=1e-6;
+const SELECTED_VALUES_COMMIT_SUBJECT='stage3e: promote selected velocity response';
+const PRODUCTION_INPUT_PATHS=['wasm/plugins/dsp/super-synth/src/plugin.c',
+  'wasm/plugins/dsp/super-synth/presets.json','wasm/shared/generated/super-synth_grand_profiles.h'];
 const REQUIRED_REGRESSIONS=['concertGrand','pianoRealism','pianoClick','pianoVoiceSteal','pluginInterfaceV1','playbackSafety'];
 const CELL_SPECS=[...direct.EXPECTED_PITCHES.flatMap(pitch=>direct.EXPECTED_VELOCITIES.map(velocity=>({kind:'direct',pitch,velocity}))),
   ...direct.SENTINELS.map(cell=>({kind:'sentinel',...cell}))];
@@ -23,7 +26,7 @@ function key(cell){return `${cell.kind}:${cell.pitch}:${cell.velocity}`;}
 function jsonBytes(value){return Buffer.from(JSON.stringify(value,null,2)+'\n');}
 function same(a,b){return JSON.stringify(generation.stable(a))===JSON.stringify(generation.stable(b));}
 function stage3Roots(root=ROOT,home=process.env.HOME,executionId=process.env.SORAOTO_STAGE3_EXECUTION_ID||'authoritative'){
-  if(!['preflight','authoritative'].includes(executionId))throw new Error('BLOCKED_STAGE3_EVIDENCE: execution ID must be preflight or authoritative');
+  if(executionId!=='authoritative')throw new Error('BLOCKED_STAGE3_EVIDENCE: Stage3 permits one authoritative execution only');
   return durable.resolveRoots({root,issue:ISSUE,task:TASK,executionId,home});
 }
 function buildRoot(root=ROOT){return path.resolve(process.env.SORAOTO_WASM_BUILD_DIR||path.join(root,'build/wasm'));}
@@ -60,23 +63,47 @@ function currentIdentity({root=ROOT,roots=stage3Roots(root),selected=null,source
     candidateId:'stage2n-r3-candidate-01',wasmSha256:fileSha(wasm),sourcePluginSha256:fileSha(sourceFile),
     configSha256:sha256(Buffer.from(JSON.stringify(preset))),presetsSha256:fileSha(presetsFile),profileSha256:fileSha(profileFile),
     fixtureSha256:fileSha(fixtureFile),captureHelperSha256:fileSha(captureFile),runnerSha256:fileSha(runnerFile),evaluatorSha256:fileSha(evaluatorFile),
-    buildRootSha256:sha256(Buffer.from(build)),selectionSha256:selected.selectionSha256,selectedResponse:selected.selected,coverage:{directCells:480,sentinels:6,total:CELL_COUNT},
+    buildRootSha256:sha256(Buffer.from(build)),selectionSha256:selected.selectionSha256,selectedValuesCommit:sourceRevision,
+    selectedResponse:selected.selected,coverage:{directCells:480,sentinels:6,total:CELL_COUNT},
     reference:{archiveSha256:fixture.source?.archiveSha256,directCells:fixture.coverage?.directCells}};
 }
 function assertSourceAncestor(root,sourceRevision){
   try{execFileSync('rtk',['git','merge-base','--is-ancestor',sourceRevision,'HEAD'],{cwd:root,stdio:'ignore'});}
   catch{throw new Error('BLOCKED_STAGE3_PRODUCTION_IDENTITY: evidence creator revision is not an ancestor of current HEAD');}
 }
-function sourceRevisionForRun({root=ROOT,roots,mode}={}){
+function validateSelectedValuesCommitMetadata({subject,dirtyPaths,selectedTuple,presetTuple}={}){
+  if(subject!==SELECTED_VALUES_COMMIT_SUBJECT)throw new Error('BLOCKED_STAGE3_PRODUCTION_IDENTITY: selected-values commit is required');
+  if(!Array.isArray(dirtyPaths)||dirtyPaths.length)throw new Error('BLOCKED_STAGE3_PRODUCTION_IDENTITY: tracked production inputs are dirty');
+  const keys=['low','mid','bassHardness'];
+  if(!selectedTuple||!presetTuple||keys.some(key=>!Number.isFinite(selectedTuple[key])||selectedTuple[key]!==presetTuple[key]))
+    throw new Error('BLOCKED_STAGE3_PRODUCTION_IDENTITY: selected values do not match the committed concert_grand preset');
+  return true;
+}
+function assertSelectedValuesCommit({root=ROOT,selected}={}){
+  const head=execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+  const subject=execFileSync('rtk',['git','show','-s','--format=%s','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+  const status=execFileSync('rtk',['git','status','--porcelain','--untracked-files=no','--',...PRODUCTION_INPUT_PATHS],{cwd:root,encoding:'utf8'}).trim();
+  const dirtyPaths=status?status.split(/\r?\n/):[];
+  const presets=JSON.parse(fs.readFileSync(path.join(root,'wasm/plugins/dsp/super-synth/presets.json'),'utf8'));
+  const preset=presets.concert_grand?.engine_config?.hammer||{};
+  validateSelectedValuesCommitMetadata({subject,dirtyPaths,selectedTuple:selected?.selected,
+    presetTuple:{low:preset.velocity_launch_scale_low,mid:preset.velocity_launch_scale_mid,bassHardness:preset.velocity_hardness_scale_bass}});
+  return head;
+}
+function sourceRevisionForRun({root=ROOT,roots,mode,selected}={}){
+  const selectedValuesCommit=assertSelectedValuesCommit({root,selected});
   const candidates=['stage3-result.json','ledger.json'];
   for(const relative of candidates){
     const a=path.join(roots.primary,relative),b=path.join(roots.secondary,relative);
     if(fs.existsSync(a)||fs.existsSync(b)){
       const stored=readDualJson(roots,relative),revision=relative==='stage3-result.json'?stored.identity?.sourceRevision:stored.identity?.sourceRevision;
-      if(!revision)throw new Error('BLOCKED_STAGE3_DIAGNOSTIC_EVIDENCE: creator revision is missing');assertSourceAncestor(root,revision);return revision;
+      if(!revision)throw new Error('BLOCKED_STAGE3_DIAGNOSTIC_EVIDENCE: creator revision is missing');
+      assertSourceAncestor(root,revision);
+      if(revision!==selectedValuesCommit)throw new Error('BLOCKED_STAGE3_PRODUCTION_IDENTITY: selected-values commit changed after Stage3 evidence began');
+      return revision;
     }
   }
-  return execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+  return selectedValuesCommit;
 }
 function exactCells(cells=CELL_SPECS){
   if(cells.length!==CELL_COUNT||new Set(cells.map(key)).size!==CELL_COUNT)throw new Error('BLOCKED_STAGE3_CAPTURE_COVERAGE: expected 480 direct + 6 sentinel identities');
@@ -108,10 +135,17 @@ function ensureExecutionManifest(roots,{identity,regressionSha,snapshot,now=()=>
   }
   const manifest={...expected,createdAt:now()};writeImmutableDual(roots,relative,jsonBytes(manifest));return manifest;
 }
+function assertOrdinaryProductionCache(cacheText){
+  for(const option of ['SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS','SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS',
+    'SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS','SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS'])
+    if(!new RegExp(`^${option}:BOOL=OFF$`,'m').test(cacheText))throw new Error(`BLOCKED_STAGE3_PRODUCTION_IDENTITY: ordinary production build requires ${option}=OFF`);
+  return true;
+}
 function buildSnapshot(root=ROOT){
   const build=buildRoot(root),cache=path.join(build,'CMakeCache.txt'),toolchain=path.join(root,'wasm/cmake/wasm32-clang.cmake');
   if(!fs.existsSync(cache)||!fs.existsSync(toolchain))throw new Error('BLOCKED_STAGE3_PRODUCTION_IDENTITY: CMake cache/toolchain snapshot is unavailable');
   const cacheBytes=fs.readFileSync(cache),toolchainBytes=fs.readFileSync(toolchain);
+  assertOrdinaryProductionCache(cacheBytes.toString('utf8'));
   return {buildDirectory:build,cmakeCacheSha256:sha256(cacheBytes),cmakeCacheBytes:cacheBytes.toString('base64'),
     toolchainPath:path.relative(root,toolchain),toolchainSha256:sha256(toolchainBytes),
     wasmSha256:fileSha(wasmPath(root)),wasmRelativePath:path.relative(root,wasmPath(root))};
@@ -123,6 +157,11 @@ function loadLedger(roots,identity,{create=false,cells=CELL_SPECS}={}){
   const busy=Object.entries(ledger.cells).filter(([,state])=>state.state==='IN_PROGRESS');if(busy.length)throw new Error(`BLOCKED_STAGE3_AMBIGUOUS_RENDER_ACCOUNTING: ${busy.map(([id])=>id).join(',')}`);
   for(const cell of exactCells(cells)){const state=ledger.cells[key(cell)];if(!state||!same(state.identity,cell))throw new Error(`BLOCKED_STAGE3_DIAGNOSTIC_EVIDENCE: unauthorized ${key(cell)}`);if(state.state==='COMPLETE'){const row=durable.verifyDualCopy(path.join(roots.primary,state.relativePath),path.join(roots.secondary,state.relativePath));if(row.sha256!==state.sha256)throw new Error(`BLOCKED_STAGE3_DIAGNOSTIC_EVIDENCE: cell hash mismatch ${key(cell)}`);const payload=JSON.parse(row.bytes.toString('utf8'));if(!same(payload.identity,identity)||!same(payload.cell,cell))throw new Error(`BLOCKED_STAGE3_DIAGNOSTIC_EVIDENCE: cell identity mismatch ${key(cell)}`);}}
   return ledger;
+}
+function assertFreshStage3Execution(roots){
+  const resultFiles=[path.join(roots.primary,'stage3-result.json'),path.join(roots.secondary,'stage3-result.json')];
+  if(resultFiles.some(file=>fs.existsSync(file)))throw new Error('BLOCKED_STAGE3_DUPLICATE_EXECUTION: authoritative result already exists');
+  return true;
 }
 function persistLedger(roots,ledger){writeDualJson(roots,'ledger.json',ledger);}
 function validateRegressionResults(results){
@@ -224,15 +263,18 @@ function run({mode,root=ROOT,home=process.env.HOME,executionId=process.env.SORAO
   if(!['--dry-run','--execute','--finalize'].includes(mode))throw new Error('explicit mode required: --dry-run, --execute, or --finalize');
   const fixture=JSON.parse(fs.readFileSync(path.join(root,'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json'),'utf8'));
   direct.validateReferenceFixture(fixture);
-  const selection=selectedResponse(root,home),roots=stage3Roots(root,home,executionId),sourceRevision=sourceRevisionForRun({root,roots,mode});
+  const selection=selectedResponse(root,home),roots=stage3Roots(root,home,executionId),sourceRevision=sourceRevisionForRun({root,roots,mode,selected:selection});
   const identity=currentIdentity({root,roots,selected:selection,sourceRevision});
   const wasm=wasmPath(root);if(!fs.existsSync(wasm))throw new Error('BLOCKED_STAGE3_PRODUCTION_IDENTITY: production SIMD artifact is missing');
-  if(mode==='--dry-run')return {decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,acousticRenders:0,authorizedRenderCount:CELL_COUNT,identity};
+  const snapshot=buildSnapshot(root);
+  if(mode==='--dry-run')return {decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,acousticRenders:0,authorizedRenderCount:CELL_COUNT,identity,
+    buildSnapshotSha256:sha256(jsonBytes(snapshot))};
   if(mode==='--execute'){
+    assertFreshStage3Execution(roots);
     if(!regressionResultsPath||!fs.existsSync(path.resolve(regressionResultsPath)))throw new Error('BLOCKED_STAGE3_REGRESSION_RESULTS: --execute requires persisted six-regression PASS result');
     const regression=JSON.parse(fs.readFileSync(path.resolve(regressionResultsPath),'utf8'));validateRegressionResults(regression);
     for(const destination of [roots.primary,roots.secondary])fs.mkdirSync(destination,{recursive:true,mode:0o700});
-    const snapshot=buildSnapshot(root),regressionPath=path.resolve(regressionResultsPath),regressionBytes=fs.readFileSync(regressionPath),regressionSha=sha256(regressionBytes);
+    const regressionPath=path.resolve(regressionResultsPath),regressionBytes=fs.readFileSync(regressionPath),regressionSha=sha256(regressionBytes);
     const artifact=writeImmutableDual(roots,'artifacts/production-plugin.wasm',fs.readFileSync(wasm));
     const regressionSummary=validateRegressionResults(regression);
     writeImmutableDual(roots,'identity.json',jsonBytes({...identity,productionWasmArtifactSha256:artifact.sha256,regressions:regressionSummary,regressionResultsSha256:regressionSha}));
@@ -254,4 +296,4 @@ function main(argv=process.argv.slice(2)){
   const result=run({mode,regressionResultsPath});process.stdout.write(JSON.stringify(result)+'\n');if(mode==='--finalize'&&result.decision!=='STAGE3_READY_FOR_STAGE4')process.exitCode=2;
 }
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
-module.exports={ROOT,WASM_RELATIVE,ISSUE,TASK,CELL_COUNT,TOLERANCE,REQUIRED_REGRESSIONS,CELL_SPECS,sha256,fileSha,key,jsonBytes,same,stage3Roots,buildRoot,wasmPath,selectedResponse,currentIdentity,assertSourceAncestor,sourceRevisionForRun,exactCells,freshLedger,counts,readDualJson,writeDualJson,writeImmutableDual,buildSnapshot,ensureExecutionManifest,loadLedger,persistLedger,validateRegressionResults,captureOne,assertSafe,execute,readRows,buildEvaluation,verifyFinalized,finalize,assertExecutionInputs,loadFinalizationInputs,run,main};
+module.exports={ROOT,WASM_RELATIVE,ISSUE,TASK,CELL_COUNT,TOLERANCE,REQUIRED_REGRESSIONS,CELL_SPECS,SELECTED_VALUES_COMMIT_SUBJECT,PRODUCTION_INPUT_PATHS,sha256,fileSha,key,jsonBytes,same,stage3Roots,buildRoot,wasmPath,selectedResponse,currentIdentity,assertSourceAncestor,validateSelectedValuesCommitMetadata,assertSelectedValuesCommit,sourceRevisionForRun,exactCells,freshLedger,counts,readDualJson,writeDualJson,writeImmutableDual,assertFreshStage3Execution,assertOrdinaryProductionCache,buildSnapshot,ensureExecutionManifest,loadLedger,persistLedger,validateRegressionResults,captureOne,assertSafe,execute,readRows,buildEvaluation,verifyFinalized,finalize,assertExecutionInputs,loadFinalizationInputs,run,main};

@@ -216,9 +216,21 @@ Stage3E is evaluator-only. It first checks baseline equivalence, screens the exa
 grid with `M=1`, full-validates at most the five highest-ranked candidates, then searches the fixed
 mid-band `M` grid with the selected low tuple. Existing direct-span, brightness, spectral/shape,
 safety and MIDI41 regression gates remain unchanged. No extra search axis or fallback is allowed.
+
+Historical Stage3/Stage3A acoustic files are not reconstructed from summaries. The fixed production
+WASM identity remains the historical `9c2fecc...ae8aaf2`; its established
+`SUFFICIENT_METADATA_PROVENANCE` may establish production lineage, but the isolated ordinary
+rebuild `eef4fb43...341df47` is not an acoustic reference. For a new Stage3E baseline, rebuild the
+isolated Stage3D diagnostic source to the exact accepted `9883b54e...123a63a` artifact, with
+Stage3D variant 0 and Stage2M mask 3. The resulting twelve-cell set is new surrogate evidence, not
+recovered historical Stage3/Stage3A evidence. Generation 2 must compare its `(1,1,1)` baseline to
+that exact finalized set at the existing `1e-6` tolerance before the fixed low/mid search proceeds.
+
 Production promotion requires the selected tuple, a regenerated profile, focused regressions, and
-the unchanged Stage3 direct-reference matrix. Stage4 remains locked until authoritative Stage3
-passes.
+exactly one authoritative Stage3 run after a dedicated selected-values commit and clean production
+rebuild. That run contains 480 direct-reference cells plus six sentinels (486 calls); no
+pre-commit/non-authoritative duplicate matrix is run. Stage4 remains locked until authoritative
+Stage3 passes.
 
 ### 5.3 Stage2L revision-2 string-loss and velocity-response model carried by Stage2N revision 3
 

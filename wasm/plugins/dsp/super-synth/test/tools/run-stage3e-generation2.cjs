@@ -90,12 +90,17 @@ function loadLedger(roots,phase,identity,cells,{create=false}={}){
 }
 function writeCellState(roots,ledger){writeDualJson(roots,`${ledger.phase}-ledger.json`,ledger);}
 function validateReferenceSet(roots){return core.loadFinalizedReferenceSet(roots);}
+function assertBaselineReferenceIdentity(currentSha256,expectedSha256){
+  if(currentSha256!==expectedSha256)throw new Error('BLOCKED_STAGE3E_BASELINE_REFERENCE_CHANGED: finalized surrogate reference SHA changed');
+  return currentSha256;
+}
 function renderOne(cell,response,capture){
   const effectiveResponse=response??cell.response??[1,1,1];
   if(cell.velocityNormalized!==undefined){
-    const diagnostics=cell.pitch===41;
+    const diagnostics=cell.pitch===41||cell.phase==='baseline';
     const captured=capture.renderNormalized(cell.pitch,cell.velocityNormalized,effectiveResponse,{stage2mFactorMask:diagnostics?3:undefined,
-      includeVelocityDerivative:diagnostics,velocityDerivativeStartMs:30,velocityDerivativeEndMs:180,includeSoundboardDiagnostics:diagnostics});
+      includeVelocityDerivative:cell.pitch===41,velocityDerivativeStartMs:30,velocityDerivativeEndMs:180,
+      includeSoundboardDiagnostics:diagnostics});
     return {pitch:cell.pitch,velocity:Math.round(cell.velocityNormalized*127),velocityNormalized:cell.velocityNormalized,kind:cell.kind||'search',metrics:captured.metrics};
   }
   const captured=capture.render(cell.pitch,cell.velocity,effectiveResponse,{});return {pitch:cell.pitch,velocity:cell.velocity,velocityNormalized:cell.velocity/127,kind:cell.kind||'search',metrics:captured.metrics};
@@ -179,6 +184,7 @@ function runBaseline({roots,identity,referenceSet,capture,preflight,identityNow,
   if(!ledger.startedAt){ledger.startedAt=now();writeCellState(pr,ledger);}
   const done=capturePhaseRows({roots:pr,ledger,cells,identity:phaseId,capture,response:[1,1,1],identityNow,render,now});
   if(done.counts.COMPLETE!==12)throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT: baseline rows incomplete');
+  if(!sameExecutionIdentity(identityNow(),identity))throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_BUILD_IDENTITY: identity changed before baseline comparison');
   const measured=readCompletedRows(pr,ledger,cells),comparison=core.validateBaselineRows(referenceSet.referenceSet,measured,{tolerance:TOLERANCE});
   if(!comparison.pass){finalizePhase({roots:pr,phase,identity:phaseId,ledger,decision:'BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT',result:comparison,now});throw new Error('BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT');}
   return finalizePhase({roots:pr,phase,identity:phaseId,ledger,decision:'STAGE3E_BASELINE_EQUIVALENCE_PASS',result:comparison,now});
@@ -260,7 +266,11 @@ function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORA
   const refs=validateReferenceSet(historicalRoots(root,home)),roots=getGeneration2Roots({root,home,evidenceRoot});
   const protectedIdentity=legacy.currentProtectedIdentity(root),identity=currentGenerationIdentity({root,referenceSetSha256:refs.sha256,protectedIdentity});
   assertGenerationManifest(roots,identity,now);
-  const identityNow=()=>currentGenerationIdentity({root,referenceSetSha256:refs.sha256,protectedIdentity:legacy.currentProtectedIdentity(root)});
+  const identityNow=()=>{
+    const currentRefs=validateReferenceSet(historicalRoots(root,home));
+    assertBaselineReferenceIdentity(currentRefs.sha256,refs.sha256);
+    return currentGenerationIdentity({root,referenceSetSha256:currentRefs.sha256,protectedIdentity:legacy.currentProtectedIdentity(root)});
+  };
   if(mode==='--baseline'){
     const result=runBaseline({roots,identity,referenceSet:refs,capture,preflight,identityNow,render,now});
     return {decision:result.decision,builds:0,renders:result.renderCalls,baselineCells:result.cellCount,baselineResultSha256:sha256(durable.verifyDualCopy(path.join(phaseRoots(roots,'baseline').primary,'baseline-result.json'),path.join(phaseRoots(roots,'baseline').secondary,'baseline-result.json')).bytes),phaseArchiveSha256:result.archiveSha256};
@@ -299,4 +309,4 @@ function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORA
 }
 function main(argv=process.argv.slice(2)){if(argv.length!==1)throw new Error('one explicit mode is required');const result=run({mode:argv[0]});process.stdout.write(JSON.stringify(result)+'\n');}
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
-module.exports={ROOT,EXECUTION_ID,TOLERANCE,LOW_SCREEN_VELOCITIES,MID_SCREEN_VELOCITIES,OFFICIAL_VELOCITIES,sha256,jsonBytes,stable,same,sameExecutionIdentity,cellId,historicalRoots,generationRoots,phaseRoots,readDualJson,writeDualJson,immutableDualJson,getGeneration2Roots,currentGenerationIdentity,assertGenerationManifest,cellSpecs,freshCellLedger,ledgerCounts,loadLedger,writeCellState,validateReferenceSet,renderOne,capturePhaseRows,readCompletedRows,finalizePhase,loadResult,baselineCells,buildFixtureMap,makeResponse,lowCandidateScreenCells,midCandidateScreenCells,fullCellsFor,fullLowCells,candidateSummary,phaseIdentity,lowPhaseIdentity,midPhaseIdentity,runBaseline,executeLow,executeMid,dryRun,run,main};
+module.exports={ROOT,EXECUTION_ID,TOLERANCE,LOW_SCREEN_VELOCITIES,MID_SCREEN_VELOCITIES,OFFICIAL_VELOCITIES,sha256,jsonBytes,stable,same,sameExecutionIdentity,cellId,historicalRoots,generationRoots,phaseRoots,readDualJson,writeDualJson,immutableDualJson,getGeneration2Roots,currentGenerationIdentity,assertGenerationManifest,cellSpecs,freshCellLedger,ledgerCounts,loadLedger,writeCellState,validateReferenceSet,assertBaselineReferenceIdentity,renderOne,capturePhaseRows,readCompletedRows,finalizePhase,loadResult,baselineCells,buildFixtureMap,makeResponse,lowCandidateScreenCells,midCandidateScreenCells,fullCellsFor,fullLowCells,candidateSummary,phaseIdentity,lowPhaseIdentity,midPhaseIdentity,runBaseline,executeLow,executeMid,dryRun,run,main};
