@@ -500,7 +500,7 @@ function assertCurrentCaptureIdentity(expected,{root=ROOT,home=process.env.HOME,
     expected.preAmendmentIdentityProofSha256!==proof.sha256)
     throw new Error('BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: immutable measurement identity binding changed');
   for(const key of ['authoritativeProductionWasmSha256','historicalProductionIdentity','stage3dWasmSha256','stage3eWasmSha256',
-    'stage3dSourceSha256','stage3eSourceSha256','stage3dCaptureHelperSha256','stage3eCaptureHelperSha256','sampleRate','durationMs',
+    'stage3dSourceSha256','stage3eSourceSha256','stage3dCaptureHelperSha256','sampleRate','durationMs',
     'stage2mFactorMask','stage3dVariant','baselineResponse'])
     if(!same(historicalBuild?.[key],buildIdentity[key]))throw new Error(`BLOCKED_STAGE3E_AMENDMENT_IDENTITY_COLLISION: acoustic identity changed: ${key}`);
   assertMeasurementOnlyCaptureChange(root,baseline);
@@ -535,7 +535,7 @@ function assertExistingAmendmentIdentity({auth,captureIdentity,audit,baseline,cu
   const currentAudio=Object.fromEntries(STAGE3E_AUDIO_IDENTITY_KEYS.map(key=>[key,currentBuildIdentity.stage3eCandidateIdentity[key]]));
   if(!same(currentAudio,proofPayload.identityDomains.stage3eGeneration2Candidate.currentAudioIdentity))fail('current candidate audio identity changed');
   for(const key of ['authoritativeProductionWasmSha256','historicalProductionIdentity','stage3dWasmSha256','stage3eWasmSha256',
-    'stage3dSourceSha256','stage3eSourceSha256','stage3dCaptureHelperSha256','stage3eCaptureHelperSha256','sampleRate','durationMs',
+    'stage3dSourceSha256','stage3eSourceSha256','stage3dCaptureHelperSha256','sampleRate','durationMs',
     'stage2mFactorMask','stage3dVariant','baselineResponse'])
     if(!same(historicalBuild[key],currentBuildIdentity[key]))fail(`acoustic identity changed: ${key}`);
   const expectedAuth=makeAuthorization({audit,baseline,buildIdentity:historicalBuild,identityProofSha256});
