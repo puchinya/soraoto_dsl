@@ -32,6 +32,7 @@ const FILES=Object.freeze({
   verifierCompatibilityContinuation4:'verifier-compatibility-v10-5.json',
   verifierCompatibilityContinuation5:'verifier-compatibility-v10-6.json',
   verifierCompatibilityContinuation6:'verifier-compatibility-v10-7.json',
+  verifierCompatibilityContinuation7:'verifier-compatibility-v10-8.json',
   receipt:'transaction-receipt.json',result:'reconciliation-result.json',compatibility:'recovery-transaction-compatibility-v2.json',
   compatibilitySha:'recovery-transaction-compatibility-v2.sha256',stagedLedger:'staging/low-ledger-post.json',stagedTransition:'staging/transition-000002.json',
   manifest:'evidence-manifest.json',manifestSha:'evidence-manifest.sha256',compatibilityArchive:'archives/recovery-transaction-compatibility-v2.tar.gz',
@@ -231,7 +232,7 @@ function verifierCompatibilityAttestationRecord({root=ROOT,home=process.env.HOME
 }
 function makeVerifierCompatibilityContinuation(record,previousSha256,sequence=2){
   if(!/^[0-9a-f]{64}$/.test(previousSha256||''))fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','v10 predecessor SHA is invalid');
-  if(!Number.isInteger(sequence)||sequence<2||sequence>7)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','unsupported verifier attestation sequence');
+  if(!Number.isInteger(sequence)||sequence<2||sequence>8)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','unsupported verifier attestation sequence');
   return {...record,attestationSequence:sequence,previousVerifierAttestationSha256:previousSha256};
 }
 function validateVerifierCompatibilityContinuation(record,expectedBase,previousSha256,sequence=2){
@@ -264,8 +265,8 @@ function verifierAttestationPresence(tRoots,paths){
 }
 function readVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME,anchorCommit=VERIFIER_FIX_ANCHOR,head=currentHead(root),evidenceRoots,requireCurrent=true}={}){
   const roots=evidenceRoots||rootsFor(root,home),tRoots=transactionRoots(roots);
-  const paths=[FILES.verifierCompatibility,FILES.verifierCompatibilityContinuation,FILES.verifierCompatibilityContinuation2,FILES.verifierCompatibilityContinuation3,FILES.verifierCompatibilityContinuation4,FILES.verifierCompatibilityContinuation5,FILES.verifierCompatibilityContinuation6];
-  const expectedShas=[VERIFIER_V10_ATTESTATION_SHA256,VERIFIER_V10_2_ATTESTATION_SHA256,VERIFIER_V10_3_ATTESTATION_SHA256,VERIFIER_V10_4_ATTESTATION_SHA256,VERIFIER_V10_5_ATTESTATION_SHA256,null,null];
+  const paths=[FILES.verifierCompatibility,FILES.verifierCompatibilityContinuation,FILES.verifierCompatibilityContinuation2,FILES.verifierCompatibilityContinuation3,FILES.verifierCompatibilityContinuation4,FILES.verifierCompatibilityContinuation5,FILES.verifierCompatibilityContinuation6,FILES.verifierCompatibilityContinuation7];
+  const expectedShas=[VERIFIER_V10_ATTESTATION_SHA256,VERIFIER_V10_2_ATTESTATION_SHA256,VERIFIER_V10_3_ATTESTATION_SHA256,VERIFIER_V10_4_ATTESTATION_SHA256,VERIFIER_V10_5_ATTESTATION_SHA256,'646c23a417f443ff058892636fd57b3cc4e4105353d3f1fc7390a23192c3bb2c','43ca6b58f2c34eb739279a49b19947f977b73fc7dc0ec10e850108492f0a4d52',null];
   const present=verifierAttestationPresence(tRoots,paths);
   const chain=[];
   for(let index=0;index<paths.length;index++){
@@ -283,7 +284,7 @@ function readVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME,a
 }
 function createVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME,testReportSha256=process.env.STAGE3E_V10_TEST_REPORT_SHA256,write=durable.atomicWrite}={}){
   const roots=rootsFor(root,home),tRoots=transactionRoots(roots);
-  const paths=[FILES.verifierCompatibility,FILES.verifierCompatibilityContinuation,FILES.verifierCompatibilityContinuation2,FILES.verifierCompatibilityContinuation3,FILES.verifierCompatibilityContinuation4,FILES.verifierCompatibilityContinuation5,FILES.verifierCompatibilityContinuation6];
+  const paths=[FILES.verifierCompatibility,FILES.verifierCompatibilityContinuation,FILES.verifierCompatibilityContinuation2,FILES.verifierCompatibilityContinuation3,FILES.verifierCompatibilityContinuation4,FILES.verifierCompatibilityContinuation5,FILES.verifierCompatibilityContinuation6,FILES.verifierCompatibilityContinuation7];
   const present=verifierAttestationPresence(tRoots,paths),highest=present.filter(Boolean).length;
   if(highest===0){
     const record=verifierCompatibilityAttestationRecord({root,home,testReportSha256}),bytes=jsonBytes(stable(record));
