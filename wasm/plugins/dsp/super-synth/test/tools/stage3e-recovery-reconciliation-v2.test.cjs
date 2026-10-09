@@ -9,6 +9,17 @@ const durable=require('./durable-evidence.cjs');
 const search=require('./stage3e-search-core.cjs');
 const validator=require('./stage3e-evidence-validator.cjs');
 const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
+
+{
+  const firstSha='e7fb7aec3438a08ac2f1a62198bb23360a7eebeceacafa1976d4b3312bbfa47c';
+  const base={schemaVersion:1,decision:'STAGE3E_RECOVERY_VERIFIER_COMPATIBLE',verifierFixCommit:'fix-commit'};
+  const continuation=recovery.makeVerifierCompatibilityContinuation(base,firstSha);
+  assert.equal(continuation.attestationSequence,2);
+  assert.equal(continuation.previousVerifierAttestationSha256,firstSha);
+  assert.equal(recovery.validateVerifierCompatibilityContinuation(continuation,base,firstSha),true);
+  assert.equal(recovery.validateVerifierCompatibilityContinuation({...continuation,previousVerifierAttestationSha256:'0'.repeat(64)},base,firstSha),false);
+  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'invalid'),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
+}
 const gen2=require('./run-stage3e-generation2.cjs');
 const preAbortEvidence=require('./stage3e-pre-render-abort-evidence.cjs');
 const preflight=require('./stage3e-preflight.cjs');
