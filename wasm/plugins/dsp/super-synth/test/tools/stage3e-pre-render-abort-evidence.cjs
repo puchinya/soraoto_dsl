@@ -37,6 +37,108 @@ function same(a,b){return JSON.stringify(stable(a))===JSON.stringify(stable(b));
 function fail(token,detail){throw new Error(`${token}: ${detail}`);}
 function rootPaths(root=ROOT,home=process.env.HOME){return preflight.searchRoots(root,home);}
 function readDual(roots,relative){return durable.verifyDualCopy(path.join(roots.primary,relative),path.join(roots.secondary,relative));}
+function within(root,candidate){const relative=path.relative(root,candidate);return relative===''||(!path.isAbsolute(relative)&&relative!=='..'&&!relative.startsWith(`..${path.sep}`));}
+function readSourceCopy(root,relative,label){
+  if(typeof relative!=='string'||!relative||path.isAbsolute(relative)||relative.split(/[\\/]/).some(part=>!part||part==='.'||part==='..'))
+    fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA',`unsafe ${label} path`);
+  const candidate=path.resolve(root,relative),realRoot=fs.realpathSync(root);
+  let realCandidate;
+  try{realCandidate=fs.realpathSync(candidate);}
+  catch(error){fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA',`${label} is missing or cannot be resolved: ${error.message}`);}
+  if(!within(root,candidate)||!within(realRoot,realCandidate)||!fs.statSync(realCandidate).isFile())
+    fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA',`${label} escapes its canonical evidence root or is not a file`);
+  const bytes=fs.readFileSync(candidate);
+  return {path:relative,bytes,sha256:sha256(bytes)};
+}
+function parseSourceJson(copy,label){
+  try{return JSON.parse(copy.bytes.toString('utf8'));}
+  catch(error){fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA',`${label} is not valid JSON: ${error.message}`);}
+}
+function normalizeRecoverySourceView({roots,manifest,transitionEntries,expectedTransitionBytes}={}){
+  if(!roots||!manifest||(transitionEntries!==undefined&&!Array.isArray(transitionEntries)))
+    fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','roots and saved manifest are required; producer transitionEntries must be an array when supplied');
+  if(Array.isArray(transitionEntries)){
+    const sequences=transitionEntries.map(entry=>entry?.sequence);
+    if(sequences.some(sequence=>!Number.isInteger(sequence))||new Set(sequences).size!==sequences.length||
+       sequences.some((sequence,index)=>sequence!==index+1))
+      fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','producer transitionEntries must have unique contiguous sequences starting at 1');
+  }
+  let resolved;
+  try{resolved=evidencePaths.resolveStage3eEvidencePaths(roots,manifest);}
+  catch(error){fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA',error.message);}
+  const primaryRoot=fs.realpathSync(roots.primary),secondaryRoot=fs.realpathSync(roots.secondary);
+  const lowRelative=path.relative(roots.primary,resolved.primary.lowLedger).split(path.sep).join('/');
+  const genesisRelative=path.relative(roots.primary,resolved.primary.genesisLedger).split(path.sep).join('/');
+  if(lowRelative!=='low/low-ledger.json'||genesisRelative!=='ledger-transition-journal/genesis-ledger.json')
+    fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','canonical resolver returned an unexpected ledger or genesis path');
+  const lowPrimary=readSourceCopy(primaryRoot,lowRelative,'primary low ledger');
+  const lowSecondary=readSourceCopy(secondaryRoot,lowRelative,'secondary low ledger');
+  const lowPrimaryParsed=parseSourceJson(lowPrimary,'primary low ledger'),lowSecondaryParsed=parseSourceJson(lowSecondary,'secondary low ledger');
+  const genesisPrimary=readSourceCopy(primaryRoot,genesisRelative,'primary genesis ledger');
+  const genesisSecondary=readSourceCopy(secondaryRoot,genesisRelative,'secondary genesis ledger');
+  if(genesisPrimary.sha256!==genesisSecondary.sha256||!genesisPrimary.bytes.equals(genesisSecondary.bytes))
+    fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','genesis ledger copies differ');
+  const genesisParsed=parseSourceJson(genesisPrimary,'genesis ledger');
+  const journalRelative=path.relative(roots.primary,resolved.primary.journalRoot).split(path.sep).join('/');
+  if(journalRelative!=='ledger-transition-journal')
+    fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','canonical resolver returned an unexpected transition journal path');
+  const primaryJournal=path.join(primaryRoot,journalRelative),secondaryJournal=path.join(secondaryRoot,journalRelative);
+  const transitionPattern=/^transition-([0-9]{6})\.json$/;
+  const namesFor=root=>{
+    const entries=fs.readdirSync(root);
+    if(entries.some(name=>name.startsWith('transition-')&&!transitionPattern.test(name)))
+      fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','transition journal contains an invalid filename');
+    return entries.filter(name=>transitionPattern.test(name)).sort();
+  };
+  const primaryNames=namesFor(primaryJournal),secondaryNames=namesFor(secondaryJournal);
+  const allowedNames=['transition-000001.json','transition-000002.json'];
+  if(primaryNames.some(name=>!allowedNames.includes(name))||secondaryNames.some(name=>!allowedNames.includes(name)))
+    fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','transition journal contains an unauthorized sequence');
+  const partialSecond=primaryNames.includes('transition-000002.json')!==secondaryNames.includes('transition-000002.json');
+  if(!primaryNames.includes('transition-000001.json')||!secondaryNames.includes('transition-000001.json')||
+     (primaryNames.includes('transition-000002.json')&&!secondaryNames.includes('transition-000002.json')&&!partialSecond)||
+     (secondaryNames.includes('transition-000002.json')&&!primaryNames.includes('transition-000002.json')&&!partialSecond))
+    fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','transition journal sequence is incomplete');
+  if(partialSecond&&(!Buffer.isBuffer(expectedTransitionBytes)||!expectedTransitionBytes.length))
+    fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','one-sided transition 000002 has no exact staged bytes binding');
+  const presentTransitionNames=[...new Set([...primaryNames,...secondaryNames])].filter(name=>allowedNames.includes(name));
+  if(Array.isArray(transitionEntries)&&transitionEntries.length!==presentTransitionNames.length&&!partialSecond)
+    fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','producer transitionEntries count differs from journal files');
+  const normalized=[];
+  for(const sequence of [1,2]){
+    const name=`transition-${String(sequence).padStart(6,'0')}.json`;
+    const existsPrimary=primaryNames.includes(name),existsSecondary=secondaryNames.includes(name);
+    if(!existsPrimary&&!existsSecondary)continue;
+    const relative=path.join(journalRelative,name).split(path.sep).join('/');
+    const primary=existsPrimary?readSourceCopy(primaryRoot,relative,`primary ${name}`):null;
+    const secondary=existsSecondary?readSourceCopy(secondaryRoot,relative,`secondary ${name}`):null;
+    if(primary&&secondary&&(primary.sha256!==secondary.sha256||!primary.bytes.equals(secondary.bytes)))
+      fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE',`${name} copies differ`);
+    const selected=primary||secondary;
+    if(sequence===1&&(!primary||!secondary))
+      fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','original transition 000001 is not present in both stores');
+    if(sequence===2&&expectedTransitionBytes&& !selected.bytes.equals(expectedTransitionBytes))
+      fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COLLISION','one-sided transition 000002 differs from the staged transaction bytes');
+    const parsed=parseSourceJson(selected,name);
+    if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||parsed.sequence!==sequence)
+      fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA',`${name} has an invalid sequence schema`);
+    const supplied=Array.isArray(transitionEntries)?transitionEntries.find(entry=>entry?.sequence===sequence):undefined;
+    if(supplied&&!same(supplied,parsed))
+      fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA',`${name} parsed bytes differ from producer transitionEntries`);
+    if(Array.isArray(transitionEntries)&&sequence===1&&!supplied)
+      fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','producer transitionEntries is missing sequence 1');
+    if(Array.isArray(transitionEntries)&&sequence===2&&!partialSecond&&!supplied)
+      fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','producer transitionEntries is missing sequence 2');
+    normalized.push({sequence,path:relative,bytes:selected.bytes,sha256:selected.sha256,parsed,
+      primaryPresent:!!primary,secondaryPresent:!!secondary});
+  }
+  if(normalized.length<1||normalized[0].sequence!==1||normalized.some((entry,index)=>entry.sequence!==index+1))
+    fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','transition entries must be unique, ordered, and contiguous from sequence 1');
+  return {lowLedger:{path:lowRelative,bytes:lowPrimary.bytes,sha256:lowPrimary.sha256,parsed:lowPrimaryParsed,
+      copies:{primary:lowPrimary,secondary:lowSecondary},copiesMatch:lowPrimary.sha256===lowSecondary.sha256&&lowPrimary.bytes.equals(lowSecondary.bytes)},
+    genesis:{path:genesisRelative,bytes:genesisPrimary.bytes,sha256:genesisPrimary.sha256,parsed:genesisParsed},
+    transitionEntries:normalized,journalTipSha256:normalized.at(-1).sha256};
+}
 function counts(ledger){return Object.fromEntries(['PENDING','IN_PROGRESS','COMPLETE'].map(state=>[state,Object.values(ledger.cells||{}).filter(row=>row.state===state).length]));}
 function priorExecutionLogMatches(bytes,prior){
   if(!Buffer.isBuffer(bytes)||!prior||typeof prior.content!=='string'||!Number.isInteger(prior.sizeBytes)||
@@ -105,6 +207,11 @@ function readOriginalArtifacts({root=ROOT,home=process.env.HOME}={}){
      genesisRecord.compatibilitySha256!==v2Bundle.sha256||!same(genesisRecord.identity,ledger.identity))
     fail('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE','original genesis binding is invalid');
   const transitionEntries=preflight.readTransitionEntries(roots,manifest),renderStartEntries=preflight.readRenderStartEntries(roots,manifest);
+  const sourceView=normalizeRecoverySourceView({roots,manifest,transitionEntries});
+  if(!sourceView.lowLedger.bytes.equals(ledgerFile.bytes)||sourceView.lowLedger.sha256!==ledgerFile.sha256||
+     !sourceView.genesis.bytes.equals(genesis.bytes)||sourceView.genesis.sha256!==genesis.sha256||
+     !sourceView.lowLedger.copiesMatch||sourceView.transitionEntries.length!==transitionEntries.length)
+    fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','normalized recovery source view differs from the validated producer inputs');
   const journalRoot=resolved.primary.journalRoot,secondaryJournal=resolved.secondary.journalRoot;
   const originalNames=['genesis-ledger.json','genesis.json','transition-000001.json'];
   const actualNames=fs.readdirSync(journalRoot).sort(),secondaryNames=fs.readdirSync(secondaryJournal).sort();
@@ -133,9 +240,10 @@ function readOriginalArtifacts({root=ROOT,home=process.env.HOME}={}){
     ledgerSha256:ledgerFile.sha256,genesisBytes:genesis.bytes,genesis:{bytes:genesis.bytes,sha256:genesis.sha256},genesisRecord,
     v2Bundle,v1v2:v2Bundle,forensic,forensicSha256:forensicFile.sha256,oldAuthSha256:legacyAuthorization.sha256,oldResultSha256:legacyResult.sha256,
     snapshotSha256:snapshot.sha256,cells,targetCell,replay,audit,amendmentResult,sidecar,
-    originalJournalSha256:forensic.originalJournalSha256,transitionEntries,renderStartEntries};
+    originalJournalSha256:forensic.originalJournalSha256,transitionEntries,sourceView,renderStartEntries};
 }
 
 module.exports={ROOT,RECOVERY_DIR,PRE_ABORT_LEDGER,FORENSIC,TARGET_KEY,OLD_HEAD,OLD_LEDGER_SHA256,FORENSIC_SHA256,
   LEGACY_AUTHORIZATION_SHA256,LEGACY_INVALID_RESULT_SHA256,JOURNAL_PROOF_SHA256,V1_SHA256,V2_SHA256,TARGET,
-  sha256,same,rootPaths,counts,priorExecutionLogMatches,lowLedgerIdentityMatchesManifest,validateAbortForensic,readOriginalArtifacts};
+  sha256,same,rootPaths,counts,priorExecutionLogMatches,lowLedgerIdentityMatchesManifest,validateAbortForensic,
+  normalizeRecoverySourceView,readOriginalArtifacts};
