@@ -326,7 +326,7 @@ function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=
   }
   const ledgerStored=readLowLedgerBytes(roots);
   const ledgerSummary=validateSearchLedger({roots,manifestBytes:manifestStored.bytes,ledgerBytes:ledgerStored.bytes,compatibilitySha256,
-    historicalCompatibilitySha256:v2Bundle?.sha256,recoveryReconciliationCompatibilitySha256});
+    historicalCompatibilitySha256:v2Bundle?.sha256,recoveryReconciliationCompatibilitySha256:reconciliationCompatibilitySha256});
   const extras=audit.inventoryValidation;
   return {decision:'STAGE3E_SEARCH_PREFLIGHT_READY',builds:0,renders:0,acousticRenders:0,evidenceWrites:0,
     capability,auditSha256:audit.sha256,amendmentResultSha256:amendmentResult.resultSha256,
