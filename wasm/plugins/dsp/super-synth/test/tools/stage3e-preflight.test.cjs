@@ -72,9 +72,14 @@ const validator=require('./stage3e-evidence-validator.cjs');
   const genesisPath=path.join(journalDir,'genesis-ledger.json');
   const genesisBytes=fs.existsSync(genesisPath)?fs.readFileSync(genesisPath):currentLedgerBytes;
   assert.equal(require('node:crypto').createHash('sha256').update(genesisBytes).digest('hex'),preflight.GENESIS_SHA256);
-  assert.throws(()=>preflight.validateSearchLedger({roots,manifestBytes,ledgerBytes:currentLedgerBytes,compatibilitySha256:'a'.repeat(64)}),
-    /BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: genesis attestation identity mismatch|BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING/,
-    'the durable pre-render IN_PROGRESS row remains fail-closed until its authorized recovery');
+  const v2=compatibilityV2.readBundle(roots),v3=require('./stage3e-search-compatibility-v3.cjs').readBundle(roots),
+    reconciliation=require('./stage3e-recovery-reconciliation-v2.cjs').readCompatibility(roots);
+  const live=preflight.validateSearchLedger({roots,manifestBytes,ledgerBytes:currentLedgerBytes,compatibilitySha256:v3.sha256,
+    historicalCompatibilitySha256:v2.sha256,recoveryReconciliationCompatibilitySha256:reconciliation.sha256});
+  assert.equal(live.inProgress,0,'valid append-only search transitions are accepted after recovery');
+  assert.equal(live.renderCalls,JSON.parse(currentLedgerBytes.toString('utf8')).accounting.renderCalls,
+    'ledger accounting agrees with its persisted transition/render-start journal');
+  assert.equal(live.pending+live.complete,1512,'search progress remains within the original fixed grid');
   const base=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-genesis-fixture-'));
   const pRoot=path.join(base,'primary'),sRoot=path.join(base,'secondary');
   try{

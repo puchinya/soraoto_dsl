@@ -40,7 +40,10 @@ const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
   const ninth=recovery.makeVerifierCompatibilityContinuation(base,'9'.repeat(64),9);
   assert.equal(ninth.attestationSequence,9);
   assert.equal(recovery.validateVerifierCompatibilityContinuation(ninth,base,'9'.repeat(64),9),true);
-  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'a'.repeat(64),10),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
+  const tenth=recovery.makeVerifierCompatibilityContinuation(base,'a'.repeat(64),10);
+  assert.equal(tenth.attestationSequence,10);
+  assert.equal(recovery.validateVerifierCompatibilityContinuation(tenth,base,'a'.repeat(64),10),true);
+  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'b'.repeat(64),11),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
   assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'invalid'),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
 }
 
@@ -58,7 +61,7 @@ const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
     const attestationNames=[
       'verifier-compatibility-v10.json','verifier-compatibility-v10-2.json','verifier-compatibility-v10-3.json',
       'verifier-compatibility-v10-4.json','verifier-compatibility-v10-5.json','verifier-compatibility-v10-6.json',
-      'verifier-compatibility-v10-7.json','verifier-compatibility-v10-8.json','verifier-compatibility-v10-9.json',
+      'verifier-compatibility-v10-7.json','verifier-compatibility-v10-8.json','verifier-compatibility-v10-9.json','verifier-compatibility-v10-10.json',
     ];
     const attestationBytes=attestationNames.map((name,index)=>Buffer.from(JSON.stringify({sequence:index+1})+'\n'));
     attestationBytes.slice(0,6).forEach((bytes,index)=>writeBoth(attestationNames[index],bytes));
@@ -81,6 +84,13 @@ const gen2=require('./run-stage3e-generation2.cjs');
 const preAbortEvidence=require('./stage3e-pre-render-abort-evidence.cjs');
 const preflight=require('./stage3e-preflight.cjs');
 const evidencePaths=require('./stage3e-evidence-paths.cjs');
+
+{
+  const live=recovery.validateLiveMutableSearchLedger({root:recovery.ROOT,home:process.env.HOME});
+  assert.equal(live.inProgress,0,'only journal-replayed resolved states are accepted during verifier continuation');
+  assert.equal(live.renderCalls,live.ledgerAccountingRenderCalls,'mutable ledger accounting matches the journal replay');
+  assert.equal(live.pending+live.complete,1512,'valid search progress preserves the original 1512-coordinate grid');
+}
 
 assert.equal(typeof preAbortEvidence.readOriginalArtifacts,'function');
 assert.equal(typeof preAbortEvidence.validateAbortForensic,'function');

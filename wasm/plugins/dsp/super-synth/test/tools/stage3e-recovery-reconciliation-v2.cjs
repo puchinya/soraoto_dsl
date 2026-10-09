@@ -34,6 +34,7 @@ const FILES=Object.freeze({
   verifierCompatibilityContinuation6:'verifier-compatibility-v10-7.json',
   verifierCompatibilityContinuation7:'verifier-compatibility-v10-8.json',
   verifierCompatibilityContinuation8:'verifier-compatibility-v10-9.json',
+  verifierCompatibilityContinuation9:'verifier-compatibility-v10-10.json',
   receipt:'transaction-receipt.json',result:'reconciliation-result.json',compatibility:'recovery-transaction-compatibility-v2.json',
   compatibilitySha:'recovery-transaction-compatibility-v2.sha256',stagedLedger:'staging/low-ledger-post.json',stagedTransition:'staging/transition-000002.json',
   manifest:'evidence-manifest.json',manifestSha:'evidence-manifest.sha256',compatibilityArchive:'archives/recovery-transaction-compatibility-v2.tar.gz',
@@ -93,7 +94,8 @@ const VERIFIER_V10_8_ATTESTATION_SHA256='0b256b0808b6fbfc23dc8a06d926e0bacdf5604
 const VERIFIER_COMPATIBILITY_RELATIVES=Object.freeze([
   FILES.verifierCompatibility,FILES.verifierCompatibilityContinuation,FILES.verifierCompatibilityContinuation2,
   FILES.verifierCompatibilityContinuation3,FILES.verifierCompatibilityContinuation4,FILES.verifierCompatibilityContinuation5,
-  FILES.verifierCompatibilityContinuation6,FILES.verifierCompatibilityContinuation7,FILES.verifierCompatibilityContinuation8
+  FILES.verifierCompatibilityContinuation6,FILES.verifierCompatibilityContinuation7,FILES.verifierCompatibilityContinuation8,
+  FILES.verifierCompatibilityContinuation9
 ]);
 const PREPARED_ARTIFACT_HASHES=Object.freeze({
   'source-audit.json':'eda9e25c490162e4b46e8e72e98da25e84bfd4980afe16c1df773d9020c53560',
@@ -162,6 +164,25 @@ function verifierFixDiff(root,anchorCommit,fixCommit){
   const bytes=execFileSync('rtk',['proxy','git','diff','--binary',`${anchorCommit}..${fixCommit}`,'--',...changedPaths],{cwd:root});
   return {changedPaths,sha256:sha256(bytes)};
 }
+function validateLiveMutableSearchLedger({root=ROOT,home=process.env.HOME,roots=rootsFor(root,home),manifestBytes}={}){
+  const storedManifest=manifestBytes?{bytes:manifestBytes,sha256:sha256(manifestBytes)}:readDual(roots,'generation-2-manifest.json');
+  if(storedManifest.sha256!==evidenceValidator.SEARCH_MANIFEST_SHA256)
+    fail('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE','search manifest identity changed while validating mutable ledger state');
+  const manifest=JSON.parse(storedManifest.bytes.toString('utf8'));
+  const resolved=evidencePaths.resolveStage3eEvidencePaths(roots,manifest),live=durable.verifyDualCopy(resolved.primary.lowLedger,resolved.secondary.lowLedger);
+  if(live.sha256===OLD_LEDGER_SHA256){
+    const original=require('./stage3e-pre-render-abort-evidence.cjs').readOriginalArtifacts({root,home});
+    return {...original.replay,ledgerSha256:live.sha256,ledgerAccountingRenderCalls:0,authorizedPreAbort:true};
+  }
+  const historicalCompatibility=compatibilityV2.readBundle(roots),bridge=compatibilityV3.readBundle(roots),recovery=readCompatibility(roots);
+  const replay=require('./stage3e-preflight.cjs').validateSearchLedger({roots,manifestBytes:storedManifest.bytes,ledgerBytes:live.bytes,
+    compatibilitySha256:bridge.sha256,historicalCompatibilitySha256:historicalCompatibility.sha256,
+    recoveryReconciliationCompatibilitySha256:recovery.sha256});
+  const ledger=JSON.parse(live.bytes.toString('utf8'));
+  if(replay.inProgress!==0||replay.renderCalls!==ledger.accounting?.renderCalls)
+    fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','live low ledger does not replay to a resolved, accurately counted state');
+  return {...replay,ledgerSha256:live.sha256,ledgerAccountingRenderCalls:ledger.accounting.renderCalls,authorizedPreAbort:false};
+}
 function verifierCompatibilityAttestationRecord({root=ROOT,home=process.env.HOME,anchorCommit=VERIFIER_FIX_ANCHOR,fixCommit=currentHead(root),testReportSha256,verifyWorkingTree=true}={}){
   ensureClean(root);
   if(!/^[0-9a-f]{64}$/.test(testReportSha256||''))fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','zero-render reader/consumer test report SHA is required');
@@ -196,18 +217,12 @@ function verifierCompatibilityAttestationRecord({root=ROOT,home=process.env.HOME
     fail('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE','search manifest identity changed before verifier attestation');
   const savedManifest=JSON.parse(manifest.bytes.toString('utf8'));
   const livePaths=evidencePaths.resolveStage3eEvidencePaths(roots,savedManifest);
-  const stagedLedgerHash=preparedArtifacts.find(item=>item.relativePath===FILES.stagedLedger)?.sha256;
-  const liveLedgerCopies=[livePaths.primary.lowLedger,livePaths.secondary.lowLedger].map(file=>{
-    if(!fs.existsSync(file))fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','live low ledger copy is missing during verifier attestation');
-    return {file,bytes:fs.readFileSync(file),sha256:sha256(fs.readFileSync(file))};
-  });
-  if(liveLedgerCopies.some(item=>![OLD_LEDGER_SHA256,stagedLedgerHash].includes(item.sha256)))
-    fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','live low ledger is outside the original/staged transaction bytes');
+  validateLiveMutableSearchLedger({root,home,roots,manifestBytes:manifest.bytes});
   const liveJournalNames=fs.readdirSync(livePaths.primary.journalRoot).sort(),secondaryJournalNames=fs.readdirSync(livePaths.secondary.journalRoot).sort();
-  const originalJournalNames=['genesis-ledger.json','genesis.json','transition-000001.json'],allowedJournalNames=[...originalJournalNames,'transition-000002.json'];
-  if(originalJournalNames.some(name=>!liveJournalNames.includes(name)||!secondaryJournalNames.includes(name))||
-     liveJournalNames.some(name=>!allowedJournalNames.includes(name))||secondaryJournalNames.some(name=>!allowedJournalNames.includes(name)))
-    fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','live journal topology is outside the exact same-transaction states');
+  const allowedJournalName=name=>name==='genesis-ledger.json'||name==='genesis.json'||
+    /^transition-[0-9]{6}\.json$/.test(name)||/^render-start-[0-9]{6}\.json$/.test(name);
+  if(!same(liveJournalNames,secondaryJournalNames)||liveJournalNames.some(name=>!allowedJournalName(name)))
+    fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','live journal path set differs between stores or contains an unauthorized file');
   const stagedTransitionBytes=readDual(tRoots,FILES.stagedTransition).bytes,transitionPath='ledger-transition-journal/transition-000002.json';
   for(const [base,files] of [[roots.primary,liveJournalNames],[roots.secondary,secondaryJournalNames]])if(files.includes('transition-000002.json')){
     const observed=fs.readFileSync(path.join(base,transitionPath));
@@ -239,7 +254,7 @@ function verifierCompatibilityAttestationRecord({root=ROOT,home=process.env.HOME
 }
 function makeVerifierCompatibilityContinuation(record,previousSha256,sequence=2){
   if(!/^[0-9a-f]{64}$/.test(previousSha256||''))fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','v10 predecessor SHA is invalid');
-  if(!Number.isInteger(sequence)||sequence<2||sequence>9)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','unsupported verifier attestation sequence');
+  if(!Number.isInteger(sequence)||sequence<2||sequence>10)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','unsupported verifier attestation sequence');
   return {...record,attestationSequence:sequence,previousVerifierAttestationSha256:previousSha256};
 }
 function validateVerifierCompatibilityContinuation(record,expectedBase,previousSha256,sequence=2){
@@ -273,7 +288,7 @@ function verifierAttestationPresence(tRoots,paths){
 function readVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME,anchorCommit=VERIFIER_FIX_ANCHOR,head=currentHead(root),evidenceRoots,requireCurrent=true}={}){
   const roots=evidenceRoots||rootsFor(root,home),tRoots=transactionRoots(roots);
   const paths=VERIFIER_COMPATIBILITY_RELATIVES;
-  const expectedShas=[VERIFIER_V10_ATTESTATION_SHA256,VERIFIER_V10_2_ATTESTATION_SHA256,VERIFIER_V10_3_ATTESTATION_SHA256,VERIFIER_V10_4_ATTESTATION_SHA256,VERIFIER_V10_5_ATTESTATION_SHA256,'646c23a417f443ff058892636fd57b3cc4e4105353d3f1fc7390a23192c3bb2c','43ca6b58f2c34eb739279a49b19947f977b73fc7dc0ec10e850108492f0a4d52',VERIFIER_V10_8_ATTESTATION_SHA256,null];
+  const expectedShas=[VERIFIER_V10_ATTESTATION_SHA256,VERIFIER_V10_2_ATTESTATION_SHA256,VERIFIER_V10_3_ATTESTATION_SHA256,VERIFIER_V10_4_ATTESTATION_SHA256,VERIFIER_V10_5_ATTESTATION_SHA256,'646c23a417f443ff058892636fd57b3cc4e4105353d3f1fc7390a23192c3bb2c','43ca6b58f2c34eb739279a49b19947f977b73fc7dc0ec10e850108492f0a4d52',VERIFIER_V10_8_ATTESTATION_SHA256,null,null];
   const present=verifierAttestationPresence(tRoots,paths);
   const chain=[];
   for(let index=0;index<paths.length;index++){
@@ -914,4 +929,4 @@ module.exports={ROOT,RELATIVE,OLD_HEAD,OLD_LEDGER_SHA256,INVALID_RESULT_SHA256,O
   makeVerifierCompatibilityContinuation,validateVerifierCompatibilityContinuation,finalizedTransactionInventory,
   buildCompatibilityRecord,validateCompatibilityRecord,writeCompatibility,readCompatibility,readBaseline,makeTransaction,stageIntent,
   validateProposedReplay,appendJournalOnce,mirrorLiveLedger,validatePostconditions,commitPreparedTransaction,
-  finalizeArtifacts,runRequiredCliGates,completeTransaction,verify,dryRun,run,main};
+  finalizeArtifacts,runRequiredCliGates,completeTransaction,validateLiveMutableSearchLedger,verify,dryRun,run,main};
