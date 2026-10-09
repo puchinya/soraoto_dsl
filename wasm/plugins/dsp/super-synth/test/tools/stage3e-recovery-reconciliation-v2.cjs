@@ -183,7 +183,7 @@ function validateLiveMutableSearchLedger({root=ROOT,home=process.env.HOME,roots=
     fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','live low ledger does not replay to a resolved, accurately counted state');
   return {...replay,ledgerSha256:live.sha256,ledgerAccountingRenderCalls:ledger.accounting.renderCalls,authorizedPreAbort:false};
 }
-function verifierCompatibilityAttestationRecord({root=ROOT,home=process.env.HOME,anchorCommit=VERIFIER_FIX_ANCHOR,fixCommit=currentHead(root),testReportSha256,verifyWorkingTree=true}={}){
+function verifierCompatibilityAttestationRecord({root=ROOT,home=process.env.HOME,anchorCommit=VERIFIER_FIX_ANCHOR,fixCommit=currentHead(root),testReportSha256,verifyWorkingTree=true,validateLiveState=true}={}){
   ensureClean(root);
   if(!/^[0-9a-f]{64}$/.test(testReportSha256||''))fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','zero-render reader/consumer test report SHA is required');
   const head=currentHead(root);
@@ -217,7 +217,7 @@ function verifierCompatibilityAttestationRecord({root=ROOT,home=process.env.HOME
     fail('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE','search manifest identity changed before verifier attestation');
   const savedManifest=JSON.parse(manifest.bytes.toString('utf8'));
   const livePaths=evidencePaths.resolveStage3eEvidencePaths(roots,savedManifest);
-  validateLiveMutableSearchLedger({root,home,roots,manifestBytes:manifest.bytes});
+  if(validateLiveState)validateLiveMutableSearchLedger({root,home,roots,manifestBytes:manifest.bytes});
   const liveJournalNames=fs.readdirSync(livePaths.primary.journalRoot).sort(),secondaryJournalNames=fs.readdirSync(livePaths.secondary.journalRoot).sort();
   const allowedJournalName=name=>name==='genesis-ledger.json'||name==='genesis.json'||
     /^transition-[0-9]{6}\.json$/.test(name)||/^render-start-[0-9]{6}\.json$/.test(name);
@@ -265,7 +265,7 @@ function verifierAttestationAt({tRoots,relative,sequence,previousSha256,expected
   if(expectedSha256&&stored.sha256!==expectedSha256)
     fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY',`immutable v10-${sequence} verifier attestation SHA changed`);
   const base=verifierCompatibilityAttestationRecord({root,home,anchorCommit,fixCommit:record.verifierFixCommit,
-    testReportSha256:record.zeroRenderVerifierTestReportSha256,verifyWorkingTree});
+    testReportSha256:record.zeroRenderVerifierTestReportSha256,verifyWorkingTree,validateLiveState:false});
   const expected=sequence===1?base:makeVerifierCompatibilityContinuation(base,previousSha256,sequence);
   if(!same(record,expected)||!isAncestor(root,record.verifierFixCommit,head))
     fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY',`immutable v10-${sequence} verifier attestation does not match its predecessor, source commit, or prepared transaction`);
@@ -302,6 +302,7 @@ function readVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME,a
   const latest=chain[chain.length-1];
   if(requireCurrent&&!verifierAttestationMatchesWorkingTree(root,latest))
     fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY',`current verifier differs from attestation sequence ${latest.sequence}; the next exact continuation is required`);
+  validateLiveMutableSearchLedger({root,home,roots});
   return {...latest,chain:chain.map(({relativePath,sha256:attestationSha256,sequence})=>({relativePath,sha256:attestationSha256,sequence}))};
 }
 function finalizedTransactionInventory({primaryRoot,secondaryRoot,manifestFiles,verifierAttestationChain=[]}={}){
@@ -340,10 +341,11 @@ function finalizedTransactionInventory({primaryRoot,secondaryRoot,manifestFiles,
 }
 function createVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME,testReportSha256=process.env.STAGE3E_V10_TEST_REPORT_SHA256,write=durable.atomicWrite}={}){
   const roots=rootsFor(root,home),tRoots=transactionRoots(roots);
+  validateLiveMutableSearchLedger({root,home,roots});
   const paths=VERIFIER_COMPATIBILITY_RELATIVES;
   const present=verifierAttestationPresence(tRoots,paths),highest=present.filter(Boolean).length;
   if(highest===0){
-    const record=verifierCompatibilityAttestationRecord({root,home,testReportSha256}),bytes=jsonBytes(stable(record));
+    const record=verifierCompatibilityAttestationRecord({root,home,testReportSha256,validateLiveState:false}),bytes=jsonBytes(stable(record));
     const saved=durable.writeDualCopy(join(tRoots.primary,paths[0]),join(tRoots.secondary,paths[0]),bytes,{write});
     const reread=readVerifierCompatibilityAttestation({root,home});
     if(reread.sequence!==1||saved.sha256!==reread.sha256)fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','v10 verifier attestation read-back differs');
@@ -354,7 +356,7 @@ function createVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME
     return {decision:current.record.decision,sha256:current.sha256,reused:true,builds:0,renders:0,evidenceWrites:0};
   if(highest>=paths.length)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','no further exact verifier continuation path is authorized');
   const previous=current;
-  const sequence=highest+1,relative=paths[highest],baseRecord=verifierCompatibilityAttestationRecord({root,home,testReportSha256});
+  const sequence=highest+1,relative=paths[highest],baseRecord=verifierCompatibilityAttestationRecord({root,home,testReportSha256,validateLiveState:false});
   const record=makeVerifierCompatibilityContinuation(baseRecord,previous.sha256,sequence),bytes=jsonBytes(stable(record));
   const saved=durable.writeDualCopy(join(tRoots.primary,relative),join(tRoots.secondary,relative),bytes,{write});
   const reread=readVerifierCompatibilityAttestation({root,home});
