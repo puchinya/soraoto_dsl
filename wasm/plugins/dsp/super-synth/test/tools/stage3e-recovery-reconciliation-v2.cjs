@@ -33,6 +33,7 @@ const FILES=Object.freeze({
   verifierCompatibilityContinuation5:'verifier-compatibility-v10-6.json',
   verifierCompatibilityContinuation6:'verifier-compatibility-v10-7.json',
   verifierCompatibilityContinuation7:'verifier-compatibility-v10-8.json',
+  verifierCompatibilityContinuation8:'verifier-compatibility-v10-9.json',
   receipt:'transaction-receipt.json',result:'reconciliation-result.json',compatibility:'recovery-transaction-compatibility-v2.json',
   compatibilitySha:'recovery-transaction-compatibility-v2.sha256',stagedLedger:'staging/low-ledger-post.json',stagedTransition:'staging/transition-000002.json',
   manifest:'evidence-manifest.json',manifestSha:'evidence-manifest.sha256',compatibilityArchive:'archives/recovery-transaction-compatibility-v2.tar.gz',
@@ -88,6 +89,12 @@ const VERIFIER_V10_2_ATTESTATION_SHA256='3067768b97205d11bf58839d237ec0d5eeb70c9
 const VERIFIER_V10_3_ATTESTATION_SHA256='a55392e32fffe2fda3ac408e36bd17f247b46ae5da225a3794c4b9ea2648f6de';
 const VERIFIER_V10_4_ATTESTATION_SHA256='3007f5aaaa46f8e41a86a8dd4d6ff6c224f1c0768ab0a0e89e704b7fa7125f9e';
 const VERIFIER_V10_5_ATTESTATION_SHA256='993241dcf1f2fe230dfab433458c50b56bcd3ac423f83163e6fb3f4203a91e10';
+const VERIFIER_V10_8_ATTESTATION_SHA256='0b256b0808b6fbfc23dc8a06d926e0bacdf5604788741cff69934a7b15b598fe';
+const VERIFIER_COMPATIBILITY_RELATIVES=Object.freeze([
+  FILES.verifierCompatibility,FILES.verifierCompatibilityContinuation,FILES.verifierCompatibilityContinuation2,
+  FILES.verifierCompatibilityContinuation3,FILES.verifierCompatibilityContinuation4,FILES.verifierCompatibilityContinuation5,
+  FILES.verifierCompatibilityContinuation6,FILES.verifierCompatibilityContinuation7,FILES.verifierCompatibilityContinuation8
+]);
 const PREPARED_ARTIFACT_HASHES=Object.freeze({
   'source-audit.json':'eda9e25c490162e4b46e8e72e98da25e84bfd4980afe16c1df773d9020c53560',
   'invalid-recovery-disposition.json':'b3db2984bf553ec5db690faf0580c66867a21f7343ba2171b6c4e34816f7c506',
@@ -232,7 +239,7 @@ function verifierCompatibilityAttestationRecord({root=ROOT,home=process.env.HOME
 }
 function makeVerifierCompatibilityContinuation(record,previousSha256,sequence=2){
   if(!/^[0-9a-f]{64}$/.test(previousSha256||''))fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','v10 predecessor SHA is invalid');
-  if(!Number.isInteger(sequence)||sequence<2||sequence>8)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','unsupported verifier attestation sequence');
+  if(!Number.isInteger(sequence)||sequence<2||sequence>9)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','unsupported verifier attestation sequence');
   return {...record,attestationSequence:sequence,previousVerifierAttestationSha256:previousSha256};
 }
 function validateVerifierCompatibilityContinuation(record,expectedBase,previousSha256,sequence=2){
@@ -247,7 +254,7 @@ function verifierAttestationAt({tRoots,relative,sequence,previousSha256,expected
   const expected=sequence===1?base:makeVerifierCompatibilityContinuation(base,previousSha256,sequence);
   if(!same(record,expected)||!isAncestor(root,record.verifierFixCommit,head))
     fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY',`immutable v10-${sequence} verifier attestation does not match its predecessor, source commit, or prepared transaction`);
-  return {record,bytes:stored.bytes,sha256:stored.sha256,sequence,previousSha256};
+  return {record,bytes:stored.bytes,sha256:stored.sha256,sequence,previousSha256,relativePath:relative};
 }
 function verifierAttestationMatchesWorkingTree(root,attestation){
   if(attestation.record.newCaptureHelperSha256!==fileSha(root,'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs'))return false;
@@ -265,8 +272,8 @@ function verifierAttestationPresence(tRoots,paths){
 }
 function readVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME,anchorCommit=VERIFIER_FIX_ANCHOR,head=currentHead(root),evidenceRoots,requireCurrent=true}={}){
   const roots=evidenceRoots||rootsFor(root,home),tRoots=transactionRoots(roots);
-  const paths=[FILES.verifierCompatibility,FILES.verifierCompatibilityContinuation,FILES.verifierCompatibilityContinuation2,FILES.verifierCompatibilityContinuation3,FILES.verifierCompatibilityContinuation4,FILES.verifierCompatibilityContinuation5,FILES.verifierCompatibilityContinuation6,FILES.verifierCompatibilityContinuation7];
-  const expectedShas=[VERIFIER_V10_ATTESTATION_SHA256,VERIFIER_V10_2_ATTESTATION_SHA256,VERIFIER_V10_3_ATTESTATION_SHA256,VERIFIER_V10_4_ATTESTATION_SHA256,VERIFIER_V10_5_ATTESTATION_SHA256,'646c23a417f443ff058892636fd57b3cc4e4105353d3f1fc7390a23192c3bb2c','43ca6b58f2c34eb739279a49b19947f977b73fc7dc0ec10e850108492f0a4d52',null];
+  const paths=VERIFIER_COMPATIBILITY_RELATIVES;
+  const expectedShas=[VERIFIER_V10_ATTESTATION_SHA256,VERIFIER_V10_2_ATTESTATION_SHA256,VERIFIER_V10_3_ATTESTATION_SHA256,VERIFIER_V10_4_ATTESTATION_SHA256,VERIFIER_V10_5_ATTESTATION_SHA256,'646c23a417f443ff058892636fd57b3cc4e4105353d3f1fc7390a23192c3bb2c','43ca6b58f2c34eb739279a49b19947f977b73fc7dc0ec10e850108492f0a4d52',VERIFIER_V10_8_ATTESTATION_SHA256,null];
   const present=verifierAttestationPresence(tRoots,paths);
   const chain=[];
   for(let index=0;index<paths.length;index++){
@@ -280,11 +287,45 @@ function readVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME,a
   const latest=chain[chain.length-1];
   if(requireCurrent&&!verifierAttestationMatchesWorkingTree(root,latest))
     fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY',`current verifier differs from attestation sequence ${latest.sequence}; the next exact continuation is required`);
-  return latest;
+  return {...latest,chain:chain.map(({relativePath,sha256:attestationSha256,sequence})=>({relativePath,sha256:attestationSha256,sequence}))};
+}
+function finalizedTransactionInventory({primaryRoot,secondaryRoot,manifestFiles,verifierAttestationChain=[]}={}){
+  if(!Array.isArray(manifestFiles)||!Array.isArray(verifierAttestationChain))
+    fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_EVIDENCE','finalized manifest or verifier attestation chain has an invalid shape');
+  const inventory=durable.assertMatchingInventory(primaryRoot,secondaryRoot),manifestPaths=new Set(),attested=new Map();
+  for(const item of manifestFiles){
+    if(!item||typeof item.relativePath!=='string'||manifestPaths.has(item.relativePath))
+      fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_EVIDENCE','finalized manifest has an invalid or duplicate inventory path');
+    manifestPaths.add(item.relativePath);
+  }
+  let previousSequence=0;
+  for(const entry of verifierAttestationChain){
+    if(!entry||!VERIFIER_COMPATIBILITY_RELATIVES.includes(entry.relativePath)||
+       !/^[0-9a-f]{64}$/.test(entry.sha256||'')||!Number.isInteger(entry.sequence)||entry.sequence!==previousSequence+1||
+       entry.relativePath!==VERIFIER_COMPATIBILITY_RELATIVES[entry.sequence-1]||attested.has(entry.relativePath))
+      fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','verified verifier attestation chain has an invalid path, sequence, or SHA');
+    attested.set(entry.relativePath,entry.sha256);
+    previousSequence=entry.sequence;
+  }
+  const currentByPath=new Map(inventory.map(item=>[item.relativePath,item]));
+  for(const [relativePath,expectedSha256] of attested){
+    const current=currentByPath.get(relativePath);
+    if(!current||current.sha256!==expectedSha256)
+      fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','verifier attestation chain file is absent or changed: '+relativePath);
+  }
+  const manifestInventory=inventory.filter(item=>manifestPaths.has(item.relativePath));
+  for(const item of inventory){
+    if(manifestPaths.has(item.relativePath))continue;
+    if(attested.get(item.relativePath)!==item.sha256)
+      fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_EVIDENCE','finalized transaction has an unmanifested, unattested file: '+item.relativePath);
+  }
+  if(!same(manifestFiles,manifestInventory))
+    fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_EVIDENCE','final evidence manifest inventory differs from stored files after verifier-attestation additions');
+  return manifestInventory;
 }
 function createVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME,testReportSha256=process.env.STAGE3E_V10_TEST_REPORT_SHA256,write=durable.atomicWrite}={}){
   const roots=rootsFor(root,home),tRoots=transactionRoots(roots);
-  const paths=[FILES.verifierCompatibility,FILES.verifierCompatibilityContinuation,FILES.verifierCompatibilityContinuation2,FILES.verifierCompatibilityContinuation3,FILES.verifierCompatibilityContinuation4,FILES.verifierCompatibilityContinuation5,FILES.verifierCompatibilityContinuation6,FILES.verifierCompatibilityContinuation7];
+  const paths=VERIFIER_COMPATIBILITY_RELATIVES;
   const present=verifierAttestationPresence(tRoots,paths),highest=present.filter(Boolean).length;
   if(highest===0){
     const record=verifierCompatibilityAttestationRecord({root,home,testReportSha256}),bytes=jsonBytes(stable(record));
@@ -828,8 +869,9 @@ function verify({root=ROOT,home=process.env.HOME}={}){
      receiptObj.intentSha256!==state.intentSha256||receiptObj.newLedgerSha256!==post.ledger.sha256||
      receiptObj.journalTipSha256!==state.journal2.sha256||receiptObj.renderCalls!==0)
     fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_EVIDENCE','immutable reconciliation result or receipt binding mismatch');
-  const inventory=durable.assertMatchingInventory(roots.primary,roots.secondary);
-  if(!same(manifestObj.files,inventory))fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_EVIDENCE','final evidence manifest inventory differs from stored files');
+  const verifierChain=readVerifierCompatibilityAttestation({root,home,evidenceRoots:state.roots});
+  const inventory=finalizedTransactionInventory({primaryRoot:roots.primary,secondaryRoot:roots.secondary,
+    manifestFiles:manifestObj.files,verifierAttestationChain:verifierChain.chain});
   const archiveEntries=execFileSync('tar',['-tzf',join(roots.primary,FILES.archive)],{encoding:'utf8'}).trim().split(/\r?\n/);
   for(const item of inventory){if(!archiveEntries.includes('./'+item.relativePath)&&!archiveEntries.includes(item.relativePath))
       fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_EVIDENCE','phase archive lacks '+item.relativePath);}
@@ -869,7 +911,7 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`${error
 module.exports={ROOT,RELATIVE,OLD_HEAD,OLD_LEDGER_SHA256,INVALID_RESULT_SHA256,OLD_AUTHORIZATION_SHA256,FORENSIC_SHA256,PROOF_SHA256,TARGET_KEY,TARGET,FILES,
   ALLOWED_DIFF_PATHS,VERIFIER_RUNTIME_PATHS,sha256,jsonBytes,stable,same,rootsFor,transactionRoots,immutableDual,countStates,proposedLedger,verifierDiff,verifierFixDiff,codeIdentity,
   assertCurrentVerifierAtAnchor,verifierCompatibilityAttestationRecord,readVerifierCompatibilityAttestation,createVerifierCompatibilityAttestation,
-  makeVerifierCompatibilityContinuation,validateVerifierCompatibilityContinuation,
+  makeVerifierCompatibilityContinuation,validateVerifierCompatibilityContinuation,finalizedTransactionInventory,
   buildCompatibilityRecord,validateCompatibilityRecord,writeCompatibility,readCompatibility,readBaseline,makeTransaction,stageIntent,
   validateProposedReplay,appendJournalOnce,mirrorLiveLedger,validatePostconditions,commitPreparedTransaction,
   finalizeArtifacts,runRequiredCliGates,completeTransaction,verify,dryRun,run,main};

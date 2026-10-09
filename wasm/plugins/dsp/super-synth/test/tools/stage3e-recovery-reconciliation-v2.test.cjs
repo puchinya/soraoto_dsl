@@ -37,8 +37,45 @@ const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
   const eighth=recovery.makeVerifierCompatibilityContinuation(base,'8'.repeat(64),8);
   assert.equal(eighth.attestationSequence,8);
   assert.equal(recovery.validateVerifierCompatibilityContinuation(eighth,base,'8'.repeat(64),8),true);
-  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'9'.repeat(64),9),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
+  const ninth=recovery.makeVerifierCompatibilityContinuation(base,'9'.repeat(64),9);
+  assert.equal(ninth.attestationSequence,9);
+  assert.equal(recovery.validateVerifierCompatibilityContinuation(ninth,base,'9'.repeat(64),9),true);
+  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'a'.repeat(64),10),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
   assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'invalid'),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
+}
+
+{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-finalized-inventory-'));
+  const roots={primary:path.join(temp,'primary'),secondary:path.join(temp,'secondary')};
+  fs.mkdirSync(roots.primary,{recursive:true});fs.mkdirSync(roots.secondary,{recursive:true});
+  const writeBoth=(relative,bytes)=>{
+    for(const root of [roots.primary,roots.secondary]){
+      const file=path.join(root,...relative.split('/'));fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);
+    }
+  };
+  try{
+    writeBoth('transaction-receipt.json',Buffer.from('{"decision":"verified"}\n'));
+    const attestationNames=[
+      'verifier-compatibility-v10.json','verifier-compatibility-v10-2.json','verifier-compatibility-v10-3.json',
+      'verifier-compatibility-v10-4.json','verifier-compatibility-v10-5.json','verifier-compatibility-v10-6.json',
+      'verifier-compatibility-v10-7.json','verifier-compatibility-v10-8.json','verifier-compatibility-v10-9.json',
+    ];
+    const attestationBytes=attestationNames.map((name,index)=>Buffer.from(JSON.stringify({sequence:index+1})+'\n'));
+    attestationBytes.slice(0,6).forEach((bytes,index)=>writeBoth(attestationNames[index],bytes));
+    const manifestFiles=durable.assertMatchingInventory(roots.primary,roots.secondary);
+    attestationBytes.slice(6).forEach((bytes,index)=>writeBoth(attestationNames[index+6],bytes));
+    const chain=attestationNames.map((relativePath,index)=>({relativePath,sha256:recovery.sha256(attestationBytes[index]),sequence:index+1}));
+    const filtered=recovery.finalizedTransactionInventory({primaryRoot:roots.primary,secondaryRoot:roots.secondary,
+      manifestFiles,verifierAttestationChain:chain});
+    assert.deepEqual(filtered,manifestFiles,'only dual-stored, chain-hash-verified append-only attestations are omitted from the historical manifest comparison');
+    assert.throws(()=>recovery.finalizedTransactionInventory({primaryRoot:roots.primary,secondaryRoot:roots.secondary,
+      manifestFiles,verifierAttestationChain:[{...chain[0],sha256:'0'.repeat(64)},chain[1]]}),
+    /BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/,'an attestation path with the wrong SHA cannot be filtered');
+    writeBoth('unexpected.json',Buffer.from('unowned'));
+    assert.throws(()=>recovery.finalizedTransactionInventory({primaryRoot:roots.primary,secondaryRoot:roots.secondary,
+      manifestFiles,verifierAttestationChain:chain}),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_EVIDENCE/,
+    'unrelated post-finalization additions remain rejected');
+  }finally{fs.rmSync(temp,{recursive:true,force:true});}
 }
 const gen2=require('./run-stage3e-generation2.cjs');
 const preAbortEvidence=require('./stage3e-pre-render-abort-evidence.cjs');
