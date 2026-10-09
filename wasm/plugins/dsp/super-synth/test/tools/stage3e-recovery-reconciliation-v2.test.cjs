@@ -27,8 +27,11 @@ const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
   const fifth=recovery.makeVerifierCompatibilityContinuation(base,'5'.repeat(64),5);
   assert.equal(fifth.attestationSequence,5);
   assert.equal(recovery.validateVerifierCompatibilityContinuation(fifth,base,'5'.repeat(64),5),true);
-  assert.equal(recovery.validateVerifierCompatibilityContinuation({...fifth,attestationSequence:6},base,'5'.repeat(64),5),false);
-  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'6'.repeat(64),6),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
+  const sixth=recovery.makeVerifierCompatibilityContinuation(base,'6'.repeat(64),6);
+  assert.equal(sixth.attestationSequence,6);
+  assert.equal(recovery.validateVerifierCompatibilityContinuation(sixth,base,'6'.repeat(64),6),true);
+  assert.equal(recovery.validateVerifierCompatibilityContinuation({...sixth,attestationSequence:7},base,'6'.repeat(64),6),false);
+  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'7'.repeat(64),7),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
   assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'invalid'),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
 }
 const gen2=require('./run-stage3e-generation2.cjs');

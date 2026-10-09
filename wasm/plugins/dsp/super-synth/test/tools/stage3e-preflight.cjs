@@ -332,7 +332,7 @@ function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=
     capability,auditSha256:audit.sha256,amendmentResultSha256:amendmentResult.resultSha256,
     manifestSha256:manifestStored.sha256,ledgerSha256:ledgerStored.sha256,ledgerSummary,
     compatibilitySha256,compatibility,compatibilityArchiveSha256:bundle?.archiveSha256,historicalCompatibilitySha256:v2Bundle?.sha256,
-    recoveryReconciliationCompatibilitySha256,
+    recoveryReconciliationCompatibilitySha256:reconciliationCompatibilitySha256,
     inventory:{frozenCount:extras.frozenCount,additionCount:extras.additionCount},
     roots,manifest,creatorIdentity:manifest.identity,currentVerifierIdentity:currentFiles(root),sourceAudit:audit.audit};
 }
