@@ -51,6 +51,57 @@ assert.equal(typeof legacy.preflightDiagnosticCapabilities,'function');
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 }
 
+{
+  const {root,roots}=tempRoots();
+  try{
+    const base=baseIdentity(),identity=runner.phaseIdentity(base,'low','c'.repeat(64));
+    const cells=runner.cellSpecs('low',[{pitch:36,velocity:14,response:{low:1,mid:1,bassHardness:0}}]);
+    const ledger=runner.freshCellLedger('low',identity,cells),journalRoots=runner.ledgerJournalRoots(roots,'journal');
+    runner.writeCellState(roots,ledger);
+    const oldCompatibility='3'.repeat(64),currentCompatibility='4'.repeat(64),manifestSha256='1'.repeat(64),proofSha256='2'.repeat(64);
+    const genesisBytes=runner.jsonBytes(ledger),genesisLedgerSha256=runner.sha256(genesisBytes);
+    durable.writeDualCopy(path.join(journalRoots.primary,'genesis-ledger.json'),path.join(journalRoots.secondary,'genesis-ledger.json'),genesisBytes);
+    runner.immutableDualJson(journalRoots,'genesis.json',{schemaVersion:1,decision:'STAGE3E_SEARCH_LEDGER_GENESIS',phase:'low',
+      genesisLedgerSha256,manifestSha256,proofSha256,compatibilitySha256:oldCompatibility,identity,
+      authorizedCellCount:ledger.authorizedCellCount,renderCalls:0});
+    const genesisRecordBefore=durable.verifyDualCopy(path.join(journalRoots.primary,'genesis.json'),path.join(journalRoots.secondary,'genesis.json'));
+    let renders=0;
+    const result=runner.capturePhaseRows({roots,ledger,cells,identity,capture:{},journalContext:{journalRoots,manifestSha256,proofSha256,
+      compatibilitySha256:currentCompatibility,acceptedCompatibilitySha256s:[oldCompatibility]},identityNow:()=>base,
+      render(){renders++;return {pitch:36,velocity:14,velocityNormalized:14/127,kind:'screen',metrics:rowMetrics()};}});
+    const genesisRecordAfter=durable.verifyDualCopy(path.join(journalRoots.primary,'genesis.json'),path.join(journalRoots.secondary,'genesis.json'));
+    const transitions=runner.transitionEntries(journalRoots);
+    assert.equal(renders,1,'the historical genesis is reused before the next authorized acoustic cell');
+    assert.deepEqual(result.counts,{PENDING:0,IN_PROGRESS:0,COMPLETE:1});
+    assert.equal(genesisRecordAfter.sha256,genesisRecordBefore.sha256,'the immutable v2 genesis identity is unchanged');
+    assert.equal(JSON.parse(genesisRecordAfter.bytes.toString('utf8')).compatibilitySha256,oldCompatibility);
+    assert.equal(transitions.length,2);
+    assert.ok(transitions.every(entry=>entry.compatibilitySha256===currentCompatibility),
+      'new ledger transitions bind to the current v3 compatibility identity');
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+}
+
+{
+  const {root,roots}=tempRoots();
+  try{
+    const base=baseIdentity(),identity=runner.phaseIdentity(base,'low','c'.repeat(64));
+    const cells=runner.cellSpecs('low',[{pitch:36,velocity:14,response:{low:1,mid:1,bassHardness:0}}]);
+    const ledger=runner.freshCellLedger('low',identity,cells),journalRoots=runner.ledgerJournalRoots(roots,'journal');
+    runner.writeCellState(roots,ledger);
+    const currentCompatibility='4'.repeat(64),oldCompatibility='3'.repeat(64),manifestSha256='1'.repeat(64),proofSha256='2'.repeat(64);
+    const genesisBytes=runner.jsonBytes(ledger);
+    durable.writeDualCopy(path.join(journalRoots.primary,'genesis-ledger.json'),path.join(journalRoots.secondary,'genesis-ledger.json'),genesisBytes);
+    runner.immutableDualJson(journalRoots,'genesis.json',{schemaVersion:1,decision:'STAGE3E_SEARCH_LEDGER_GENESIS',phase:'low',
+      genesisLedgerSha256:runner.sha256(genesisBytes),manifestSha256,proofSha256,compatibilitySha256:oldCompatibility,identity,
+      authorizedCellCount:ledger.authorizedCellCount,renderCalls:0});
+    let renders=0;
+    assert.throws(()=>runner.capturePhaseRows({roots,ledger,cells,identity,capture:{},journalContext:{journalRoots,manifestSha256,proofSha256,
+      compatibilitySha256:currentCompatibility},identityNow:()=>base,render(){renders++;}}),/BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: ledger genesis identity changed/);
+    assert.equal(renders,0,'a historical genesis outside the explicitly accepted scope blocks before capture');
+    assert.deepEqual(runner.transitionEntries(journalRoots),[],'rejected genesis compatibility writes no transition');
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+}
+
 function tempRoots(){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-gen2-runner-'));
   const roots={primary:path.join(root,'primary'),secondary:path.join(root,'secondary')};

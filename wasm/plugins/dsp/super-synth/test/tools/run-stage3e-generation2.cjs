@@ -136,7 +136,11 @@ function renderStartEntries(roots){
   if(!same(p,s))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: render-start journal path sets differ');
   return p.map(name=>{const stored=durable.verifyDualCopy(path.join(roots.primary,name),path.join(roots.secondary,name));return {...JSON.parse(stored.bytes.toString('utf8')),_sha256:stored.sha256};});
 }
-function ensureLedgerGenesis({roots,ledger,identity,compatibilitySha256,journalRoots,manifestSha256,proofSha256}={}){
+function ensureLedgerGenesis({roots,ledger,identity,compatibilitySha256,acceptedCompatibilitySha256s=[],journalRoots,manifestSha256,proofSha256}={}){
+  if(!/^[0-9a-f]{64}$/.test(compatibilitySha256||'')||!Array.isArray(acceptedCompatibilitySha256s)||
+     acceptedCompatibilitySha256s.some(value=>!/^[0-9a-f]{64}$/.test(value||'')))
+    throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: invalid ledger compatibility identity');
+  const acceptedCompatibilitySha256sSet=new Set([compatibilitySha256,...acceptedCompatibilitySha256s]);
   const ledgerFile=`${ledger.phase}-ledger.json`,stored=durable.verifyDualCopy(path.join(roots.primary,ledgerFile),path.join(roots.secondary,ledgerFile));
   const genesisFile='genesis-ledger.json',genesisRecord='genesis.json';
   const ledgerPathRoots=journalRoots||ledgerJournalRoots(roots);
@@ -145,7 +149,7 @@ function ensureLedgerGenesis({roots,ledger,identity,compatibilitySha256,journalR
     if(!fs.existsSync(existingGenesis)||!fs.existsSync(existingSecondary))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: partial ledger genesis');
     const original=durable.verifyDualCopy(existingGenesis,existingSecondary),record=JSON.parse(durable.verifyDualCopy(path.join(ledgerPathRoots.primary,genesisRecord),path.join(ledgerPathRoots.secondary,genesisRecord)).bytes.toString('utf8'));
     if(record.genesisLedgerSha256!==original.sha256||record.manifestSha256!==manifestSha256||record.proofSha256!==proofSha256||
-       record.compatibilitySha256!==compatibilitySha256||record.phase!==ledger.phase||!same(record.identity,identity))
+       !acceptedCompatibilitySha256sSet.has(record.compatibilitySha256)||record.phase!==ledger.phase||!same(record.identity,identity))
       throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: ledger genesis identity changed');
     return {sha256:original.sha256,bytes:original.bytes,roots:ledgerPathRoots,records:transitionEntries(ledgerPathRoots)};
   }
@@ -352,15 +356,15 @@ function assertBaselined(roots,identity,amendmentEvidence){
 function runBaseline({roots,identity,referenceSet,capture,preflight,identityNow,render,now}){
   throw new Error('BLOCKED_STAGE3E_BASELINE_CAPTURE_RETIRED: immutable 12-cell Gen2 baseline cannot be rerendered; use the finalized MIDI41 amendment overlay');
 }
-function screenLedgerRows(roots,phase,identity,cells,capture,response,identityNow,now,render=renderOne,compatibilitySha256){
+function screenLedgerRows(roots,phase,identity,cells,capture,response,identityNow,now,render=renderOne,compatibilitySha256,historicalCompatibilitySha256){
   const pr=phaseRoots(roots,phase),isExistingLowScreen=phase==='low';
   const ledger=loadLedger(pr,phase,identity,cells,{create:!isExistingLowScreen});
   const journalRoots=isExistingLowScreen?ledgerJournalRoots(roots):ledgerJournalRoots(pr);
   const journalContext={journalRoots,manifestSha256:searchPreflight.MANIFEST_SHA256,proofSha256:searchPreflight.PROOF_SHA256,
-    compatibilitySha256};
+    compatibilitySha256,acceptedCompatibilitySha256s:historicalCompatibilitySha256?[historicalCompatibilitySha256]:[]};
   capturePhaseRows({roots:pr,ledger,cells,identity,capture,response,identityNow,now,render,journalContext});return {ledger,rows:readCompletedRows(pr,ledger,cells)};
 }
-function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,amendmentEvidence,compatibilitySha256}){
+function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,amendmentEvidence,compatibilitySha256,historicalCompatibilitySha256}){
   assertBaselined(roots,identity,amendmentEvidence);
   const fixture=buildFixtureMap(ROOT),screenRows=[];
   const tuples=legacy.lowGridTuples();
@@ -370,7 +374,7 @@ function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,
     fullLowCells({low:tuple.low,mid:1,bassHardness:tuple.bassHardness})),capture);
   const screenId=lowPhaseIdentity(identity,referenceSet.sha256);
   const existing=loadResult(phaseRoots(roots,'low'),'low',screenId);if(existing)return existing;
-  const screen=screenLedgerRows(roots,'low',screenId,cellSpecs('low-screen',screenCells),capture,null,identityNow,now,render,compatibilitySha256);
+  const screen=screenLedgerRows(roots,'low',screenId,cellSpecs('low-screen',screenCells),capture,null,identityNow,now,render,compatibilitySha256,historicalCompatibilitySha256);
   const screenByTuple=new Map();for(const row of screen.rows){const key=`${row.cell.response.low}:${row.cell.response.bassHardness}`;if(!screenByTuple.has(key))screenByTuple.set(key,[]);screenByTuple.get(key).push(row);}
   for(const tuple of tuples){const rows=screenByTuple.get(`${tuple.low}:${tuple.bassHardness}`)||[];screenRows.push(candidateSummary(rows,tuple,fixture,'low'));}
   const ranked=legacy.rankLowCandidates(screenRows),top=legacy.topFive(ranked);let selected=null;const fullResults=[];let fullCalls=0;
@@ -378,7 +382,7 @@ function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,
     const tuple={low:candidate.low,mid:1,bassHardness:candidate.bassHardness};const cells=cellSpecs(`low-full-${candidate.low}-${candidate.bassHardness}`,fullLowCells(tuple));
     const phase=cells[0]?.phase||`low-full-${candidate.low}-${candidate.bassHardness}`;
     const phaseId=phaseIdentity(identity,phase,referenceSet.sha256,{response:tuple,lowScreenResultSha256:sha256(jsonBytes(candidate))});
-    const full=screenLedgerRows(roots,phase,phaseId,cells,capture,makeResponse(tuple),identityNow,now,render,compatibilitySha256);fullCalls+=full.ledger.accounting.renderCalls;
+    const full=screenLedgerRows(roots,phase,phaseId,cells,capture,makeResponse(tuple),identityNow,now,render,compatibilitySha256,historicalCompatibilitySha256);fullCalls+=full.ledger.accounting.renderCalls;
     const evaluation=core.validateLowFullRows(full.rows,fixture);fullResults.push({tuple,pass:evaluation.pass,pitchDiagnostics:{derivatives:evaluation.derivatives,brightness:evaluation.brightness},directEvaluation:evaluation.evaluation});
     immutableDualJson(phaseRoots(roots,phase),`${phase}-validation.json`,{identity:phaseId,evaluation:fullResults.at(-1)});
     finalizePhase({roots:phaseRoots(roots,phase),phase,identity:phaseId,ledger:full.ledger,
@@ -395,7 +399,7 @@ function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,
   if(!selected)throw new Error('BLOCKED_STAGE3E_LOW_RESPONSE_FAMILY');
   return {...result,archiveSha256:archive.sha256};
 }
-function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,amendmentEvidence,compatibilitySha256}){
+function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,amendmentEvidence,compatibilitySha256,historicalCompatibilitySha256}){
   assertBaselined(roots,identity,amendmentEvidence);
   const low=readDualJson(phaseRoots(roots,'low'),'low-result.json');
   const expectedLowId=lowPhaseIdentity(identity,referenceSet.sha256);
@@ -406,7 +410,7 @@ function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,
     fullCellsFor({low:low.selected.low,mid:tuple.mid,bassHardness:low.selected.bassHardness},[48,51,54,57],`mid-full-${tuple.mid}`)),capture);
   const screenId=midPhaseIdentity(identity,referenceSet.sha256,low.selected);
   const existing=loadResult(phaseRoots(roots,'mid'),'mid',screenId);if(existing)return existing;
-  const screen=screenLedgerRows(roots,'mid',screenId,cellSpecs('mid-screen',screenCells),capture,null,identityNow,now,render,compatibilitySha256);
+  const screen=screenLedgerRows(roots,'mid',screenId,cellSpecs('mid-screen',screenCells),capture,null,identityNow,now,render,compatibilitySha256,historicalCompatibilitySha256);
   const grouped=new Map();for(const row of screen.rows){const key=String(row.cell.response.mid);if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(row);}
   const scored=tuples.map(tuple=>candidateSummary(grouped.get(String(tuple.mid))||[],tuple,fixture,'mid'));
   const ranked=legacy.rankMidCandidates(scored),top=legacy.topFive(ranked);let selected=null;const fullResults=[];let fullCalls=0;
@@ -414,7 +418,7 @@ function executeMid({roots,identity,referenceSet,capture,identityNow,render,now,
     const tuple={low:low.selected.low,mid:candidate.mid,bassHardness:low.selected.bassHardness};const phase=`mid-full-${candidate.mid}`;
     const cells=cellSpecs(phase,fullCellsFor(tuple,[48,51,54,57],phase));
     const phaseId=phaseIdentity(identity,phase,referenceSet.sha256,{response:tuple,midScreenResultSha256:sha256(jsonBytes(candidate))});
-    const full=screenLedgerRows(roots,phase,phaseId,cells,capture,makeResponse(tuple),identityNow,now,render,compatibilitySha256);fullCalls+=full.ledger.accounting.renderCalls;
+    const full=screenLedgerRows(roots,phase,phaseId,cells,capture,makeResponse(tuple),identityNow,now,render,compatibilitySha256,historicalCompatibilitySha256);fullCalls+=full.ledger.accounting.renderCalls;
     const evaluation=core.validateFullRows(full.rows,{pitches:[48,51,54,57],fixture});fullResults.push({tuple,pass:evaluation.pass,directEvaluation:evaluation.evaluation});
     immutableDualJson(phaseRoots(roots,phase),`${phase}-validation.json`,{identity:phaseId,evaluation:fullResults.at(-1)});
     finalizePhase({roots:phaseRoots(roots,phase),phase,identity:phaseId,ledger:full.ledger,
@@ -470,10 +474,10 @@ function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORA
   if(mode!=='--dry-run')writerLock=searchPreflight.acquireWriterLock({root,phase:mode.slice(2),executionIdentity:sha256(jsonBytes(identity))});
   try{
   if(mode==='--low')return executeLow({roots,identity,referenceSet:refs,capture,identityNow,render,now,amendmentEvidence:amendment,
-    compatibilitySha256:readiness?.compatibilitySha256});
+    compatibilitySha256:readiness?.compatibilitySha256,historicalCompatibilitySha256:readiness?.historicalCompatibilitySha256});
   if(mode==='--mid'){
     const result=executeMid({roots,identity,referenceSet:refs,capture,identityNow,render,now,amendmentEvidence:amendment,
-      compatibilitySha256:readiness?.compatibilitySha256});
+      compatibilitySha256:readiness?.compatibilitySha256,historicalCompatibilitySha256:readiness?.historicalCompatibilitySha256});
     if(result.selected){
       const selectedRoots=phaseRoots(roots,'stage3e-selection');
       const selection={schemaVersion:1,decision:'STAGE3E_SELECTED_RESPONSE',identity,selected:result.selected,
