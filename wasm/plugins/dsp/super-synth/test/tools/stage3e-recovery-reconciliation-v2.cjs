@@ -35,6 +35,7 @@ const FILES=Object.freeze({
   verifierCompatibilityContinuation7:'verifier-compatibility-v10-8.json',
   verifierCompatibilityContinuation8:'verifier-compatibility-v10-9.json',
   verifierCompatibilityContinuation9:'verifier-compatibility-v10-10.json',
+  verifierCompatibilityContinuation10:'verifier-compatibility-v10-11.json',
   receipt:'transaction-receipt.json',result:'reconciliation-result.json',compatibility:'recovery-transaction-compatibility-v2.json',
   compatibilitySha:'recovery-transaction-compatibility-v2.sha256',stagedLedger:'staging/low-ledger-post.json',stagedTransition:'staging/transition-000002.json',
   manifest:'evidence-manifest.json',manifestSha:'evidence-manifest.sha256',compatibilityArchive:'archives/recovery-transaction-compatibility-v2.tar.gz',
@@ -95,7 +96,7 @@ const VERIFIER_COMPATIBILITY_RELATIVES=Object.freeze([
   FILES.verifierCompatibility,FILES.verifierCompatibilityContinuation,FILES.verifierCompatibilityContinuation2,
   FILES.verifierCompatibilityContinuation3,FILES.verifierCompatibilityContinuation4,FILES.verifierCompatibilityContinuation5,
   FILES.verifierCompatibilityContinuation6,FILES.verifierCompatibilityContinuation7,FILES.verifierCompatibilityContinuation8,
-  FILES.verifierCompatibilityContinuation9
+  FILES.verifierCompatibilityContinuation9,FILES.verifierCompatibilityContinuation10
 ]);
 const PREPARED_ARTIFACT_HASHES=Object.freeze({
   'source-audit.json':'eda9e25c490162e4b46e8e72e98da25e84bfd4980afe16c1df773d9020c53560',
@@ -254,7 +255,7 @@ function verifierCompatibilityAttestationRecord({root=ROOT,home=process.env.HOME
 }
 function makeVerifierCompatibilityContinuation(record,previousSha256,sequence=2){
   if(!/^[0-9a-f]{64}$/.test(previousSha256||''))fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','v10 predecessor SHA is invalid');
-  if(!Number.isInteger(sequence)||sequence<2||sequence>10)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','unsupported verifier attestation sequence');
+  if(!Number.isInteger(sequence)||sequence<2||sequence>11)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','unsupported verifier attestation sequence');
   return {...record,attestationSequence:sequence,previousVerifierAttestationSha256:previousSha256};
 }
 function validateVerifierCompatibilityContinuation(record,expectedBase,previousSha256,sequence=2){
@@ -288,7 +289,7 @@ function verifierAttestationPresence(tRoots,paths){
 function readVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME,anchorCommit=VERIFIER_FIX_ANCHOR,head=currentHead(root),evidenceRoots,requireCurrent=true}={}){
   const roots=evidenceRoots||rootsFor(root,home),tRoots=transactionRoots(roots);
   const paths=VERIFIER_COMPATIBILITY_RELATIVES;
-  const expectedShas=[VERIFIER_V10_ATTESTATION_SHA256,VERIFIER_V10_2_ATTESTATION_SHA256,VERIFIER_V10_3_ATTESTATION_SHA256,VERIFIER_V10_4_ATTESTATION_SHA256,VERIFIER_V10_5_ATTESTATION_SHA256,'646c23a417f443ff058892636fd57b3cc4e4105353d3f1fc7390a23192c3bb2c','43ca6b58f2c34eb739279a49b19947f977b73fc7dc0ec10e850108492f0a4d52',VERIFIER_V10_8_ATTESTATION_SHA256,null,null];
+  const expectedShas=[VERIFIER_V10_ATTESTATION_SHA256,VERIFIER_V10_2_ATTESTATION_SHA256,VERIFIER_V10_3_ATTESTATION_SHA256,VERIFIER_V10_4_ATTESTATION_SHA256,VERIFIER_V10_5_ATTESTATION_SHA256,'646c23a417f443ff058892636fd57b3cc4e4105353d3f1fc7390a23192c3bb2c','43ca6b58f2c34eb739279a49b19947f977b73fc7dc0ec10e850108492f0a4d52',VERIFIER_V10_8_ATTESTATION_SHA256,null,null,null];
   const present=verifierAttestationPresence(tRoots,paths);
   const chain=[];
   for(let index=0;index<paths.length;index++){

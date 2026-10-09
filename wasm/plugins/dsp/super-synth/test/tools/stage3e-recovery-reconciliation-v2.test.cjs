@@ -43,7 +43,10 @@ const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
   const tenth=recovery.makeVerifierCompatibilityContinuation(base,'a'.repeat(64),10);
   assert.equal(tenth.attestationSequence,10);
   assert.equal(recovery.validateVerifierCompatibilityContinuation(tenth,base,'a'.repeat(64),10),true);
-  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'b'.repeat(64),11),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
+  const eleventh=recovery.makeVerifierCompatibilityContinuation(base,'b'.repeat(64),11);
+  assert.equal(eleventh.attestationSequence,11);
+  assert.equal(recovery.validateVerifierCompatibilityContinuation(eleventh,base,'b'.repeat(64),11),true);
+  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'c'.repeat(64),12),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
   assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'invalid'),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
 }
 
@@ -61,7 +64,7 @@ const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
     const attestationNames=[
       'verifier-compatibility-v10.json','verifier-compatibility-v10-2.json','verifier-compatibility-v10-3.json',
       'verifier-compatibility-v10-4.json','verifier-compatibility-v10-5.json','verifier-compatibility-v10-6.json',
-      'verifier-compatibility-v10-7.json','verifier-compatibility-v10-8.json','verifier-compatibility-v10-9.json','verifier-compatibility-v10-10.json',
+      'verifier-compatibility-v10-7.json','verifier-compatibility-v10-8.json','verifier-compatibility-v10-9.json','verifier-compatibility-v10-10.json','verifier-compatibility-v10-11.json',
     ];
     const attestationBytes=attestationNames.map((name,index)=>Buffer.from(JSON.stringify({sequence:index+1})+'\n'));
     attestationBytes.slice(0,6).forEach((bytes,index)=>writeBoth(attestationNames[index],bytes));
