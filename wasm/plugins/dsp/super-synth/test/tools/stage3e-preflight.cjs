@@ -51,6 +51,10 @@ const ALLOWED_TRACKED_DIFFS=new Set([
 function sha256(bytes){return crypto.createHash('sha256').update(bytes).digest('hex');}
 function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])]));return value;}
 function same(a,b){return JSON.stringify(stable(a))===JSON.stringify(stable(b));}
+function validateRecoveryCompatibility({reconciliation,bundle,root,roots,manifest,manifestSha256,bridge,forensicSha256,sourceAuditSha256,oldResultSha256,testReportSha256}){
+  return reconciliation.validateCompatibilityRecord(bundle.record,{root,manifest,manifestSha256,bridge,forensicSha256,
+    sourceAuditSha256,oldResultSha256,testReportSha256,evidenceRoots:roots});
+}
 function readDualJson(roots,relative){return JSON.parse(durable.verifyDualCopy(path.join(roots.primary,relative),path.join(roots.secondary,relative)).bytes.toString('utf8'));}
 function readDualBytes(roots,relative){return durable.verifyDualCopy(path.join(roots.primary,relative),path.join(roots.secondary,relative));}
 function readLowLedgerBytes(roots){return durable.verifyDualCopy(evidencePaths.lowLedgerPath(roots.primary),evidencePaths.lowLedgerPath(roots.secondary));}
@@ -240,7 +244,7 @@ function validateRuntimeIdentity({root=search.ROOT,home=process.env.HOME,manifes
   if(admin.length){
     if(admin.length!==1)throw new Error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: duplicate ADMIN_REQUEUE_NO_RENDER');
     const reconciliation=require('./stage3e-recovery-reconciliation-v2.cjs'),bundleV2=reconciliation.readCompatibility(roots);
-    reconciliation.validateCompatibilityRecord(bundleV2.record,{root,manifest,manifestSha256:manifestStored.sha256,bridge:bundle,
+    validateRecoveryCompatibility({reconciliation,bundle:bundleV2,root,roots,manifest,manifestSha256:manifestStored.sha256,bridge:bundle,
       forensicSha256:forensic.sha256,sourceAuditSha256:audit.sha256,oldResultSha256:reconciliation.INVALID_RESULT_SHA256,
       testReportSha256:bundleV2.record.zeroRenderVerifierTestReportSha256});
     recoveryReconciliationCompatibilitySha256=bundleV2.sha256;
@@ -312,7 +316,7 @@ function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=
     if(administrative.length!==1)throw new Error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: duplicate administrative requeue event');
     const reconciliation=require('./stage3e-recovery-reconciliation-v2.cjs');
     const bundleV2=reconciliation.readCompatibility(roots);
-    reconciliation.validateCompatibilityRecord(bundleV2.record,{root,manifest,manifestSha256:manifestStored.sha256,bridge:bundle,
+    validateRecoveryCompatibility({reconciliation,bundle:bundleV2,root,roots,manifest,manifestSha256:manifestStored.sha256,bridge:bundle,
       forensicSha256:forensicFile?.sha256,sourceAuditSha256:audit.sha256,
       oldResultSha256:reconciliation.INVALID_RESULT_SHA256,
       testReportSha256:bundleV2.record.zeroRenderVerifierTestReportSha256});
@@ -333,7 +337,7 @@ function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=
     roots,manifest,creatorIdentity:manifest.identity,currentVerifierIdentity:currentFiles(root),sourceAudit:audit.audit};
 }
 
-module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,COMPATIBILITY_V3_RELATIVE,
+module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,COMPATIBILITY_V3_RELATIVE,validateRecoveryCompatibility,
   GENESIS_RELATIVE,GENESIS_RECORD_RELATIVE,JOURNAL_RELATIVE,ALLOWED_TRACKED_DIFFS,sha256,stable,same,searchRoots,currentFiles,
   validateCompatibility,readTransitionEntries,readRenderStartEntries,validateSearchLedger,validateRuntimeIdentity,acquireWriterLock,
   trackedDiff,assertTrackedWorktreeClean,runCompatibilityTests,buildCompatibilityV2Record,preflight};

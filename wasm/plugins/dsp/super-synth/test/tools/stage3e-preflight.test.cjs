@@ -108,6 +108,17 @@ for(const name of ['run-stage3e-generation2.cjs','run-stage3e-midi41-evidence-am
 assert.equal(typeof generation2.run,'function');assert.equal(typeof amendment.verify,'function');
 assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof preflight.preflight,'function');
 {
+  const roots={primary:'/evidence/primary',secondary:'/evidence/secondary'},bundle={record:{decision:'fixed'}};
+  let received=null;
+  const reconciliation={validateCompatibilityRecord(record,options){received={record,options};return {pass:true};}};
+  const result=preflight.validateRecoveryCompatibility({reconciliation,bundle,root:'/repo',roots,manifest:{id:'manifest'},
+    manifestSha256:'a'.repeat(64),bridge:{sha256:'b'.repeat(64)},forensicSha256:'c'.repeat(64),
+    sourceAuditSha256:'d'.repeat(64),oldResultSha256:'e'.repeat(64),testReportSha256:'f'.repeat(64)});
+  assert.equal(result.pass,true);
+  assert.equal(received.record,bundle.record);
+  assert.equal(received.options.evidenceRoots,roots,'reconciliation validation receives the canonical evidence roots');
+}
+{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-lock-'));
   try{
     execFileSync('rtk',['git','init','--quiet'],{cwd:root});

@@ -21,7 +21,11 @@ const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
   const third=recovery.makeVerifierCompatibilityContinuation(base,'3'.repeat(64),3);
   assert.equal(third.attestationSequence,3);
   assert.equal(recovery.validateVerifierCompatibilityContinuation(third,base,'3'.repeat(64),3),true);
-  assert.equal(recovery.validateVerifierCompatibilityContinuation({...third,attestationSequence:4},base,'3'.repeat(64),3),false);
+  const fourth=recovery.makeVerifierCompatibilityContinuation(base,'4'.repeat(64),4);
+  assert.equal(fourth.attestationSequence,4);
+  assert.equal(recovery.validateVerifierCompatibilityContinuation(fourth,base,'4'.repeat(64),4),true);
+  assert.equal(recovery.validateVerifierCompatibilityContinuation({...fourth,attestationSequence:5},base,'4'.repeat(64),4),false);
+  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'5'.repeat(64),5),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
   assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'invalid'),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
 }
 const gen2=require('./run-stage3e-generation2.cjs');
