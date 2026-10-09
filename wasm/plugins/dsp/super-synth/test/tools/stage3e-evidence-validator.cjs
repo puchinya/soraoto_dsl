@@ -102,7 +102,7 @@ function isSearchAddition(relative,{authorizedKeys=[]}={}){
     'recovery-transaction-compatibility-v2.json','recovery-transaction-compatibility-v2.sha256',
     'staging/low-ledger-post.json','staging/transition-000002.json',
     'archives/recovery-transaction-compatibility-v2.tar.gz','archives/recovery-transaction-compatibility-v2.tar.gz.sha256',
-    'archives/recovery-reconciliation-v2.tar.gz','verifier-compatibility-v10.json','verifier-compatibility-v10-2.json'
+    'archives/recovery-reconciliation-v2.tar.gz','verifier-compatibility-v10.json','verifier-compatibility-v10-2.json','verifier-compatibility-v10-3.json'
   ]);
   if(relative.startsWith(RECOVERY_V2)&&recoveryV2Files.has(relative.slice(RECOVERY_V2.length)))return true;
   if(relative===SEARCH+'generation-2-manifest.json'||relative===SEARCH+'verifier-compatibility-v1.json'||
