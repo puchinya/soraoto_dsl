@@ -36,6 +36,7 @@ const FILES=Object.freeze({
   verifierCompatibilityContinuation8:'verifier-compatibility-v10-9.json',
   verifierCompatibilityContinuation9:'verifier-compatibility-v10-10.json',
   verifierCompatibilityContinuation10:'verifier-compatibility-v10-11.json',
+  verifierCompatibilityContinuation11:'verifier-compatibility-v10-12.json',
   receipt:'transaction-receipt.json',result:'reconciliation-result.json',compatibility:'recovery-transaction-compatibility-v2.json',
   compatibilitySha:'recovery-transaction-compatibility-v2.sha256',stagedLedger:'staging/low-ledger-post.json',stagedTransition:'staging/transition-000002.json',
   manifest:'evidence-manifest.json',manifestSha:'evidence-manifest.sha256',compatibilityArchive:'archives/recovery-transaction-compatibility-v2.tar.gz',
@@ -96,7 +97,7 @@ const VERIFIER_COMPATIBILITY_RELATIVES=Object.freeze([
   FILES.verifierCompatibility,FILES.verifierCompatibilityContinuation,FILES.verifierCompatibilityContinuation2,
   FILES.verifierCompatibilityContinuation3,FILES.verifierCompatibilityContinuation4,FILES.verifierCompatibilityContinuation5,
   FILES.verifierCompatibilityContinuation6,FILES.verifierCompatibilityContinuation7,FILES.verifierCompatibilityContinuation8,
-  FILES.verifierCompatibilityContinuation9,FILES.verifierCompatibilityContinuation10
+  FILES.verifierCompatibilityContinuation9,FILES.verifierCompatibilityContinuation10,FILES.verifierCompatibilityContinuation11
 ]);
 const PREPARED_ARTIFACT_HASHES=Object.freeze({
   'source-audit.json':'eda9e25c490162e4b46e8e72e98da25e84bfd4980afe16c1df773d9020c53560',
@@ -255,7 +256,7 @@ function verifierCompatibilityAttestationRecord({root=ROOT,home=process.env.HOME
 }
 function makeVerifierCompatibilityContinuation(record,previousSha256,sequence=2){
   if(!/^[0-9a-f]{64}$/.test(previousSha256||''))fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','v10 predecessor SHA is invalid');
-  if(!Number.isInteger(sequence)||sequence<2||sequence>11)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','unsupported verifier attestation sequence');
+  if(!Number.isInteger(sequence)||sequence<2||sequence>12)fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','unsupported verifier attestation sequence');
   return {...record,attestationSequence:sequence,previousVerifierAttestationSha256:previousSha256};
 }
 function validateVerifierCompatibilityContinuation(record,expectedBase,previousSha256,sequence=2){
@@ -289,7 +290,7 @@ function verifierAttestationPresence(tRoots,paths){
 function readVerifierCompatibilityAttestation({root=ROOT,home=process.env.HOME,anchorCommit=VERIFIER_FIX_ANCHOR,head=currentHead(root),evidenceRoots,requireCurrent=true}={}){
   const roots=evidenceRoots||rootsFor(root,home),tRoots=transactionRoots(roots);
   const paths=VERIFIER_COMPATIBILITY_RELATIVES;
-  const expectedShas=[VERIFIER_V10_ATTESTATION_SHA256,VERIFIER_V10_2_ATTESTATION_SHA256,VERIFIER_V10_3_ATTESTATION_SHA256,VERIFIER_V10_4_ATTESTATION_SHA256,VERIFIER_V10_5_ATTESTATION_SHA256,'646c23a417f443ff058892636fd57b3cc4e4105353d3f1fc7390a23192c3bb2c','43ca6b58f2c34eb739279a49b19947f977b73fc7dc0ec10e850108492f0a4d52',VERIFIER_V10_8_ATTESTATION_SHA256,null,null,null];
+  const expectedShas=[VERIFIER_V10_ATTESTATION_SHA256,VERIFIER_V10_2_ATTESTATION_SHA256,VERIFIER_V10_3_ATTESTATION_SHA256,VERIFIER_V10_4_ATTESTATION_SHA256,VERIFIER_V10_5_ATTESTATION_SHA256,'646c23a417f443ff058892636fd57b3cc4e4105353d3f1fc7390a23192c3bb2c','43ca6b58f2c34eb739279a49b19947f977b73fc7dc0ec10e850108492f0a4d52',VERIFIER_V10_8_ATTESTATION_SHA256,null,null,null,null];
   const present=verifierAttestationPresence(tRoots,paths);
   const chain=[];
   for(let index=0;index<paths.length;index++){
@@ -553,14 +554,22 @@ function validateProposedReplay(state,transaction,compatibility){
       recoveryReconciliationCompatibilitySha256:compatibility.sha256}});
 }
 
-function readLiveLedgerPair(resolved,oldSha,newSha,oldBytes,newBytes){
+function finalizedRecoveryArtifactsPresent(tRoots){
+  const relatives=[FILES.receipt,FILES.result,FILES.manifest,FILES.manifestSha,FILES.archive];
+  const present=relatives.map(relative=>[join(tRoots.primary,relative),join(tRoots.secondary,relative)].map(fs.existsSync));
+  if(present.some(([a,b])=>a!==b))fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','finalized recovery artifacts differ between stores');
+  return present.every(([a,b])=>a&&b);
+}
+function readLiveLedgerPair(resolved,oldSha,newSha,oldBytes,newBytes,progressedLedgerSha256=null){
   const locations=[resolved.primary.lowLedger,resolved.secondary.lowLedger],items=locations.map(file=>{
     if(!fs.existsSync(file))fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','live low ledger copy missing: '+file);
     const bytes=fs.readFileSync(file),hash=sha256(bytes);
-    if((hash!==oldSha||!bytes.equals(oldBytes))&&(hash!==newSha||!bytes.equals(newBytes)))
+    const isOriginal=hash===oldSha&&bytes.equals(oldBytes),isStaged=hash===newSha&&bytes.equals(newBytes),isVerifiedProgress=progressedLedgerSha256&&hash===progressedLedgerSha256;
+    if(!isOriginal&&!isStaged&&!isVerifiedProgress)
       fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','live ledger has an unrecognized transaction hash');
     return {file,bytes,sha256:hash};
   });
+  if(!items[0].bytes.equals(items[1].bytes))fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','live low ledger copies differ');
   return items;
 }
 function appendJournalOnce(roots,entryBytes,expectedSha,{write=durable.atomicWrite}={}){
@@ -727,8 +736,11 @@ function readResumableState({root=ROOT,home=process.env.HOME}={}){
      authObj.authorizedAdministrativeTransitions!==1||authObj.acousticRendersAuthorized!==0||authObj.acousticRendersObserved!==0||
      entry.eventType!=='ADMIN_REQUEUE_NO_RENDER'||entry.sequence!==2)
     fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COLLISION','staged transaction binding differs');
-  const oldBytes=v1.bytes,newBytes=stagedLedger.bytes,live=readLiveLedgerPair(resolved,intentObj.oldLedgerSha256,intentObj.newLedgerSha256,oldBytes,newBytes);
-  const sourceView=recoveryApi().normalizeRecoverySourceView({roots,manifest,expectedTransitionBytes:stagedTransition.bytes});
+  const oldBytes=v1.bytes,newBytes=stagedLedger.bytes,finalizedRecovery=finalizedRecoveryArtifactsPresent(tRoots);
+  const liveReplay=finalizedRecovery?validateLiveMutableSearchLedger({root,home,roots,manifestBytes:manifestStored.bytes}):null;
+  const live=readLiveLedgerPair(resolved,intentObj.oldLedgerSha256,intentObj.newLedgerSha256,oldBytes,newBytes,liveReplay?.ledgerSha256||null);
+  const sourceView=recoveryApi().normalizeRecoverySourceView({roots,manifest,expectedTransitionBytes:stagedTransition.bytes,
+    allowSearchProgress:finalizedRecovery});
   const genesis={bytes:sourceView.genesis.bytes,sha256:sourceView.genesis.sha256};
   const journal1=sourceView.transitionEntries.find(item=>item.sequence===1);
   const journal2=sourceView.transitionEntries.find(item=>item.sequence===2)||null;
@@ -736,19 +748,27 @@ function readResumableState({root=ROOT,home=process.env.HOME}={}){
      (journal2&&(!journal2.bytes.equals(stagedTransition.bytes)||journal2.sha256!==stagedTransition.sha256)))
     fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','normalized source journal differs from the existing transaction');
   if(journal2){
-    const replay=evidenceValidator.validateLedgerTransitions({genesisLedgerBytes:genesis.bytes,currentLedgerBytes:newBytes,
-      transitionEntries:sourceView.transitionEntries.map(item=>item.parsed),renderStartEntries:[],expectedCells:search.expectedLowScreenCells(),
-      bindings:{manifestSha256:manifestStored.sha256,proofSha256:PROOF_SHA256,compatibilitySha256:bridge.sha256,
-        acceptedCompatibilitySha256s:[v1v2.sha256],recoveryCompatibilitySha256:bridge.sha256,
-        recoveryReconciliationCompatibilitySha256:compatibility.sha256}});
-    if(replay.pending!==1512||replay.inProgress!==0||replay.complete!==0||replay.renderCalls!==0)
-      fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','journal replay does not produce exact no-render requeue state');
+    if(finalizedRecovery){
+      if(!liveReplay||liveReplay.ledgerSha256!==live[0].sha256||liveReplay.inProgress!==0||
+         liveReplay.renderCalls!==liveReplay.ledgerAccountingRenderCalls)
+        fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','finalized recovery does not bind to a resolved journal-replayed search ledger');
+    }else{
+      const replay=evidenceValidator.validateLedgerTransitions({genesisLedgerBytes:genesis.bytes,currentLedgerBytes:newBytes,
+        transitionEntries:sourceView.transitionEntries.map(item=>item.parsed),renderStartEntries:[],expectedCells:search.expectedLowScreenCells(),
+        bindings:{manifestSha256:manifestStored.sha256,proofSha256:PROOF_SHA256,compatibilitySha256:bridge.sha256,
+          acceptedCompatibilitySha256s:[v1v2.sha256],recoveryCompatibilitySha256:bridge.sha256,
+          recoveryReconciliationCompatibilitySha256:compatibility.sha256}});
+      if(replay.pending!==1512||replay.inProgress!==0||replay.complete!==0||replay.renderCalls!==0||
+         replay.renderCalls!==JSON.parse(newBytes.toString('utf8')).accounting.renderCalls)
+        fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','journal replay does not produce exact no-render requeue state');
+    }
   }else if(live.some(item=>item.sha256!==OLD_LEDGER_SHA256))fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','ledger advanced before journal transition');
   return {roots,resolved,manifest,manifestSha256:manifestStored.sha256,forensic,forensicSha256:forensicFile.sha256,genesis,sourceView,
     oldResultSha256:oldResult.sha256,audit,bridge,v1v2,compatibility,intent:intentObj,intentSha256:intent.sha256,
     originalLedgerBytes:v1.bytes,authorization:authObj,authorizationBytes:authorization.bytes,authorizationSha256:authorization.sha256,
     stagedLedgerBytes:stagedLedger.bytes,stagedLedgerSha256:stagedLedger.sha256,intentBytes:intent.bytes,
-    entry,transitionBytes:stagedTransition.bytes,transitionSha256:stagedTransition.sha256,journal1,journal2,live};
+    entry,transitionBytes:stagedTransition.bytes,transitionSha256:stagedTransition.sha256,journal1,journal2,live,
+    finalizedRecovery,liveReplay};
 }
 function transactionFromState(state){
   const roots=transactionRoots(state.roots),disposition=readDual(roots,FILES.invalidDisposition);
@@ -758,10 +778,14 @@ function transactionFromState(state){
     transitionBytes:state.transitionBytes,transitionSha256:state.transitionSha256,entry:state.entry};
 }
 function committedPostconditions(state,transaction,compatibility){
-  if(!state.journal2||!state.journal2.primaryPresent||!state.journal2.secondaryPresent||
-     state.live.some(item=>item.sha256!==transaction.stagedLedgerSha256))
+  if(!state.journal2||!state.journal2.primaryPresent||!state.journal2.secondaryPresent)
     fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','journal and both live ledger copies must be committed before verification');
-  return validatePostconditions(state,transaction,compatibility);
+  if(state.live.every(item=>item.sha256===transaction.stagedLedgerSha256))return validatePostconditions(state,transaction,compatibility);
+  if(!state.finalizedRecovery||!state.liveReplay||state.live.some(item=>item.sha256!==state.liveReplay.ledgerSha256)||
+     state.liveReplay.inProgress!==0||state.liveReplay.renderCalls!==state.liveReplay.ledgerAccountingRenderCalls)
+    fail('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING','progressed ledger is not a finalized, dual-copy, journal-replayed Generation-2 state');
+  return {ledger:{bytes:state.live[0].bytes,sha256:state.live[0].sha256},replay:state.liveReplay,
+    requeuedLedgerSha256:transaction.stagedLedgerSha256,progressed:true};
 }
 function evidenceSnapshot(roots){
   return {primary:evidenceValidator.walkFiles(roots.base.primary),secondary:evidenceValidator.walkFiles(roots.base.secondary)};
@@ -851,7 +875,7 @@ function verify({root=ROOT,home=process.env.HOME}={}){
   const state=readResumableState({root,home}),transaction=transactionFromState(state);
   const journalCommitted=!!state.journal2?.primaryPresent&&!!state.journal2?.secondaryPresent;
   const ledgerCommitted=state.live.every(item=>item.sha256===transaction.stagedLedgerSha256);
-  if(!journalCommitted||!ledgerCommitted){
+  if(!journalCommitted||(!ledgerCommitted&&!state.finalizedRecovery)){
     const proposal=validateProposedReplay(state,transaction,state.compatibility);
     const hashes=state.live.map(item=>item.sha256);
     const liveLedger=JSON.parse(state.live[0].bytes.toString('utf8'));
@@ -877,15 +901,17 @@ function verify({root=ROOT,home=process.env.HOME}={}){
   const receipt=readDual(roots,FILES.receipt),result=readDual(roots,FILES.result),manifest=readDual(roots,FILES.manifest),manifestHash=readDual(roots,FILES.manifestSha),archive=readDual(roots,FILES.archive);
   if(manifestHash.bytes.toString('utf8')!==manifest.sha256+'\n')fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_EVIDENCE','evidence manifest SHA file mismatch');
   const resultObj=JSON.parse(result.bytes.toString('utf8')),receiptObj=JSON.parse(receipt.bytes.toString('utf8')),manifestObj=JSON.parse(manifest.bytes.toString('utf8'));
+  const requeuedLedgerSha256=post.requeuedLedgerSha256||post.ledger.sha256;
   if(resultObj.decision!=='STAGE3E_PRE_RENDER_ABORT_RECONCILED'||resultObj.invalidPrecommitResultSha256!==INVALID_RESULT_SHA256||
-     resultObj.requeuedLedgerSha256!==post.ledger.sha256||resultObj.requeuedLedgerSha256!==state.stagedLedgerSha256||
+     resultObj.requeuedLedgerSha256!==requeuedLedgerSha256||resultObj.requeuedLedgerSha256!==state.stagedLedgerSha256||
      resultObj.intentSha256!==state.intentSha256||resultObj.authorizationSha256!==state.authorizationSha256||
      resultObj.journalTipSha256!==state.journal2.sha256||resultObj.compatibilitySha256!==state.compatibility.sha256||
      resultObj.renderCalls!==0||resultObj.authorizedAdministrativeRequeues!==1||resultObj.administrativeRequeues!==1||
      resultObj.pending!==1512||resultObj.inProgress!==0||resultObj.complete!==0||
      receiptObj.decision!=='STAGE3E_PRE_RENDER_ABORT_RECONCILIATION_RECEIPT'||receiptObj.invalidPrecommitResultSha256!==INVALID_RESULT_SHA256||
-     receiptObj.intentSha256!==state.intentSha256||receiptObj.newLedgerSha256!==post.ledger.sha256||
-     receiptObj.journalTipSha256!==state.journal2.sha256||receiptObj.renderCalls!==0)
+     receiptObj.intentSha256!==state.intentSha256||receiptObj.newLedgerSha256!==requeuedLedgerSha256||
+     receiptObj.journalTipSha256!==state.journal2.sha256||receiptObj.renderCalls!==0||receiptObj.counts?.pending!==1512||
+     receiptObj.counts?.inProgress!==0||receiptObj.counts?.complete!==0)
     fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_EVIDENCE','immutable reconciliation result or receipt binding mismatch');
   const verifierChain=readVerifierCompatibilityAttestation({root,home,evidenceRoots:state.roots});
   const inventory=finalizedTransactionInventory({primaryRoot:roots.primary,secondaryRoot:roots.secondary,
@@ -898,6 +924,7 @@ function verify({root=ROOT,home=process.env.HOME}={}){
   if(!archivedResult.equals(result.bytes)||!archivedReceipt.equals(receipt.bytes))
     fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_EVIDENCE','phase archive result/receipt bytes differ');
   return {decision:resultObj.decision,legacyResultDisposition:'INVALID_PRECOMMIT_RESULT',ledgerSha256:post.ledger.sha256,
+    requeuedLedgerSha256,
     journalTipSha256:state.journal2.sha256,manifestSha256:manifest.sha256,resultSha256:result.sha256,receiptSha256:receipt.sha256,
     compatibilitySha256:state.compatibility.sha256,archiveSha256:archive.sha256,pending:post.replay.pending,
     inProgress:post.replay.inProgress,complete:post.replay.complete,renderCalls:post.replay.renderCalls,
@@ -931,5 +958,5 @@ module.exports={ROOT,RELATIVE,OLD_HEAD,OLD_LEDGER_SHA256,INVALID_RESULT_SHA256,O
   assertCurrentVerifierAtAnchor,verifierCompatibilityAttestationRecord,readVerifierCompatibilityAttestation,createVerifierCompatibilityAttestation,
   makeVerifierCompatibilityContinuation,validateVerifierCompatibilityContinuation,finalizedTransactionInventory,
   buildCompatibilityRecord,validateCompatibilityRecord,writeCompatibility,readCompatibility,readBaseline,makeTransaction,stageIntent,
-  validateProposedReplay,appendJournalOnce,mirrorLiveLedger,validatePostconditions,commitPreparedTransaction,
+  validateProposedReplay,appendJournalOnce,mirrorLiveLedger,readLiveLedgerPair,finalizedRecoveryArtifactsPresent,validatePostconditions,committedPostconditions,commitPreparedTransaction,
   finalizeArtifacts,runRequiredCliGates,completeTransaction,validateLiveMutableSearchLedger,verify,dryRun,run,main};

@@ -54,7 +54,7 @@ function parseSourceJson(copy,label){
   try{return JSON.parse(copy.bytes.toString('utf8'));}
   catch(error){fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA',`${label} is not valid JSON: ${error.message}`);}
 }
-function normalizeRecoverySourceView({roots,manifest,transitionEntries,expectedTransitionBytes}={}){
+function normalizeRecoverySourceView({roots,manifest,transitionEntries,expectedTransitionBytes,allowSearchProgress=false}={}){
   if(!roots||!manifest||(transitionEntries!==undefined&&!Array.isArray(transitionEntries)))
     fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','roots and saved manifest are required; producer transitionEntries must be an array when supplied');
   if(Array.isArray(transitionEntries)){
@@ -91,7 +91,14 @@ function normalizeRecoverySourceView({roots,manifest,transitionEntries,expectedT
     return entries.filter(name=>transitionPattern.test(name)).sort();
   };
   const primaryNames=namesFor(primaryJournal),secondaryNames=namesFor(secondaryJournal);
-  const allowedNames=['transition-000001.json','transition-000002.json'];
+  let allowedNames=['transition-000001.json','transition-000002.json'];
+  if(allowSearchProgress){
+    if(!same(primaryNames,secondaryNames))fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','progressed transition journal copies differ');
+    const sequences=primaryNames.map(name=>Number(name.match(transitionPattern)[1]));
+    if(sequences.length<2||sequences[0]!==1||sequences[1]!==2||sequences.some((sequence,index)=>sequence!==index+1))
+      fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','progressed transition journal must include the recovery event and a contiguous search history');
+    allowedNames=primaryNames;
+  }
   if(primaryNames.some(name=>!allowedNames.includes(name))||secondaryNames.some(name=>!allowedNames.includes(name)))
     fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','transition journal contains an unauthorized sequence');
   const partialSecond=primaryNames.includes('transition-000002.json')!==secondaryNames.includes('transition-000002.json');
@@ -105,7 +112,8 @@ function normalizeRecoverySourceView({roots,manifest,transitionEntries,expectedT
   if(Array.isArray(transitionEntries)&&transitionEntries.length!==presentTransitionNames.length&&!partialSecond)
     fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','producer transitionEntries count differs from journal files');
   const normalized=[];
-  for(const sequence of [1,2]){
+  const maxSequence=allowSearchProgress?allowedNames.length:2;
+  for(let sequence=1;sequence<=maxSequence;sequence++){
     const name=`transition-${String(sequence).padStart(6,'0')}.json`;
     const existsPrimary=primaryNames.includes(name),existsSecondary=secondaryNames.includes(name);
     if(!existsPrimary&&!existsSecondary)continue;

@@ -46,7 +46,10 @@ const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
   const eleventh=recovery.makeVerifierCompatibilityContinuation(base,'b'.repeat(64),11);
   assert.equal(eleventh.attestationSequence,11);
   assert.equal(recovery.validateVerifierCompatibilityContinuation(eleventh,base,'b'.repeat(64),11),true);
-  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'c'.repeat(64),12),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
+  const twelfth=recovery.makeVerifierCompatibilityContinuation(base,'c'.repeat(64),12);
+  assert.equal(twelfth.attestationSequence,12);
+  assert.equal(recovery.validateVerifierCompatibilityContinuation(twelfth,base,'c'.repeat(64),12),true);
+  assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'d'.repeat(64),13),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
   assert.throws(()=>recovery.makeVerifierCompatibilityContinuation(base,'invalid'),/BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY/);
 }
 
@@ -64,7 +67,7 @@ const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
     const attestationNames=[
       'verifier-compatibility-v10.json','verifier-compatibility-v10-2.json','verifier-compatibility-v10-3.json',
       'verifier-compatibility-v10-4.json','verifier-compatibility-v10-5.json','verifier-compatibility-v10-6.json',
-      'verifier-compatibility-v10-7.json','verifier-compatibility-v10-8.json','verifier-compatibility-v10-9.json','verifier-compatibility-v10-10.json','verifier-compatibility-v10-11.json',
+      'verifier-compatibility-v10-7.json','verifier-compatibility-v10-8.json','verifier-compatibility-v10-9.json','verifier-compatibility-v10-10.json','verifier-compatibility-v10-11.json','verifier-compatibility-v10-12.json',
     ];
     const attestationBytes=attestationNames.map((name,index)=>Buffer.from(JSON.stringify({sequence:index+1})+'\n'));
     attestationBytes.slice(0,6).forEach((bytes,index)=>writeBoth(attestationNames[index],bytes));
@@ -124,6 +127,45 @@ function fixture(){
   return {cells,genesisBytes,oldBytes,oldSha,next,nextBytes,nextSha,transition1,transition2,replay};
 }
 
+{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-progressed-recovery-ledger-'));
+  const resolved={primary:{lowLedger:path.join(temp,'primary','low/low-ledger.json')},
+    secondary:{lowLedger:path.join(temp,'secondary','low/low-ledger.json')}};
+  try{
+    const original=Buffer.from('original ledger'),staged=Buffer.from('staged ledger'),progressed=Buffer.from('journal-verified progressed ledger');
+    for(const file of Object.values(resolved).map(value=>value.lowLedger)){
+      fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,progressed);
+    }
+    const progressedSha=recovery.sha256(progressed);
+    assert.deepEqual(recovery.readLiveLedgerPair(resolved,recovery.sha256(original),recovery.sha256(staged),original,staged,progressedSha)
+      .map(item=>item.sha256),[progressedSha,progressedSha]);
+    assert.throws(()=>recovery.readLiveLedgerPair(resolved,recovery.sha256(original),recovery.sha256(staged),original,staged,'0'.repeat(64)),
+      /BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING/,'a progressed ledger hash is accepted only when supplied by validated replay');
+    fs.writeFileSync(resolved.secondary.lowLedger,staged);
+    assert.throws(()=>recovery.readLiveLedgerPair(resolved,recovery.sha256(original),recovery.sha256(staged),original,staged,progressedSha),
+      /BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE/,'mixed progressed and staged copies remain blocked');
+
+    const transactionRoots={primary:path.join(temp,'tx-primary'),secondary:path.join(temp,'tx-secondary')};
+    for(const root of Object.values(transactionRoots))for(const relative of [recovery.FILES.receipt,recovery.FILES.result,
+      recovery.FILES.manifest,recovery.FILES.manifestSha,recovery.FILES.archive]){
+      const file=path.join(root,...relative.split('/'));fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,'present');
+    }
+    assert.equal(recovery.finalizedRecoveryArtifactsPresent(transactionRoots),true);
+    fs.unlinkSync(path.join(transactionRoots.secondary,...recovery.FILES.archive.split('/')));
+    assert.throws(()=>recovery.finalizedRecoveryArtifactsPresent(transactionRoots),/BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE/);
+
+    const currentReplay={ledgerSha256:progressedSha,pending:1511,inProgress:0,complete:1,renderCalls:1,ledgerAccountingRenderCalls:1};
+    const state={finalizedRecovery:true,liveReplay:currentReplay,journal2:{primaryPresent:true,secondaryPresent:true},
+      live:[{bytes:progressed,sha256:progressedSha},{bytes:progressed,sha256:progressedSha}]};
+    const post=recovery.committedPostconditions(state,{stagedLedgerSha256:recovery.sha256(staged)},{});
+    assert.equal(post.ledger.sha256,progressedSha);
+    assert.equal(post.requeuedLedgerSha256,recovery.sha256(staged));
+    assert.deepEqual([post.replay.pending,post.replay.inProgress,post.replay.complete,post.replay.renderCalls],[1511,0,1,1]);
+    assert.throws(()=>recovery.committedPostconditions({...state,finalizedRecovery:false},{stagedLedgerSha256:recovery.sha256(staged)},{}),
+      /BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING/,'mutable search progress cannot substitute for a pre-finalization staged ledger');
+  }finally{fs.rmSync(temp,{recursive:true,force:true});}
+}
+
 function sourceFixture(f){
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-recovery-source-view-'));
   const roots={primary:path.join(temp,'primary'),secondary:path.join(temp,'secondary')};
@@ -171,6 +213,30 @@ function sourceFixture(f){
     fs.unlinkSync(path.join(x.resolved.primary.journalRoot,'transition-000001.json'));
     assert.throws(()=>preAbortEvidence.normalizeRecoverySourceView({roots:x.roots,manifest:x.manifest,
       transitionEntries:x.producerEntries}),/BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA|BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE/);
+  }finally{fs.rmSync(x.temp,{recursive:true,force:true});}
+}
+
+{
+  const f=fixture(),x=sourceFixture(f);
+  try{
+    const txBytes=gen2.jsonBytes(x.transition2);
+    for(const root of [x.roots.primary,x.roots.secondary]){
+      const journal=path.join(root,'ledger-transition-journal');
+      fs.writeFileSync(path.join(journal,'transition-000002.json'),txBytes);
+      fs.writeFileSync(path.join(journal,'transition-000003.json'),gen2.jsonBytes({schemaVersion:1,sequence:3,eventType:'test-search-transition'}));
+      fs.writeFileSync(path.join(journal,'transition-000004.json'),gen2.jsonBytes({schemaVersion:1,sequence:4,eventType:'test-search-transition'}));
+    }
+    assert.throws(()=>preAbortEvidence.normalizeRecoverySourceView({roots:x.roots,manifest:x.manifest,
+      expectedTransitionBytes:txBytes}),/BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA/,
+    'unfinalized recovery keeps the exact two-transition source boundary');
+    const progressed=preAbortEvidence.normalizeRecoverySourceView({roots:x.roots,manifest:x.manifest,
+      expectedTransitionBytes:txBytes,allowSearchProgress:true});
+    assert.deepEqual(progressed.transitionEntries.map(entry=>entry.sequence),[1,2,3,4]);
+    assert.equal(progressed.transitionEntries[1].sha256,recovery.sha256(txBytes));
+    fs.unlinkSync(path.join(x.roots.secondary,'ledger-transition-journal/transition-000004.json'));
+    assert.throws(()=>preAbortEvidence.normalizeRecoverySourceView({roots:x.roots,manifest:x.manifest,
+      expectedTransitionBytes:txBytes,allowSearchProgress:true}),/BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE/,
+    'progressed journal copies must remain byte-matched');
   }finally{fs.rmSync(x.temp,{recursive:true,force:true});}
 }
 
