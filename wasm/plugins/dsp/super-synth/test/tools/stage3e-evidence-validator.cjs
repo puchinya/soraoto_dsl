@@ -4,6 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const crypto=require('node:crypto');
 const durable=require('./durable-evidence.cjs');
+const incrementalVerification=require('./stage3e-incremental-verification.cjs');
 
 const SOURCE_AUDIT_SHA256='eda9e25c490162e4b46e8e72e98da25e84bfd4980afe16c1df773d9020c53560';
 const SEARCH_MANIFEST_SHA256='27bdbee7735e32a468370a1166d4901d12fa3a9ca0774bc66943a79ed1718095';
@@ -110,6 +111,7 @@ function isSearchAddition(relative,{authorizedKeys=[]}={}){
   if(relative===SEARCH+'generation-2-manifest.json'||relative===SEARCH+'verifier-compatibility-v1.json'||
      relative===SEARCH+'verifier-compatibility-v2.json'||relative===SEARCH+'verifier-compatibility-v2.sha256'||
      relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz'||relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz.sha256')return true;
+  if(/^generation-2\/search-v1\/(?:low|mid)(?:\/validations\/(?:low|mid)-full-[A-Za-z0-9._-]+)?\/verification-checkpoints\/checkpoint-[0-9]{6}\.json$/.test(relative))return true;
   if(relative.startsWith(SEARCH+'ledger-transition-journal/')){
     const leaf=relative.slice((SEARCH+'ledger-transition-journal/').length);
     return leaf==='genesis.json'||leaf==='genesis-ledger.json'||leaf==='genesis-location-reconciliation-v1.json'||
@@ -160,6 +162,18 @@ function validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedK
     const other=byPath.get(item.path);
     if(!other||item.sizeBytes!==other.sizeBytes||item.sha256!==other.sha256)
       throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: addition differs: '+item.path);
+  }
+  const checkpointPaths=p.extras.map(item=>item.path).filter(relative=>relative.includes('/verification-checkpoints/'));
+  const phasePaths=new Set(checkpointPaths.map(relative=>relative.slice((SEARCH).length).split('/verification-checkpoints/')[0]));
+  for(const phaseRootRelative of phasePaths){
+    const parts=phaseRootRelative.split('/');
+    const phase=parts.at(-1);
+    if(!/^(?:low|mid|low-full-[A-Za-z0-9._-]+|mid-full-[A-Za-z0-9._-]+)$/.test(phase))
+      throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: invalid verification checkpoint phase '+phaseRootRelative);
+    const searchRoots={primary:path.join(primaryRoot,SEARCH),secondary:path.join(secondaryRoot,SEARCH)};
+    const phaseRoots={primary:path.join(searchRoots.primary,phaseRootRelative),secondary:path.join(searchRoots.secondary,phaseRootRelative)};
+    const journalRootRelative=phaseRootRelative==='low'?'ledger-transition-journal':`${phaseRootRelative}/ledger-transition-journal`;
+    incrementalVerification.validateCheckpointChain({phase,executionId:'generation-2',searchRoots,phaseRoots,phaseRootRelative,journalRootRelative});
   }
   return {frozenCount:primaryFrozen.length,additionCount:p.extras.length,primary:p.extras,secondary:s.extras};
 }

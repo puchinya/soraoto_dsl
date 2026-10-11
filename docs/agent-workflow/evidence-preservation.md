@@ -56,6 +56,10 @@ A cell may transition to `COMPLETE` only after all of these steps succeed:
 
 If the secondary copy or verification fails, leave the cell `IN_PROGRESS` and report `BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE`. Never reset it automatically or render it again without a separate recovery decision.
 
+### Incremental verification for Stage3E search
+
+Stage3E search performs a complete dual-store audit at phase entry, on resume, at phase exit, and for every read-only `--verify`. During a phase, each new cell is still read back and SHA-256 checked in both stores, and each current ledger/journal transition must match its verified tip before the next cell. Reuse the phase's verified history in memory so prior completed cells and journal entries are not rehashed once per new cell. After each 64 newly completed cells, write an append-only checkpoint binding the new cell and transition bytes, sequence range, ledger SHA, journal tip, and the full-audit identity. Verify each checkpoint in both stores. Checkpoints do not replace full audits or accept unknown files, interrupted cells, identity drift, or mismatched copies.
+
 Use a temporary sibling file, flush and close it, then rename atomically. Preserve every existing finalized artifact; do not replace it with a newly serialized equivalent.
 
 ## Required evidence and manifests

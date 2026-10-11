@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
-const {resolveStage3eEvidencePaths,lowLedgerPath,resolvePhaseRoots}=require('./stage3e-evidence-paths.cjs');
+const {resolveStage3eEvidencePaths,lowLedgerPath,resolvePhaseRoots,resolveVerificationCheckpointRoots}=require('./stage3e-evidence-paths.cjs');
 
 function fixture(){
   const base=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-paths-'));
@@ -27,6 +27,10 @@ function fixture(){
     assert.equal(path.relative(x.roots.primary,resolvePhaseRoots(x.roots,'mid').primary),'mid');
     assert.equal(path.relative(x.roots.primary,resolvePhaseRoots(x.roots,'low-full-candidate-01').primary),
       path.join('low','validations','low-full-candidate-01'));
+    assert.equal(path.relative(x.roots.primary,resolveVerificationCheckpointRoots(x.roots,'low').primary),
+      path.join('low','verification-checkpoints'));
+    assert.equal(path.relative(x.roots.primary,resolveVerificationCheckpointRoots(x.roots,'low-full-candidate-01').primary),
+      path.join('low','validations','low-full-candidate-01','verification-checkpoints'));
     assert.equal(path.relative(x.roots.secondary,paths.secondary.genesisRecord),'ledger-transition-journal/genesis.json');
   }finally{fs.rmSync(x.base,{recursive:true,force:true});}
 }

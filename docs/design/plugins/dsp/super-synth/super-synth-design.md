@@ -282,6 +282,8 @@ selected mid-search request space before mid-search audio begins. The caller and
 reject arrays, missing or extra fields, non-finite values, and out-of-grid values before any ledger
 transition. The setter call uses the explicit `low`, `mid`, `bassHardness` field order.
 
+Within each Stage3E search phase, full identity, frozen-inventory, ledger, journal, and completed-cell audits run at phase entry, after resume, every 64 newly completed cells, at phase exit, and on every read-only `--verify`. A phase-scoped in-memory context reuses only the history checked by that entry audit. Each new cell and transition is still independently dual-written and read back; a dual-copy ledger and journal-tip check precedes the next cell. Append-only checkpoints bind each 64-cell delta (including sequence range, raw evidence SHA/size, current ledger SHA, journal tip, and audit identity) and are verified in both stores. The checkpoint is an audit aid, never a replacement for a full phase audit, and the existing ledger/journal formats and acceptance gates remain unchanged.
+
 The pre-render-abort exception applies only to the forensic-bound MIDI 36 / velocity 14 low-screen
 cell that was marked `IN_PROGRESS` before the named response reached the capture helper. The
 historical v1 authorization and invalid precommit result remain immutable; the old result is

@@ -14,6 +14,7 @@ const midi41Amendment=require('./run-stage3e-midi41-evidence-amendment.cjs');
 const searchPreflight=require('./stage3e-preflight.cjs');
 const evidenceValidator=require('./stage3e-evidence-validator.cjs');
 const evidencePaths=require('./stage3e-evidence-paths.cjs');
+const incrementalVerification=require('./stage3e-incremental-verification.cjs');
 
 const ROOT=legacy.ROOT;
 const EXECUTION_ID='generation-2';
@@ -136,7 +137,7 @@ function renderStartEntries(roots){
   if(!same(p,s))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: render-start journal path sets differ');
   return p.map(name=>{const stored=durable.verifyDualCopy(path.join(roots.primary,name),path.join(roots.secondary,name));return {...JSON.parse(stored.bytes.toString('utf8')),_sha256:stored.sha256};});
 }
-function ensureLedgerGenesis({roots,ledger,identity,compatibilitySha256,acceptedCompatibilitySha256s=[],journalRoots,manifestSha256,proofSha256}={}){
+function ensureLedgerGenesis({roots,ledger,identity,compatibilitySha256,acceptedCompatibilitySha256s=[],journalRoots,manifestSha256,proofSha256,verificationContext=null}={}){
   if(!/^[0-9a-f]{64}$/.test(compatibilitySha256||'')||!Array.isArray(acceptedCompatibilitySha256s)||
      acceptedCompatibilitySha256s.some(value=>!/^[0-9a-f]{64}$/.test(value||'')))
     throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: invalid ledger compatibility identity');
@@ -151,9 +152,9 @@ function ensureLedgerGenesis({roots,ledger,identity,compatibilitySha256,accepted
     if(record.genesisLedgerSha256!==original.sha256||record.manifestSha256!==manifestSha256||record.proofSha256!==proofSha256||
        !acceptedCompatibilitySha256sSet.has(record.compatibilitySha256)||record.phase!==ledger.phase||!same(record.identity,identity))
       throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: ledger genesis identity changed');
-    return {sha256:original.sha256,bytes:original.bytes,roots:ledgerPathRoots,records:transitionEntries(ledgerPathRoots)};
+    return {sha256:original.sha256,bytes:original.bytes,roots:ledgerPathRoots,records:verificationContext?.transitionEntries||transitionEntries(ledgerPathRoots)};
   }
-  const records=transitionEntries(ledgerPathRoots);
+  const records=verificationContext?.transitionEntries||transitionEntries(ledgerPathRoots);
   if(records.length||(ledger.phase==='low'&&stored.sha256!==evidenceValidator.LOW_GENESIS_SHA256))
     throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: missing genesis attestation for mutable ledger');
   if(ledger.accounting?.renderCalls!==0||Object.values(ledger.cells||{}).some(cell=>cell.state!=='PENDING'))
@@ -167,12 +168,14 @@ function ensureLedgerGenesis({roots,ledger,identity,compatibilitySha256,accepted
 }
 function appendLedgerTransition({roots,ledger,cell,oldState,newState,previousRenderCount,newRenderCount,capturedCellSha256,
   manifestSha256,proofSha256,compatibilitySha256,journalRoots,renderStartMarkerSha256=null,eventType=null,
-  recoveryAuthorizationSha256=null,recoveryResultSha256=null,abortEvidenceSha256=null,attemptIndex=null,abortedBeforeRenderCalls=null,oldCodeSha256=null,newCodeSha256=null}={}){
+  recoveryAuthorizationSha256=null,recoveryResultSha256=null,abortEvidenceSha256=null,attemptIndex=null,abortedBeforeRenderCalls=null,oldCodeSha256=null,newCodeSha256=null,
+  verificationContext=null}={}){
   const ledgerFile=`${ledger.phase}-ledger.json`,current=durable.verifyDualCopy(path.join(roots.primary,ledgerFile),path.join(roots.secondary,ledgerFile));
-  const journal=journalRoots||ledgerJournalRoots(roots),entries=transitionEntries(journal);
-  const genesis=durable.verifyDualCopy(path.join(journal.primary,'genesis-ledger.json'),path.join(journal.secondary,'genesis-ledger.json'));
-  const expectedPrevious=entries.at(-1)?.nextLedgerSha256||genesis.sha256;
+  const journal=journalRoots||ledgerJournalRoots(roots),entries=verificationContext?.transitionEntries||transitionEntries(journal);
+  const genesisSha256=verificationContext?.genesisSha256||durable.verifyDualCopy(path.join(journal.primary,'genesis-ledger.json'),path.join(journal.secondary,'genesis-ledger.json')).sha256;
+  const expectedPrevious=entries.at(-1)?.nextLedgerSha256||genesisSha256;
   const oldBytes=current.bytes,oldSha=current.sha256;
+  if(verificationContext)verificationContext.assertLedgerSha(oldSha);
   if(oldSha!==expectedPrevious)throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE: ledger does not match journal tip before transition');
   const next=writeCellState(roots,ledger);
   const entry={schemaVersion:1,sequence:entries.length+1,previousLedgerSha256:oldSha,nextLedgerSha256:next.sha256,
@@ -188,20 +191,25 @@ function appendLedgerTransition({roots,ledger,cell,oldState,newState,previousRen
   if(oldCodeSha256)entry.oldCodeSha256=oldCodeSha256;
   if(newCodeSha256)entry.newCodeSha256=newCodeSha256;
   const name=`transition-${String(entry.sequence).padStart(6,'0')}.json`;
-  immutableDualJson(journal,name,entry);
+  const stored=immutableDualJson(journal,name,entry);
+  if(verificationContext)verificationContext.recordTransition({entry,stored,previousLedgerSha256:oldSha,nextLedgerSha256:next.sha256});
   return {entry,previousLedgerSha256:oldSha,nextLedgerSha256:next.sha256,previousLedgerBytes:oldBytes};
 }
-function appendRenderStartMarker({journalRoots,ledger,cell,manifestSha256,proofSha256,compatibilitySha256,transition}={}){
+function appendRenderStartMarker({journalRoots,ledger,cell,manifestSha256,proofSha256,compatibilitySha256,transition,verificationContext=null}={}){
   if(!journalRoots||!transition?.entry||transition.entry.newState!=='IN_PROGRESS')
     throw new Error('BLOCKED_STAGE3E_RENDER_START: PENDING to IN_PROGRESS journal transition is required');
-  const prefix='render-start-',names=fs.existsSync(journalRoots.primary)?fs.readdirSync(journalRoots.primary).filter(name=>/^render-start-[0-9]{6}\.json$/.test(name)).sort():[];
-  const secondaryNames=fs.existsSync(journalRoots.secondary)?fs.readdirSync(journalRoots.secondary).filter(name=>/^render-start-[0-9]{6}\.json$/.test(name)).sort():[];
-  if(!same(names,secondaryNames))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: render-start path sets differ');
+  const prefix='render-start-',names=verificationContext?verificationContext.renderStartEntries:
+    (fs.existsSync(journalRoots.primary)?fs.readdirSync(journalRoots.primary).filter(name=>/^render-start-[0-9]{6}\.json$/.test(name)).sort():[]);
+  if(!verificationContext){
+    const secondaryNames=fs.existsSync(journalRoots.secondary)?fs.readdirSync(journalRoots.secondary).filter(name=>/^render-start-[0-9]{6}\.json$/.test(name)).sort():[];
+    if(!same(names,secondaryNames))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: render-start path sets differ');
+  }
   const sequence=names.length+1,name=`${prefix}${String(sequence).padStart(6,'0')}.json`,marker={schemaVersion:1,kind:'STAGE3E_RENDER_START',sequence,
     cellKey:cell.key,cellIdentity:cell,ledgerSha256:transition.nextLedgerSha256,transitionSequence:transition.entry.sequence,
     transitionSha256:sha256(jsonBytes(transition.entry)),manifestSha256,proofSha256,compatibilitySha256,
     renderCallIndex:ledger.accounting.renderCalls+1,startedAt:new Date().toISOString()};
   const stored=immutableDualJson(journalRoots,name,marker);
+  if(verificationContext)verificationContext.recordRenderStart({stored,marker});
   return {relativePath:name,sha256:stored.sha256,marker};
 }
 function validateReferenceSet(roots){return core.loadFinalizedReferenceSet(roots);}
@@ -225,6 +233,7 @@ function captureOptionsForCell(cell){
 }
 function capturePhaseRows({roots,ledger,cells,identity,capture= captureDefaults,render=renderOne,response,identityNow,
   now=()=>new Date().toISOString(),journalContext=null}={}){
+  const verificationContext=journalContext?.verificationContext||null;
   let calls=0;
   for(const cell of cells){
     const state=ledger.cells[cell.key];
@@ -236,32 +245,34 @@ function capturePhaseRows({roots,ledger,cells,identity,capture= captureDefaults,
       capture.validateCaptureRequest(cell.pitch,cell.velocityNormalized??cell.velocity/127,requestedResponse,captureOptionsForCell(cell));
     else if(typeof capture.requireResponse==='function')capture.requireResponse(requestedResponse);
   }
-  if(journalContext)ensureLedgerGenesis({roots,ledger,identity,...journalContext});
+  if(journalContext)ensureLedgerGenesis({roots,ledger,identity,...journalContext,verificationContext});
   for(const cell of cells){
     const state=ledger.cells[cell.key];if(state.state==='COMPLETE')continue;
     if(state.state!=='PENDING')throw new Error(`BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: ${cell.key} is ${state.state}`);
-    const current=identityNow();if(!sameExecutionIdentity(current,identity))throw new Error(`BLOCKED_STAGE3E_DIAGNOSTIC_BUILD_IDENTITY: identity drift before ${cell.key}`);
+    const current=verificationContext?verificationContext.beforeCell():identityNow();if(!sameExecutionIdentity(current,identity))throw new Error(`BLOCKED_STAGE3E_DIAGNOSTIC_BUILD_IDENTITY: identity drift before ${cell.key}`);
     const effectiveResponse=response??cell.response??capture.DEFAULT_RESPONSE;
     if(typeof capture.validateCaptureRequest==='function')
       capture.validateCaptureRequest(cell.pitch,cell.velocityNormalized??cell.velocity/127,effectiveResponse,captureOptionsForCell(cell));
     else if(typeof capture.requireResponse==='function')capture.requireResponse(effectiveResponse);
-    if(journalContext&&renderStartEntries(journalContext.journalRoots).some(marker=>marker.cellKey===cell.key))
+    if(journalContext&&(verificationContext?verificationContext.hasRenderStart(cell.key):renderStartEntries(journalContext.journalRoots).some(marker=>marker.cellKey===cell.key)))
       throw new Error(`BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: prior render-start marker exists for ${cell.key}`);
     const previousRenderCount=ledger.accounting.renderCalls;
     state.state='IN_PROGRESS';state.startedAt=now();
     let renderStart=null;
     if(journalContext){
       const transition=appendLedgerTransition({roots,ledger,cell,oldState:'PENDING',newState:'IN_PROGRESS',
-        previousRenderCount,newRenderCount:previousRenderCount,capturedCellSha256:null,...journalContext});
-      renderStart=appendRenderStartMarker({journalRoots:journalContext.journalRoots,ledger,cell,...journalContext,transition});
+        previousRenderCount,newRenderCount:previousRenderCount,capturedCellSha256:null,...journalContext,verificationContext});
+      renderStart=appendRenderStartMarker({journalRoots:journalContext.journalRoots,ledger,cell,...journalContext,transition,verificationContext});
     }else writeCellState(roots,ledger);
     const measured=render(cell,effectiveResponse,capture);const row={schemaVersion:1,cellKey:cell.key,cell,identity,pitch:measured.pitch,velocity:measured.velocity,velocityNormalized:measured.velocityNormalized,kind:measured.kind,metrics:measured.metrics,capturedAt:now()};
     const bytes=jsonBytes(row),sha=durable.writeDualCopy(path.join(roots.primary,state.relativePath),path.join(roots.secondary,state.relativePath),bytes);
+    if(verificationContext)verificationContext.recordCell({cell,state,stored:sha});
     state.state='COMPLETE';state.sha256=sha.sha256;state.completedAt=now();ledger.accounting.renderCalls++;calls++;
     if(journalContext)appendLedgerTransition({roots,ledger,cell,oldState:'IN_PROGRESS',newState:'COMPLETE',
       previousRenderCount,newRenderCount:ledger.accounting.renderCalls,capturedCellSha256:sha.sha256,
-      renderStartMarkerSha256:renderStart?.sha256,...journalContext});
+      renderStartMarkerSha256:renderStart?.sha256,...journalContext,verificationContext});
     else writeCellState(roots,ledger);
+    if(verificationContext)verificationContext.addCompletedCell({ledger});
   }
   return {ledger,calls,counts:ledgerCounts(ledger)};
 }
@@ -360,9 +371,42 @@ function screenLedgerRows(roots,phase,identity,cells,capture,response,identityNo
   const pr=phaseRoots(roots,phase),isExistingLowScreen=phase==='low';
   const ledger=loadLedger(pr,phase,identity,cells,{create:!isExistingLowScreen});
   const journalRoots=isExistingLowScreen?ledgerJournalRoots(roots):ledgerJournalRoots(pr);
+  const phaseRootRelative=path.relative(roots.primary,pr.primary).split(path.sep).join('/');
+  const journalRootRelative=path.relative(roots.primary,journalRoots.primary).split(path.sep).join('/');
+  if(!phaseRootRelative||phaseRootRelative==='..'||phaseRootRelative.startsWith('../')||!journalRootRelative||journalRootRelative==='..'||journalRootRelative.startsWith('../'))
+    throw new Error('BLOCKED_STAGE3E_VERIFICATION_CHECKPOINT: phase/journal roots escape search-v1');
   const journalContext={journalRoots,manifestSha256:searchPreflight.MANIFEST_SHA256,proofSha256:searchPreflight.PROOF_SHA256,
     compatibilitySha256,acceptedCompatibilitySha256s:historicalCompatibilitySha256?[historicalCompatibilitySha256]:[]};
-  capturePhaseRows({roots:pr,ledger,cells,identity,capture,response,identityNow,now,render,journalContext});return {ledger,rows:readCompletedRows(pr,ledger,cells)};
+  const ledgerFile=`${phase}-ledger.json`,ledgerPath=durable.verifyDualCopy(path.join(pr.primary,ledgerFile),path.join(pr.secondary,ledgerFile));
+  const priorTransitions=transitionEntries(journalRoots),priorMarkers=renderStartEntries(journalRoots);
+  let verificationContext=null;
+  const fullAudit=()=>{
+    const observed=identityNow();
+    if(!sameExecutionIdentity(observed,identity))throw new Error('BLOCKED_STAGE3E_DIAGNOSTIC_BUILD_IDENTITY: runtime identity drift during phase');
+    return identity;
+  };
+  const readCurrentState=()=>{
+    const live=durable.verifyDualCopy(path.join(pr.primary,ledgerFile),path.join(pr.secondary,ledgerFile));
+    const currentLedger=JSON.parse(live.bytes.toString('utf8'));
+    const transitions=verificationContext?.transitionEntries||priorTransitions;
+    const tip=transitions.at(-1);
+    const tipStored=tip?
+      durable.verifyDualCopy(path.join(journalRoots.primary,`transition-${String(tip.sequence).padStart(6,'0')}.json`),path.join(journalRoots.secondary,`transition-${String(tip.sequence).padStart(6,'0')}.json`)):
+      durable.verifyDualCopy(path.join(journalRoots.primary,'genesis-ledger.json'),path.join(journalRoots.secondary,'genesis-ledger.json'));
+    const counts=ledgerCounts(currentLedger);
+    if(counts.IN_PROGRESS!==0)throw new Error('BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: IN_PROGRESS during verification checkpoint');
+    return {ledgerSha256:live.sha256,journalTipSequence:tip?.sequence||0,journalTipSha256:tipStored.sha256,
+      completeCount:counts.COMPLETE,renderCalls:currentLedger.accounting?.renderCalls};
+  };
+  const currentLedgerSha=ledgerPath.sha256;
+  verificationContext=incrementalVerification.createPhaseVerificationContext({phase,executionId:EXECUTION_ID,identity,
+    searchRoots:roots,phaseRoots:pr,journalRoots,phaseRootRelative,journalRootRelative,ledger,ledgerSha256:currentLedgerSha,
+    transitionEntries:priorTransitions,renderStartEntries:priorMarkers,manifestSha256:searchPreflight.MANIFEST_SHA256,
+    proofSha256:searchPreflight.PROOF_SHA256,compatibilitySha256,fullAudit,readCurrentState,now});
+  journalContext.verificationContext=verificationContext;
+  capturePhaseRows({roots:pr,ledger,cells,identity,capture,response,identityNow,now,render,journalContext});
+  const rows=readCompletedRows(pr,ledger,cells),verification=verificationContext.finish(ledger);
+  return {ledger,rows,verification};
 }
 function executeLow({roots,identity,referenceSet,capture,identityNow,render,now,amendmentEvidence,compatibilitySha256,historicalCompatibilitySha256}){
   assertBaselined(roots,identity,amendmentEvidence);
@@ -510,4 +554,4 @@ function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORA
 }
 function main(argv=process.argv.slice(2)){if(argv.length!==1)throw new Error('one explicit mode is required');const result=run({mode:argv[0]});process.stdout.write(JSON.stringify(result)+'\n');}
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
-module.exports={ROOT,EXECUTION_ID,TOLERANCE,LOW_SCREEN_VELOCITIES,MID_SCREEN_VELOCITIES,OFFICIAL_VELOCITIES,sha256,jsonBytes,stable,same,sameExecutionIdentity,cellId,historicalRoots,generationRoots,phaseRoots,readDualJson,writeDualJson,immutableDualJson,getGeneration2Roots,currentGenerationIdentity,assertGenerationManifest,cellSpecs,freshCellLedger,ledgerCounts,loadLedger,writeCellState,ledgerJournalRoots,transitionEntries,renderStartEntries,ensureLedgerGenesis,appendLedgerTransition,appendRenderStartMarker,validateReferenceSet,assertBaselineReferenceIdentity,renderOne,captureOptionsForCell,capturePhaseRows,readCompletedRows,finalizePhase,loadResult,baselineCells,buildFixtureMap,makeResponse,lowCandidateScreenCells,midCandidateScreenCells,fullCellsFor,fullLowCells,candidateSummary,validateCaptureCells,validateAuthorizedSearchResponses,phaseIdentity,lowPhaseIdentity,midPhaseIdentity,runBaseline,executeLow,executeMid,dryRun,run,main};
+module.exports={ROOT,EXECUTION_ID,TOLERANCE,LOW_SCREEN_VELOCITIES,MID_SCREEN_VELOCITIES,OFFICIAL_VELOCITIES,sha256,jsonBytes,stable,same,sameExecutionIdentity,cellId,historicalRoots,generationRoots,phaseRoots,readDualJson,writeDualJson,immutableDualJson,getGeneration2Roots,currentGenerationIdentity,assertGenerationManifest,cellSpecs,freshCellLedger,ledgerCounts,loadLedger,writeCellState,ledgerJournalRoots,transitionEntries,renderStartEntries,ensureLedgerGenesis,appendLedgerTransition,appendRenderStartMarker,validateReferenceSet,assertBaselineReferenceIdentity,renderOne,captureOptionsForCell,capturePhaseRows,readCompletedRows,finalizePhase,loadResult,screenLedgerRows,baselineCells,buildFixtureMap,makeResponse,lowCandidateScreenCells,midCandidateScreenCells,fullCellsFor,fullLowCells,candidateSummary,validateCaptureCells,validateAuthorizedSearchResponses,phaseIdentity,lowPhaseIdentity,midPhaseIdentity,runBaseline,executeLow,executeMid,dryRun,run,main};

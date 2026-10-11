@@ -57,6 +57,16 @@ function resolvePhaseRoots(roots,phase){
     throw new Error(`BLOCKED_STAGE3E_EVIDENCE_PATH: primary/secondary phase path mismatch for ${phase}`);
   return result;
 }
+function resolveVerificationCheckpointRoots(roots,phase){
+  const phaseRoots=resolvePhaseRoots(roots,phase);
+  const primary=canonicalRoot(roots.primary,'primary'),secondary=canonicalRoot(roots.secondary,'secondary');
+  const primaryRelative=path.relative(primary.resolved,phaseRoots.primary),secondaryRelative=path.relative(secondary.resolved,phaseRoots.secondary);
+  const result={primary:safeChild(primary,path.join(primaryRelative,'verification-checkpoints'),`primary ${phase} checkpoints`),
+    secondary:safeChild(secondary,path.join(secondaryRelative,'verification-checkpoints'),`secondary ${phase} checkpoints`)};
+  for(const [side,candidate] of Object.entries(result))if(fs.existsSync(candidate)&&fs.lstatSync(candidate).isSymbolicLink())
+    throw new Error(`BLOCKED_STAGE3E_EVIDENCE_PATH: ${side} verification checkpoint path is a symlink`);
+  return result;
+}
 function resolveStage3eEvidencePaths(root,manifest){
   if(!root||typeof root!=='object')throw new Error('BLOCKED_STAGE3E_EVIDENCE_PATH: primary and secondary roots are required');
   if(!manifest||manifest.schemaVersion!==1||manifest.generation!==2||manifest.executionId!=='generation-2'||manifest.searchEpoch!=='search-v1'||
@@ -75,4 +85,4 @@ function resolveStage3eEvidencePaths(root,manifest){
   return {primary:p,secondary:s,relative:RELATIVE};
 }
 
-module.exports={RELATIVE,lowLedgerPath,resolvePhaseRoots,resolveStage3eEvidencePaths};
+module.exports={RELATIVE,lowLedgerPath,resolvePhaseRoots,resolveVerificationCheckpointRoots,resolveStage3eEvidencePaths};
