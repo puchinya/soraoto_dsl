@@ -82,11 +82,11 @@ function completeCell(roots,context,ledger,cell,markerIndex){
     assert.equal(checkpoint.cumulativeAcousticRenderCalls,64);
     assert.equal(checkpoint.deltaEvidenceEntries.filter(entry=>entry.type==='cell').length,64);
     assert.equal(checkpoint.deltaEvidenceEntries.filter(entry=>entry.type==='journal').length,192);
-    assert.equal(fullAudits.count,2,'phase entry and the 64-cell boundary receive full audits');
+    assert.equal(fullAudits.count,1,'phase entry is the only full audit before the phase boundary');
     assert.equal(durable.verifyDualCopy(checkpointPath,path.join(roots.phaseRoots.secondary,'verification-checkpoints','checkpoint-000001.json')).sha256,
       incremental.sha256(fs.readFileSync(checkpointPath)));
     context.finish(ledger);
-    assert.equal(fullAudits.count,4,'phase exit and the newly written checkpoint receive full audits');
+    assert.equal(fullAudits.count,2,'phase entry and phase exit are the only full audits; checkpoint validates its new delta only');
 
     ledger=JSON.parse(durable.verifyDualCopy(path.join(roots.phaseRoots.primary,'low-ledger.json'),path.join(roots.phaseRoots.secondary,'low-ledger.json')).bytes.toString('utf8'));
     fullAudits={count:0};context=installContext(roots,ledger,identity,fullAudits);
@@ -98,7 +98,7 @@ function completeCell(roots,context,ledger,cell,markerIndex){
     assert.equal(second.newlyCompletedCellCount,1);
     assert.equal(second.cumulativeComplete,65);
     assert.equal(second.deltaEvidenceEntries.filter(entry=>entry.type==='cell').length,1);
-    assert.equal(fullAudits.count,3,'restart, phase exit, and the residual checkpoint are fully audited');
+    assert.equal(fullAudits.count,2,'restart phase entry and phase exit are fully audited; residual checkpoint validates only its delta');
     assert.equal(incremental.validateCheckpointChain({phase:'low',executionId:'generation-2',searchRoots:roots.searchRoots,phaseRoots:roots.phaseRoots}).length,2);
     const tamperedPath=path.join('low','cells',cells[0].key+'.json');
     const primaryCellPath=path.join(roots.searchRoots.primary,tamperedPath);
@@ -110,6 +110,43 @@ function completeCell(roots,context,ledger,cell,markerIndex){
     assert.throws(()=>incremental.validateCheckpointChain({phase:'low',executionId:'generation-2',searchRoots:roots.searchRoots,phaseRoots:roots.phaseRoots}),
       /BLOCKED_STAGE3E_VERIFICATION_CHECKPOINT: delta SHA-256 mismatch/);
   }finally{fs.rmSync(roots.root,{recursive:true,force:true});}
+}
+
+{
+  const roots=tempRoots(),identity={schemaVersion:1,executionId:'generation-2',candidateId:'bounded-checkpoint-delta-reads'},
+    cells=Array.from({length:256},(_,index)=>({key:`low-bounded-delta-${String(index+1).padStart(3,'0')}`,phase:'low-screen',
+      pitch:36,velocity:index+1,response:{low:1,mid:1,bassHardness:0}}));
+  let originalVerify=durable.verifyDualCopy;
+  try{
+    const ledger=baseLedger(identity,cells);writeLedger(roots,ledger);
+    const audits={count:0},context=installContext(roots,ledger,identity,audits),cellReads=[];
+    durable.verifyDualCopy=function(primary,secondary,...args){
+      if(String(primary).includes(`${path.sep}cells${path.sep}`))cellReads.push(path.basename(primary,'.json'));
+      return originalVerify.call(durable,primary,secondary,...args);
+    };
+    for(let i=0;i<cells.length;i++){
+      context.beforeCell();completeCell(roots,context,ledger,cells[i],i+1);
+      if((i+1)%64===0){
+        const completedThrough=i+1,expected=cells.slice(completedThrough-64,completedThrough).map(cell=>cell.key);
+        assert.deepEqual(cellReads.slice(-64),expected,`checkpoint ${completedThrough} reads only its uncheckpointed 64-cell delta`);
+        assert.equal(cellReads.length,completedThrough,'no prior COMPLETE cell raw is reopened during normal checkpoint progress');
+        assert.equal(audits.count,1,'64-cell checkpoints do not invoke a full history audit');
+      }
+    }
+    context.finish(ledger);
+    assert.equal(audits.count,2,'phase entry and phase exit perform full audits');
+    assert.equal(cellReads.length,256,'phase completion does not replay checkpoint history');
+    const chain=incremental.validateCheckpointChain({phase:'low',executionId:'generation-2',searchRoots:roots.searchRoots,phaseRoots:roots.phaseRoots});
+    assert.equal(chain.length,4);
+    assert.equal(cellReads.length,512,'explicit full-chain verification re-reads every cell once');
+    const checkpointPath=path.join(roots.phaseRoots.primary,'verification-checkpoints','checkpoint-000001.json');
+    const checkpointBytes=fs.readFileSync(checkpointPath),cellPath=path.join(roots.phaseRoots.primary,'cells',`${cells[0].key}.json`);
+    const original=fs.readFileSync(cellPath),mutation=Buffer.from(original);mutation[0]^=1;
+    fs.writeFileSync(cellPath,mutation);fs.writeFileSync(path.join(roots.phaseRoots.secondary,'cells',`${cells[0].key}.json`),mutation);
+    assert.equal(fs.readFileSync(checkpointPath).equals(checkpointBytes),true,'immutable checkpoint bytes are unchanged');
+    assert.throws(()=>incremental.validateCheckpointChain({phase:'low',executionId:'generation-2',searchRoots:roots.searchRoots,phaseRoots:roots.phaseRoots}),
+      /BLOCKED_STAGE3E_VERIFICATION_CHECKPOINT: delta SHA-256 mismatch/);
+  }finally{durable.verifyDualCopy=originalVerify;fs.rmSync(roots.root,{recursive:true,force:true});}
 }
 
 {
@@ -212,7 +249,7 @@ function completeCell(roots,context,ledger,cell,markerIndex){
       ()=>`2026-10-11T00:00:00.000Z`,cell=>({pitch:cell.pitch,velocity:cell.velocity,velocityNormalized:cell.velocity/127,kind:'search',metrics:{finite:true}}),'1'.repeat(64));
     assert.equal(result.ledger.accounting.renderCalls,1);
     assert.equal(result.ledger.cells[cells[0].key].state,'COMPLETE');
-    assert.equal(audits.count,3,'one-cell phase uses entry, phase-exit, and checkpoint-postwrite full audits, not one audit per cell');
+    assert.equal(audits.count,2,'one-cell phase uses phase-entry and phase-exit audits; checkpoint readback is local');
     const cp=JSON.parse(fs.readFileSync(path.join(phaseRoots.primary,'verification-checkpoints','checkpoint-000001.json'),'utf8'));
     assert.equal(cp.newlyCompletedCellCount,1);
     assert.equal(cp.deltaEvidenceEntries.filter(entry=>entry.type==='cell').length,1);

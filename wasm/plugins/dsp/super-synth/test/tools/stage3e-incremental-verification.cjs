@@ -199,7 +199,7 @@ function createPhaseVerificationContext({phase,executionId,identity,searchRoots,
   const baseSequence=baselineSequence;
   const genesisSha256=transitionEntries.at(0)?.previousLedgerSha256||ledgerSha256;
   const context={phase,executionId,identity,searchRoots,phaseRoots,journalRoots,phaseRootRelative,journalRootRelative,ledger,manifestSha256,proofSha256,compatibilitySha256,
-    transitionEntries:[...transitionEntries],renderStartEntries:[...renderStartEntries],ledgerSha256,genesisSha256,
+    transitionEntries:[...transitionEntries],renderStartEntries:[...renderStartEntries],ledgerSha256,genesisSha256,journalTipSha256:null,
     checkpointIndex:chain.length+1,previousCheckpointSha256:latest?.sha256||null,
     initialFullAuditSha256:latest?.checkpoint.initialFullAuditSha256||null,
     previousSequence:baseSequence,baseComplete,deltaEvidenceEntries:delta,completedSinceCheckpoint:deltaCompleteCount,
@@ -211,7 +211,7 @@ function createPhaseVerificationContext({phase,executionId,identity,searchRoots,
          previousLedgerSha256!==this.ledgerSha256||entry.nextLedgerSha256!==nextLedgerSha256)
         fail('new transition does not extend the verified tip');
       const name=`transition-${String(entry.sequence).padStart(6,'0')}.json`,relative=`${this.journalRootRelative}/${name}`;
-      this.transitionEntries.push(entry);this.ledgerSha256=nextLedgerSha256;
+      this.transitionEntries.push(entry);this.ledgerSha256=nextLedgerSha256;this.journalTipSha256=stored.sha256;
       this.deltaEvidenceEntries.push({type:'journal',path:relative,sha256:stored.sha256,sizeBytes:stored.sizeBytes,sequence:entry.sequence});
     },
     recordRenderStart({stored,marker}){
@@ -231,8 +231,10 @@ function createPhaseVerificationContext({phase,executionId,identity,searchRoots,
       if(!same(observed,identity))fail(`runtime identity changed at ${stage}`);
       const live=readCurrentState();
       const expectedComplete=Object.values(this.ledger.cells||{}).filter(state=>state.state==='COMPLETE').length;
+      if(this.journalTipSha256===null)this.journalTipSha256=live.journalTipSha256;
       if(live.ledgerSha256!==this.ledgerSha256||live.journalTipSequence!==(this.transitionEntries.at(-1)?.sequence||0)||
-         live.completeCount!==expectedComplete||live.renderCalls!==this.ledger.accounting.renderCalls)
+         live.journalTipSha256!==this.journalTipSha256||live.completeCount!==expectedComplete||
+         live.renderCalls!==this.ledger.accounting.renderCalls)
         fail(`live state differs from verified context at ${stage}`);
       const digest=sha256(Buffer.from(JSON.stringify({schemaVersion:1,phase,executionId,stage,
         identitySha256:sha256(Buffer.from(JSON.stringify(stable(identity)))),ledgerSha256:live.ledgerSha256,
@@ -241,21 +243,29 @@ function createPhaseVerificationContext({phase,executionId,identity,searchRoots,
       if(!this.initialFullAuditSha256)this.initialFullAuditSha256=digest;
       this.lastAuditSha256=digest;return digest;
     },
+    assertLiveTip(stage,currentLedger){
+      const live=readCurrentState(),expectedComplete=Object.values(currentLedger.cells||{}).filter(state=>state.state==='COMPLETE').length;
+      const expectedSequence=this.transitionEntries.at(-1)?.sequence||0;
+      if(live.ledgerSha256!==this.ledgerSha256||live.journalTipSequence!==expectedSequence||
+         live.journalTipSha256!==this.journalTipSha256||live.completeCount!==expectedComplete||
+         live.renderCalls!==currentLedger.accounting?.renderCalls)
+        fail(`live ledger/journal tip differs from verified context at ${stage}`);
+      return live;
+    },
     beforeCell(){if(!this.lastAuditSha256)this.auditSha('phase-entry');return identity;},
     addCompletedCell({ledger:currentLedger}){
       this.completedSinceCheckpoint++;const complete=Object.values(currentLedger.cells||{}).filter(state=>state.state==='COMPLETE').length;
       if(complete!==this.baseComplete+this.deltaEvidenceEntries.filter(entry=>entry.type==='cell').length)
         fail('COMPLETE accounting does not match checkpoint delta');
-      if(complete>0&&complete%64===0){this.auditSha('checkpoint-64');this.writeCheckpoint(currentLedger);}
+      const live=this.assertLiveTip('cell-complete',currentLedger);
+      if(complete>0&&complete%64===0)this.writeCheckpoint(currentLedger,live);
       if(this.completedSinceCheckpoint>=64&&complete%64!==0)fail('cumulative checkpoint boundary was skipped');
     },
-    writeCheckpoint(currentLedger){
+    writeCheckpoint(currentLedger,verifiedLiveState=null){
       if(!this.deltaEvidenceEntries.length)return null;
       const checkpointStarted=process.hrtime.bigint();
       const entries=[...this.deltaEvidenceEntries].sort(compareDelta),from=this.previousSequence;
-      const state=readCurrentState(),through=state.journalTipSequence;
-      if(state.ledgerSha256!==this.ledgerSha256||state.renderCalls!==currentLedger.accounting.renderCalls)
-        fail('checkpoint live ledger/accounting mismatch');
+      const state=verifiedLiveState||this.assertLiveTip('checkpoint',currentLedger),through=state.journalTipSequence;
       const verified=verifyDeltaEntries({entries,phase,phaseRootRelative:this.phaseRootRelative,journalRootRelative:this.journalRootRelative,
         searchPrimary:searchRoots.primary,searchSecondary:searchRoots.secondary,
         fromSequence:from,throughSequence:through,expectedCellCount:entries.filter(entry=>entry.type==='cell').length});
@@ -271,9 +281,10 @@ function createPhaseVerificationContext({phase,executionId,identity,searchRoots,
       const name=`${CHECKPOINT_PREFIX}${String(this.checkpointIndex).padStart(6,'0')}.json`;
       const checkpointRoots=evidencePaths.resolveVerificationCheckpointRoots(searchRoots,phase),p=path.join(checkpointRoots.primary,name),s=path.join(checkpointRoots.secondary,name);
       if(fs.existsSync(p)||fs.existsSync(s))fail(`checkpoint identity already exists ${name}`);
-      const stored=durable.writeDualCopy(p,s,jsonBytes(checkpoint));
-      const verifiedChain=validateCheckpointChain({phase,executionId,searchRoots,phaseRoots,phaseRootRelative:this.phaseRootRelative,journalRootRelative:this.journalRootRelative});
-      if(verifiedChain.at(-1)?.sha256!==stored.sha256)fail('new checkpoint failed post-write chain validation');
+      const bytes=jsonBytes(checkpoint),stored=durable.writeDualCopy(p,s,bytes);
+      const readback=durable.verifyDualCopy(p,s);
+      if(readback.sha256!==stored.sha256||!readback.bytes.equals(bytes)||!same(JSON.parse(readback.bytes.toString('utf8')),checkpoint))
+        fail('new checkpoint failed post-write readback verification');
       this.checkpointElapsedMs+=Number(process.hrtime.bigint()-checkpointStarted)/1e6;
       this.previousCheckpointSha256=stored.sha256;this.checkpointIndex++;this.previousSequence=through;
       this.baseComplete=state.completeCount;this.deltaEvidenceEntries=[];this.completedSinceCheckpoint=0;
@@ -282,7 +293,6 @@ function createPhaseVerificationContext({phase,executionId,identity,searchRoots,
     finish(currentLedger){
       this.auditSha('phase-exit');
       if(this.deltaEvidenceEntries.length)this.writeCheckpoint(currentLedger);
-      this.auditSha('phase-exit-checkpoint-verified');
       return {initialFullAuditSha256:this.initialFullAuditSha256,resumeFullAuditSha256:this.lastAuditSha256,
         checkpointCount:this.checkpointIndex-1,checkpointElapsedMs:this.checkpointElapsedMs,
         ledgerSha256:this.ledgerSha256,journalTipSequence:this.transitionEntries.at(-1)?.sequence||0};
