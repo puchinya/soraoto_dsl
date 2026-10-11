@@ -46,9 +46,9 @@ same-size fixture execution per mode; elapsed values are the three raw runs.
 | 256 | Before | 54.336714 s | 53.784867 s | 53.602926 s | 53.784867 s |
 | 256 | Incremental | 33.706464 s | 34.100517 s | 34.752601 s | 34.100517 s |
 
-The temporary fixture median elapsed time fell by 15.7% at 64 cells and 36.6%
-at 256 cells. This is fixture-only evidence; it does not establish faster real
-acoustic renders or a shorter Stage3E acoustic search.
+These measurements describe the earlier checkpoint implementation and are
+superseded for the latest review correction below. They remain as the record
+of the first optimization iteration.
 
 | Cells | Mode | Full audits | File reads | Read bytes | SHA input bytes | Estimated opens | Ledger writes / bytes | Checkpoint time |
 |---:|---|---:|---:|---:|---:|---:|---:|---:|
@@ -63,6 +63,46 @@ trace. The raw sanitized benchmark JSON SHA-256 is
 `4f446093532087ba8ba2ccea812dd5ec84b17eb810ce9233784c398858bc8184`; the
 progress log SHA-256 is
 `9ade1da0c05d7270c746ea779bc7a3fdd97b63c1939ae4bbfbbd5daf2b444967`.
+
+## Review correction: checkpoint delta-only verification
+
+Implementation and regression test commit:
+`b40cc7c67c16370b2bcecafb67061a1e254848ca`.
+The correction removes the full audit and checkpoint-chain replay from each
+64-cell checkpoint. A checkpoint now checks the live mirrored ledger and
+journal tip, verifies only the current uncheckpointed delta, and reads back the
+new checkpoint bytes from both stores. Full checkpoint-chain verification
+remains at phase entry/resume, explicit read-only verification, and phase exit.
+The 256-cell regression confirms four checkpoints each read only their current
+64-cell delta; phase entry and exit are the only two full audits. An explicit
+full-chain replay still rereads all deltas and detects same-size mutations in
+both mirrored copies.
+
+The benchmark command and environment are unchanged from above. It was rerun
+three times per mode on the temporary low-phase fixture after this correction
+(Darwin arm64, Node.js v26.7.0; acoustic renders: 0; durable evidence roots
+untouched). Raw elapsed milliseconds:
+
+| Cells | Mode | Run 1 | Run 2 | Run 3 | Median |
+|---:|---|---:|---:|---:|---:|
+| 64 | Before | 9679.722875 | 9499.967542 | 9502.179333 | 9502.179333 |
+| 64 | Incremental | 7818.625833 | 7799.405667 | 7890.469167 | 7818.625833 |
+| 256 | Before | 56236.032125 | 56791.159917 | 53349.974500 | 56236.032125 |
+| 256 | Incremental | 32534.439375 | 31720.623792 | 29833.664208 | 31720.623792 |
+
+At these fixture sizes, median verifier time fell by 17.7% and 43.6%. This is
+not a claim about acoustic-render time or total Stage3E wall clock.
+
+| Cells | Mode | Full audits | File reads | Read bytes | SHA input bytes | Estimated opens | Ledger writes / bytes | Checkpoint time |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 64 | Before | 65 | 55,762 | 80,893,270 | 89,577,629 | 113,060 | 128 / 8,080,730 | 0 ms |
+| 64 | Incremental | 2 | 3,506 | 24,178,244 | 33,085,078 | 8,552 | 128 / 8,080,730 | 62.246292 / 55.430458 / 57.484416 ms (median 57.484416) |
+| 256 | Before | 257 | 812,626 | 1,265,651,104 | 1,394,001,111 | 1,631,396 | 512 / 125,930,572 | 0 ms |
+| 256 | Incremental | 2 | 13,514 | 330,654,050 | 459,887,624 | 33,188 | 512 / 125,930,572 | 235.198501 / 177.002583 / 149.475291 ms (median 177.002583) |
+
+Ledger snapshot write counts and bytes are unchanged. Estimated opens remain
+`readFileSync` calls plus explicit `openSync` calls, not an OS syscall trace.
+No acoustic runtime benchmark was run.
 
 ## Runtime status and limits
 
