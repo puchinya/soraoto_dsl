@@ -153,6 +153,7 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     const v9RequiredPaths=[
       'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
       'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-incremental-verification.test.cjs',
       'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
       'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
       'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs',

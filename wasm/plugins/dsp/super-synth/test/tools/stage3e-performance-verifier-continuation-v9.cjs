@@ -18,6 +18,7 @@ const STAGE3E_WASM_SHA256='6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7c
 const REQUIRED_CHANGED_PATHS=Object.freeze([
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-incremental-verification.test.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs',

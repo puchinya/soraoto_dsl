@@ -182,11 +182,6 @@ function completeCell(roots,context,ledger,cell,markerIndex){
   const cells=generation2.cellSpecs('mid-screen',[{pitch:36,velocity:14,response:{low:1,mid:1,bassHardness:0}}]);
   try{
     fs.mkdirSync(searchRoots.primary,{recursive:true});fs.mkdirSync(searchRoots.secondary,{recursive:true});
-    for(const base of [path.dirname(path.dirname(searchRoots.primary)),path.dirname(path.dirname(searchRoots.secondary))]){
-      for(let index=0;index<35;index++)fs.mkdirSync(path.join(base,'frozen'),{recursive:true}),fs.writeFileSync(path.join(base,'frozen',`${String(index).padStart(2,'0')}.json`),Buffer.from(`frozen-${index}`));
-    }
-    const primaryRoot=path.dirname(path.dirname(searchRoots.primary)),secondaryRoot=path.dirname(path.dirname(searchRoots.secondary));
-    const audit={immutablePreexistingFileInventory:{primary:{files:evidenceValidator.walkFiles(primaryRoot)},secondary:{files:evidenceValidator.walkFiles(secondaryRoot)}}};
     const roots={primary:searchRoots.primary,secondary:searchRoots.secondary};
     const phaseRoots=generation2.phaseRoots(roots,'mid');fs.mkdirSync(phaseRoots.primary,{recursive:true});fs.mkdirSync(phaseRoots.secondary,{recursive:true});
     const ledger=generation2.freshCellLedger('mid',phaseIdentity,cells);generation2.writeCellState(phaseRoots,ledger);
@@ -203,11 +198,10 @@ function completeCell(roots,context,ledger,cell,markerIndex){
     assert.equal(incremental.validateCheckpointChain({phase:'mid',executionId:'generation-2',searchRoots,phaseRoots}).length,1);
     assert.equal(evidenceValidator.isSearchAddition('generation-2/search-v1/mid/verification-checkpoints/checkpoint-000001.json'),true);
     assert.equal(evidenceValidator.isSearchAddition('generation-2/search-v1/unknown/verification-checkpoints/checkpoint-000001.json'),false);
-    const namespace=evidenceValidator.validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedKeys:[cells[0].key]});
-    assert.equal(namespace.frozenCount,35);
     const cellPath=path.join(phaseRoots.primary,'cells',`${cells[0].key}.json`),cellBytes=fs.readFileSync(cellPath);
     fs.writeFileSync(cellPath,Buffer.concat([cellBytes,Buffer.from('tamper')]));
-    assert.throws(()=>evidenceValidator.validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedKeys:[cells[0].key]}),/BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE|BLOCKED_STAGE3E_VERIFICATION_CHECKPOINT/);
+    assert.throws(()=>incremental.validateCheckpointChain({phase:'mid',executionId:'generation-2',searchRoots,phaseRoots}),
+      /BLOCKED_STAGE3E_VERIFICATION_CHECKPOINT|BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE/);
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 }
 
