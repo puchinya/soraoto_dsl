@@ -141,10 +141,11 @@ function isSearchAddition(relative,{authorizedKeys=[]}={}){
   }
   const validation=leaf.match(/^validations\/(low-full-[A-Za-z0-9.-]+|mid-full-[A-Za-z0-9.-]+)\/(.+)$/);
   if(validation){
+    const validationPhase=validation[1];
     const relativeValidation=validation[2];
-    if(/^(?:low-full|mid-full)-ledger\.json$/.test(relativeValidation)||
-       /^(?:low-full|mid-full)-result\.json$/.test(relativeValidation)||
-       /^(?:low-full|mid-full)-validation\.json$/.test(relativeValidation)||
+    if(relativeValidation===`${validationPhase}-ledger.json`||
+       relativeValidation===`${validationPhase}-result.json`||
+       relativeValidation===`${validationPhase}-validation.json`||
        relativeValidation==='evidence-manifest.json'||relativeValidation==='evidence-manifest.sha256'||
        /^archives\/(?:low-full|mid-full)-[A-Za-z0-9._-]+\.tar\.gz$/.test(relativeValidation)||
        /^ledger-transition-journal\/(?:genesis\.json|genesis-ledger\.json|genesis-location-reconciliation-v1\.json|transition-[0-9]{6}\.json|render-start-[0-9]{6}\.json)$/.test(relativeValidation))return true;

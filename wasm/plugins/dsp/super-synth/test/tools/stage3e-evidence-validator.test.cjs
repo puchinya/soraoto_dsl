@@ -111,6 +111,12 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     write(path.join(roots.primary,v5Path),v5Bytes);write(path.join(roots.secondary,v5Path),v5Bytes);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/validations/low-full-x/cells/unauthorized.json',{authorizedKeys:expected}),false);
+    const lowFullValidation='generation-2/search-v1/low/validations/low-full-0.35-0.5/';
+    assert.equal(validator.isSearchAddition(`${lowFullValidation}low-full-0.35-0.5-ledger.json`,{authorizedKeys:expected}),true);
+    assert.equal(validator.isSearchAddition(`${lowFullValidation}low-full-0.35-0.5-result.json`,{authorizedKeys:expected}),true);
+    assert.equal(validator.isSearchAddition(`${lowFullValidation}low-full-0.35-0.5-validation.json`,{authorizedKeys:expected}),true);
+    assert.equal(validator.isSearchAddition(`${lowFullValidation}low-full-0.35-0.5-rogue-ledger.json`,{authorizedKeys:expected}),false);
+    assert.equal(validator.isSearchAddition(`${lowFullValidation}unregistered-result.json`,{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.json'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/performance-verifier-compatibility-v1.json'),true);
     assert.equal(validator.isSearchAddition(continuationPath),true);
