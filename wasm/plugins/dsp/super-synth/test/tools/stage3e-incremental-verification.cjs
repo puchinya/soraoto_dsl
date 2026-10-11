@@ -113,10 +113,13 @@ function validateCheckpointChain({phase,executionId,searchRoots,phaseRoots,phase
     if(!Number.isSafeInteger(checkpoint.fromJournalSequenceExclusive)||!Number.isSafeInteger(checkpoint.throughJournalSequenceInclusive)||
        checkpoint.fromJournalSequenceExclusive<0||checkpoint.throughJournalSequenceInclusive<checkpoint.fromJournalSequenceExclusive||
        !Number.isSafeInteger(checkpoint.newlyCompletedCellCount)||checkpoint.newlyCompletedCellCount<=0||
+       !Number.isSafeInteger(checkpoint.baseComplete)||checkpoint.baseComplete<0||checkpoint.baseComplete%64!==0||
        !Number.isSafeInteger(checkpoint.cumulativeComplete)||!Number.isSafeInteger(checkpoint.cumulativeAcousticRenderCalls))
       fail(`invalid checkpoint accounting ${names[index]}`);
-    if(index===0&&checkpoint.cumulativeComplete!==checkpoint.newlyCompletedCellCount)fail('first checkpoint cumulative count does not match its delta');
-    if(index>0&&(checkpoint.fromJournalSequenceExclusive!==previousSequence||checkpoint.cumulativeComplete!==previousComplete+checkpoint.newlyCompletedCellCount))
+    if(index===0&&checkpoint.cumulativeComplete!==checkpoint.baseComplete+checkpoint.newlyCompletedCellCount)
+      fail('first checkpoint cumulative count does not match its audited baseline and delta');
+    if(index>0&&(checkpoint.fromJournalSequenceExclusive!==previousSequence||checkpoint.baseComplete!==previousComplete||
+       checkpoint.cumulativeComplete!==checkpoint.baseComplete+checkpoint.newlyCompletedCellCount))
       fail('checkpoint ranges/accounting are not continuous');
     const result=verifyDeltaEntries({entries:checkpoint.deltaEvidenceEntries,phase,phaseRootRelative,journalRootRelative,
       searchPrimary:searchRoots.primary,searchSecondary:searchRoots.secondary,
@@ -171,13 +174,27 @@ function createPhaseVerificationContext({phase,executionId,identity,searchRoots,
   const phaseSequence=transitionEntries.at(-1)?.sequence||0;
   if(latest&&latest.checkpoint.throughJournalSequenceInclusive>phaseSequence)fail('checkpoint is ahead of the live journal');
   const completeCount=Object.values(ledger.cells||{}).filter(state=>state.state==='COMPLETE').length;
-  const expectedComplete=latest?latest.checkpoint.cumulativeComplete:completeCount;
-  if(latest&&completeCount<expectedComplete)fail('live ledger complete count precedes last checkpoint');
-  const baselineSequence=latest?latest.checkpoint.throughJournalSequenceInclusive:(firstPhaseTransition?firstPhaseTransition.sequence-1:phaseSequence);
+  let baseComplete,baselineSequence;
+  if(latest){
+    baseComplete=latest.checkpoint.cumulativeComplete;
+    if(completeCount<baseComplete)fail('live ledger complete count precedes last checkpoint');
+    baselineSequence=latest.checkpoint.throughJournalSequenceInclusive;
+  }else{
+    // A phase-entry full audit is the trust boundary for history created before
+    // incremental checkpoints existed. Reconstruct only the tail after the last
+    // cumulative 64-cell boundary; the first new checkpoint still lands at 64,
+    // 128, ... without treating already audited history as new process work.
+    baseComplete=Math.floor(completeCount/64)*64;
+    const completedTransitions=transitionEntries.filter(entry=>phaseKeys.has(entry.cellKey)&&entry.newState==='COMPLETE');
+    const completedKeys=new Set(completedTransitions.map(entry=>entry.cellKey));
+    if(completedTransitions.length!==completeCount||completedKeys.size!==completeCount)
+      fail('audited completed-cell history does not match the live ledger');
+    baselineSequence=baseComplete>0?completedTransitions[baseComplete-1].sequence:
+      (firstPhaseTransition?firstPhaseTransition.sequence-1:phaseSequence);
+  }
   const delta=checkpointEntriesForResume({phase,phaseRootRelative,journalRootRelative,searchRoots,transitionEntries,renderStartEntries,ledger,fromSequence:baselineSequence});
   const deltaCompleteCount=delta.filter(entry=>entry.type==='cell').length;
-  if(completeCount-(latest?expectedComplete:0)!==deltaCompleteCount)fail('uncheckpointed COMPLETE rows cannot be reconstructed exactly');
-  const baseComplete=latest?expectedComplete:0;
+  if(completeCount-baseComplete!==deltaCompleteCount)fail('uncheckpointed COMPLETE rows cannot be reconstructed exactly');
   const baseSequence=baselineSequence;
   const genesisSha256=transitionEntries.at(0)?.previousLedgerSha256||ledgerSha256;
   const context={phase,executionId,identity,searchRoots,phaseRoots,journalRoots,phaseRootRelative,journalRootRelative,ledger,manifestSha256,proofSha256,compatibilitySha256,
@@ -228,8 +245,8 @@ function createPhaseVerificationContext({phase,executionId,identity,searchRoots,
       this.completedSinceCheckpoint++;const complete=Object.values(currentLedger.cells||{}).filter(state=>state.state==='COMPLETE').length;
       if(complete!==this.baseComplete+this.deltaEvidenceEntries.filter(entry=>entry.type==='cell').length)
         fail('COMPLETE accounting does not match checkpoint delta');
-      if(this.completedSinceCheckpoint===64){this.auditSha('checkpoint-64');this.writeCheckpoint(currentLedger);}
-      if(this.completedSinceCheckpoint>64)fail('checkpoint boundary was skipped');
+      if(complete>0&&complete%64===0){this.auditSha('checkpoint-64');this.writeCheckpoint(currentLedger);}
+      if(this.completedSinceCheckpoint>=64&&complete%64!==0)fail('cumulative checkpoint boundary was skipped');
     },
     writeCheckpoint(currentLedger){
       if(!this.deltaEvidenceEntries.length)return null;
@@ -245,6 +262,7 @@ function createPhaseVerificationContext({phase,executionId,identity,searchRoots,
         checkpointIndex:this.checkpointIndex,previousCheckpointSha256:this.previousCheckpointSha256,
         initialFullAuditSha256:this.initialFullAuditSha256,resumeFullAuditSha256:this.lastAuditSha256,
         fromJournalSequenceExclusive:from,throughJournalSequenceInclusive:through,
+        baseComplete:this.baseComplete,
         newlyCompletedCellCount:entries.filter(entry=>entry.type==='cell').length,
         cumulativeComplete:state.completeCount,cumulativeAcousticRenderCalls:state.renderCalls,
         ledgerSha256PrimaryAndSecondary:state.ledgerSha256,journalTipSha256PrimaryAndSecondary:state.journalTipSha256,

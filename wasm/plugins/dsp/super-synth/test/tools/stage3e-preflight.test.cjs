@@ -135,6 +135,22 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
     expectedSha256:'c'.repeat(64),verify:()=>accepted}),/performance verifier binding changed/);
 }
 {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-perf-verifier-select-'));
+  const roots={primary:path.join(root,'primary'),secondary:path.join(root,'secondary')};
+  try{
+    fs.mkdirSync(roots.primary,{recursive:true});fs.mkdirSync(roots.secondary,{recursive:true});
+    const v2=require('./stage3e-performance-verifier-continuation-v2.cjs');
+    const v3=require('./stage3e-performance-verifier-continuation-v3.cjs');
+    assert.equal(preflight.selectPerformanceVerifier({roots}),require('./stage3e-performance-verifier-compatibility-v1.cjs').runtimeContext);
+    for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_RELATIVE),'{}');
+    assert.equal(preflight.selectPerformanceVerifier({roots}),v2.runtimeContext);
+    for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V3_RELATIVE),'{}');
+    assert.equal(preflight.selectPerformanceVerifier({roots}),v3.runtimeContext,'the newest dual-saved verifier continuation is selected');
+    fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V3_RELATIVE));
+    assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v3 continuation exists in only one store/);
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+}
+{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-lock-'));
   try{
     execFileSync('rtk',['git','init','--quiet'],{cwd:root});

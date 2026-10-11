@@ -25,6 +25,7 @@ const COMPATIBILITY_RELATIVE=compatibilityV2.V2_RELATIVE;
 const COMPATIBILITY_V3_RELATIVE=compatibilityV3.RELATIVE;
 const PERFORMANCE_COMPATIBILITY_RELATIVE='performance-verifier-compatibility-v1.json';
 const PERFORMANCE_CONTINUATION_RELATIVE='performance-verifier-compatibility-v2.json';
+const PERFORMANCE_CONTINUATION_V3_RELATIVE='performance-verifier-compatibility-v3.json';
 const GENESIS_RELATIVE='ledger-transition-journal/genesis-ledger.json';
 const GENESIS_RECORD_RELATIVE='ledger-transition-journal/genesis.json';
 const JOURNAL_RELATIVE='ledger-transition-journal';
@@ -57,14 +58,23 @@ function validateRecoveryCompatibility({reconciliation,bundle,root,roots,manifes
   return reconciliation.validateCompatibilityRecord(bundle.record,{root,manifest,manifestSha256,bridge,forensicSha256,
     sourceAuditSha256,oldResultSha256,testReportSha256,evidenceRoots:roots});
 }
-function validatePerformanceVerifierBinding({root,manifest,bundle,roots,expectedSha256,verify}={}){
+function selectPerformanceVerifier({roots,verify}={}){
+  if(verify)return verify;
   const primaryV2=path.join(roots.primary,PERFORMANCE_CONTINUATION_RELATIVE);
   const secondaryV2=path.join(roots.secondary,PERFORMANCE_CONTINUATION_RELATIVE);
   const hasPrimaryV2=fs.existsSync(primaryV2),hasSecondaryV2=fs.existsSync(secondaryV2);
   if(hasPrimaryV2!==hasSecondaryV2)throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: performance continuation exists in only one store');
-  const verifier=verify||(hasPrimaryV2
-    ?require('./stage3e-performance-verifier-continuation-v2.cjs').runtimeContext
-    :require('./stage3e-performance-verifier-compatibility-v1.cjs').runtimeContext);
+  const primaryV3=path.join(roots.primary,PERFORMANCE_CONTINUATION_V3_RELATIVE);
+  const secondaryV3=path.join(roots.secondary,PERFORMANCE_CONTINUATION_V3_RELATIVE);
+  const hasPrimaryV3=fs.existsSync(primaryV3),hasSecondaryV3=fs.existsSync(secondaryV3);
+  if(hasPrimaryV3!==hasSecondaryV3)throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: performance v3 continuation exists in only one store');
+  return hasPrimaryV3
+    ?require('./stage3e-performance-verifier-continuation-v3.cjs').runtimeContext
+    :hasPrimaryV2?require('./stage3e-performance-verifier-continuation-v2.cjs').runtimeContext
+      :require('./stage3e-performance-verifier-compatibility-v1.cjs').runtimeContext;
+}
+function validatePerformanceVerifierBinding({root,manifest,bundle,roots,expectedSha256,verify}={}){
+  const verifier=selectPerformanceVerifier({roots,verify});
   if(!bundle||typeof verifier!=='function')throw new Error('BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY: verifier binding inputs are incomplete');
   const result=verifier({root,manifest,v3Record:bundle.record,v3Sha256:bundle.sha256,roots});
   if(expectedSha256!==undefined&&(result?.sha256||null)!==(expectedSha256||null))
@@ -359,7 +369,7 @@ function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=
     roots,manifest,creatorIdentity:manifest.identity,currentVerifierIdentity:currentFiles(root),sourceAudit:audit.audit};
 }
 
-module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,COMPATIBILITY_V3_RELATIVE,PERFORMANCE_COMPATIBILITY_RELATIVE,validateRecoveryCompatibility,
+module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,COMPATIBILITY_V3_RELATIVE,PERFORMANCE_COMPATIBILITY_RELATIVE,PERFORMANCE_CONTINUATION_RELATIVE,PERFORMANCE_CONTINUATION_V3_RELATIVE,validateRecoveryCompatibility,
   GENESIS_RELATIVE,GENESIS_RECORD_RELATIVE,JOURNAL_RELATIVE,ALLOWED_TRACKED_DIFFS,sha256,stable,same,searchRoots,currentFiles,
   validateCompatibility,readTransitionEntries,readRenderStartEntries,validateSearchLedger,validateRuntimeIdentity,acquireWriterLock,
-  trackedDiff,assertTrackedWorktreeClean,runCompatibilityTests,buildCompatibilityV2Record,validatePerformanceVerifierBinding,preflight};
+  trackedDiff,assertTrackedWorktreeClean,runCompatibilityTests,buildCompatibilityV2Record,selectPerformanceVerifier,validatePerformanceVerifierBinding,preflight};

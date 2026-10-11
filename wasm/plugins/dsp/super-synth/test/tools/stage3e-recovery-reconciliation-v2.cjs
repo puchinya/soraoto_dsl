@@ -382,7 +382,11 @@ function assertCurrentVerifierAtAnchor(root,anchorCommit,head=currentHead(root),
     const historical=readVerifierCompatibilityAttestation({root,anchorCommit,head,evidenceRoots,requireCurrent:false});
     if(!verifierAttestationMatchesWorkingTree(root,historical)){
       let continuation;
-      try{continuation=require('./stage3e-performance-verifier-continuation-v2.cjs')
+      const continuationV3=require('./stage3e-performance-verifier-continuation-v3.cjs');
+      const v3Primary=path.join(evidenceRoots.primary,'generation-2','search-v1',continuationV3.RELATIVE);
+      const v3Secondary=path.join(evidenceRoots.secondary,'generation-2','search-v1',continuationV3.RELATIVE);
+      const runtimeModule=(fs.existsSync(v3Primary)||fs.existsSync(v3Secondary)?continuationV3:require('./stage3e-performance-verifier-continuation-v2.cjs'));
+      try{continuation=runtimeModule
         .assertRecoveryRuntimeBinding({root,roots:evidenceRoots,head});}
       catch(error){fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY',`historical v10 chain is valid but current verifier continuation is absent or invalid: ${error.message}`);}
       if(continuation?.decision!=='STAGE3E_PERFORMANCE_VERIFIER_CONTINUATION_COMPATIBLE')

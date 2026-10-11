@@ -127,6 +127,52 @@ function completeCell(roots,context,ledger,cell,markerIndex){
 }
 
 {
+  const roots=tempRoots(),identity={schemaVersion:1,executionId:'generation-2',candidateId:'legacy-checkpoint-bootstrap'},cells=Array.from({length:128},(_,index)=>({
+    key:`low-legacy-${String(index+1).padStart(3,'0')}`,phase:'low-screen',pitch:36,velocity:index+1,response:{low:1,mid:1,bassHardness:0}}));
+  try{
+    const ledger=baseLedger(identity,cells);writeLedger(roots,ledger);
+    const seed={transitionEntries:[],recordTransition({entry}){this.transitionEntries.push(entry);},recordRenderStart(){},recordCell(){},addCompletedCell(){}};
+    for(let i=0;i<70;i++)completeCell(roots,seed,ledger,cells[i],i+1);
+    const audits={count:0},context=installContext(roots,ledger,identity,audits);
+    assert.equal(context.baseComplete,64,'phase-entry audit anchors the existing completed prefix at the previous 64-cell boundary');
+    assert.equal(context.completedSinceCheckpoint,6,'only the audited residual after the boundary remains pending checkpointing');
+    assert.equal(context.deltaEvidenceEntries.filter(entry=>entry.type==='cell').length,6);
+    for(let i=70;i<128;i++){context.beforeCell();completeCell(roots,context,ledger,cells[i],i+1);}
+    const checkpoint=JSON.parse(fs.readFileSync(path.join(roots.phaseRoots.primary,'verification-checkpoints','checkpoint-000001.json'),'utf8'));
+    assert.equal(checkpoint.baseComplete,64);
+    assert.equal(checkpoint.newlyCompletedCellCount,64);
+    assert.equal(checkpoint.cumulativeComplete,128,'checkpoint is written at the next cumulative 64-cell boundary');
+    assert.equal(checkpoint.fromJournalSequenceExclusive,128);
+    assert.equal(checkpoint.throughJournalSequenceInclusive,256);
+    context.finish(ledger);
+    assert.equal(incremental.validateCheckpointChain({phase:'low',executionId:'generation-2',searchRoots:roots.searchRoots,phaseRoots:roots.phaseRoots}).length,1);
+  }finally{fs.rmSync(roots.root,{recursive:true,force:true});}
+}
+
+{
+  const roots=tempRoots(),identity={schemaVersion:1,executionId:'generation-2',candidateId:'legacy-checkpoint-bootstrap'},cells=Array.from({length:128},(_,index)=>({
+    key:`low-legacy-${String(index+1).padStart(3,'0')}`,phase:'low-screen',pitch:36,velocity:index+1,response:{low:1,mid:1,bassHardness:0}}));
+  try{
+    const ledger=baseLedger(identity,cells);writeLedger(roots,ledger);
+    const seed={transitionEntries:[],recordTransition({entry}){this.transitionEntries.push(entry);},recordRenderStart(){},recordCell(){},addCompletedCell(){}};
+    for(let i=0;i<70;i++)completeCell(roots,seed,ledger,cells[i],i+1);
+    const audits={count:0},context=installContext(roots,ledger,identity,audits);
+    assert.equal(context.baseComplete,64,'phase-entry audit anchors the existing completed prefix at the previous 64-cell boundary');
+    assert.equal(context.completedSinceCheckpoint,6,'only the audited residual after the boundary remains pending checkpointing');
+    assert.equal(context.deltaEvidenceEntries.filter(entry=>entry.type==='cell').length,6);
+    for(let i=70;i<128;i++){context.beforeCell();completeCell(roots,context,ledger,cells[i],i+1);}
+    const checkpoint=JSON.parse(fs.readFileSync(path.join(roots.phaseRoots.primary,'verification-checkpoints','checkpoint-000001.json'),'utf8'));
+    assert.equal(checkpoint.baseComplete,64);
+    assert.equal(checkpoint.newlyCompletedCellCount,64);
+    assert.equal(checkpoint.cumulativeComplete,128,'checkpoint is written at the next cumulative 64-cell boundary');
+    assert.equal(checkpoint.fromJournalSequenceExclusive,128);
+    assert.equal(checkpoint.throughJournalSequenceInclusive,256);
+    context.finish(ledger);
+    assert.equal(incremental.validateCheckpointChain({phase:'low',executionId:'generation-2',searchRoots:roots.searchRoots,phaseRoots:roots.phaseRoots}).length,1);
+  }finally{fs.rmSync(roots.root,{recursive:true,force:true});}
+}
+
+{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-runner-incremental-'));
   const searchRoots={primary:path.join(root,'primary','generation-2','search-v1'),secondary:path.join(root,'secondary','generation-2','search-v1')};
   const identity={schemaVersion:1,generation:2,executionId:'generation-2',creatorRevision:'revision',candidateId:'candidate',protectedIdentity:{},
