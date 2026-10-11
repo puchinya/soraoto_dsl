@@ -100,9 +100,31 @@ function completeCell(roots,context,ledger,cell,markerIndex){
     assert.equal(second.deltaEvidenceEntries.filter(entry=>entry.type==='cell').length,1);
     assert.equal(fullAudits.count,3,'restart, phase exit, and the residual checkpoint are fully audited');
     assert.equal(incremental.validateCheckpointChain({phase:'low',executionId:'generation-2',searchRoots:roots.searchRoots,phaseRoots:roots.phaseRoots}).length,2);
-    const changed=fs.readFileSync(path.join(roots.searchRoots.primary,'low','cells',cells[0].key+'.json'));
-    fs.writeFileSync(path.join(roots.searchRoots.primary,'low','cells',cells[0].key+'.json'),Buffer.concat([changed,Buffer.from('x')]));
-    assert.throws(()=>incremental.validateCheckpointChain({phase:'low',executionId:'generation-2',searchRoots:roots.searchRoots,phaseRoots:roots.phaseRoots}),/delta size mismatch|BLOCKED_EVIDENCE_SECONDARY/);
+    const tamperedPath=path.join('low','cells',cells[0].key+'.json');
+    const primaryCellPath=path.join(roots.searchRoots.primary,tamperedPath);
+    const secondaryCellPath=path.join(roots.searchRoots.secondary,tamperedPath);
+    const checkpointBytes=fs.readFileSync(checkpointPath),originalCell=fs.readFileSync(primaryCellPath);
+    const sameSizeMutation=Buffer.from(originalCell);sameSizeMutation[0]^=1;
+    fs.writeFileSync(primaryCellPath,sameSizeMutation);fs.writeFileSync(secondaryCellPath,sameSizeMutation);
+    assert.equal(fs.readFileSync(checkpointPath).equals(checkpointBytes),true,'checkpoint identity remains unchanged');
+    assert.throws(()=>incremental.validateCheckpointChain({phase:'low',executionId:'generation-2',searchRoots:roots.searchRoots,phaseRoots:roots.phaseRoots}),
+      /BLOCKED_STAGE3E_VERIFICATION_CHECKPOINT: delta SHA-256 mismatch/);
+  }finally{fs.rmSync(roots.root,{recursive:true,force:true});}
+}
+
+{
+  const roots=tempRoots(),identity={schemaVersion:1,executionId:'generation-2',candidateId:'write-checkpoint-hash-binding'},cells=[{
+    key:'low-write-checkpoint-hash-binding',phase:'low-screen',pitch:36,velocity:14,response:{low:1,mid:1,bassHardness:0}}];
+  try{
+    const ledger=baseLedger(identity,cells);writeLedger(roots,ledger);
+    const context=installContext(roots,ledger,identity,{count:0});context.beforeCell();completeCell(roots,context,ledger,cells[0],1);
+    const relative=path.join('low','cells',cells[0].key+'.json');
+    const primaryCellPath=path.join(roots.searchRoots.primary,relative),secondaryCellPath=path.join(roots.searchRoots.secondary,relative);
+    const original=fs.readFileSync(primaryCellPath),sameSizeMutation=Buffer.from(original);sameSizeMutation[0]^=1;
+    fs.writeFileSync(primaryCellPath,sameSizeMutation);fs.writeFileSync(secondaryCellPath,sameSizeMutation);
+    assert.throws(()=>context.writeCheckpoint(ledger),/BLOCKED_STAGE3E_VERIFICATION_CHECKPOINT: delta SHA-256 mismatch/);
+    assert.equal(fs.existsSync(path.join(roots.phaseRoots.primary,'verification-checkpoints','checkpoint-000001.json')),false,
+      'a checkpoint is not written after the delta payload hash changes');
   }finally{fs.rmSync(roots.root,{recursive:true,force:true});}
 }
 

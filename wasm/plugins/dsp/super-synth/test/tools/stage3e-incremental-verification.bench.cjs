@@ -7,6 +7,7 @@ const crypto=require('node:crypto');
 const durable=require('./durable-evidence.cjs');
 const runner=require('./run-stage3e-generation2.cjs');
 const validator=require('./stage3e-evidence-validator.cjs');
+const preflight=require('./stage3e-preflight.cjs');
 
 function sizeOf(value,encoding){return Buffer.isBuffer(value)?value.length:Buffer.byteLength(String(value),encoding||'utf8');}
 function instrument(phase){
@@ -29,7 +30,7 @@ function runOne(mode,count){
   const generationRoots={primary:path.join(primary,'generation-2'),secondary:path.join(secondary,'generation-2')};
   const searchRoots={primary:path.join(generationRoots.primary,'search-v1'),secondary:path.join(generationRoots.secondary,'search-v1')};
   fs.mkdirSync(searchRoots.primary,{recursive:true});fs.mkdirSync(searchRoots.secondary,{recursive:true});
-  const phase='mid',phaseRoots=runner.phaseRoots(searchRoots,phase);
+  const phase='low',phaseRoots=runner.phaseRoots(searchRoots,phase);
   fs.mkdirSync(phaseRoots.primary,{recursive:true});fs.mkdirSync(phaseRoots.secondary,{recursive:true});
   for(const root of [primary,secondary])for(let index=0;index<35;index++){
     const file=path.join(root,'frozen',`${String(index).padStart(2,'0')}.json`);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,Buffer.from(`frozen-${index}`));
@@ -41,9 +42,15 @@ function runOne(mode,count){
   const identity={...baseIdentity,phase,authorizedGrid:[],screenCoordinates:[]};
   const rawCells=Array.from({length:count},(_,index)=>({phase:'mid-screen',pitch:36+(index%88),velocity:14+(index%112),
     response:{low:1,mid:1,bassHardness:0}}));
-  const cells=runner.cellSpecs('mid-screen',rawCells),ledger=runner.freshCellLedger(phase,identity,cells);
+  const cells=runner.cellSpecs('low',rawCells),ledger=runner.freshCellLedger(phase,identity,cells);
   runner.writeCellState(phaseRoots,ledger);
-  const journalRoots=runner.ledgerJournalRoots(phaseRoots),compatibilitySha256='1'.repeat(64),proofSha256='2'.repeat(64),manifestSha256='3'.repeat(64);
+  const journalRoots=runner.ledgerJournalRoots(searchRoots),compatibilitySha256='1'.repeat(64),
+    proofSha256=preflight.PROOF_SHA256,manifestSha256=preflight.MANIFEST_SHA256;
+  const genesisBytes=runner.jsonBytes(ledger),genesisLedgerSha256=runner.sha256(genesisBytes);
+  durable.writeDualCopy(path.join(journalRoots.primary,'genesis-ledger.json'),path.join(journalRoots.secondary,'genesis-ledger.json'),genesisBytes);
+  runner.immutableDualJson(journalRoots,'genesis.json',{schemaVersion:1,decision:'STAGE3E_SEARCH_LEDGER_GENESIS',phase,
+    genesisLedgerSha256,manifestSha256,proofSha256,compatibilitySha256,identity,
+    authorizedCellCount:ledger.authorizedCellCount,renderCalls:0});
   const capture={DEFAULT_RESPONSE:{}};
   let fullAuditCalls=0;
   const fullAudit=()=>{

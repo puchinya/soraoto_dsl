@@ -59,6 +59,7 @@ function verifyDeltaEntries({entries,phase,phaseRootRelative=phase,journalRootRe
     }
     const p=resolveEvidencePath(searchPrimary,entry.path),s=resolveEvidencePath(searchSecondary,entry.path);
     const stored=durable.verifyDualCopy(p,s,entry.sha256);
+    if(stored.sha256!==entry.sha256)fail(`delta SHA-256 mismatch ${entry.path}`);
     if(stored.bytes.length!==entry.sizeBytes)fail(`delta size mismatch ${entry.path}`);
     if(entry.type==='journal'&&entry.path.includes('/render-start-')){
       const marker=JSON.parse(stored.bytes.toString('utf8'));
