@@ -65,8 +65,21 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     const followupPath='generation-2/search-v1/performance-verifier-compatibility-v3.json';
     const followupBytes=Buffer.from(JSON.stringify(followupRecord));
     write(path.join(roots.primary,followupPath),followupBytes);write(path.join(roots.secondary,followupPath),followupBytes);
+    const v4Results=[{command:'continuation-v4.test.cjs',status:'PASS',outputSha256:'a'.repeat(64)}];
+    const v4Record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_FOLLOWUP',decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',
+      parentRelative:'performance-verifier-compatibility-v3.json',parentSha256:'f1425e17e25b0338b504cedacf54e45be703581fc87277ede47540e39a02a487',
+      parentAcceptedCommit:'d055c8c3a21b020a89f0a19de8fad1b7055c192e',acceptedCommit:'c'.repeat(40),
+      allowedChangedPaths:['stage3e-recovery-reconciliation-v2.cjs'],allowedVerifierOnlyDiffSha256:'b'.repeat(64),
+      changedFileSha256:{'stage3e-recovery-reconciliation-v2.cjs':'c'.repeat(64)},
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:v4Results,testResultsSha256:validator.sha256(validator.jsonBytes(v4Results)),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const v4Path='generation-2/search-v1/performance-verifier-compatibility-v4.json';
+    const v4Bytes=Buffer.from(JSON.stringify(v4Record));
+    write(path.join(roots.primary,v4Path),v4Bytes);write(path.join(roots.secondary,v4Path),v4Bytes);
     const before=inventory(roots.primary),result=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
-    assert.equal(result.frozenCount,35);assert.equal(result.additionCount,18);
+    assert.equal(result.frozenCount,35);assert.equal(result.additionCount,19);
     assert.deepEqual(inventory(roots.primary).filter(item=>item.path.startsWith('frozen/')),before.filter(item=>item.path.startsWith('frozen/')));
     write(path.join(roots.primary,continuationPath),Buffer.from(JSON.stringify({...continuationRecord,decision:'BLOCKED'})));
     write(path.join(roots.secondary,continuationPath),Buffer.from(JSON.stringify({...continuationRecord,decision:'BLOCKED'})));
@@ -78,12 +91,18 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
       /performance verifier follow-up schema mismatch/);
     write(path.join(roots.primary,followupPath),followupBytes);write(path.join(roots.secondary,followupPath),followupBytes);
+    write(path.join(roots.primary,v4Path),Buffer.from(JSON.stringify({...v4Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v4Path),Buffer.from(JSON.stringify({...v4Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v4 follow-up schema mismatch/);
+    write(path.join(roots.primary,v4Path),v4Bytes);write(path.join(roots.secondary,v4Path),v4Bytes);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/validations/low-full-x/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.json'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/performance-verifier-compatibility-v1.json'),true);
     assert.equal(validator.isSearchAddition(continuationPath),true);
     assert.equal(validator.isSearchAddition(followupPath),true);
+    assert.equal(validator.isSearchAddition(v4Path),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.sha256'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/archives/verifier-compatibility-v2.tar.gz'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10.json'),true);
