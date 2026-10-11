@@ -11,6 +11,21 @@ const validator=require('./stage3e-evidence-validator.cjs');
 const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
 
 {
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-performance-continuation-path-'));
+  try{
+    const roots={primary:path.join(temp,'primary','generation-2','search-v1'),secondary:path.join(temp,'secondary','generation-2','search-v1')};
+    const relative=require('./stage3e-performance-verifier-continuation-v3.cjs').RELATIVE;
+    const resolved=recovery.performanceVerifierContinuationPaths(roots,relative);
+    for(const file of Object.values(resolved)){fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,'compatibility');}
+    assert.equal(fs.existsSync(resolved.primary),true,'canonical search root already includes generation-2/search-v1');
+    assert.equal(fs.existsSync(resolved.secondary),true,'secondary continuation is resolved at the same relative path');
+    assert.equal(fs.existsSync(path.join(roots.primary,'generation-2','search-v1',relative)),false,
+      'continuation lookup must not append the search-root prefix twice');
+    assert.throws(()=>recovery.performanceVerifierContinuationPaths(roots,'../outside.json'),/BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA/);
+  }finally{fs.rmSync(temp,{recursive:true,force:true});}
+}
+
+{
   const firstSha='e7fb7aec3438a08ac2f1a62198bb23360a7eebeceacafa1976d4b3312bbfa47c';
   const base={schemaVersion:1,decision:'STAGE3E_RECOVERY_VERIFIER_COMPATIBLE',verifierFixCommit:'fix-commit'};
   const continuation=recovery.makeVerifierCompatibilityContinuation(base,firstSha);

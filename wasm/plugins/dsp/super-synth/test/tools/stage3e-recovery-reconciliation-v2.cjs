@@ -166,6 +166,11 @@ function verifierFixDiff(root,anchorCommit,fixCommit){
   const bytes=execFileSync('rtk',['proxy','git','diff','--binary',`${anchorCommit}..${fixCommit}`,'--',...changedPaths],{cwd:root});
   return {changedPaths,sha256:sha256(bytes)};
 }
+function performanceVerifierContinuationPaths(evidenceRoots,relative){
+  if(!evidenceRoots?.primary||!evidenceRoots?.secondary||typeof relative!=='string'||!relative||path.isAbsolute(relative)||relative.split(/[\\/]/).includes('..'))
+    fail('BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA','invalid canonical search roots or performance continuation path');
+  return {primary:path.join(evidenceRoots.primary,relative),secondary:path.join(evidenceRoots.secondary,relative)};
+}
 function validateLiveMutableSearchLedger({root=ROOT,home=process.env.HOME,roots=rootsFor(root,home),manifestBytes}={}){
   const storedManifest=manifestBytes?{bytes:manifestBytes,sha256:sha256(manifestBytes)}:readDual(roots,'generation-2-manifest.json');
   if(storedManifest.sha256!==evidenceValidator.SEARCH_MANIFEST_SHA256)
@@ -383,8 +388,8 @@ function assertCurrentVerifierAtAnchor(root,anchorCommit,head=currentHead(root),
     if(!verifierAttestationMatchesWorkingTree(root,historical)){
       let continuation;
       const continuationV3=require('./stage3e-performance-verifier-continuation-v3.cjs');
-      const v3Primary=path.join(evidenceRoots.primary,'generation-2','search-v1',continuationV3.RELATIVE);
-      const v3Secondary=path.join(evidenceRoots.secondary,'generation-2','search-v1',continuationV3.RELATIVE);
+      const v3Primary=path.join(evidenceRoots.primary,continuationV3.RELATIVE);
+      const v3Secondary=path.join(evidenceRoots.secondary,continuationV3.RELATIVE);
       const runtimeModule=(fs.existsSync(v3Primary)||fs.existsSync(v3Secondary)?continuationV3:require('./stage3e-performance-verifier-continuation-v2.cjs'));
       try{continuation=runtimeModule
         .assertRecoveryRuntimeBinding({root,roots:evidenceRoots,head});}
@@ -966,7 +971,7 @@ function main(argv=process.argv.slice(2)){if(argv.length!==1)throw new Error('on
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
 
 module.exports={ROOT,RELATIVE,OLD_HEAD,OLD_LEDGER_SHA256,INVALID_RESULT_SHA256,OLD_AUTHORIZATION_SHA256,FORENSIC_SHA256,PROOF_SHA256,TARGET_KEY,TARGET,FILES,
-  ALLOWED_DIFF_PATHS,VERIFIER_RUNTIME_PATHS,sha256,jsonBytes,stable,same,rootsFor,transactionRoots,immutableDual,countStates,proposedLedger,verifierDiff,verifierFixDiff,codeIdentity,
+  ALLOWED_DIFF_PATHS,VERIFIER_RUNTIME_PATHS,sha256,jsonBytes,stable,same,rootsFor,transactionRoots,performanceVerifierContinuationPaths,immutableDual,countStates,proposedLedger,verifierDiff,verifierFixDiff,codeIdentity,
   assertCurrentVerifierAtAnchor,verifierCompatibilityAttestationRecord,readVerifierCompatibilityAttestation,createVerifierCompatibilityAttestation,
   makeVerifierCompatibilityContinuation,validateVerifierCompatibilityContinuation,finalizedTransactionInventory,
   buildCompatibilityRecord,validateCompatibilityRecord,writeCompatibility,readCompatibility,readBaseline,makeTransaction,stageIntent,
