@@ -7,6 +7,7 @@ const continuation=require('./stage3e-performance-verifier-continuation-v2.cjs')
 
 const root=search.ROOT;
 const acceptedCommit=execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+assert.deepEqual(continuation.parseChangedPaths('Changes:\nwasm/a.cjs\nwasm/b.cjs\n'),['wasm/a.cjs','wasm/b.cjs']);
 const parentPinned={captureHelper:'a'.repeat(64),generation2Runner:'b'.repeat(64),generation2Core:'c'.repeat(64),
   searchCore:'d'.repeat(64),preflight:'e'.repeat(64),evidenceValidator:'f'.repeat(64)};
 const currentPinned={...parentPinned,generation2Runner:'1'.repeat(64),preflight:'2'.repeat(64),evidenceValidator:'3'.repeat(64)};

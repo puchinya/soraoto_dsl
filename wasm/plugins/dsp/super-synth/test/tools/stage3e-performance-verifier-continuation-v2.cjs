@@ -80,7 +80,8 @@ function head(root){return git(root,['rev-parse','HEAD']).trim();}
 function ancestor(root,from,to){try{git(root,['merge-base','--is-ancestor',from,to],null);return true;}catch{return false;}}
 function hashCommitFile(root,commit,relative){try{return sha256(git(root,['show',`${commit}:${relative}`],null));}catch{return null;}}
 function fileHash(root,relative){const file=path.join(root,relative);if(!fs.existsSync(file)||!fs.statSync(file).isFile())fail('required verifier file is absent: '+relative);return sha256(fs.readFileSync(file));}
-function changedPaths(root,from,to){return git(root,['diff','--name-only','--no-renames',from,to,'--']).trim().split(/\r?\n/).filter(Boolean).sort();}
+function parseChangedPaths(output){return String(output).split(/\r?\n/).map(item=>item.trim()).filter(item=>item&&item!=='Changes:').sort();}
+function changedPaths(root,from,to){return parseChangedPaths(git(root,['diff','--name-only','--no-renames',from,to,'--']));}
 function diffHash(root,from,to,names){return sha256(git(root,['diff','--binary','--no-compact','--no-ext-diff','--no-renames',from,to,'--',...names],null));}
 function rootsFor(root=search.ROOT,home=process.env.HOME){
   if(path.basename(path.resolve(root))!=='soraoto_dsl'||!home)fail('repository or HOME root cannot be resolved','BLOCKED_STAGE3E_EVIDENCE_PATH');
@@ -228,4 +229,4 @@ function main(argv=process.argv.slice(2)){
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
 module.exports={PARENT_RELATIVE,RELATIVE,PARENT_SHA256,PARENT_ACCEPTED_COMMIT,STAGE3E_WASM_SHA256,
   ALLOWED_CHANGED_PATHS,RUNTIME_PATHS,DEFAULT_TEST_RESULTS,VERIFIER_PINNED_KEYS,sha256,jsonBytes,stable,same,rootsFor,verifierPinnedChanges,
-  changedPaths,diffHash,runtimeHashes,buildRecord,validateRecord,runtimeContext,assertRecoveryRuntimeBinding,main};
+  parseChangedPaths,changedPaths,diffHash,runtimeHashes,buildRecord,validateRecord,runtimeContext,assertRecoveryRuntimeBinding,main};
