@@ -128,8 +128,8 @@ function buildRecord({root,roots,manifest,v3Record,v3Sha256,testResults,accepted
   if(!gitStatusClean(root)||head(root)!==acceptedCommit)fail('accepted verifier commit must be the clean current HEAD');
   if(!isAncestor(root,ORIGINAL_LOCAL_COMMIT,acceptedCommit))fail('original verifier commit is not an ancestor');
   if(v3Sha256!==ORIGINAL_V3_SHA256)fail('original v3 verifier bundle SHA mismatch');
-  if(v3Record.decision!=='STAGE3E_SEARCH_VERIFIER_COMPATIBLE'||!same(v3Record.acousticCriticalInputs,v3.acousticCriticalInputs(manifest)))
-    fail('v3 compatibility record does not bind the original acoustic candidate');
+  if(v3Record.decision!=='STAGE3E_PRE_RENDER_RECOVERY_COMPATIBLE'||!same(v3Record.acousticCriticalInputs,v3.acousticCriticalInputs(manifest)))
+    fail('v3 recovery compatibility record does not bind the original acoustic candidate');
   const parentSha=parentAttestationSha256(roots);
   const baseline=readV10Chain(roots);
   const baselineVerifierFiles=baseline.record.newVerifierFiles;

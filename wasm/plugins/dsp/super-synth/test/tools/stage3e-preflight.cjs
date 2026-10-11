@@ -14,7 +14,6 @@ const capture=require('./capture-supersynth-stage3e-matrix.cjs');
 const compatibilityV2=require('./stage3e-search-compatibility.cjs');
 const evidencePaths=require('./stage3e-evidence-paths.cjs');
 const compatibilityV3=require('./stage3e-search-compatibility-v3.cjs');
-const performanceCompatibility=require('./stage3e-performance-verifier-compatibility-v1.cjs');
 
 const MANIFEST_SHA256=validator.SEARCH_MANIFEST_SHA256;
 const GENESIS_SHA256=validator.LOW_GENESIS_SHA256;
@@ -24,7 +23,7 @@ const REFERENCE_SHA256='813a3069d384656419f1cf976c2b501a567909dfd2de5703fc58277f
 const V1_COMPATIBILITY_RELATIVE='verifier-compatibility-v1.json';
 const COMPATIBILITY_RELATIVE=compatibilityV2.V2_RELATIVE;
 const COMPATIBILITY_V3_RELATIVE=compatibilityV3.RELATIVE;
-const PERFORMANCE_COMPATIBILITY_RELATIVE=performanceCompatibility.RELATIVE;
+const PERFORMANCE_COMPATIBILITY_RELATIVE='performance-verifier-compatibility-v1.json';
 const GENESIS_RELATIVE='ledger-transition-journal/genesis-ledger.json';
 const GENESIS_RECORD_RELATIVE='ledger-transition-journal/genesis.json';
 const JOURNAL_RELATIVE='ledger-transition-journal';
@@ -57,9 +56,10 @@ function validateRecoveryCompatibility({reconciliation,bundle,root,roots,manifes
   return reconciliation.validateCompatibilityRecord(bundle.record,{root,manifest,manifestSha256,bridge,forensicSha256,
     sourceAuditSha256,oldResultSha256,testReportSha256,evidenceRoots:roots});
 }
-function validatePerformanceVerifierBinding({root,manifest,bundle,roots,expectedSha256,verify=performanceCompatibility.runtimeContext}={}){
-  if(!bundle||typeof verify!=='function')throw new Error('BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY: verifier binding inputs are incomplete');
-  const result=verify({root,manifest,v3Record:bundle.record,v3Sha256:bundle.sha256,roots});
+function validatePerformanceVerifierBinding({root,manifest,bundle,roots,expectedSha256,verify}={}){
+  const verifier=verify||require('./stage3e-performance-verifier-compatibility-v1.cjs').runtimeContext;
+  if(!bundle||typeof verifier!=='function')throw new Error('BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY: verifier binding inputs are incomplete');
+  const result=verifier({root,manifest,v3Record:bundle.record,v3Sha256:bundle.sha256,roots});
   if(expectedSha256!==undefined&&(result?.sha256||null)!==(expectedSha256||null))
     throw new Error('BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY: performance verifier binding changed');
   return result;
@@ -231,8 +231,7 @@ function validateSearchLedger({roots,manifestBytes,ledgerBytes,compatibilitySha2
   return {...result,genesisRequired:false,compatibilitySha256};
 }
 function validateRuntimeIdentity({root=search.ROOT,home=process.env.HOME,manifestIdentity,compatibilitySha256,
-  performanceVerifierCompatibilitySha256,verifySourceAudit,verifyAmendment,
-  verifyPerformanceCompatibility=performanceCompatibility.runtimeContext}={}){
+  performanceVerifierCompatibilitySha256,verifySourceAudit,verifyAmendment,verifyPerformanceCompatibility}={}){
   if(typeof verifySourceAudit!=='function'||typeof verifyAmendment!=='function')throw new Error('BLOCKED_STAGE3E_PREFLIGHT_DEPENDENCY: explicit pure verifier functions are required');
   const audit=verifySourceAudit({root,home}),amendmentResult=verifyAmendment({root,home});
   if(audit.sha256!==validator.SOURCE_AUDIT_SHA256||amendmentResult.resultSha256!==AMENDMENT_RESULT_SHA256||
@@ -288,7 +287,7 @@ function acquireWriterLock({root=search.ROOT,phase='low',executionIdentity}={}){
   }};
 }
 function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=true,capabilityProbe=capture.preflightDiagnosticCapabilities,
-  verifySourceAudit,verifyAmendment,verifyPerformanceCompatibility=performanceCompatibility.runtimeContext}={}){
+  verifySourceAudit,verifyAmendment,verifyPerformanceCompatibility}={}){
   if(typeof verifySourceAudit!=='function'||typeof verifyAmendment!=='function')throw new Error('BLOCKED_STAGE3E_PREFLIGHT_DEPENDENCY: explicit pure verifier functions are required');
   const capability=capabilityProbe({root});
   search.assertGeneration1Abandoned(root);
