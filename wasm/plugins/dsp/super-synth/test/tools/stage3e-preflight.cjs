@@ -27,6 +27,7 @@ const PERFORMANCE_COMPATIBILITY_RELATIVE='performance-verifier-compatibility-v1.
 const PERFORMANCE_CONTINUATION_RELATIVE='performance-verifier-compatibility-v2.json';
 const PERFORMANCE_CONTINUATION_V3_RELATIVE='performance-verifier-compatibility-v3.json';
 const PERFORMANCE_CONTINUATION_V4_RELATIVE='performance-verifier-compatibility-v4.json';
+const PERFORMANCE_CONTINUATION_V5_RELATIVE='performance-verifier-compatibility-v5.json';
 const GENESIS_RELATIVE='ledger-transition-journal/genesis-ledger.json';
 const GENESIS_RECORD_RELATIVE='ledger-transition-journal/genesis.json';
 const JOURNAL_RELATIVE='ledger-transition-journal';
@@ -62,6 +63,7 @@ function validateRecoveryCompatibility({reconciliation,bundle,root,roots,manifes
 function selectPerformanceVerifier({roots,verify}={}){
   if(verify)return verify;
   const versions=[
+    {relative:PERFORMANCE_CONTINUATION_V5_RELATIVE,module:'./stage3e-performance-verifier-continuation-v5.cjs',label:'v5'},
     {relative:PERFORMANCE_CONTINUATION_V4_RELATIVE,module:'./stage3e-performance-verifier-continuation-v4.cjs',label:'v4'},
     {relative:PERFORMANCE_CONTINUATION_V3_RELATIVE,module:'./stage3e-performance-verifier-continuation-v3.cjs',label:'v3'},
     {relative:PERFORMANCE_CONTINUATION_RELATIVE,module:'./stage3e-performance-verifier-continuation-v2.cjs',label:'v2'}
@@ -373,7 +375,7 @@ function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=
     roots,manifest,creatorIdentity:manifest.identity,currentVerifierIdentity:currentFiles(root),sourceAudit:audit.audit};
 }
 
-module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,COMPATIBILITY_V3_RELATIVE,PERFORMANCE_COMPATIBILITY_RELATIVE,PERFORMANCE_CONTINUATION_RELATIVE,PERFORMANCE_CONTINUATION_V3_RELATIVE,PERFORMANCE_CONTINUATION_V4_RELATIVE,validateRecoveryCompatibility,
+module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,COMPATIBILITY_V3_RELATIVE,PERFORMANCE_COMPATIBILITY_RELATIVE,PERFORMANCE_CONTINUATION_RELATIVE,PERFORMANCE_CONTINUATION_V3_RELATIVE,PERFORMANCE_CONTINUATION_V4_RELATIVE,PERFORMANCE_CONTINUATION_V5_RELATIVE,validateRecoveryCompatibility,
   GENESIS_RELATIVE,GENESIS_RECORD_RELATIVE,JOURNAL_RELATIVE,ALLOWED_TRACKED_DIFFS,sha256,stable,same,searchRoots,currentFiles,
   validateCompatibility,readTransitionEntries,readRenderStartEntries,validateSearchLedger,validateRuntimeIdentity,acquireWriterLock,
   trackedDiff,assertTrackedWorktreeClean,runCompatibilityTests,buildCompatibilityV2Record,selectPerformanceVerifier,validatePerformanceVerifierBinding,preflight};

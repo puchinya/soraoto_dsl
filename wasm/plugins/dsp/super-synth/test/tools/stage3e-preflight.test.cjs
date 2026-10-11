@@ -142,6 +142,7 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
     const v2=require('./stage3e-performance-verifier-continuation-v2.cjs');
     const v3=require('./stage3e-performance-verifier-continuation-v3.cjs');
     const v4=require('./stage3e-performance-verifier-continuation-v4.cjs');
+    const v5=require('./stage3e-performance-verifier-continuation-v5.cjs');
     assert.equal(preflight.selectPerformanceVerifier({roots}),require('./stage3e-performance-verifier-compatibility-v1.cjs').runtimeContext);
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_RELATIVE),'{}');
     assert.equal(preflight.selectPerformanceVerifier({roots}),v2.runtimeContext);
@@ -149,6 +150,12 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
     assert.equal(preflight.selectPerformanceVerifier({roots}),v3.runtimeContext,'the newest dual-saved verifier continuation is selected');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V4_RELATIVE),'{}');
     assert.equal(preflight.selectPerformanceVerifier({roots}),v4.runtimeContext,'the newest dual-saved verifier continuation is selected');
+    for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V5_RELATIVE),'{}');
+    assert.equal(preflight.selectPerformanceVerifier({roots}),v5.runtimeContext,'the newest dual-saved verifier continuation is selected');
+    fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V5_RELATIVE));
+    assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v5 continuation exists in only one store/);
+    fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V5_RELATIVE));
+    assert.equal(preflight.selectPerformanceVerifier({roots}),v4.runtimeContext,'v4 remains the fallback when v5 is absent');
     fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V4_RELATIVE));
     assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v4 continuation exists in only one store/);
     fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V4_RELATIVE));

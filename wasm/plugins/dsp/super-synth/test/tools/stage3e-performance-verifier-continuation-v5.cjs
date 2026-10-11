@@ -1,0 +1,177 @@
+'use strict';
+
+// Append-only verifier continuation for the immutable v4 record. This aligns
+// the recovery adapter result token with the existing reconciliation reader.
+const fs=require('node:fs');
+const path=require('node:path');
+const crypto=require('node:crypto');
+const {execFileSync}=require('node:child_process');
+const durable=require('./durable-evidence.cjs');
+const search=require('./stage3e-search-core.cjs');
+const v4=require('./stage3e-performance-verifier-continuation-v4.cjs');
+const acousticIdentity=require('./stage3e-performance-verifier-compatibility-v1.cjs');
+
+const PARENT_RELATIVE=v4.RELATIVE;
+const RELATIVE='performance-verifier-compatibility-v5.json';
+const PARENT_SHA256='2dbc65caef3ea70d9293cf32aec9a043d533e43423f7024daa263b73a835cc28';
+const PARENT_ACCEPTED_COMMIT='f3caae588228cd535ba71aea23ccb4e6138d8147';
+const STAGE3E_WASM_SHA256='6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221';
+const REQUIRED_CHANGED_PATHS=Object.freeze([
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs'
+]);
+const ALLOWED_CHANGED_PATHS=Object.freeze([
+  ...REQUIRED_CHANGED_PATHS,
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v5.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v5.test.cjs'
+].sort());
+const TEST_FILES=Object.freeze([
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v5.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-incremental-verification.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-generation2.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-master-orchestrator.test.cjs'
+]);
+
+function sha256(bytes){return crypto.createHash('sha256').update(bytes).digest('hex');}
+function jsonBytes(value){return Buffer.from(JSON.stringify(value,null,2)+'\n');}
+function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])]));return value;}
+function same(a,b){return JSON.stringify(stable(a))===JSON.stringify(stable(b));}
+function fail(message,token='BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY'){throw new Error(`${token}: ${message}`);}
+function rootsFor(root=search.ROOT,home=process.env.HOME){return v4.rootsFor(root,home);}
+function git(root,args,encoding=null){
+  try{return execFileSync('rtk',['git',...args],{cwd:root,encoding,maxBuffer:64*1024*1024,stdio:encoding?['ignore','pipe','pipe']:'pipe'});}
+  catch(error){fail(`git verification failed: ${error.message}`);}
+}
+function head(root){return git(root,['rev-parse','HEAD'],'utf8').trim();}
+function ancestor(root,from,to){try{git(root,['merge-base','--is-ancestor',from,to]);return true;}catch{return false;}}
+function pathsBetween(root,from,to){return git(root,['diff','--name-only','--no-renames',from,to,'--'],'utf8').split(/\r?\n/).map(x=>x.trim()).filter(x=>x&&x!=='Changes:').sort();}
+function diffBetween(root,from,to,paths){return sha256(git(root,['diff','--binary','--no-compact','--no-ext-diff','--no-renames',from,to,'--',...paths]));}
+function hashAt(root,commit,relative){return sha256(git(root,['show',`${commit}:${relative}`]));}
+function currentHash(root,relative){const file=path.join(root,relative);if(!fs.existsSync(file)||!fs.statSync(file).isFile())fail(`required verifier file is absent: ${relative}`);return sha256(fs.readFileSync(file));}
+function hashesAt(root,commit,paths){return Object.fromEntries(paths.map(relative=>[relative,hashAt(root,commit,relative)]));}
+function currentHashes(root,paths){return Object.fromEntries(paths.map(relative=>[relative,currentHash(root,relative)]));}
+function isClean(root){return git(root,['status','--porcelain'],'utf8').trim()==='';}
+
+function readAndValidateParent(root,roots){
+  const stored=durable.verifyDualCopy(path.join(roots.primary,PARENT_RELATIVE),path.join(roots.secondary,PARENT_RELATIVE),PARENT_SHA256);
+  let record;
+  try{record=JSON.parse(stored.bytes.toString('utf8'));}catch{fail('immutable v4 parent is not valid JSON');}
+  if(record.acceptedCommit!==PARENT_ACCEPTED_COMMIT||record.stage3eWasmSha256!==STAGE3E_WASM_SHA256)
+    fail('immutable v4 parent identity differs');
+  const parentPaths=pathsBetween(root,v4.PARENT_ACCEPTED_COMMIT,record.acceptedCommit);
+  const identity=acousticIdentity.currentStage3eAcousticIdentity(root);
+  if(!same(identity,record.stage3eAcousticIdentity))fail('current acoustic identity differs from immutable v4','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
+  const expected={root,parentSha256:v4.PARENT_SHA256,acceptedCommit:record.acceptedCommit,paths:parentPaths,
+    diffSha256:diffBetween(root,v4.PARENT_ACCEPTED_COMMIT,record.acceptedCommit,parentPaths),
+    changedFileSha256:hashesAt(root,record.acceptedCommit,parentPaths),stage3eAcousticIdentity:identity};
+  v4.validateRecord(record,expected);
+  return {record,sha256:stored.sha256,identity};
+}
+
+function snapshot({root=search.ROOT,roots=rootsFor(root),acceptedCommit=head(root)}={}){
+  const parent=readAndValidateParent(root,roots);
+  if(!ancestor(root,PARENT_ACCEPTED_COMMIT,acceptedCommit))
+    fail('verifier continuation is not descended from the immutable v4 commit','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
+  const paths=pathsBetween(root,PARENT_ACCEPTED_COMMIT,acceptedCommit);
+  const disallowed=paths.filter(item=>!ALLOWED_CHANGED_PATHS.includes(item));
+  const missing=REQUIRED_CHANGED_PATHS.filter(item=>!paths.includes(item));
+  if(disallowed.length||missing.length)
+    fail(`v5 diff is outside its verifier-only scope; disallowed=${disallowed.join(',')}; missing=${missing.join(',')}`,
+      'BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
+  const identity=acousticIdentity.currentStage3eAcousticIdentity(root);
+  if(identity.diagnosticWasmSha256!==STAGE3E_WASM_SHA256||!same(identity,parent.identity))
+    fail('Stage3E acoustic creator identity differs from immutable v4','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
+  const acceptedHashes=hashesAt(root,acceptedCommit,paths);
+  if(!same(currentHashes(root,paths),acceptedHashes))fail('current verifier files differ from the accepted v5 commit');
+  return {root,roots,parent,parentSha256:parent.sha256,acceptedCommit,paths,
+    diffSha256:diffBetween(root,PARENT_ACCEPTED_COMMIT,acceptedCommit,paths),
+    changedFileSha256:acceptedHashes,stage3eAcousticIdentity:identity};
+}
+
+function runVerifierTests(root=search.ROOT){
+  return TEST_FILES.map(relative=>{
+    let output;
+    try{output=execFileSync('rtk',['node',relative],{cwd:root,encoding:null,maxBuffer:16*1024*1024,stdio:['ignore','pipe','pipe']});}
+    catch(error){fail(`zero-render test failed: ${relative}: ${String(error.stderr||error.stdout||error.message).slice(-3000)}`);}
+    return {command:`rtk node ${relative}`,status:'PASS',outputSha256:sha256(output)};
+  });
+}
+function buildRecord({root=search.ROOT,home=process.env.HOME,testResults,acceptedCommit=head(root)}={}){
+  if(!isClean(root))fail('compatibility record requires a clean committed verifier tree');
+  if(head(root)!==acceptedCommit)fail('compatibility record must bind current HEAD');
+  if(!Array.isArray(testResults)||!testResults.length||testResults.some(item=>!item||item.status!=='PASS'||
+      typeof item.command!=='string'||! /^[0-9a-f]{64}$/.test(item.outputSha256||'')))fail('zero-render verifier test evidence is incomplete');
+  const state=snapshot({root,roots:rootsFor(root,home),acceptedCommit});
+  return {schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_FOLLOWUP',decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',
+    parentRelative:PARENT_RELATIVE,parentSha256:state.parentSha256,parentAcceptedCommit:PARENT_ACCEPTED_COMMIT,acceptedCommit,
+    allowedChangedPaths:state.paths,allowedVerifierOnlyDiffSha256:state.diffSha256,changedFileSha256:state.changedFileSha256,
+    stage3eAcousticIdentity:state.stage3eAcousticIdentity,stage3eWasmSha256:STAGE3E_WASM_SHA256,
+    testResults,testResultsSha256:sha256(jsonBytes(testResults)),acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+}
+function validateRecord(record,expected){
+  if(!record||record.schemaVersion!==1||record.kind!=='STAGE3E_PERFORMANCE_VERIFIER_FOLLOWUP'||
+     record.decision!=='STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE'||record.parentRelative!==PARENT_RELATIVE||
+     record.parentSha256!==expected.parentSha256||record.parentAcceptedCommit!==PARENT_ACCEPTED_COMMIT||
+     record.acceptedCommit!==expected.acceptedCommit||!ancestor(expected.root,record.acceptedCommit,head(expected.root))||
+     !same(record.allowedChangedPaths,expected.paths)||record.allowedVerifierOnlyDiffSha256!==expected.diffSha256||
+     !same(record.changedFileSha256,expected.changedFileSha256)||!same(record.stage3eAcousticIdentity,expected.stage3eAcousticIdentity)||
+     record.stage3eWasmSha256!==STAGE3E_WASM_SHA256||!Array.isArray(record.testResults)||!record.testResults.length||
+     record.testResults.some(item=>!item||item.status!=='PASS'||typeof item.command!=='string'||! /^[0-9a-f]{64}$/.test(item.outputSha256||''))||
+     record.testResultsSha256!==sha256(jsonBytes(record.testResults))||record.acousticRenders!==0||record.builds!==0||record.primarySecondaryIntegrity!=='PASS')
+    fail('v5 sidecar differs from its immutable v4 parent, exact verifier diff, tests, or acoustic identity');
+  return {decision:record.decision,acceptedCommit:record.acceptedCommit,parentSha256:record.parentSha256};
+}
+function runtimeContext({root=search.ROOT,home=process.env.HOME,roots=rootsFor(root,home)}={}){
+  const stored=durable.verifyDualCopy(path.join(roots.primary,RELATIVE),path.join(roots.secondary,RELATIVE));
+  let record;
+  try{record=JSON.parse(stored.bytes.toString('utf8'));}catch{fail('v5 sidecar is not valid JSON');}
+  const expected=snapshot({root,roots,acceptedCommit:record.acceptedCommit});
+  validateRecord(record,expected);
+  return {decision:record.decision,acceptedCommit:record.acceptedCommit,sha256:stored.sha256,record,
+    builds:0,acousticRenders:0,evidenceWrites:0};
+}
+function recoveryDecision(decision){
+  if(decision!=='STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE')fail('performance verifier result token is not accepted by recovery');
+  return 'STAGE3E_PERFORMANCE_VERIFIER_CONTINUATION_COMPATIBLE';
+}
+function assertRecoveryRuntimeBinding({root,roots,head:currentHead}={}){
+  const current=runtimeContext({root,roots});
+  if(currentHead&&!ancestor(root,current.acceptedCommit,currentHead))
+    fail('v5 verifier commit is not an ancestor of the active execution','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
+  return {...current,decision:recoveryDecision(current.decision),verifierDecision:current.decision};
+}
+function main(argv=process.argv.slice(2)){
+  if(argv.length!==1||!['--dry-run','--create','--verify'].includes(argv[0]))throw new Error('explicit mode required: --dry-run, --create, or --verify');
+  const root=search.ROOT,home=process.env.HOME,roots=rootsFor(root,home),mode=argv[0];
+  if(mode==='--verify'){
+    const result=runtimeContext({root,home,roots});process.stdout.write(JSON.stringify({...result,record:undefined})+'\n');return;
+  }
+  if(mode==='--create')acousticIdentity.assertNoActiveWriter(root);
+  const testResults=runVerifierTests(root),acceptedCommit=head(root),record=buildRecord({root,home,testResults,acceptedCommit});
+  const bytes=jsonBytes(record),recordSha256=sha256(bytes),primary=path.join(roots.primary,RELATIVE),secondary=path.join(roots.secondary,RELATIVE);
+  const hasPrimary=fs.existsSync(primary),hasSecondary=fs.existsSync(secondary);
+  if(hasPrimary!==hasSecondary)fail('v5 sidecar exists in one durable store only','BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE');
+  if(hasPrimary){
+    const stored=durable.verifyDualCopy(primary,secondary);
+    if(!stored.bytes.equals(bytes))fail('existing v5 sidecar is immutable and differs','BLOCKED_STAGE3E_PERFORMANCE_COMPATIBILITY_COLLISION');
+    process.stdout.write(JSON.stringify({decision:mode==='--dry-run'?'STAGE3E_PERFORMANCE_VERIFIER_FOLLOWUP_READY':record.decision,
+      acceptedCommit,recordSha256:stored.sha256,reused:true,builds:0,acousticRenders:0,evidenceWrites:0})+'\n');return;
+  }
+  if(mode==='--dry-run'){
+    process.stdout.write(JSON.stringify({decision:'STAGE3E_PERFORMANCE_VERIFIER_FOLLOWUP_READY',acceptedCommit,recordSha256,
+      builds:0,acousticRenders:0,evidenceWrites:0})+'\n');return;
+  }
+  const saved=durable.writeDualCopy(primary,secondary,bytes);
+  process.stdout.write(JSON.stringify({decision:record.decision,acceptedCommit,recordSha256:saved.sha256,reused:false,
+    builds:0,acousticRenders:0,evidenceWrites:1})+'\n');
+}
+if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
+module.exports={PARENT_RELATIVE,RELATIVE,PARENT_SHA256,PARENT_ACCEPTED_COMMIT,STAGE3E_WASM_SHA256,REQUIRED_CHANGED_PATHS,
+  ALLOWED_CHANGED_PATHS,TEST_FILES,sha256,jsonBytes,stable,same,rootsFor,pathsBetween,diffBetween,readAndValidateParent,
+  snapshot,runVerifierTests,buildRecord,validateRecord,runtimeContext,recoveryDecision,assertRecoveryRuntimeBinding,main};

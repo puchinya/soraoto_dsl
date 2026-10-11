@@ -96,6 +96,19 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
       /performance verifier v4 follow-up schema mismatch/);
     write(path.join(roots.primary,v4Path),v4Bytes);write(path.join(roots.secondary,v4Path),v4Bytes);
+    const v5Record={...v4Record,parentRelative:'performance-verifier-compatibility-v4.json',
+      parentSha256:'2dbc65caef3ea70d9293cf32aec9a043d533e43423f7024daa263b73a835cc28',
+      parentAcceptedCommit:'f3caae588228cd535ba71aea23ccb4e6138d8147'};
+    const v5Path='generation-2/search-v1/performance-verifier-compatibility-v5.json';
+    const v5Bytes=Buffer.from(JSON.stringify(v5Record));
+    write(path.join(roots.primary,v5Path),v5Bytes);write(path.join(roots.secondary,v5Path),v5Bytes);
+    const withV5=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV5.additionCount,20);
+    write(path.join(roots.primary,v5Path),Buffer.from(JSON.stringify({...v5Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v5Path),Buffer.from(JSON.stringify({...v5Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v5 follow-up schema mismatch/);
+    write(path.join(roots.primary,v5Path),v5Bytes);write(path.join(roots.secondary,v5Path),v5Bytes);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/validations/low-full-x/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.json'),true);
@@ -103,6 +116,7 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.equal(validator.isSearchAddition(continuationPath),true);
     assert.equal(validator.isSearchAddition(followupPath),true);
     assert.equal(validator.isSearchAddition(v4Path),true);
+    assert.equal(validator.isSearchAddition(v5Path),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.sha256'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/archives/verifier-compatibility-v2.tar.gz'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10.json'),true);
