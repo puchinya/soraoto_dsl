@@ -6,6 +6,12 @@ const os=require('node:os');
 const path=require('node:path');
 const durable=require('./durable-evidence.cjs');
 const runner=require('./run-stage3e-generation2.cjs');
+assert.equal(typeof runner.captureOptionsForCell,'function','the library API must be assigned before the direct CLI can invoke it');
+{
+  const source=fs.readFileSync(require.resolve('./run-stage3e-generation2.cjs'),'utf8');
+  assert.ok(source.indexOf('module.exports=')<source.indexOf('if(require.main===module)'),
+    'direct CLI execution must happen after public exports are initialized');
+}
 const legacy=require('./run-stage3e-velocity-response.cjs');
 const search=require('./stage3e-search-core.cjs');
 const evidenceValidator=require('./stage3e-evidence-validator.cjs');

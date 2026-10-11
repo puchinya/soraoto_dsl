@@ -91,3 +91,7 @@ When Google Drive is available, upload finalized phase archives, manifests, and 
 ## Recovery and privacy
 
 If evidence identity changes, a required copy is missing/corrupt, or a ledger is ambiguous, fail closed and preserve the current artifacts. Do not reconstruct raw rows from summaries. Do not stage or commit private roots, archives, raw audio, secrets, or machine-specific paths.
+
+### Stage3E verifier continuation
+
+The Stage3E performance-verifier compatibility record is immutable. A later verifier-only correction must append a separate continuation record that names the exact predecessor SHA and accepted commit, binds the exact source diff and current verifier hashes, and proves the acoustic identity and capture helper remain unchanged. Historical recovery attestations remain valid historical records; the continuation may authorize only the current verifier code after its source hashes, test report, and both durable copies validate. `--dry-run` and `--verify` must remain read-only. Never rewrite an earlier compatibility record to absorb a verifier change.

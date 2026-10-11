@@ -379,7 +379,15 @@ function assertCurrentVerifierAtAnchor(root,anchorCommit,head=currentHead(root),
   if(changed){
     if(anchorCommit!==VERIFIER_FIX_ANCHOR||!evidenceRoots)
       fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','verifier runtime changed after compatibility anchor without the v10 attestation');
-    readVerifierCompatibilityAttestation({root,anchorCommit,head,evidenceRoots});
+    const historical=readVerifierCompatibilityAttestation({root,anchorCommit,head,evidenceRoots,requireCurrent:false});
+    if(!verifierAttestationMatchesWorkingTree(root,historical)){
+      let continuation;
+      try{continuation=require('./stage3e-performance-verifier-continuation-v2.cjs')
+        .assertRecoveryRuntimeBinding({root,roots:evidenceRoots,head});}
+      catch(error){fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY',`historical v10 chain is valid but current verifier continuation is absent or invalid: ${error.message}`);}
+      if(continuation?.decision!=='STAGE3E_PERFORMANCE_VERIFIER_CONTINUATION_COMPATIBLE')
+        fail('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY','performance verifier continuation did not authorize this runtime');
+    }
   }
   return anchor;
 }

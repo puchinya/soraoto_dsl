@@ -24,6 +24,7 @@ const V1_COMPATIBILITY_RELATIVE='verifier-compatibility-v1.json';
 const COMPATIBILITY_RELATIVE=compatibilityV2.V2_RELATIVE;
 const COMPATIBILITY_V3_RELATIVE=compatibilityV3.RELATIVE;
 const PERFORMANCE_COMPATIBILITY_RELATIVE='performance-verifier-compatibility-v1.json';
+const PERFORMANCE_CONTINUATION_RELATIVE='performance-verifier-compatibility-v2.json';
 const GENESIS_RELATIVE='ledger-transition-journal/genesis-ledger.json';
 const GENESIS_RECORD_RELATIVE='ledger-transition-journal/genesis.json';
 const JOURNAL_RELATIVE='ledger-transition-journal';
@@ -57,7 +58,13 @@ function validateRecoveryCompatibility({reconciliation,bundle,root,roots,manifes
     sourceAuditSha256,oldResultSha256,testReportSha256,evidenceRoots:roots});
 }
 function validatePerformanceVerifierBinding({root,manifest,bundle,roots,expectedSha256,verify}={}){
-  const verifier=verify||require('./stage3e-performance-verifier-compatibility-v1.cjs').runtimeContext;
+  const primaryV2=path.join(roots.primary,PERFORMANCE_CONTINUATION_RELATIVE);
+  const secondaryV2=path.join(roots.secondary,PERFORMANCE_CONTINUATION_RELATIVE);
+  const hasPrimaryV2=fs.existsSync(primaryV2),hasSecondaryV2=fs.existsSync(secondaryV2);
+  if(hasPrimaryV2!==hasSecondaryV2)throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: performance continuation exists in only one store');
+  const verifier=verify||(hasPrimaryV2
+    ?require('./stage3e-performance-verifier-continuation-v2.cjs').runtimeContext
+    :require('./stage3e-performance-verifier-compatibility-v1.cjs').runtimeContext);
   if(!bundle||typeof verifier!=='function')throw new Error('BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY: verifier binding inputs are incomplete');
   const result=verifier({root,manifest,v3Record:bundle.record,v3Sha256:bundle.sha256,roots});
   if(expectedSha256!==undefined&&(result?.sha256||null)!==(expectedSha256||null))
