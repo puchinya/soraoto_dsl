@@ -32,6 +32,7 @@ const PERFORMANCE_CONTINUATION_V6_RELATIVE='performance-verifier-compatibility-v
 const PERFORMANCE_CONTINUATION_V7_RELATIVE='performance-verifier-compatibility-v7.json';
 const PERFORMANCE_CONTINUATION_V8_RELATIVE='performance-verifier-compatibility-v8.json';
 const PERFORMANCE_CONTINUATION_V9_RELATIVE='performance-verifier-compatibility-v9.json';
+const PERFORMANCE_CONTINUATION_V10_RELATIVE='performance-verifier-compatibility-v10.json';
 const GENESIS_RELATIVE='ledger-transition-journal/genesis-ledger.json';
 const GENESIS_RECORD_RELATIVE='ledger-transition-journal/genesis.json';
 const JOURNAL_RELATIVE='ledger-transition-journal';
@@ -67,6 +68,7 @@ function validateRecoveryCompatibility({reconciliation,bundle,root,roots,manifes
 function selectPerformanceVerifier({roots,verify}={}){
   if(verify)return verify;
   const versions=[
+    {relative:PERFORMANCE_CONTINUATION_V10_RELATIVE,module:'./stage3e-performance-verifier-continuation-v10.cjs',label:'v10'},
     {relative:PERFORMANCE_CONTINUATION_V9_RELATIVE,module:'./stage3e-performance-verifier-continuation-v9.cjs',label:'v9'},
     {relative:PERFORMANCE_CONTINUATION_V8_RELATIVE,module:'./stage3e-performance-verifier-continuation-v8.cjs',label:'v8'},
     {relative:PERFORMANCE_CONTINUATION_V7_RELATIVE,module:'./stage3e-performance-verifier-continuation-v7.cjs',label:'v7'},
@@ -383,7 +385,7 @@ function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=
     roots,manifest,creatorIdentity:manifest.identity,currentVerifierIdentity:currentFiles(root),sourceAudit:audit.audit};
 }
 
-module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,COMPATIBILITY_V3_RELATIVE,PERFORMANCE_COMPATIBILITY_RELATIVE,PERFORMANCE_CONTINUATION_RELATIVE,PERFORMANCE_CONTINUATION_V3_RELATIVE,PERFORMANCE_CONTINUATION_V4_RELATIVE,PERFORMANCE_CONTINUATION_V5_RELATIVE,PERFORMANCE_CONTINUATION_V6_RELATIVE,PERFORMANCE_CONTINUATION_V7_RELATIVE,PERFORMANCE_CONTINUATION_V8_RELATIVE,PERFORMANCE_CONTINUATION_V9_RELATIVE,validateRecoveryCompatibility,
+module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,COMPATIBILITY_V3_RELATIVE,PERFORMANCE_COMPATIBILITY_RELATIVE,PERFORMANCE_CONTINUATION_RELATIVE,PERFORMANCE_CONTINUATION_V3_RELATIVE,PERFORMANCE_CONTINUATION_V4_RELATIVE,PERFORMANCE_CONTINUATION_V5_RELATIVE,PERFORMANCE_CONTINUATION_V6_RELATIVE,PERFORMANCE_CONTINUATION_V7_RELATIVE,PERFORMANCE_CONTINUATION_V8_RELATIVE,PERFORMANCE_CONTINUATION_V9_RELATIVE,PERFORMANCE_CONTINUATION_V10_RELATIVE,validateRecoveryCompatibility,
   GENESIS_RELATIVE,GENESIS_RECORD_RELATIVE,JOURNAL_RELATIVE,ALLOWED_TRACKED_DIFFS,sha256,stable,same,searchRoots,currentFiles,
   validateCompatibility,readTransitionEntries,readRenderStartEntries,validateSearchLedger,validateRuntimeIdentity,acquireWriterLock,
   trackedDiff,assertTrackedWorktreeClean,runCompatibilityTests,buildCompatibilityV2Record,selectPerformanceVerifier,validatePerformanceVerifierBinding,preflight};
