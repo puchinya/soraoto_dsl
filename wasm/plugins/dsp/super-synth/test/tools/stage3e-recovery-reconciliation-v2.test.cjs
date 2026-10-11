@@ -22,7 +22,7 @@ const recovery=require('./stage3e-recovery-reconciliation-v2.cjs');
     assert.equal(fs.existsSync(path.join(roots.primary,'generation-2','search-v1',relative)),false,
       'continuation lookup must not append the search-root prefix twice');
     assert.throws(()=>recovery.performanceVerifierContinuationPaths(roots,'../outside.json'),/BLOCKED_STAGE3E_RECOVERY_SOURCE_SCHEMA/);
-    const latest=require('./stage3e-performance-verifier-continuation-v8.cjs').RELATIVE;
+    const latest=require('./stage3e-performance-verifier-continuation-v9.cjs').RELATIVE;
     const resolvedLatest=recovery.performanceVerifierContinuationPaths(roots,latest);
     assert.equal(resolvedLatest.primary,path.join(roots.primary,latest),'the latest continuation uses the canonical search root');
     assert.equal(resolvedLatest.secondary,path.join(roots.secondary,latest),'the latest continuation mirrors the canonical search root');

@@ -146,6 +146,7 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
     const v6=require('./stage3e-performance-verifier-continuation-v6.cjs');
     const v7=require('./stage3e-performance-verifier-continuation-v7.cjs');
     const v8=require('./stage3e-performance-verifier-continuation-v8.cjs');
+    const v9=require('./stage3e-performance-verifier-continuation-v9.cjs');
     assert.equal(preflight.selectPerformanceVerifier({roots}),require('./stage3e-performance-verifier-compatibility-v1.cjs').runtimeContext);
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_RELATIVE),'{}');
     assert.equal(preflight.selectPerformanceVerifier({roots}),v2.runtimeContext);
@@ -161,6 +162,11 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
     assert.equal(preflight.selectPerformanceVerifier({roots}),v7.runtimeContext,'v7 is selected ahead of immutable older continuations');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V8_RELATIVE),'{}');
     assert.equal(preflight.selectPerformanceVerifier({roots}),v8.runtimeContext,'v8 is selected ahead of immutable older continuations');
+    for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V9_RELATIVE),'{}');
+    assert.equal(preflight.selectPerformanceVerifier({roots}),v9.runtimeContext,'v9 is selected ahead of immutable older continuations');
+    fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V9_RELATIVE));
+    assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v9 continuation exists in only one store/);
+    fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V9_RELATIVE));
     fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V8_RELATIVE));
     assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v8 continuation exists in only one store/);
     fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V8_RELATIVE));

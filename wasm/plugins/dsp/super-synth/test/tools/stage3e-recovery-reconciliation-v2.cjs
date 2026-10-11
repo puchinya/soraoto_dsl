@@ -387,12 +387,15 @@ function assertCurrentVerifierAtAnchor(root,anchorCommit,head=currentHead(root),
     const historical=readVerifierCompatibilityAttestation({root,anchorCommit,head,evidenceRoots,requireCurrent:false});
     if(!verifierAttestationMatchesWorkingTree(root,historical)){
       let continuation;
+      const continuationV9=require('./stage3e-performance-verifier-continuation-v9.cjs');
       const continuationV8=require('./stage3e-performance-verifier-continuation-v8.cjs');
       const continuationV7=require('./stage3e-performance-verifier-continuation-v7.cjs');
       const continuationV6=require('./stage3e-performance-verifier-continuation-v6.cjs');
       const continuationV5=require('./stage3e-performance-verifier-continuation-v5.cjs');
       const continuationV4=require('./stage3e-performance-verifier-continuation-v4.cjs');
       const continuationV3=require('./stage3e-performance-verifier-continuation-v3.cjs');
+      const v9Primary=path.join(evidenceRoots.primary,continuationV9.RELATIVE);
+      const v9Secondary=path.join(evidenceRoots.secondary,continuationV9.RELATIVE);
       const v8Primary=path.join(evidenceRoots.primary,continuationV8.RELATIVE);
       const v8Secondary=path.join(evidenceRoots.secondary,continuationV8.RELATIVE);
       const v7Primary=path.join(evidenceRoots.primary,continuationV7.RELATIVE);
@@ -405,6 +408,8 @@ function assertCurrentVerifierAtAnchor(root,anchorCommit,head=currentHead(root),
       const v4Secondary=path.join(evidenceRoots.secondary,continuationV4.RELATIVE);
       const v3Primary=path.join(evidenceRoots.primary,continuationV3.RELATIVE);
       const v3Secondary=path.join(evidenceRoots.secondary,continuationV3.RELATIVE);
+      const hasV9Primary=fs.existsSync(v9Primary),hasV9Secondary=fs.existsSync(v9Secondary);
+      if(hasV9Primary!==hasV9Secondary)fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','performance v9 continuation exists in one store only');
       const hasV8Primary=fs.existsSync(v8Primary),hasV8Secondary=fs.existsSync(v8Secondary);
       if(hasV8Primary!==hasV8Secondary)fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','performance v8 continuation exists in one store only');
       const hasV7Primary=fs.existsSync(v7Primary),hasV7Secondary=fs.existsSync(v7Secondary);
@@ -417,7 +422,7 @@ function assertCurrentVerifierAtAnchor(root,anchorCommit,head=currentHead(root),
       if(hasV4Primary!==hasV4Secondary)fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','performance v4 continuation exists in one store only');
       const hasV3Primary=fs.existsSync(v3Primary),hasV3Secondary=fs.existsSync(v3Secondary);
       if(hasV3Primary!==hasV3Secondary)fail('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE','performance v3 continuation exists in one store only');
-      const runtimeModule=hasV8Primary?continuationV8:hasV7Primary?continuationV7:hasV6Primary?continuationV6:hasV5Primary?continuationV5:
+      const runtimeModule=hasV9Primary?continuationV9:hasV8Primary?continuationV8:hasV7Primary?continuationV7:hasV6Primary?continuationV6:hasV5Primary?continuationV5:
         hasV4Primary?continuationV4:hasV3Primary?continuationV3:require('./stage3e-performance-verifier-continuation-v2.cjs');
       try{continuation=runtimeModule
         .assertRecoveryRuntimeBinding({root,roots:evidenceRoots,head});}

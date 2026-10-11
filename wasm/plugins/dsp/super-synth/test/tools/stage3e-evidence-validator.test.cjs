@@ -4,6 +4,7 @@ const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 const validator=require('./stage3e-evidence-validator.cjs');
+const search=require('./stage3e-search-core.cjs');
 
 function write(file,bytes){fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);}
 function inventory(root){return validator.walkFiles(root);}
@@ -148,6 +149,36 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
       /performance verifier v8 follow-up schema mismatch/);
     write(path.join(roots.primary,v8Path),v8Bytes);write(path.join(roots.secondary,v8Path),v8Bytes);
+    const v9Results=[{command:'continuation-v9.test.cjs',status:'PASS',outputSha256:'1'.repeat(64)}];
+    const v9RequiredPaths=[
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v9.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v9.test.cjs'
+    ].sort();
+    const v9Record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_FOLLOWUP',decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',
+      parentRelative:'performance-verifier-compatibility-v8.json',parentSha256:'1073fc1b2095a5e0668728f0a707aa4d21518e116a722fdf23a5bf5b82d1155d',
+      parentAcceptedCommit:'0d4a2454b79f78a8ccd4144fffd9ede154229c0f',acceptedCommit:'0'.repeat(40),
+      allowedChangedPaths:v9RequiredPaths,allowedVerifierOnlyDiffSha256:'2'.repeat(64),
+      changedFileSha256:Object.fromEntries(v9RequiredPaths.map(item=>[item,'3'.repeat(64)])),
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:v9Results,testResultsSha256:validator.sha256(validator.jsonBytes(v9Results)),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const v9Path='generation-2/search-v1/performance-verifier-compatibility-v9.json';
+    const v9Bytes=Buffer.from(JSON.stringify(v9Record));
+    write(path.join(roots.primary,v9Path),v9Bytes);write(path.join(roots.secondary,v9Path),v9Bytes);
+    const withV9=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV9.additionCount,24);
+    write(path.join(roots.primary,v9Path),Buffer.from(JSON.stringify({...v9Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v9Path),Buffer.from(JSON.stringify({...v9Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v9 follow-up schema mismatch/);
+    write(path.join(roots.primary,v9Path),v9Bytes);write(path.join(roots.secondary,v9Path),v9Bytes);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/validations/low-full-x/cells/unauthorized.json',{authorizedKeys:expected}),false);
     const lowFullValidation='generation-2/search-v1/low/validations/low-full-0.35-0.5/';
@@ -165,6 +196,7 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.equal(validator.isSearchAddition(v6Path),true);
     assert.equal(validator.isSearchAddition(v7Path),true);
     assert.equal(validator.isSearchAddition(v8Path),true);
+    assert.equal(validator.isSearchAddition(v9Path),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.sha256'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/archives/verifier-compatibility-v2.tar.gz'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10.json'),true);
@@ -189,6 +221,45 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     write(path.join(roots.primary,'random/unowned.json'),Buffer.from('unexpected'));
     write(path.join(roots.secondary,'random/unowned.json'),Buffer.from('unexpected'));
     assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),/BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE/);
+  }finally{fs.rmSync(roots.base,{recursive:true,force:true});}
+}
+
+{
+  const roots=makeRoots();
+  try{
+    const audit=auditFor(roots.primary,roots.secondary);
+    const lowSelection={low:0.35,mid:1,bassHardness:0.5,rank:{rankMaxError:1,rankSumSquares:2}};
+    const authorizedGrid=search.midGridTuples(lowSelection),screenCoordinates=search.midScreenCells();
+    const expected=authorizedGrid.flatMap(response=>screenCoordinates.map(cell=>{
+      const identity={...cell,phase:'mid-screen',response};
+      return {...identity,key:search.cellId(identity)};
+    }));
+    const target=expected[0],cellBytes=Buffer.from('authorized mid-screen cell'),cellSha=validator.sha256(cellBytes);
+    const manifest={schemaVersion:1,state:'ACTIVE',generation:2,searchEpoch:'search-v1',identity:{candidateId:'fixture'}};
+    const manifestBytes=Buffer.from(JSON.stringify(manifest)),manifestSha256=validator.sha256(manifestBytes);
+    const ledger={schemaVersion:1,generation:2,executionId:'generation-2',phase:'mid',
+      identity:{...manifest.identity,phase:'mid',authorizedGrid,screenCoordinates,lowSelection},
+      authorizedCellCount:expected.length,accounting:{renderCalls:1},cells:{}};
+    for(const cell of expected)ledger.cells[cell.key]={state:cell.key===target.key?'COMPLETE':'PENDING',identity:cell,
+      relativePath:`cells/${cell.key}.json`,sha256:cell.key===target.key?cellSha:null};
+    const ledgerBytes=Buffer.from(JSON.stringify(ledger));
+    const cellRelative=`generation-2/search-v1/mid/cells/${target.key}.json`;
+    const ledgerRelative='generation-2/search-v1/mid/mid-ledger.json';
+    for(const root of [roots.primary,roots.secondary]){
+      write(path.join(root,'generation-2/search-v1/generation-2-manifest.json'),manifestBytes);
+      write(path.join(root,cellRelative),cellBytes);
+      write(path.join(root,ledgerRelative),ledgerBytes);
+    }
+    const validate=()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,manifestSha256});
+    assert.equal(validate().additionCount,3,'a mid-screen cell is authorized only by its matching COMPLETE ledger row');
+    const rogueKey='mid-screen-L0.35-M0.75-H0.5-midi-099-v110';
+    const rogueRelative=`generation-2/search-v1/mid/cells/${rogueKey}.json`;
+    write(path.join(roots.primary,rogueRelative),cellBytes);write(path.join(roots.secondary,rogueRelative),cellBytes);
+    assert.throws(validate,/mid-screen cell is not a matching COMPLETE ledger row/);
+    fs.rmSync(path.join(roots.primary,rogueRelative));fs.rmSync(path.join(roots.secondary,rogueRelative));
+    const wrongLedgerBytes=Buffer.from(JSON.stringify({...ledger,cells:{...ledger.cells,[target.key]:{...ledger.cells[target.key],sha256:'0'.repeat(64)}}}));
+    write(path.join(roots.primary,ledgerRelative),wrongLedgerBytes);write(path.join(roots.secondary,ledgerRelative),wrongLedgerBytes);
+    assert.throws(validate,/COMPLETE mid-screen ledger row has no matching dual-saved cell/);
   }finally{fs.rmSync(roots.base,{recursive:true,force:true});}
 }
 
