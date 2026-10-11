@@ -53,6 +53,25 @@ function jsonBytes(value){return Buffer.from(JSON.stringify(value,null,2)+'\n');
 function stable(value){if(Array.isArray(value))return value.map(stable);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,stable(value[key])]));return value;}
 function same(a,b){return JSON.stringify(stable(a))===JSON.stringify(stable(b));}
 function fail(message,token='BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY'){throw new Error(`${token}: ${message}`);}
+function stage3eCaptureControls({capture,options,presetSource}={}){
+  const expectedResponse={low:1,mid:1,bassHardness:1};
+  if(capture?.SAMPLE_RATE!==48000||capture?.DURATION_MS!==380||!same(capture?.DEFAULT_RESPONSE,expectedResponse)||
+     !/harness\.applyPreset\(['"]concert_grand['"]\)/.test(presetSource||'')||
+     !same(options,{stage2mFactorMask:3,includeVelocityDerivative:true,velocityDerivativeStartMs:30,
+       velocityDerivativeEndMs:180,includeSoundboardDiagnostics:true}))
+    fail('current Stage3E capture controls differ from the immutable baseline','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
+  return {sampleRate:capture.SAMPLE_RATE,durationMs:capture.DURATION_MS,preset:'concert_grand',stage2mFactorMask:3,
+    stage3eResponse:capture.DEFAULT_RESPONSE,includeSoundboardDiagnostics:options.includeSoundboardDiagnostics};
+}
+function currentStage3eAcousticIdentity(root){
+  const identity=v3.currentAcousticIdentity(root);
+  const capture=require('./capture-supersynth-stage3e-matrix.cjs');
+  const runner=require('./run-stage3e-generation2.cjs');
+  const controls=stage3eCaptureControls({capture,
+    options:runner.captureOptionsForCell({phase:'baseline',pitch:41,velocityNormalized:0.25}),
+    presetSource:fs.readFileSync(require.resolve('./capture-supersynth-stage3e-matrix.cjs'),'utf8')});
+  return {...identity,...controls};
+}
 function git(root,args,encoding=null){return execFileSync('rtk',['git',...args],{cwd:root,encoding,maxBuffer:64*1024*1024,stdio:encoding?['ignore','pipe','pipe']:'pipe'});}
 function head(root){return git(root,['rev-parse','HEAD'],'utf8').trim();}
 function isAncestor(root,from,to){try{git(root,['merge-base','--is-ancestor',from,to]);return true;}catch{return false;}}
@@ -147,7 +166,7 @@ function buildRecord({root,roots,manifest,v3Record,v3Sha256,testResults,accepted
   const allowedVerifierOnlyDiffSha256=diffSha256(root,ORIGINAL_LOCAL_COMMIT,acceptedCommit,allowedVerifierOnlyPaths);
   const effectiveVerifierBlobHashes=verifierHashesAt(root,acceptedCommit);
   const originalEffectiveVerifierBlobHashes=Object.fromEntries(EFFECTIVE_VERIFIER_PATHS.map(relative=>[relative,optionalCommitFileHash(root,ORIGINAL_LOCAL_COMMIT,relative)]));
-  const stage3eAcousticIdentity=v3.acousticCriticalInputs(manifest),currentAcousticIdentity=v3.currentAcousticIdentity(root);
+  const stage3eAcousticIdentity=v3.acousticCriticalInputs(manifest),currentAcousticIdentity=currentStage3eAcousticIdentity(root);
   if(!same(stage3eAcousticIdentity,currentAcousticIdentity))fail('current Stage3E inputs differ from original manifest','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
   const reportSha=buildTestReportSha256(testResults);
   return {schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY',decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',
@@ -178,7 +197,7 @@ function runtimeContext({root,manifest,v3Record,v3Sha256,roots,allowAbsent=false
   const baseline=readV10Chain(roots);
   const originalEffectiveVerifierBlobHashes=Object.fromEntries(EFFECTIVE_VERIFIER_PATHS.map(relative=>[
     relative,optionalCommitFileHash(root,record.originalLocalCommit,relative)]));
-  const currentAcousticIdentity=v3.currentAcousticIdentity(root),originalAcousticIdentity=v3.acousticCriticalInputs(manifest);
+  const currentAcousticIdentity=currentStage3eAcousticIdentity(root),originalAcousticIdentity=v3.acousticCriticalInputs(manifest);
   const parentSha=parentAttestationSha256(roots),reportSha=buildTestReportSha256(record.testResults);
   validateRecord(record,{head:currentHead,originalPinnedHashes,currentPinnedHashes,acceptedPinnedHashes,currentVerifierHashes,
     allowedDiffPaths,allowedDiffSha256:allowedDiffSha,currentAcousticIdentity,originalAcousticIdentity,
@@ -250,4 +269,4 @@ const DEFAULT_TEST_RESULTS=Object.freeze([
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
 module.exports={RELATIVE,ORIGINAL_LOCAL_COMMIT,PARENT_V10_9_SHA256,BASELINE_V10_12_SHA256,ORIGINAL_V3_SHA256,V10_CHAIN,
   ALLOWED_CHANGED_PATHS,EFFECTIVE_VERIFIER_PATHS,sha256,jsonBytes,stable,same,changedPaths,diffSha256,
-  verifierHashesAt,buildTestReportSha256,validateRecord,buildRecord,runtimeContext,assertNoActiveWriter,DEFAULT_TEST_RESULTS};
+  verifierHashesAt,buildTestReportSha256,stage3eCaptureControls,currentStage3eAcousticIdentity,validateRecord,buildRecord,runtimeContext,assertNoActiveWriter,DEFAULT_TEST_RESULTS};

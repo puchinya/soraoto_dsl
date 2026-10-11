@@ -12,7 +12,9 @@ const currentPins={captureHelper:'a'.repeat(64),generation2Runner:'c'.repeat(64)
 const effective={runner:'d'.repeat(64),validator:'e'.repeat(64)};
 const baselineFiles={'run-stage3e-generation2.cjs':'b'.repeat(64)};
 const originalEffective={runner:null,validator:null};
-const acousticIdentity={candidateId:'stage2n-r3-candidate-01',diagnosticWasmSha256:'f'.repeat(64),configSha256:'1'.repeat(64)};
+const acousticIdentity={candidateId:'stage2n-r3-candidate-01',diagnosticWasmSha256:'f'.repeat(64),sourcePluginSha256:'2'.repeat(64),
+  configSha256:'1'.repeat(64),profileSha256:'3'.repeat(64),presetsSha256:'4'.repeat(64),referenceFixtureSha256:'5'.repeat(64),
+  sampleRate:48000,durationMs:380,preset:'concert_grand',stage2mFactorMask:3,stage3eResponse:{low:1,mid:1,bassHardness:1},includeSoundboardDiagnostics:true};
 const paths=['wasm/plugins/dsp/super-synth/test/tools/run-stage3e-generation2.cjs'];
 const testResults=compatibility.DEFAULT_TEST_RESULTS;
 const record={
@@ -69,6 +71,12 @@ assert.throws(()=>compatibility.validateRecord(record,context({ancestorCheck:()=
   /accepted verifier commit is not an ancestor/);
 assert.throws(()=>compatibility.validateRecord(record,context({currentAcousticIdentity:{...acousticIdentity,diagnosticWasmSha256:'0'.repeat(64)}})),
   /Stage3E acoustic identity changed/);
+assert.throws(()=>compatibility.stage3eCaptureControls({capture:{SAMPLE_RATE:44100,DURATION_MS:380,DEFAULT_RESPONSE:{low:1,mid:1,bassHardness:1}},
+  options:{stage2mFactorMask:3,includeVelocityDerivative:true,velocityDerivativeStartMs:30,velocityDerivativeEndMs:180,includeSoundboardDiagnostics:true},
+  presetSource:"harness.applyPreset('concert_grand')"}),/BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT/);
+assert.throws(()=>compatibility.stage3eCaptureControls({capture:{SAMPLE_RATE:48000,DURATION_MS:380,DEFAULT_RESPONSE:{low:1,mid:1,bassHardness:1}},
+  options:{stage2mFactorMask:3,includeVelocityDerivative:true,velocityDerivativeStartMs:0,velocityDerivativeEndMs:160,includeSoundboardDiagnostics:true},
+  presetSource:"harness.applyPreset('concert_grand')"}),/BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT/);
 
 {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-performance-compatibility-lock-'));
