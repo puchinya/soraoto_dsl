@@ -156,7 +156,7 @@ function buildRecord({root,roots,manifest,v3Record,v3Sha256,testResults,accepted
     if(hashCommitFile(root,ORIGINAL_LOCAL_COMMIT,relative)!==expectedSha256)
       fail(`v10-12 source baseline does not match original commit: ${relative}`);
   }
-  const originalPinnedHashes=Object.fromEntries(Object.entries(v3.PINNED_PATHS).map(([key,relative])=>[key,hashCommitFile(root,ORIGINAL_LOCAL_COMMIT,relative)]));
+  const originalPinnedExecutorHashes=Object.fromEntries(Object.entries(v3.PINNED_PATHS).map(([key,relative])=>[key,hashCommitFile(root,ORIGINAL_LOCAL_COMMIT,relative)]));
   const acceptedPinnedExecutorHashes=Object.fromEntries(Object.entries(v3.PINNED_PATHS).map(([key,relative])=>[key,hashCommitFile(root,acceptedCommit,relative)]));
   const currentPinnedHashes=v3.pinnedExecutorHashes(root);
   if(!same(acceptedPinnedExecutorHashes,currentPinnedHashes))fail('current verifier files differ from accepted commit');
