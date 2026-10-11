@@ -117,10 +117,9 @@ function validateRecord(record,expected){
   return {decision:record.decision,acceptedCommit:record.acceptedCommit,parentSha256:record.parentSha256};
 }
 function runtimeContext({root=search.ROOT,home=process.env.HOME,roots=rootsFor(root,home)}={}){
-  const stored=durable.verifyDualCopy(path.join(roots.primary,RELATIVE),path.join(roots.secondary,RELATIVE));
-  let record;try{record=JSON.parse(stored.bytes.toString('utf8'));}catch{fail('v10 sidecar is not valid JSON');}
-  const expected=snapshot({root,roots,acceptedCommit:record.acceptedCommit});validateRecord(record,expected);
-  return {decision:record.decision,acceptedCommit:record.acceptedCommit,sha256:stored.sha256,record,builds:0,acousticRenders:0,evidenceWrites:0};
+  // Keep direct v10 callers behind the same source-identity gate as preflight.
+  // The v11 reader validates the immutable v10 record without re-entering here.
+  return require('./stage3e-performance-verifier-continuation-v11.cjs').runtimeContext({root,home,roots});
 }
 function recoveryDecision(current){
   if(current?.decision!=='STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE')fail('v10 runtime decision is not accepted by recovery');

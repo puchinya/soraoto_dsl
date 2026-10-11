@@ -206,6 +206,41 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
       /performance verifier v10 follow-up schema mismatch/);
     write(path.join(roots.primary,v10Path),v10Bytes);write(path.join(roots.secondary,v10Path),v10Bytes);
+    const v11RequiredPaths=[
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v10.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v11.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v11.test.cjs'
+    ].sort();
+    const v11Results=[{command:'continuation-v11.test.cjs',status:'PASS',outputSha256:'7'.repeat(64)}];
+    const v11Record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_SOURCE_COMPATIBILITY',
+      decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',parentRelative:'performance-verifier-compatibility-v10.json',
+      parentSha256:'2784426827df766629cee9dad975d512f5c33be271ba5baf270568a5b5476b45',
+      parentAcceptedCommit:'acffcba3f0810f3f8c9fb589523e01f6d18b8797',
+      checkpointFixCommit:'b40cc7c67c16370b2bcecafb67061a1e254848ca',
+      incrementalVerifierPath:'wasm/plugins/dsp/super-synth/test/tools/stage3e-incremental-verification.cjs',
+      incrementalVerifierSha256:'dcf2f297cc3e197df4d84ec7f9acc671aeae80b330ede76618eef2451a1341ca',
+      acceptedCommit:'9'.repeat(40),allowedChangedPaths:v11RequiredPaths,
+      allowedVerifierOnlyDiffSha256:'a'.repeat(64),verifierFileSha256:Object.fromEntries(v11RequiredPaths.map(item=>[item,'b'.repeat(64)])),
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:v11Results,testResultsSha256:validator.sha256(validator.jsonBytes(v11Results)),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const v11Path='generation-2/search-v1/performance-verifier-compatibility-v11.json';
+    const v11Bytes=Buffer.from(JSON.stringify(v11Record));
+    write(path.join(roots.primary,v11Path),v11Bytes);write(path.join(roots.secondary,v11Path),v11Bytes);
+    const withV11=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV11.additionCount,26);
+    const mismatchedV11=Buffer.from(JSON.stringify({...v11Record,incrementalVerifierSha256:'0'.repeat(64)}));
+    write(path.join(roots.primary,v11Path),mismatchedV11);write(path.join(roots.secondary,v11Path),mismatchedV11);
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v11 source compatibility schema mismatch/);
+    write(path.join(roots.primary,v11Path),v11Bytes);write(path.join(roots.secondary,v11Path),v11Bytes);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/validations/low-full-x/cells/unauthorized.json',{authorizedKeys:expected}),false);
     const lowFullValidation='generation-2/search-v1/low/validations/low-full-0.35-0.5/';
@@ -225,6 +260,7 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.equal(validator.isSearchAddition(v8Path),true);
     assert.equal(validator.isSearchAddition(v9Path),true);
     assert.equal(validator.isSearchAddition(v10Path),true);
+    assert.equal(validator.isSearchAddition(v11Path),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.sha256'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/archives/verifier-compatibility-v2.tar.gz'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10.json'),true);

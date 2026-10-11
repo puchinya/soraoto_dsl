@@ -125,14 +125,10 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
 }
 {
   const roots={primary:'/evidence/primary',secondary:'/evidence/secondary'},bundle={record:{decision:'v3'},sha256:'a'.repeat(64)};
-  let received=null;
-  const accepted={sha256:'b'.repeat(64),record:{decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE'}};
-  const result=preflight.validatePerformanceVerifierBinding({root:'/repo',manifest:{id:'manifest'},bundle,roots,
-    expectedSha256:accepted.sha256,verify(input){received=input;return accepted;}});
-  assert.equal(result,accepted);
-  assert.deepEqual(received,{root:'/repo',manifest:{id:'manifest'},v3Record:bundle.record,v3Sha256:bundle.sha256,roots});
+  const injected=()=>({sha256:'b'.repeat(64),record:{decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE'}});
+  assert.throws(()=>preflight.selectPerformanceVerifier({roots,verify:injected}),/injected verifier overrides are not allowed/);
   assert.throws(()=>preflight.validatePerformanceVerifierBinding({root:'/repo',manifest:{id:'manifest'},bundle,roots,
-    expectedSha256:'c'.repeat(64),verify:()=>accepted}),/performance verifier binding changed/);
+    expectedSha256:'b'.repeat(64),verify:injected}),/injected verifier overrides are not allowed/);
 }
 {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-perf-verifier-select-'));
@@ -148,36 +144,43 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
     const v8=require('./stage3e-performance-verifier-continuation-v8.cjs');
     const v9=require('./stage3e-performance-verifier-continuation-v9.cjs');
     const v10=require('./stage3e-performance-verifier-continuation-v10.cjs');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),require('./stage3e-performance-verifier-compatibility-v1.cjs').runtimeContext);
+    const v11=require('./stage3e-performance-verifier-continuation-v11.cjs');
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v1');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_RELATIVE),'{}');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v2.runtimeContext);
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v2');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V3_RELATIVE),'{}');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v3.runtimeContext,'the newest dual-saved verifier continuation is selected');
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v3','the newest dual-saved verifier continuation is selected');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V4_RELATIVE),'{}');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v4.runtimeContext,'the newest dual-saved verifier continuation is selected');
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v4','the newest dual-saved verifier continuation is selected');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V5_RELATIVE),'{}');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v5.runtimeContext,'the newest dual-saved verifier continuation is selected');
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v5','the newest dual-saved verifier continuation is selected');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V6_RELATIVE),'{}');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v6.runtimeContext,'v6 is selected ahead of immutable older continuations');
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v6','v6 is selected ahead of immutable older continuations');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V7_RELATIVE),'{}');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v7.runtimeContext,'v7 is selected ahead of immutable older continuations');
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v7','v7 is selected ahead of immutable older continuations');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V8_RELATIVE),'{}');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v8.runtimeContext,'v8 is selected ahead of immutable older continuations');
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v8','v8 is selected ahead of immutable older continuations');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V9_RELATIVE),'{}');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v9.runtimeContext,'v9 is selected ahead of immutable older continuations');
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v9','v9 is selected ahead of immutable older continuations');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V10_RELATIVE),'{}');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v10.runtimeContext,'v10 is selected ahead of immutable older continuations');
+    assert.equal(preflight.selectPerformanceVerifier({roots}),v11.runtimeContext,
+      'a v10-only root still goes through the source-binding guard');
+    for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V11_RELATIVE),'{}');
+    assert.equal(preflight.selectPerformanceVerifier({roots}),v11.runtimeContext,'v11 source authorization is selected when present');
+    fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V11_RELATIVE));
+    assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v11 continuation exists in only one store/);
+    fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V11_RELATIVE));
     fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V10_RELATIVE));
     assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v10 continuation exists in only one store/);
     fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V10_RELATIVE));
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v9.runtimeContext,'v9 remains available when v10 is absent');
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v9','v9 remains available when v10 is absent');
     fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V9_RELATIVE));
     assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v9 continuation exists in only one store/);
     fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V9_RELATIVE));
     fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V8_RELATIVE));
     assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v8 continuation exists in only one store/);
     fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V8_RELATIVE));
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v7.runtimeContext,'v7 is preserved as fallback when v8 is absent');
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v7','v7 is preserved as fallback when v8 is absent');
     fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V7_RELATIVE));
     assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v7 continuation exists in only one store/);
     fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V7_RELATIVE));
@@ -187,13 +190,41 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
     fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V5_RELATIVE));
     assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v5 continuation exists in only one store/);
     fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V5_RELATIVE));
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v4.runtimeContext,'v4 remains the fallback when v5 is absent');
+    assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v4','v4 remains the fallback when v5 is absent');
     fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V4_RELATIVE));
     assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v4 continuation exists in only one store/);
     fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V4_RELATIVE));
     fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V3_RELATIVE));
     assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v3 continuation exists in only one store/);
   }finally{fs.rmSync(root,{recursive:true,force:true});}
+}
+{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-perf-verifier-source-'));
+  const evidenceRoot=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-perf-verifier-roots-'));
+  const relative='wasm/plugins/dsp/super-synth/test/tools/stage3e-incremental-verification.cjs';
+  const verifier=require('./stage3e-performance-verifier-continuation-v9.cjs');
+  const originalRuntime=verifier.runtimeContext;
+  try{
+    execFileSync('rtk',['git','init','--quiet'],{cwd:root});
+    execFileSync('rtk',['git','config','user.name','Stage3E verifier test'],{cwd:root});
+    execFileSync('rtk',['git','config','user.email','stage3e-test@example.invalid'],{cwd:root});
+    const source=path.join(root,relative);fs.mkdirSync(path.dirname(source),{recursive:true});fs.writeFileSync(source,'approved verifier source\n');
+    execFileSync('rtk',['git','add',relative],{cwd:root});
+    execFileSync('rtk',['git','commit','--quiet','-m','approved verifier source'],{cwd:root});
+    const acceptedCommit=execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+    verifier.runtimeContext=()=>({decision:'TEST_PASS',acceptedCommit});
+    const roots={primary:path.join(evidenceRoot,'primary'),secondary:path.join(evidenceRoot,'secondary')};
+    for(const side of Object.values(roots)){fs.mkdirSync(side,{recursive:true});fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V9_RELATIVE),'{}');}
+    const selected=preflight.selectPerformanceVerifier({roots});
+    assert.equal(selected.sourceVerifierVersion,'v9');
+    assert.equal(selected({root}).decision,'TEST_PASS');
+    fs.writeFileSync(source,'tampered verifier source\n');
+    assert.throws(()=>selected({root}),/current incremental verifier differs from its authorized source hash/,
+      'legacy fallback branches also bind the current incremental verifier source');
+  }finally{
+    verifier.runtimeContext=originalRuntime;
+    fs.rmSync(root,{recursive:true,force:true});fs.rmSync(evidenceRoot,{recursive:true,force:true});
+  }
 }
 {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-lock-'));
