@@ -110,6 +110,7 @@ function isSearchAddition(relative,{authorizedKeys=[]}={}){
   if(relative.startsWith(RECOVERY_V2)&&recoveryV2Files.has(relative.slice(RECOVERY_V2.length)))return true;
   if(relative===SEARCH+'generation-2-manifest.json'||relative===SEARCH+'verifier-compatibility-v1.json'||
      relative===SEARCH+'verifier-compatibility-v2.json'||relative===SEARCH+'verifier-compatibility-v2.sha256'||
+     relative===SEARCH+'performance-verifier-compatibility-v1.json'||
      relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz'||relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz.sha256')return true;
   if(/^generation-2\/search-v1\/(?:low|mid)(?:\/validations\/(?:low|mid)-full-[A-Za-z0-9._-]+)?\/verification-checkpoints\/checkpoint-[0-9]{6}\.json$/.test(relative))return true;
   if(relative.startsWith(SEARCH+'ledger-transition-journal/')){
@@ -159,6 +160,19 @@ function validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedK
   const byPath=new Map(s.extras.map(item=>[item.path,item]));
   for(const item of p.extras){
     if(!isSearchAddition(item.path,{authorizedKeys}))throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: '+item.path);
+    if(item.path===SEARCH+'performance-verifier-compatibility-v1.json'){
+      let record;
+      try{record=JSON.parse(fs.readFileSync(path.join(primaryRoot,item.path),'utf8'));}
+      catch{throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: invalid performance verifier sidecar JSON');}
+      const hashFields=['parentV10_9AttestationSha256','baselineV10_12AttestationSha256','originalSearchManifestSha256',
+        'originalSearchCompatibilityV3Sha256','allowedVerifierOnlyDiffSha256','testResultsSha256'];
+      if(record.schemaVersion!==1||record.kind!=='STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY'||
+         record.decision!=='STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE'||record.primarySecondaryIntegrity!=='PASS'||
+         !/^[0-9a-f]{40}$/.test(record.originalLocalCommit||'')||!/^[0-9a-f]{40}$/.test(record.acceptedCommit||'')||
+         hashFields.some(field=>!/^[0-9a-f]{64}$/.test(record[field]||''))||
+         !Array.isArray(record.allowedVerifierOnlyPaths)||!Array.isArray(record.testResults))
+        throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: performance verifier sidecar schema mismatch');
+    }
     const other=byPath.get(item.path);
     if(!other||item.sizeBytes!==other.sizeBytes||item.sha256!==other.sha256)
       throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: addition differs: '+item.path);

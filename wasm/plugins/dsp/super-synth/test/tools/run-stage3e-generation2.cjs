@@ -508,8 +508,12 @@ function run({mode,root=ROOT,home=process.env.HOME,evidenceRoot=process.env.SORA
   if(mode==='--low'||mode==='--mid')assertGenerationManifest(roots,identity,now);else assertExistingGenerationManifest(roots,identity);
   const identityNow=()=>{
     const validated=searchPreflight.validateRuntimeIdentity({root,home,manifestIdentity:identity,
-      compatibilitySha256:readiness?.compatibilitySha256,verifySourceAudit:midi41Amendment.assertSourceAudit,verifyAmendment:amendmentCheck});
+      compatibilitySha256:readiness?.compatibilitySha256,
+      performanceVerifierCompatibilitySha256:readiness?.performanceVerifierCompatibilitySha256,
+      verifySourceAudit:midi41Amendment.assertSourceAudit,verifyAmendment:amendmentCheck});
     if(validated.compatibilitySha256!==readiness?.compatibilitySha256)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: compatibility identity changed');
+    if(validated.performanceVerifierCompatibilitySha256!==readiness?.performanceVerifierCompatibilitySha256)
+      throw new Error('BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY: performance verifier identity changed');
     if(validated.recoveryReconciliationCompatibilitySha256!==readiness?.recoveryReconciliationCompatibilitySha256)
       throw new Error('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY: reconciliation verifier identity changed');
     return identity;

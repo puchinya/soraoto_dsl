@@ -124,6 +124,17 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
   assert.equal(received.options.evidenceRoots,roots,'reconciliation validation receives the canonical evidence roots');
 }
 {
+  const roots={primary:'/evidence/primary',secondary:'/evidence/secondary'},bundle={record:{decision:'v3'},sha256:'a'.repeat(64)};
+  let received=null;
+  const accepted={sha256:'b'.repeat(64),record:{decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE'}};
+  const result=preflight.validatePerformanceVerifierBinding({root:'/repo',manifest:{id:'manifest'},bundle,roots,
+    expectedSha256:accepted.sha256,verify(input){received=input;return accepted;}});
+  assert.equal(result,accepted);
+  assert.deepEqual(received,{root:'/repo',manifest:{id:'manifest'},v3Record:bundle.record,v3Sha256:bundle.sha256,roots});
+  assert.throws(()=>preflight.validatePerformanceVerifierBinding({root:'/repo',manifest:{id:'manifest'},bundle,roots,
+    expectedSha256:'c'.repeat(64),verify:()=>accepted}),/performance verifier binding changed/);
+}
+{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-lock-'));
   try{
     execFileSync('rtk',['git','init','--quiet'],{cwd:root});

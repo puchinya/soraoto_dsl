@@ -30,12 +30,25 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
       write(path.join(roots.primary,'generation-2/search-v1/recovery-reconciliation-v2',name),Buffer.from(name));
       write(path.join(roots.secondary,'generation-2/search-v1/recovery-reconciliation-v2',name),Buffer.from(name));
     }
+    const compatibilityRecord={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY',
+      decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',primarySecondaryIntegrity:'PASS',
+      originalLocalCommit:'1'.repeat(40),acceptedCommit:'2'.repeat(40),
+      parentV10_9AttestationSha256:'3'.repeat(64),baselineV10_12AttestationSha256:'4'.repeat(64),
+      originalSearchManifestSha256:'5'.repeat(64),originalSearchCompatibilityV3Sha256:'6'.repeat(64),
+      allowedVerifierOnlyDiffSha256:'7'.repeat(64),testResultsSha256:'8'.repeat(64),
+      allowedVerifierOnlyPaths:[],testResults:[]};
+    const compatibilityBytes=Buffer.from(JSON.stringify(compatibilityRecord));
+    const compatibilityPath='generation-2/search-v1/performance-verifier-compatibility-v1.json';
+    write(path.join(roots.primary,compatibilityPath),compatibilityBytes);
+    write(path.join(roots.secondary,compatibilityPath),compatibilityBytes);
     const before=inventory(roots.primary),result=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
-    assert.equal(result.frozenCount,35);assert.equal(result.additionCount,15);
+    assert.equal(result.frozenCount,35);assert.equal(result.additionCount,16);
     assert.deepEqual(inventory(roots.primary).filter(item=>item.path.startsWith('frozen/')),before.filter(item=>item.path.startsWith('frozen/')));
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/validations/low-full-x/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/performance-verifier-compatibility-v1.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/performance-verifier-compatibility-v2.json'),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.sha256'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/archives/verifier-compatibility-v2.tar.gz'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10.json'),true);
@@ -51,6 +64,12 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-11.json'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-12.json'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-13.json'),false);
+    write(path.join(roots.primary,compatibilityPath),Buffer.from('{"schemaVersion":1}'));
+    write(path.join(roots.secondary,compatibilityPath),Buffer.from('{"schemaVersion":1}'));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier sidecar schema mismatch/);
+    write(path.join(roots.primary,compatibilityPath),compatibilityBytes);
+    write(path.join(roots.secondary,compatibilityPath),compatibilityBytes);
     write(path.join(roots.primary,'random/unowned.json'),Buffer.from('unexpected'));
     write(path.join(roots.secondary,'random/unowned.json'),Buffer.from('unexpected'));
     assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),/BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE/);

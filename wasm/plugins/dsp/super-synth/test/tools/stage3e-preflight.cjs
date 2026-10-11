@@ -14,6 +14,7 @@ const capture=require('./capture-supersynth-stage3e-matrix.cjs');
 const compatibilityV2=require('./stage3e-search-compatibility.cjs');
 const evidencePaths=require('./stage3e-evidence-paths.cjs');
 const compatibilityV3=require('./stage3e-search-compatibility-v3.cjs');
+const performanceCompatibility=require('./stage3e-performance-verifier-compatibility-v1.cjs');
 
 const MANIFEST_SHA256=validator.SEARCH_MANIFEST_SHA256;
 const GENESIS_SHA256=validator.LOW_GENESIS_SHA256;
@@ -23,6 +24,7 @@ const REFERENCE_SHA256='813a3069d384656419f1cf976c2b501a567909dfd2de5703fc58277f
 const V1_COMPATIBILITY_RELATIVE='verifier-compatibility-v1.json';
 const COMPATIBILITY_RELATIVE=compatibilityV2.V2_RELATIVE;
 const COMPATIBILITY_V3_RELATIVE=compatibilityV3.RELATIVE;
+const PERFORMANCE_COMPATIBILITY_RELATIVE=performanceCompatibility.RELATIVE;
 const GENESIS_RELATIVE='ledger-transition-journal/genesis-ledger.json';
 const GENESIS_RECORD_RELATIVE='ledger-transition-journal/genesis.json';
 const JOURNAL_RELATIVE='ledger-transition-journal';
@@ -54,6 +56,13 @@ function same(a,b){return JSON.stringify(stable(a))===JSON.stringify(stable(b));
 function validateRecoveryCompatibility({reconciliation,bundle,root,roots,manifest,manifestSha256,bridge,forensicSha256,sourceAuditSha256,oldResultSha256,testReportSha256}){
   return reconciliation.validateCompatibilityRecord(bundle.record,{root,manifest,manifestSha256,bridge,forensicSha256,
     sourceAuditSha256,oldResultSha256,testReportSha256,evidenceRoots:roots});
+}
+function validatePerformanceVerifierBinding({root,manifest,bundle,roots,expectedSha256,verify=performanceCompatibility.runtimeContext}={}){
+  if(!bundle||typeof verify!=='function')throw new Error('BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY: verifier binding inputs are incomplete');
+  const result=verify({root,manifest,v3Record:bundle.record,v3Sha256:bundle.sha256,roots});
+  if(expectedSha256!==undefined&&(result?.sha256||null)!==(expectedSha256||null))
+    throw new Error('BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY: performance verifier binding changed');
+  return result;
 }
 function readDualJson(roots,relative){return JSON.parse(durable.verifyDualCopy(path.join(roots.primary,relative),path.join(roots.secondary,relative)).bytes.toString('utf8'));}
 function readDualBytes(roots,relative){return durable.verifyDualCopy(path.join(roots.primary,relative),path.join(roots.secondary,relative));}
@@ -222,7 +231,8 @@ function validateSearchLedger({roots,manifestBytes,ledgerBytes,compatibilitySha2
   return {...result,genesisRequired:false,compatibilitySha256};
 }
 function validateRuntimeIdentity({root=search.ROOT,home=process.env.HOME,manifestIdentity,compatibilitySha256,
-  verifySourceAudit,verifyAmendment}={}){
+  performanceVerifierCompatibilitySha256,verifySourceAudit,verifyAmendment,
+  verifyPerformanceCompatibility=performanceCompatibility.runtimeContext}={}){
   if(typeof verifySourceAudit!=='function'||typeof verifyAmendment!=='function')throw new Error('BLOCKED_STAGE3E_PREFLIGHT_DEPENDENCY: explicit pure verifier functions are required');
   const audit=verifySourceAudit({root,home}),amendmentResult=verifyAmendment({root,home});
   if(audit.sha256!==validator.SOURCE_AUDIT_SHA256||amendmentResult.resultSha256!==AMENDMENT_RESULT_SHA256||
@@ -239,6 +249,8 @@ function validateRuntimeIdentity({root=search.ROOT,home=process.env.HOME,manifes
     v1Sha256:v2Bundle.v1Sha256,v2Sha256:v2Bundle.sha256,sourceAuditSha256:audit.sha256,
     inventorySha256:compatibilityV2.fixedInventorySha(audit.audit),preAbortEvidenceSha256:forensic.sha256,
     pinned:bundle.record.pinnedExecutorHashes});
+  const performanceVerifierCompatibility=validatePerformanceVerifierBinding({root,manifest,bundle,roots,
+    expectedSha256:performanceVerifierCompatibilitySha256,verify:verifyPerformanceCompatibility});
   const transitions=readTransitionEntries(roots,manifest),admin=transitions.filter(entry=>entry.eventType==='ADMIN_REQUEUE_NO_RENDER');
   let recoveryReconciliationCompatibilitySha256=null;
   if(admin.length){
@@ -251,7 +263,8 @@ function validateRuntimeIdentity({root=search.ROOT,home=process.env.HOME,manifes
     if(admin[0].recoveryReconciliationCompatibilitySha256!==recoveryReconciliationCompatibilitySha256)
       throw new Error('BLOCKED_STAGE3E_RECOVERY_TRANSACTION_COMPATIBILITY: journal binding differs from v2 sidecar');
   }
-  return {pass:true,identity:manifest.identity,compatibilitySha256,recoveryReconciliationCompatibilitySha256,
+  return {pass:true,identity:manifest.identity,compatibilitySha256,performanceVerifierCompatibilitySha256:performanceVerifierCompatibility?.sha256||null,
+    recoveryReconciliationCompatibilitySha256,
     auditSha256:audit.sha256,amendmentResultSha256:amendmentResult.resultSha256};
 }
 function acquireWriterLock({root=search.ROOT,phase='low',executionIdentity}={}){
@@ -275,7 +288,7 @@ function acquireWriterLock({root=search.ROOT,phase='low',executionIdentity}={}){
   }};
 }
 function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=true,capabilityProbe=capture.preflightDiagnosticCapabilities,
-  verifySourceAudit,verifyAmendment}={}){
+  verifySourceAudit,verifyAmendment,verifyPerformanceCompatibility=performanceCompatibility.runtimeContext}={}){
   if(typeof verifySourceAudit!=='function'||typeof verifyAmendment!=='function')throw new Error('BLOCKED_STAGE3E_PREFLIGHT_DEPENDENCY: explicit pure verifier functions are required');
   const capability=capabilityProbe({root});
   search.assertGeneration1Abandoned(root);
@@ -310,6 +323,8 @@ function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=
       inventorySha256:compatibilityV2.fixedInventorySha(audit.audit),preAbortEvidenceSha256:forensicFile.sha256,
       pinned:bundle.record.pinnedExecutorHashes});
   }else if(requireCompatibility)throw new Error('BLOCKED_STAGE3E_SEARCH_VERIFIER_COMPATIBILITY: v3 bridge absent');
+  const performanceVerifierCompatibility=bundle?validatePerformanceVerifierBinding({root,manifest,bundle,roots,
+    verify:verifyPerformanceCompatibility}):null;
   const entries=readTransitionEntries(roots,manifest),administrative=entries.filter(entry=>entry.eventType==='ADMIN_REQUEUE_NO_RENDER');
   let reconciliationCompatibilitySha256=null;
   if(administrative.length){
@@ -332,12 +347,13 @@ function preflight({root=search.ROOT,home=process.env.HOME,requireCompatibility=
     capability,auditSha256:audit.sha256,amendmentResultSha256:amendmentResult.resultSha256,
     manifestSha256:manifestStored.sha256,ledgerSha256:ledgerStored.sha256,ledgerSummary,
     compatibilitySha256,compatibility,compatibilityArchiveSha256:bundle?.archiveSha256,historicalCompatibilitySha256:v2Bundle?.sha256,
+    performanceVerifierCompatibilitySha256:performanceVerifierCompatibility?.sha256||null,
     recoveryReconciliationCompatibilitySha256:reconciliationCompatibilitySha256,
     inventory:{frozenCount:extras.frozenCount,additionCount:extras.additionCount},
     roots,manifest,creatorIdentity:manifest.identity,currentVerifierIdentity:currentFiles(root),sourceAudit:audit.audit};
 }
 
-module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,COMPATIBILITY_V3_RELATIVE,validateRecoveryCompatibility,
+module.exports={MANIFEST_SHA256,GENESIS_SHA256,PROOF_SHA256,AMENDMENT_RESULT_SHA256,REFERENCE_SHA256,V1_COMPATIBILITY_RELATIVE,COMPATIBILITY_RELATIVE,COMPATIBILITY_V3_RELATIVE,PERFORMANCE_COMPATIBILITY_RELATIVE,validateRecoveryCompatibility,
   GENESIS_RELATIVE,GENESIS_RECORD_RELATIVE,JOURNAL_RELATIVE,ALLOWED_TRACKED_DIFFS,sha256,stable,same,searchRoots,currentFiles,
   validateCompatibility,readTransitionEntries,readRenderStartEntries,validateSearchLedger,validateRuntimeIdentity,acquireWriterLock,
-  trackedDiff,assertTrackedWorktreeClean,runCompatibilityTests,buildCompatibilityV2Record,preflight};
+  trackedDiff,assertTrackedWorktreeClean,runCompatibilityTests,buildCompatibilityV2Record,validatePerformanceVerifierBinding,preflight};
