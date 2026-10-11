@@ -95,7 +95,56 @@ function isAmendmentAddition(relative){
   return /^generation-2\/midi41-derivative-amendment-v1\/cells\/generation2-midi-041-v(?:250|550|900)\.json$/.test(relative);
 }
 
-function isSearchAddition(relative,{authorizedKeys=[]}={}){
+function readValidationCellBindings(primaryRoot,secondaryRoot,validationPhase,manifestSha256=SEARCH_MANIFEST_SHA256){
+  const parentPhase=validationPhase.startsWith('low-full-')?'low':validationPhase.startsWith('mid-full-')?'mid':null;
+  if(!parentPhase)throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: invalid full-validation phase');
+  const relative=`${SEARCH}${parentPhase}/validations/${validationPhase}/${validationPhase}-ledger.json`;
+  let stored,ledger;
+  try{
+    stored=durable.verifyDualCopy(path.join(primaryRoot,relative),path.join(secondaryRoot,relative));
+    ledger=JSON.parse(stored.bytes.toString('utf8'));
+  }catch(error){
+    throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: full-validation ledger is unavailable or inconsistent: '+error.message);
+  }
+  let manifestStored,manifest;
+  try{
+    const manifestRelative=SEARCH+'generation-2-manifest.json';
+    manifestStored=durable.verifyDualCopy(path.join(primaryRoot,manifestRelative),path.join(secondaryRoot,manifestRelative));
+    if(manifestStored.sha256!==manifestSha256)throw new Error('fixed search manifest SHA mismatch');
+    manifest=JSON.parse(manifestStored.bytes.toString('utf8'));
+  }catch(error){
+    throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: full-validation manifest is unavailable or inconsistent: '+error.message);
+  }
+  if(!ledger||ledger.schemaVersion!==1||ledger.generation!==2||ledger.executionId!=='generation-2'||
+     ledger.phase!==validationPhase||!ledger.identity||!ledger.cells||typeof ledger.cells!=='object'||
+     !Number.isSafeInteger(ledger.accounting?.renderCalls))
+    throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: full-validation ledger schema mismatch');
+  if(manifest.state!=='ACTIVE'||manifest.generation!==2||manifest.searchEpoch!=='search-v1'||!manifest.identity||
+     Object.entries(manifest.identity).some(([key,value])=>!same(ledger.identity[key],value))||
+     !ledger.identity.response||!['low','mid','bassHardness'].every(key=>Number.isFinite(ledger.identity.response[key]))||
+     !/^[0-9a-f]{64}$/.test(ledger.identity.lowScreenResultSha256||''))
+    throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: full-validation ledger identity differs from immutable search manifest');
+  const bindings=new Map();let complete=0,pending=0,inProgress=0;
+  for(const [key,state] of Object.entries(ledger.cells)){
+    if(!state||state.identity?.key!==key||state.relativePath!==`cells/${key}.json`)
+      throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: full-validation cell identity mismatch '+key);
+    if(state.state==='COMPLETE'){
+      complete++;
+      if(!/^[0-9a-f]{64}$/.test(state.sha256||''))
+        throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: COMPLETE full-validation cell has no SHA '+key);
+      bindings.set(key,state.sha256);
+    }else if(state.state==='PENDING'){
+      pending++;
+      if(state.sha256!==null)throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: PENDING full-validation cell has a SHA '+key);
+    }else if(state.state==='IN_PROGRESS')inProgress++;
+    else throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: unknown full-validation cell state '+key);
+  }
+  if(inProgress!==0||ledger.authorizedCellCount!==Object.keys(ledger.cells).length||ledger.accounting.renderCalls!==complete)
+    throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: full-validation ledger accounting is unresolved');
+  return {bindings,ledgerSha256:stored.sha256,complete,pending,parentPhase};
+}
+
+function isSearchAddition(relative,{authorizedKeys=[],validationAuthorizedKeys=new Map()}={}){
   if(isAmendmentAddition(relative))return true;
   const recoveryV2Files=new Set([
     'source-audit.json','invalid-recovery-disposition.json','authorization-v2.json','transaction-intent.json',
@@ -117,6 +166,7 @@ function isSearchAddition(relative,{authorizedKeys=[]}={}){
      relative===SEARCH+'performance-verifier-compatibility-v5.json'||
      relative===SEARCH+'performance-verifier-compatibility-v6.json'||
      relative===SEARCH+'performance-verifier-compatibility-v7.json'||
+     relative===SEARCH+'performance-verifier-compatibility-v8.json'||
      relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz'||relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz.sha256')return true;
   if(/^generation-2\/search-v1\/(?:low|mid)(?:\/validations\/(?:low|mid)-full-[A-Za-z0-9._-]+)?\/verification-checkpoints\/checkpoint-[0-9]{6}\.json$/.test(relative))return true;
   if(relative.startsWith(SEARCH+'ledger-transition-journal/')){
@@ -152,12 +202,13 @@ function isSearchAddition(relative,{authorizedKeys=[]}={}){
        /^archives\/(?:low-full|mid-full)-[A-Za-z0-9._-]+\.tar\.gz$/.test(relativeValidation)||
        /^ledger-transition-journal\/(?:genesis\.json|genesis-ledger\.json|genesis-location-reconciliation-v1\.json|transition-[0-9]{6}\.json|render-start-[0-9]{6}\.json)$/.test(relativeValidation))return true;
     const validationCell=relativeValidation.match(/^cells\/([A-Za-z0-9._-]+)\.json$/);
-    return Boolean(validationCell&&authorizedKeys.includes(validationCell[1]));
+    const phaseBindings=validationAuthorizedKeys.get(validationPhase);
+    return Boolean(validationCell&&(authorizedKeys.includes(validationCell[1])||phaseBindings?.has(validationCell[1])));
   }
   return false;
 }
 
-function validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedKeys=[]}={}){
+function validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedKeys=[],manifestSha256=SEARCH_MANIFEST_SHA256}={}){
   const primaryFrozen=audit&&audit.immutablePreexistingFileInventory&&audit.immutablePreexistingFileInventory.primary&&audit.immutablePreexistingFileInventory.primary.files;
   const secondaryFrozen=audit&&audit.immutablePreexistingFileInventory&&audit.immutablePreexistingFileInventory.secondary&&audit.immutablePreexistingFileInventory.secondary.files;
   const p=validateFrozenSide(primaryRoot,primaryFrozen,'primary');
@@ -165,8 +216,28 @@ function validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedK
   const pNames=p.extras.map(item=>item.path),sNames=s.extras.map(item=>item.path);
   if(!same(pNames,sNames))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: addition path sets differ');
   const byPath=new Map(s.extras.map(item=>[item.path,item]));
+  const validationBindings=new Map();
+  const primaryByPath=new Map(p.actual.map(item=>[item.path,item]));
+  const secondaryByPath=new Map(s.actual.map(item=>[item.path,item]));
   for(const item of p.extras){
-    if(!isSearchAddition(item.path,{authorizedKeys}))throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: '+item.path);
+    const validationCell=item.path.match(/^generation-2\/search-v1\/(low|mid)\/validations\/(low-full-[A-Za-z0-9.-]+|mid-full-[A-Za-z0-9.-]+)\/cells\/([A-Za-z0-9._-]+)\.json$/);
+    if(validationCell){
+      const phase=validationCell[2],key=validationCell[3];
+      if(!validationBindings.has(phase)){
+        const view=readValidationCellBindings(primaryRoot,secondaryRoot,phase,manifestSha256);
+        for(const [completeKey,completeSha] of view.bindings){
+          const expectedPath=`${SEARCH}${view.parentPhase}/validations/${phase}/cells/${completeKey}.json`;
+          const primaryCell=primaryByPath.get(expectedPath),secondaryCell=secondaryByPath.get(expectedPath);
+          if(!primaryCell||!secondaryCell||primaryCell.sha256!==completeSha||secondaryCell.sha256!==completeSha)
+            throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: COMPLETE validation ledger row has no matching dual-saved cell '+expectedPath);
+        }
+        validationBindings.set(phase,view.bindings);
+      }
+      const expectedSha=validationBindings.get(phase).get(key);
+      if(!expectedSha||expectedSha!==item.sha256)
+        throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: validation cell is not a matching COMPLETE ledger row '+item.path);
+    }
+    if(!isSearchAddition(item.path,{authorizedKeys,validationAuthorizedKeys:validationBindings}))throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: '+item.path);
     if(item.path===SEARCH+'performance-verifier-compatibility-v1.json'){
       let record;
       try{record=JSON.parse(fs.readFileSync(path.join(primaryRoot,item.path),'utf8'));}
@@ -282,6 +353,24 @@ function validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedK
          record.testResults.some(item=>!item||item.status!=='PASS'||typeof item.command!=='string'||! /^[0-9a-f]{64}$/.test(item.outputSha256||''))||
          record.testResultsSha256!==sha256(jsonBytes(record.testResults))||record.acousticRenders!==0||record.builds!==0)
         throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: performance verifier v7 follow-up schema mismatch');
+    }
+    if(item.path===SEARCH+'performance-verifier-compatibility-v8.json'){
+      let record;
+      try{record=JSON.parse(fs.readFileSync(path.join(primaryRoot,item.path),'utf8'));}
+      catch{throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: invalid performance verifier v8 follow-up JSON');}
+      const hashFields=['parentSha256','allowedVerifierOnlyDiffSha256','testResultsSha256'];
+      if(record.schemaVersion!==1||record.kind!=='STAGE3E_PERFORMANCE_VERIFIER_FOLLOWUP'||
+         record.decision!=='STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE'||record.parentRelative!=='performance-verifier-compatibility-v7.json'||
+         record.parentSha256!=='e055f44c632b5eea57b4a4e1f12fbb9ff09f3d267687cba1c86882e6e587dba1'||
+         record.parentAcceptedCommit!=='1f88603e14176e2931afdbd96b29ddfd6b28a27a'||record.primarySecondaryIntegrity!=='PASS'||
+         !/^[0-9a-f]{40}$/.test(record.acceptedCommit||'')||hashFields.some(field=>! /^[0-9a-f]{64}$/.test(record[field]||''))||
+         !Array.isArray(record.allowedChangedPaths)||!record.allowedChangedPaths.length||!record.changedFileSha256||
+         Object.values(record.changedFileSha256).some(value=>! /^[0-9a-f]{64}$/.test(value||''))||
+         record.stage3eWasmSha256!=='6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'||
+         !record.stage3eAcousticIdentity||!Array.isArray(record.testResults)||!record.testResults.length||
+         record.testResults.some(item=>!item||item.status!=='PASS'||typeof item.command!=='string'||! /^[0-9a-f]{64}$/.test(item.outputSha256||''))||
+         record.testResultsSha256!==sha256(jsonBytes(record.testResults))||record.acousticRenders!==0||record.builds!==0)
+        throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: performance verifier v8 follow-up schema mismatch');
     }
     const other=byPath.get(item.path);
     if(!other||item.sizeBytes!==other.sizeBytes||item.sha256!==other.sha256)

@@ -135,6 +135,19 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
       /performance verifier v7 follow-up schema mismatch/);
     write(path.join(roots.primary,v7Path),v7Bytes);write(path.join(roots.secondary,v7Path),v7Bytes);
+    const v8Record={...v7Record,parentRelative:'performance-verifier-compatibility-v7.json',
+      parentSha256:'e055f44c632b5eea57b4a4e1f12fbb9ff09f3d267687cba1c86882e6e587dba1',
+      parentAcceptedCommit:'1f88603e14176e2931afdbd96b29ddfd6b28a27a',acceptedCommit:'f'.repeat(40)};
+    const v8Path='generation-2/search-v1/performance-verifier-compatibility-v8.json';
+    const v8Bytes=Buffer.from(JSON.stringify(v8Record));
+    write(path.join(roots.primary,v8Path),v8Bytes);write(path.join(roots.secondary,v8Path),v8Bytes);
+    const withV8=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV8.additionCount,23);
+    write(path.join(roots.primary,v8Path),Buffer.from(JSON.stringify({...v8Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v8Path),Buffer.from(JSON.stringify({...v8Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v8 follow-up schema mismatch/);
+    write(path.join(roots.primary,v8Path),v8Bytes);write(path.join(roots.secondary,v8Path),v8Bytes);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/validations/low-full-x/cells/unauthorized.json',{authorizedKeys:expected}),false);
     const lowFullValidation='generation-2/search-v1/low/validations/low-full-0.35-0.5/';
@@ -151,6 +164,7 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.equal(validator.isSearchAddition(v5Path),true);
     assert.equal(validator.isSearchAddition(v6Path),true);
     assert.equal(validator.isSearchAddition(v7Path),true);
+    assert.equal(validator.isSearchAddition(v8Path),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.sha256'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/archives/verifier-compatibility-v2.tar.gz'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10.json'),true);
@@ -175,6 +189,48 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     write(path.join(roots.primary,'random/unowned.json'),Buffer.from('unexpected'));
     write(path.join(roots.secondary,'random/unowned.json'),Buffer.from('unexpected'));
     assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),/BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE/);
+  }finally{fs.rmSync(roots.base,{recursive:true,force:true});}
+}
+
+{
+  const roots=makeRoots();
+  try{
+    const audit=auditFor(roots.primary,roots.secondary);
+    const phase='low-full-0.35-0.5';
+    const key='low-full-0.35-0.5-L0.35-M1-H0.5-midi-033-v110';
+    const pendingKey='low-full-0.35-0.5-L0.35-M1-H0.5-midi-036-v150';
+    const cellBytes=Buffer.from('authorized completed validation cell');
+    const cellSha=validator.sha256(cellBytes);
+    const manifest={schemaVersion:1,state:'ACTIVE',generation:2,searchEpoch:'search-v1',identity:{candidateId:'fixture'}};
+    const manifestBytes=Buffer.from(JSON.stringify(manifest));
+    const manifestSha256=validator.sha256(manifestBytes);
+    const ledger={schemaVersion:1,generation:2,executionId:'generation-2',phase,
+      identity:{candidateId:'fixture',response:{low:0.35,mid:1,bassHardness:0.5},lowScreenResultSha256:'a'.repeat(64)},
+      authorizedCellCount:2,accounting:{renderCalls:1},cells:{
+        [key]:{identity:{key},relativePath:`cells/${key}.json`,state:'COMPLETE',sha256:cellSha},
+        [pendingKey]:{identity:{key:pendingKey},relativePath:`cells/${pendingKey}.json`,state:'PENDING',sha256:null}
+      }};
+    const ledgerBytes=Buffer.from(JSON.stringify(ledger));
+    const cellRelative=`generation-2/search-v1/low/validations/${phase}/cells/${key}.json`;
+    const ledgerRelative=`generation-2/search-v1/low/validations/${phase}/${phase}-ledger.json`;
+    for(const root of [roots.primary,roots.secondary]){
+      write(path.join(root,'generation-2/search-v1/generation-2-manifest.json'),manifestBytes);
+      write(path.join(root,cellRelative),cellBytes);
+      write(path.join(root,ledgerRelative),ledgerBytes);
+    }
+    const validate=()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,manifestSha256});
+    const valid=validate();
+    assert.equal(valid.additionCount,3,'a cell authorized by its dual-saved full-validation ledger is accepted');
+
+    const rogueRelative=`generation-2/search-v1/low/validations/${phase}/cells/rogue-cell.json`;
+    write(path.join(roots.primary,rogueRelative),cellBytes);write(path.join(roots.secondary,rogueRelative),cellBytes);
+    assert.throws(validate,/not a matching COMPLETE ledger row/);
+    fs.rmSync(path.join(roots.primary,rogueRelative));fs.rmSync(path.join(roots.secondary,rogueRelative));
+
+    const wrongLedgerBytes=Buffer.from(JSON.stringify({...ledger,cells:{...ledger.cells,[key]:{...ledger.cells[key],sha256:'0'.repeat(64)}}}));
+    write(path.join(roots.primary,ledgerRelative),wrongLedgerBytes);write(path.join(roots.secondary,ledgerRelative),wrongLedgerBytes);
+    assert.throws(validate,
+      /COMPLETE validation ledger row has no matching dual-saved cell/);
   }finally{fs.rmSync(roots.base,{recursive:true,force:true});}
 }
 
