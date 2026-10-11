@@ -116,6 +116,7 @@ function isSearchAddition(relative,{authorizedKeys=[]}={}){
      relative===SEARCH+'performance-verifier-compatibility-v4.json'||
      relative===SEARCH+'performance-verifier-compatibility-v5.json'||
      relative===SEARCH+'performance-verifier-compatibility-v6.json'||
+     relative===SEARCH+'performance-verifier-compatibility-v7.json'||
      relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz'||relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz.sha256')return true;
   if(/^generation-2\/search-v1\/(?:low|mid)(?:\/validations\/(?:low|mid)-full-[A-Za-z0-9._-]+)?\/verification-checkpoints\/checkpoint-[0-9]{6}\.json$/.test(relative))return true;
   if(relative.startsWith(SEARCH+'ledger-transition-journal/')){
@@ -263,6 +264,24 @@ function validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedK
          record.testResults.some(item=>!item||item.status!=='PASS'||typeof item.command!=='string'||! /^[0-9a-f]{64}$/.test(item.outputSha256||''))||
          record.testResultsSha256!==sha256(jsonBytes(record.testResults))||record.acousticRenders!==0||record.builds!==0)
         throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: performance verifier v6 follow-up schema mismatch');
+    }
+    if(item.path===SEARCH+'performance-verifier-compatibility-v7.json'){
+      let record;
+      try{record=JSON.parse(fs.readFileSync(path.join(primaryRoot,item.path),'utf8'));}
+      catch{throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: invalid performance verifier v7 follow-up JSON');}
+      const hashFields=['parentSha256','allowedVerifierOnlyDiffSha256','testResultsSha256'];
+      if(record.schemaVersion!==1||record.kind!=='STAGE3E_PERFORMANCE_VERIFIER_FOLLOWUP'||
+         record.decision!=='STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE'||record.parentRelative!=='performance-verifier-compatibility-v6.json'||
+         record.parentSha256!=='963cc8a52a9c8a24eb90f89dbbf393b7dda94ca3ec64560d106f56414be8cf39'||
+         record.parentAcceptedCommit!=='3a2e8487ae51ab1952b76e18e65ffca8a51c74b3'||record.primarySecondaryIntegrity!=='PASS'||
+         !/^[0-9a-f]{40}$/.test(record.acceptedCommit||'')||hashFields.some(field=>!/^[0-9a-f]{64}$/.test(record[field]||''))||
+         !Array.isArray(record.allowedChangedPaths)||!record.allowedChangedPaths.length||!record.changedFileSha256||
+         Object.values(record.changedFileSha256).some(value=>!/^[0-9a-f]{64}$/.test(value||''))||
+         record.stage3eWasmSha256!=='6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'||
+         !record.stage3eAcousticIdentity||!Array.isArray(record.testResults)||!record.testResults.length||
+         record.testResults.some(item=>!item||item.status!=='PASS'||typeof item.command!=='string'||! /^[0-9a-f]{64}$/.test(item.outputSha256||''))||
+         record.testResultsSha256!==sha256(jsonBytes(record.testResults))||record.acousticRenders!==0||record.builds!==0)
+        throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: performance verifier v7 follow-up schema mismatch');
     }
     const other=byPath.get(item.path);
     if(!other||item.sizeBytes!==other.sizeBytes||item.sha256!==other.sha256)

@@ -122,6 +122,19 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
       /performance verifier v6 follow-up schema mismatch/);
     write(path.join(roots.primary,v6Path),v6Bytes);write(path.join(roots.secondary,v6Path),v6Bytes);
+    const v7Record={...v6Record,parentRelative:'performance-verifier-compatibility-v6.json',
+      parentSha256:'963cc8a52a9c8a24eb90f89dbbf393b7dda94ca3ec64560d106f56414be8cf39',
+      parentAcceptedCommit:'3a2e8487ae51ab1952b76e18e65ffca8a51c74b3',acceptedCommit:'e'.repeat(40)};
+    const v7Path='generation-2/search-v1/performance-verifier-compatibility-v7.json';
+    const v7Bytes=Buffer.from(JSON.stringify(v7Record));
+    write(path.join(roots.primary,v7Path),v7Bytes);write(path.join(roots.secondary,v7Path),v7Bytes);
+    const withV7=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV7.additionCount,22);
+    write(path.join(roots.primary,v7Path),Buffer.from(JSON.stringify({...v7Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v7Path),Buffer.from(JSON.stringify({...v7Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v7 follow-up schema mismatch/);
+    write(path.join(roots.primary,v7Path),v7Bytes);write(path.join(roots.secondary,v7Path),v7Bytes);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/validations/low-full-x/cells/unauthorized.json',{authorizedKeys:expected}),false);
     const lowFullValidation='generation-2/search-v1/low/validations/low-full-0.35-0.5/';
@@ -137,6 +150,7 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.equal(validator.isSearchAddition(v4Path),true);
     assert.equal(validator.isSearchAddition(v5Path),true);
     assert.equal(validator.isSearchAddition(v6Path),true);
+    assert.equal(validator.isSearchAddition(v7Path),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.sha256'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/archives/verifier-compatibility-v2.tar.gz'),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10.json'),true);
