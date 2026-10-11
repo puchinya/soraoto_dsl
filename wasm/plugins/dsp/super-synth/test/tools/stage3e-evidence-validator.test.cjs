@@ -5,6 +5,7 @@ const os=require('node:os');
 const path=require('node:path');
 const validator=require('./stage3e-evidence-validator.cjs');
 const search=require('./stage3e-search-core.cjs');
+const verifierV12=require('./stage3e-performance-verifier-continuation-v12.cjs');
 
 function write(file,bytes){fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);}
 function inventory(root){return validator.walkFiles(root);}
@@ -229,7 +230,7 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
       allowedVerifierOnlyDiffSha256:'a'.repeat(64),verifierFileSha256:Object.fromEntries(v11RequiredPaths.map(item=>[item,'b'.repeat(64)])),
       stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
       stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
-      testResults:v11Results,testResultsSha256:validator.sha256(validator.jsonBytes(v11Results)),
+      testResults:v11Results,testResultsSha256:validator.sha256(Buffer.from(JSON.stringify(v11Results)+'\n')),
       acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
     const v11Path='generation-2/search-v1/performance-verifier-compatibility-v11.json';
     const v11Bytes=Buffer.from(JSON.stringify(v11Record));
@@ -241,6 +242,29 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
       /performance verifier v11 source compatibility schema mismatch/);
     write(path.join(roots.primary,v11Path),v11Bytes);write(path.join(roots.secondary,v11Path),v11Bytes);
+    const v12Results=[{command:'continuation-v12.test.cjs',status:'PASS',outputSha256:'c'.repeat(64)}];
+    const v12Record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_SOURCE_COMPATIBILITY_V12',
+      decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',parentRelative:'performance-verifier-compatibility-v11.json',
+      parentSha256:'e35a9dfa984419e892a6f408c6709f236fee79d273865da5904147d351ccb77d',
+      parentAcceptedCommit:'424b7b3552b566b5e7a78140c3f3819575414cc5',
+      checkpointFixCommit:'b40cc7c67c16370b2bcecafb67061a1e254848ca',
+      incrementalVerifierPath:'wasm/plugins/dsp/super-synth/test/tools/stage3e-incremental-verification.cjs',
+      incrementalVerifierSha256:'dcf2f297cc3e197df4d84ec7f9acc671aeae80b330ede76618eef2451a1341ca',
+      acceptedCommit:'8'.repeat(40),allowedChangedPaths:verifierV12.REQUIRED_CHANGED_PATHS,
+      allowedVerifierOnlyDiffSha256:'d'.repeat(64),verifierFileSha256:Object.fromEntries(verifierV12.REQUIRED_CHANGED_PATHS.map(item=>[item,'e'.repeat(64)])),
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:v12Results,testResultsSha256:validator.sha256(validator.jsonBytes(v12Results)),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const v12Path='generation-2/search-v1/performance-verifier-compatibility-v12.json';
+    const v12Bytes=Buffer.from(JSON.stringify(v12Record));
+    write(path.join(roots.primary,v12Path),v12Bytes);write(path.join(roots.secondary,v12Path),v12Bytes);
+    const withV12=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV12.additionCount,27);
+    const mismatchedV12=Buffer.from(JSON.stringify({...v12Record,parentSha256:'0'.repeat(64)}));
+    write(path.join(roots.primary,v12Path),mismatchedV12);write(path.join(roots.secondary,v12Path),mismatchedV12);
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v12 source compatibility schema mismatch/);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/validations/low-full-x/cells/unauthorized.json',{authorizedKeys:expected}),false);
     const lowFullValidation='generation-2/search-v1/low/validations/low-full-0.35-0.5/';

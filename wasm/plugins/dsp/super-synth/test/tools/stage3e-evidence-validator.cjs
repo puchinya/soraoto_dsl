@@ -223,6 +223,7 @@ function isSearchAddition(relative,{authorizedKeys=[],screenAuthorizedKeys=new M
      relative===SEARCH+'performance-verifier-compatibility-v9.json'||
      relative===SEARCH+'performance-verifier-compatibility-v10.json'||
      relative===SEARCH+'performance-verifier-compatibility-v11.json'||
+     relative===SEARCH+'performance-verifier-compatibility-v12.json'||
      relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz'||relative===SEARCH+'archives/verifier-compatibility-v2.tar.gz.sha256')return true;
   if(/^generation-2\/search-v1\/(?:low|mid)(?:\/validations\/(?:low|mid)-full-[A-Za-z0-9._-]+)?\/verification-checkpoints\/checkpoint-[0-9]{6}\.json$/.test(relative))return true;
   if(relative.startsWith(SEARCH+'ledger-transition-journal/')){
@@ -537,8 +538,40 @@ function validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedK
          !record.stage3eAcousticIdentity||record.stage3eAcousticIdentity.diagnosticWasmSha256!==record.stage3eWasmSha256||
          !Array.isArray(record.testResults)||!record.testResults.length||
          record.testResults.some(test=>!test||test.status!=='PASS'||typeof test.command!=='string'||! /^[0-9a-f]{64}$/.test(test.outputSha256||''))||
-         record.testResultsSha256!==sha256(jsonBytes(record.testResults))||record.acousticRenders!==0||record.builds!==0)
+         record.testResultsSha256!==sha256(Buffer.from(JSON.stringify(record.testResults)+'\n'))||record.acousticRenders!==0||record.builds!==0)
         throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: performance verifier v11 source compatibility schema mismatch');
+    }
+    if(item.path===SEARCH+'performance-verifier-compatibility-v12.json'){
+      let record;
+      try{record=JSON.parse(fs.readFileSync(path.join(primaryRoot,item.path),'utf8'));}
+      catch{throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: invalid performance verifier v12 source compatibility JSON');}
+      const requiredPaths=[
+        'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v11.cjs',
+        'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+        'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+        'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
+        'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+        'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v12.cjs',
+        'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v12.test.cjs'
+      ].sort();
+      const hashFields=['parentSha256','allowedVerifierOnlyDiffSha256','incrementalVerifierSha256','testResultsSha256'];
+      if(record.schemaVersion!==1||record.kind!=='STAGE3E_PERFORMANCE_VERIFIER_SOURCE_COMPATIBILITY_V12'||
+         record.decision!=='STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE'||record.parentRelative!=='performance-verifier-compatibility-v11.json'||
+         record.parentSha256!=='e35a9dfa984419e892a6f408c6709f236fee79d273865da5904147d351ccb77d'||
+         record.parentAcceptedCommit!=='424b7b3552b566b5e7a78140c3f3819575414cc5'||
+         record.checkpointFixCommit!=='b40cc7c67c16370b2bcecafb67061a1e254848ca'||
+         record.incrementalVerifierPath!=='wasm/plugins/dsp/super-synth/test/tools/stage3e-incremental-verification.cjs'||
+         record.incrementalVerifierSha256!=='dcf2f297cc3e197df4d84ec7f9acc671aeae80b330ede76618eef2451a1341ca'||
+         record.primarySecondaryIntegrity!=='PASS'||! /^[0-9a-f]{40}$/.test(record.acceptedCommit||'')||
+         hashFields.some(field=>! /^[0-9a-f]{64}$/.test(record[field]||''))||!same(record.allowedChangedPaths,requiredPaths)||
+         !record.verifierFileSha256||Object.keys(record.verifierFileSha256).sort().join('\n')!==requiredPaths.join('\n')||
+         Object.values(record.verifierFileSha256).some(value=>! /^[0-9a-f]{64}$/.test(value||''))||
+         record.stage3eWasmSha256!=='6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'||
+         !record.stage3eAcousticIdentity||record.stage3eAcousticIdentity.diagnosticWasmSha256!==record.stage3eWasmSha256||
+         !Array.isArray(record.testResults)||!record.testResults.length||
+         record.testResults.some(test=>!test||test.status!=='PASS'||typeof test.command!=='string'||! /^[0-9a-f]{64}$/.test(test.outputSha256||''))||
+         record.testResultsSha256!==sha256(jsonBytes(record.testResults))||record.acousticRenders!==0||record.builds!==0)
+        throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: performance verifier v12 source compatibility schema mismatch');
     }
     const other=byPath.get(item.path);
     if(!other||item.sizeBytes!==other.sizeBytes||item.sha256!==other.sha256)

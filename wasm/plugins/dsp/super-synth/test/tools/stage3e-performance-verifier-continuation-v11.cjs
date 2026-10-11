@@ -151,26 +151,7 @@ function runVerifierTests(root=search.ROOT){
 }
 
 function runtimeContext({root=search.ROOT,home=process.env.HOME,roots=rootsFor(root,home)}={}){
-  const parent=readV10(root,roots);
-  const primary=path.join(roots.primary,RELATIVE),secondary=path.join(roots.secondary,RELATIVE);
-  const hasPrimary=fs.existsSync(primary),hasSecondary=fs.existsSync(secondary);
-  if(hasPrimary!==hasSecondary)fail('v11 source attestation exists in only one durable store','BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE');
-  if(!hasPrimary){
-    // v10-only execution is safe only while every source it accepted is still
-    // exact, including the incremental verifier omitted by its path inventory.
-    validateIncrementalSource({root,acceptedCommit:parent.record.acceptedCommit});
-    for(const [relative,expected] of Object.entries(parent.record.changedFileSha256||{}))
-      if(currentHash(root,relative)!==expected)fail(`v10-only verifier source changed without a v11 attestation: ${relative}`,'BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
-    const identity=acoustic.currentStage3eAcousticIdentity(root);
-    if(!same(identity,parent.identity))fail('Stage3E acoustic identity differs from immutable v10','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
-    return {decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',acceptedCommit:parent.record.acceptedCommit,
-      sha256:parent.sha256,record:parent.record,builds:0,acousticRenders:0,evidenceWrites:0};
-  }
-  const stored=durable.verifyDualCopy(primary,secondary);
-  let record;try{record=JSON.parse(stored.bytes.toString('utf8'));}catch{fail('v11 source attestation is not valid JSON');}
-  const expected=snapshot({root,roots,acceptedCommit:record.acceptedCommit});validateRecord(record,expected);
-  return {decision:record.decision,acceptedCommit:record.acceptedCommit,sha256:stored.sha256,record,
-    builds:0,acousticRenders:0,evidenceWrites:0};
+  return require('./stage3e-performance-verifier-continuation-v12.cjs').runtimeContext({root,home,roots});
 }
 
 function assertRecoveryRuntimeBinding({root=search.ROOT,roots=rootsFor(root),head:currentHead}={}){

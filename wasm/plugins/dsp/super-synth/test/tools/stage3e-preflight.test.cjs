@@ -145,6 +145,7 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
     const v9=require('./stage3e-performance-verifier-continuation-v9.cjs');
     const v10=require('./stage3e-performance-verifier-continuation-v10.cjs');
     const v11=require('./stage3e-performance-verifier-continuation-v11.cjs');
+    const v12=require('./stage3e-performance-verifier-continuation-v12.cjs');
     assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v1');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_RELATIVE),'{}');
     assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v2');
@@ -163,10 +164,15 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V9_RELATIVE),'{}');
     assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v9','v9 is selected ahead of immutable older continuations');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V10_RELATIVE),'{}');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v11.runtimeContext,
+    assert.equal(preflight.selectPerformanceVerifier({roots}),v12.runtimeContext,
       'a v10-only root still goes through the source-binding guard');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V11_RELATIVE),'{}');
-    assert.equal(preflight.selectPerformanceVerifier({roots}),v11.runtimeContext,'v11 source authorization is selected when present');
+    assert.equal(preflight.selectPerformanceVerifier({roots}),v12.runtimeContext,'v11 source authorization still uses the latest source guard');
+    for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V12_RELATIVE),'{}');
+    assert.equal(preflight.selectPerformanceVerifier({roots}),v12.runtimeContext,'v12 is selected ahead of immutable older continuations');
+    fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V12_RELATIVE));
+    assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v12 continuation exists in only one store/);
+    fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V12_RELATIVE));
     fs.rmSync(path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V11_RELATIVE));
     assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v11 continuation exists in only one store/);
     fs.rmSync(path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V11_RELATIVE));
