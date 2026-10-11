@@ -58,8 +58,8 @@ function head(root){return git(root,['rev-parse','HEAD'],'utf8').trim();}
 function isAncestor(root,from,to){try{git(root,['merge-base','--is-ancestor',from,to]);return true;}catch{return false;}}
 function hashCommitFile(root,commit,relative){return sha256(git(root,['show',`${commit}:${relative}`]));}
 function currentFileHash(root,relative){const file=path.join(root,relative);if(!fs.existsSync(file)||!fs.statSync(file).isFile())fail(`required verifier file is missing: ${relative}`);return sha256(fs.readFileSync(file));}
-function changedPaths(root,from,to){return git(root,['diff','--name-only','--no-renames',from,to,'--'], 'utf8').trim().split('\n').filter(Boolean).sort();}
-function diffSha256(root,from,to,allowedPaths){return sha256(git(root,['diff','--binary','--no-ext-diff','--no-renames',from,to,'--',...allowedPaths]));}
+function changedPaths(root,from,to){return git(root,['diff','--name-only','--no-renames',from,to,'--'], 'utf8').trim().split(/\r?\n/).filter(line=>line&&line!=='Changes:').sort();}
+function diffSha256(root,from,to,allowedPaths){return sha256(git(root,['diff','--binary','--no-compact','--no-ext-diff','--no-renames',from,to,'--',...allowedPaths]));}
 function gitStatusClean(root){return git(root,['status','--porcelain'],'utf8').trim()==='';}
 function verifierHashesAt(root,commit){return Object.fromEntries(EFFECTIVE_VERIFIER_PATHS.map(relative=>[relative,hashCommitFile(root,commit,relative)]));}
 function verifierHashesAtWorkingTree(root){return Object.fromEntries(EFFECTIVE_VERIFIER_PATHS.map(relative=>[relative,currentFileHash(root,relative)]));}

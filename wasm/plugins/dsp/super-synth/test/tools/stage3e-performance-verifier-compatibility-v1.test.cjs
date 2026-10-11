@@ -82,4 +82,25 @@ assert.throws(()=>compatibility.validateRecord(record,context({currentAcousticId
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 }
 
+{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-performance-compatibility-diff-'));
+  const git=(...args)=>execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim();
+  try{
+    execFileSync('rtk',['git','init','--quiet'],{cwd:root});
+    git('config','user.email','test@example.invalid');
+    git('config','user.name','Stage3E test');
+    fs.writeFileSync(path.join(root,'tracked.txt'),'before\n');
+    git('add','tracked.txt');
+    git('commit','--quiet','-m','baseline');
+    const before=git('rev-parse','HEAD');
+    fs.writeFileSync(path.join(root,'tracked.txt'),`${'x'.repeat(180000)}\nafter\n`);
+    git('add','tracked.txt');
+    git('commit','--quiet','-m','large change');
+    const after=git('rev-parse','HEAD');
+    assert.deepEqual(compatibility.changedPaths(root,before,after),['tracked.txt']);
+    const expected=execFileSync('rtk',['git','diff','--binary','--no-compact','--no-ext-diff','--no-renames',before,after,'--','tracked.txt'],{cwd:root});
+    assert.equal(compatibility.diffSha256(root,before,after,['tracked.txt']),compatibility.sha256(expected));
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+}
+
 console.log('PASS Stage3E performance verifier compatibility identity and fail-closed validation');
