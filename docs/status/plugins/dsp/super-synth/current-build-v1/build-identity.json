@@ -1,0 +1,251 @@
+{
+  "schema": "issue7-build-identity/v1",
+  "issue": 7,
+  "pullRequest": 8,
+  "epoch": "current-build-v1",
+  "builtAt": "2026-10-13",
+  "sourceCommit": "506cae8dd7d4d6c2637de1b6b5fff307d74ae7fc",
+  "branch": "codex/issue-7-supersynth-v9",
+  "worktreeCleanBeforeAndAfterBuild": true,
+  "toolchain": {
+    "cmake": "4.4.2",
+    "generator": "Unix Makefiles",
+    "clang": "Homebrew LLVM 22.1.8",
+    "lld": "22.1.8",
+    "cmakePython": "3.14.7",
+    "toolchainFile": "wasm/cmake/wasm32-clang.cmake",
+    "toolchainFileSha256": "9a914f35f4cc91e9918d1747e03845641902a400ba1efa18868847726cd56862"
+  },
+  "inputs": {
+    "pluginC": {
+      "path": "wasm/plugins/dsp/super-synth/src/plugin.c",
+      "sha256": "2ffb6dd9217601ef122f516c0a2edda7009df8b4bc36d8db6f21120447cf9a15"
+    },
+    "presets": {
+      "path": "wasm/plugins/dsp/super-synth/presets.json",
+      "sha256": "70e0a30d01670e8e92e31886615a26e6a55b7d605d5bd1d8117d0dbb16bad3f4"
+    },
+    "descriptor": {
+      "path": "wasm/plugins/dsp/super-synth/descriptor.json",
+      "sha256": "6ba10fccb856d56adccd21d67966d9625eadd070ac1891b3587dd24e18c007a0"
+    },
+    "generatedProfile": {
+      "path": "wasm/shared/generated/super-synth_grand_profiles.h",
+      "sha256": "1ef49484c64a0b9a0edae42f94cc0e8a61f62a172198e7c366806ae109175d0f"
+    },
+    "referenceMetrics": {
+      "path": "wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json",
+      "sha256": "5d27b6beae2a3c478e21ef0e260e588fdfd22bd1fea4181c74c0d00520a08cd7"
+    },
+    "metadataGenerator": {
+      "path": "wasm/cmake/generate_plugin_metadata.py",
+      "sha256": "8572958d2b0f830939143c4c0b8453f797bea9358de2863d61e00292f48a1bb7"
+    },
+    "metadataHelper": {
+      "path": "wasm/cmake/super_synth_metadata.py",
+      "sha256": "3f917cd23474b51bc925204a47ee5fcf2e8b98bb363649cc719c35f0810086da"
+    },
+    "stage3eBaselineDefinition": {
+      "path": "wasm/plugins/dsp/super-synth/test/tools/stage3e-generation2-core.cjs",
+      "sha256": "6239b7fb01eee886881ee821f87ea4668d57e83da545265b587a6f7db162563a"
+    },
+    "captureHelper": {
+      "path": "wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs",
+      "sha256": "0aab372940979543280738a302a5b99967907a14503e8bdfd0d340b29be422c5"
+    },
+    "stage3Evaluator": {
+      "path": "wasm/plugins/dsp/super-synth/test/tools/stage3-direct-reference-metrics.cjs",
+      "sha256": "fce443555308d88bde2e8f9fcc176a7376c3acdcb86f1e4044aab4f96cb9dd4a"
+    },
+    "stage4Evaluator": {
+      "path": "wasm/plugins/dsp/super-synth/test/tools/stage4-full-range-evaluator.cjs",
+      "sha256": "5e4dec640ab3c10f69328f5e56e6cae515a49d2778c4dffbf9fe1445dd35cf68"
+    }
+  },
+  "metadataOutputs": {
+    "descriptorCborBytes": 134156,
+    "descriptorCborSha256": "c868576173fb107f6167c159df5d5efdc7691a995ce68c0d800ece95e0008f3a",
+    "descriptorHeaderBytes": 619855,
+    "descriptorHeaderSha256": "ce522075c3dcbc22334a964a53889102a693a3917ad0bf9d14607e51e5ff8275",
+    "allThreeBuildsIdentical": true
+  },
+  "builds": {
+    "production": {
+      "buildDirectory": "build/issue7-current-build-v1/production",
+      "target": "soraoto_dsp_super_synth",
+      "cmakeCacheSha256": "cb3e820434804e110af4b8feff5297755a017b538239d3c538ae9cb47b948836",
+      "flags": {
+        "GUARD_DIAGNOSTICS": "ON (repository default)",
+        "STAGE2M_DIAGNOSTICS": "OFF",
+        "STAGE3B_DIAGNOSTICS": "OFF",
+        "STAGE3C_DIAGNOSTICS": "OFF",
+        "STAGE3D_DIAGNOSTICS": "OFF",
+        "STAGE3E_DIAGNOSTICS": "OFF",
+        "SIMD_DIAGNOSTICS": "OFF"
+      },
+      "wasm": {
+        "path": "plugins/dsp/super-synth/plugin.wasm",
+        "bytes": 436089,
+        "sha256": "b343dcd5ece5a6e9e43b06735332187d6564fc66f873332c71e895becca43b51"
+      },
+      "stage3eExportsPresent": false,
+      "exportCount": 24,
+      "exports": [
+        "memory",
+        "soraoto_supersynth_guard_hit_count",
+        "soraoto_supersynth_active_voice_count",
+        "soraoto_supersynth_diagnostic_set_ablation_mask",
+        "soraoto_supersynth_soundboard_diag_reset",
+        "soraoto_supersynth_soundboard_diag_sum_squares",
+        "soraoto_supersynth_soundboard_diag_peak",
+        "soraoto_supersynth_soundboard_diag_frames",
+        "soraoto_supersynth_benchmark_soundboard",
+        "soraoto_supersynth_benchmark_sympathetic",
+        "soraoto_alloc",
+        "soraoto_free",
+        "soraoto_plugin_abi_version",
+        "soraoto_plugin_init",
+        "soraoto_plugin_terminate",
+        "soraoto_plugin_control",
+        "soraoto_plugin_activate",
+        "soraoto_plugin_deactivate",
+        "soraoto_plugin_start_processing",
+        "soraoto_plugin_stop_processing",
+        "soraoto_plugin_reset",
+        "soraoto_plugin_process",
+        "soraoto_plugin_latency_samples",
+        "soraoto_plugin_tail_samples"
+      ]
+    },
+    "stage3e": {
+      "buildDirectory": "build/issue7-current-build-v1/stage3e",
+      "target": "soraoto_dsp_super_synth",
+      "cmakeCacheSha256": "d0341fab71b9bee8051f66758f04c7b52627f9b1a255b8127cc2c33ab36840a4",
+      "flags": {
+        "GUARD_DIAGNOSTICS": "ON",
+        "STAGE2M_DIAGNOSTICS": "ON",
+        "STAGE3B_DIAGNOSTICS": "OFF",
+        "STAGE3C_DIAGNOSTICS": "OFF",
+        "STAGE3D_DIAGNOSTICS": "OFF",
+        "STAGE3E_DIAGNOSTICS": "ON",
+        "SIMD_DIAGNOSTICS": "OFF"
+      },
+      "wasm": {
+        "path": "plugins/dsp/super-synth/plugin.wasm",
+        "bytes": 437813,
+        "sha256": "2a50cc271c4bdde5646bec677c7122a50c75405ff7627c73f39a7267cb860c49"
+      },
+      "stage3eExportsPresent": true,
+      "stage3eControlExports": [
+        "soraoto_supersynth_stage3e_set_velocity_response",
+        "soraoto_supersynth_stage3e_get_low",
+        "soraoto_supersynth_stage3e_get_mid",
+        "soraoto_supersynth_stage3e_get_bass_hardness"
+      ],
+      "maskExports": [
+        "soraoto_supersynth_stage2m_set_factor_mask",
+        "soraoto_supersynth_stage2m_get_factor_mask"
+      ],
+      "exportCount": 32,
+      "exports": [
+        "memory",
+        "soraoto_supersynth_guard_hit_count",
+        "soraoto_supersynth_active_voice_count",
+        "soraoto_supersynth_diagnostic_set_ablation_mask",
+        "soraoto_supersynth_stage2m_set_factor_mask",
+        "soraoto_supersynth_stage2m_get_factor_mask",
+        "soraoto_supersynth_stage2m_hammer_diag_reset",
+        "soraoto_supersynth_stage2m_hammer_diag_value",
+        "soraoto_supersynth_stage3e_set_velocity_response",
+        "soraoto_supersynth_stage3e_get_low",
+        "soraoto_supersynth_stage3e_get_mid",
+        "soraoto_supersynth_stage3e_get_bass_hardness",
+        "soraoto_supersynth_soundboard_diag_reset",
+        "soraoto_supersynth_soundboard_diag_sum_squares",
+        "soraoto_supersynth_soundboard_diag_peak",
+        "soraoto_supersynth_soundboard_diag_frames",
+        "soraoto_supersynth_benchmark_soundboard",
+        "soraoto_supersynth_benchmark_sympathetic",
+        "soraoto_alloc",
+        "soraoto_free",
+        "soraoto_plugin_abi_version",
+        "soraoto_plugin_init",
+        "soraoto_plugin_terminate",
+        "soraoto_plugin_control",
+        "soraoto_plugin_activate",
+        "soraoto_plugin_deactivate",
+        "soraoto_plugin_start_processing",
+        "soraoto_plugin_stop_processing",
+        "soraoto_plugin_reset",
+        "soraoto_plugin_process",
+        "soraoto_plugin_latency_samples",
+        "soraoto_plugin_tail_samples"
+      ]
+    },
+    "stage4": {
+      "buildDirectory": "build/issue7-current-build-v1/stage4",
+      "target": "soraoto_dsp_super_synth",
+      "cmakeCacheSha256": "a1f406fc6018af3cd39e93da91b19f0ae983fcc695ae1a8ed32d3e96398f953f",
+      "flags": {
+        "GUARD_DIAGNOSTICS": "ON",
+        "STAGE2M_DIAGNOSTICS": "OFF",
+        "STAGE3B_DIAGNOSTICS": "OFF",
+        "STAGE3C_DIAGNOSTICS": "OFF",
+        "STAGE3D_DIAGNOSTICS": "OFF",
+        "STAGE3E_DIAGNOSTICS": "OFF",
+        "SIMD_DIAGNOSTICS": "OFF"
+      },
+      "wasm": {
+        "path": "plugins/dsp/super-synth/plugin.wasm",
+        "bytes": 436089,
+        "sha256": "b343dcd5ece5a6e9e43b06735332187d6564fc66f873332c71e895becca43b51"
+      },
+      "stage3eExportsPresent": false,
+      "stage4Exports": [
+        "soraoto_supersynth_active_voice_count",
+        "soraoto_supersynth_guard_hit_count"
+      ],
+      "exportCount": 24,
+      "exports": [
+        "memory",
+        "soraoto_supersynth_guard_hit_count",
+        "soraoto_supersynth_active_voice_count",
+        "soraoto_supersynth_diagnostic_set_ablation_mask",
+        "soraoto_supersynth_soundboard_diag_reset",
+        "soraoto_supersynth_soundboard_diag_sum_squares",
+        "soraoto_supersynth_soundboard_diag_peak",
+        "soraoto_supersynth_soundboard_diag_frames",
+        "soraoto_supersynth_benchmark_soundboard",
+        "soraoto_supersynth_benchmark_sympathetic",
+        "soraoto_alloc",
+        "soraoto_free",
+        "soraoto_plugin_abi_version",
+        "soraoto_plugin_init",
+        "soraoto_plugin_terminate",
+        "soraoto_plugin_control",
+        "soraoto_plugin_activate",
+        "soraoto_plugin_deactivate",
+        "soraoto_plugin_start_processing",
+        "soraoto_plugin_stop_processing",
+        "soraoto_plugin_reset",
+        "soraoto_plugin_process",
+        "soraoto_plugin_latency_samples",
+        "soraoto_plugin_tail_samples"
+      ]
+    }
+  },
+  "verification": {
+    "builds": "PASS",
+    "productionHasNoStage3eExports": "PASS",
+    "stage3eControlsAndMask3": "PASS (set factor mask(3) returned 0 and getter returned 3; set velocity response(0.8, 0.9, 1.1) returned 0 and all three getters matched within 1e-6)",
+    "publicPluginAbiVersion": "PASS (0x00010000 in all three builds)",
+    "generatedMetadataOutputs": "PASS (CMake outputs match across all three builds; current direct/CMake descriptor regeneration was separately verified at Gate 0)",
+    "stage4GuardAndVoiceExports": "PASS",
+    "moduleImports": 0,
+    "guardHitsOnFreshModule": 0,
+    "activeVoicesOnFreshModule": 0,
+    "acousticRenders": 0,
+    "canonicalAcousticEvidenceWrites": 0
+  },
+  "buildPathNote": "The contract's build/wasm path already held a 3.7 GB older cache dated 2026-10-03 with diagnostic flags enabled. It was preserved. These three fresh, separate build directories were used instead."
+}
