@@ -21,6 +21,26 @@
       "path": "wasm/plugins/dsp/super-synth/src/plugin.c",
       "sha256": "2ffb6dd9217601ef122f516c0a2edda7009df8b4bc36d8db6f21120447cf9a15"
     },
+    "compiledHeaderGrandLossMath": {
+      "path": "wasm/plugins/dsp/super-synth/src/grand_loss_math.h",
+      "sha256": "d9089333be9fbdf98ebe6d868d3221f66bf2a0ea01449c96072c35ec560223ea"
+    },
+    "compiledHeaderPluginAbiRuntime": {
+      "path": "wasm/shared/plugin_abi_runtime.h",
+      "sha256": "2fefb0648e9a6a30e8f665bcff32a8f14ffc7345e362646e8b75976992c98a52"
+    },
+    "wasmCmakeLists": {
+      "path": "wasm/CMakeLists.txt",
+      "sha256": "2ba1e235133cb8b29a705089bac3cc93cfd67c6e660cc6427d2178584ff4fea6"
+    },
+    "superSynthCmakeLists": {
+      "path": "wasm/plugins/dsp/super-synth/CMakeLists.txt",
+      "sha256": "ba1a1dbea015002623b20fe8966e09983270e79283a4319e1069a8aa3e2a710f"
+    },
+    "wasmPluginCmake": {
+      "path": "wasm/cmake/wasm_plugin.cmake",
+      "sha256": "fcf2fb7e68cc9858b7645e4261a6b9e132817ec5ba4a77b8c5734000adb6a1e5"
+    },
     "presets": {
       "path": "wasm/plugins/dsp/super-synth/presets.json",
       "sha256": "70e0a30d01670e8e92e31886615a26e6a55b7d605d5bd1d8117d0dbb16bad3f4"

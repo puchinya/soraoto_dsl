@@ -120,7 +120,12 @@ if(BUILD_TESTING AND SORAOTO_NODE_EXECUTABLE)
     run-stage3-production-recovery.test.cjs
     capture-supersynth-stage4-lifecycle.test.cjs
     stage4-full-range-evaluator.test.cjs
-    run-stage4-full-range.test.cjs)
+    run-stage4-full-range.test.cjs
+    issue7-current-build-core.test.cjs
+    run-issue7-stage3e-current-build.test.cjs
+    run-issue7-stage3-current-build.test.cjs
+    run-issue7-stage4-current-build.test.cjs
+    run-issue7-current-build.test.cjs)
   foreach(test_file IN LISTS SORAOTO_STAGE3E_EVIDENCE_TESTS)
     string(REPLACE ".test.cjs" "" test_name "${test_file}")
     add_test(NAME "wasm.dsp.super-synth.${test_name}"
