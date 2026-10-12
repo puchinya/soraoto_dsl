@@ -814,3 +814,40 @@ without writes or renders. A later documentation-only HEAD change does not
 change replay validity or the historical creator identity. A missing or
 modified authoritative result fails closed; the finalizer never recreates or
 overwrites it.
+
+## 9. Issue #7 current-build acceptance tooling
+
+The approved current-build-v1 contract for Issue #7 (GitHub contract comment
+6126988652, SHA-256
+`6aa448801d983d2ba4ef5a65b02900db4e1cb1ef5c2f904d2f2a4ed5bb5583c2`)
+introduces a new internal acceptance epoch. It does not change the SuperSynth
+product contract, public Plugin ABI, DSL, or DSP behavior. Historical
+Generation-2/search-v1 evidence and the existing Stage3/Stage4 authoritative
+roots remain immutable and are never interpreted as current-build evidence.
+
+The new epoch owns separate `current-build-v1` roots for Stage3E, Stage3, and
+Stage4 in both canonical stores. Each run freezes the source, preset, generated
+profile, fixture, evaluator, capture helper, toolchain, build outputs, and
+authorization identities before measurement. A changed acoustic input starts
+a new numbered epoch rather than modifying a started one. The three WASM roles
+are separate production, Stage3E diagnostic, and Stage4 lifecycle diagnostic
+builds; their hashes may differ, while their shared source and profile lineage
+must be proven.
+
+New Issue #7 runners own current-build evidence and never call the historical
+Generation-2, Stage3, Stage4, or all-in-one execution paths. The orchestrator
+is a one-step dispatcher: status, dry-run, and verify are read-only; `--next`
+advances only one already-authorized phase and then stops. Each acoustic cell
+has an immutable start marker and dual-store outcome. An exception after the
+marker or a failed mirror write is ambiguous and cannot trigger an automatic
+rerender. A non-finite, unsafe, or otherwise failing observation is preserved
+before the phase stops.
+
+The contract fixes the existing 8 dB dynamic-span limit, the 12-coordinate
+paired production/diagnostic baseline, the 486-cell Stage3 matrix, and the
+1,423-cell Stage4 lifecycle matrix with 1,392 adjacent comparisons. Gate 1
+permits fresh builds and zero-render verification only. Acoustic work requires
+a separate Issue #7 authorization with an exact plan and render budget; the
+contract itself does not grant that authorization. This current-build path
+supersedes the older §5.1 master-orchestrator route only for the new epoch; the
+historical route and its evidence remain unchanged.

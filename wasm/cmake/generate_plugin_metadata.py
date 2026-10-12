@@ -78,6 +78,12 @@ def normalized_value(parameter: dict, value) -> float:
         count = int(maximum - minimum + 1)
         return 0.0 if count <= 1 else (number - minimum) / (count - 1)
     number = float(value)
+    if parameter.get("scale", {}).get("kind") == "log":
+        lower = float(minimum)
+        upper = float(maximum)
+        if number <= 0 or lower <= 0 or upper <= lower:
+            raise ValueError(f"invalid logarithmic parameter value {parameter['path']}={value}")
+        return max(0.0, min(1.0, math.log(number / lower) / math.log(upper / lower)))
     return 0.0 if maximum == minimum else max(0.0, min(1.0, (number - float(minimum)) / (float(maximum) - float(minimum))))
 
 

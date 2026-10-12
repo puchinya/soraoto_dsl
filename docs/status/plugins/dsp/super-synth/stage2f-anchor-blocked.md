@@ -1,5 +1,12 @@
 # Issue #7 — Stage2F Anchor Requalification
 
+> **Historical checkpoint report:** included in PR #8 checkpoint commit
+> `884ea89ec3b3e343ed754ade1ccf1a8878f25611` (2026-10-12). The execution
+> date and complete source/WASM identity are not established by this file.
+> Its measurements and decision are retained as historical claims; they were
+> not revalidated at the current-build-v1 baseline and are not current
+> acceptance evidence.
+
 **State:** `BLOCKED_NO_CURRENT_STAGE2_ANCHOR` — Issue #7 remains `phase:implementation` + `blocked`; PR #8 remains the delivery PR.
 
 The three historical Stage-2-pass candidates were resolved from saved provenance and six-axis vector matches, then freshly re-rendered with production SIMD under the current Stage2E evaluator. All pass Stage1 and Stage2 pitch, measurement, finite, peak, guard, and low-buzz gates. Each fails only the current release-tail-2 minimum, so the Stage2F local design is locked by contract.

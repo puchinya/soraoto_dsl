@@ -30,7 +30,7 @@
     "hammerForceScale": 300,
     "calibrationConfigSha256": "0c5e921d3946f7f11c87189762e3e78178c9b5a8b97febb23bd0136f35447e00",
     "sourceWasm": "build/wasm/plugins/dsp/super-synth/plugin.wasm",
-    "wasmBuildRoot": "/Users/nabeshimamasataka/Documents/git/soraoto_dsl/build/wasm",
+    "wasmBuildRoot": "build/wasm",
     "sourceRevision": "6f4ab32bf20f9267eeb368aa4d7809e0fe846329",
     "sourceTreeDirty": true,
     "sourcePluginSha256": "b1ce34f3c40479a7892d4543832476e327edd268f4da2a78b825cd27596b4aae",

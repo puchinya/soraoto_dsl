@@ -2,6 +2,19 @@
 
 > This document records current evidence. It is non-normative; the product specification and approved design define requirements and decisions.
 
+## Current status — 2026-10-13
+
+- **Authoritative state:** Issue [#7](https://github.com/puchinya/soraoto_dsl/issues/7) is OPEN with `phase:implementation` and `blocked`; PR [#8](https://github.com/puchinya/soraoto_dsl/pull/8) is OPEN on `codex/issue-7-supersynth-v9`. The last live PR HEAD read before the Gate 0 remediation commit was `884ea89ec3b3e343ed754ade1ccf1a8878f25611`; GitHub remains the live authority.
+- **Active contract:** current-build-v1, SHA-256 `6aa448801d983d2ba4ef5a65b02900db4e1cb1ef5c2f904d2f2a4ed5bb5583c2`, published on Issue #7 as [comment 6126988652](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6126988652). The R01–R16 checklist was posted before implementation in [comment 6126997463](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6126997463).
+- **Current execution gate:** Gate 0 scope/provenance remediation is complete and recorded in [`checkpoint-data-provenance-2026-10-13.md`](checkpoint-data-provenance-2026-10-13.md). Gate 1's three isolated fresh WASM builds have not started. No current-build-v1 acoustic render has run. Acoustic execution still requires a separate explicit Issue #7 authorization with fixed coordinates and budget.
+- **Historical acoustic blocker:** the last accepted historical Stage3E result remains `BLOCKED_STAGE3E_MID_RESPONSE_FAMILY`, MIDI 51 dynamic-span error `8.935437 dB` against the unchanged `8 dB` limit. This is not a current-build-v1 measurement. Stage3 and Stage4 have not been run for current-build-v1.
+- **Checkpoint data:** the path-by-path audit is recorded in [`checkpoint-data-provenance-2026-10-13.md`](checkpoint-data-provenance-2026-10-13.md). Unsupported checkpoint values are classified as `UNVERIFIED_CHECKPOINT_DATA`; they are not current acceptance evidence. Original Git blobs remain available in history, and prior metric blobs are also preserved in the ignored Issue #7 audit area.
+- **Delivery:** existing PR #8 only. The broad checkpoint is not accepted until the scope/provenance gate, current-build implementation, authorized acoustic gates, full verification, and review are complete.
+
+## Historical status log — 2026-09-27 snapshot
+
+The following status snapshot is retained for provenance. Its phase, HEAD, and PASS statements describe the 2026-09-27 state only; they are not current Issue #7 or PR #8 state.
+
 **Owning Issue:** [#7](https://github.com/puchinya/soraoto_dsl/issues/7) — SuperSynth V9 Salamander Calibration and Full-Range Delivery
 **Pull Request:** [#8](https://github.com/puchinya/soraoto_dsl/pull/8)
 **Issue phase:** `phase:design`

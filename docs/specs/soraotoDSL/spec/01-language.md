@@ -185,10 +185,7 @@ resolved-id =
 Component-created object ID uses §20.5 Component global-ID derivation directly。
 Compiler-generated object ID uses the domain-separated graph/object generation rule of its defining IR section。
 
-When a diagnostic or test dump serializes Resolved Project IR, it never depends on filesystem
-absolute paths or mutable display names. Such a dump is derived output for inspection only: it is not
-a supported Project format or runtime-construction input and can be regenerated from DSL without
-semantic loss。
+Therefore serialized Resolved Project IR never depends on filesystem absolute paths or mutable display names。
 
 `AudioSourceRef` は audio output を持つ object のみ参照可能。
 `PluginRef` が generator/instrument/effect 等どの kind かは resolved Project IR で type-checkする。

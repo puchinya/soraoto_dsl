@@ -12,6 +12,11 @@ MODULE_SPEC = importlib.util.spec_from_file_location(
 )
 metadata = importlib.util.module_from_spec(MODULE_SPEC)
 MODULE_SPEC.loader.exec_module(metadata)
+PLUGIN_MODULE_SPEC = importlib.util.spec_from_file_location(
+    "generate_plugin_metadata", pathlib.Path(__file__).with_name("generate_plugin_metadata.py")
+)
+plugin_metadata = importlib.util.module_from_spec(PLUGIN_MODULE_SPEC)
+PLUGIN_MODULE_SPEC.loader.exec_module(plugin_metadata)
 PRESETS = json.loads((WASM_ROOT / "plugins/dsp/super-synth/presets.json").read_text(encoding="utf-8"))
 
 
@@ -150,6 +155,28 @@ class GrandProfileSchemaTests(unittest.TestCase):
         self.assertNotIn("state", descriptor)
         self.assertNotIn("supports_unit_data", descriptor["units"][0])
         self.assertNotIn("supports_program_data", descriptor["program_lists"][0])
+
+
+class MetadataGeneratorCompatibilityTests(unittest.TestCase):
+    def test_cmake_and_super_synth_default_normalization_match(self):
+        _, model = metadata.parse_interface(WASM_ROOT / "plugins/dsp/super-synth/interface.soraoto")
+        parameters = model["parameters"]
+        logarithmic = [parameter for parameter in parameters if parameter.get("scale", {}).get("kind") == "log"]
+        self.assertGreater(len(logarithmic), 0)
+        for parameter in parameters:
+            with self.subTest(path=parameter["path"]):
+                self.assertAlmostEqual(
+                    metadata.normalized_default(parameter),
+                    plugin_metadata.normalized_default(parameter),
+                    places=12,
+                )
+
+    def test_log_default_rejects_non_positive_values(self):
+        _, model = metadata.parse_interface(WASM_ROOT / "plugins/dsp/super-synth/interface.soraoto")
+        parameter = next(p for p in model["parameters"] if p.get("scale", {}).get("kind") == "log")
+        for value in (0, -1):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "invalid logarithmic parameter value"):
+                plugin_metadata.normalized_value(parameter, value)
 
 
 if __name__ == "__main__":
