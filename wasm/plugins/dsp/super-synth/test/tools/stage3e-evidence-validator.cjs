@@ -5,7 +5,9 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const durable=require('./durable-evidence.cjs');
 const incrementalVerification=require('./stage3e-incremental-verification.cjs');
+const evidencePaths=require('./stage3e-evidence-paths.cjs');
 const search=require('./stage3e-search-core.cjs');
+const mid055=require('./stage3e-mid055-diagnostic.cjs');
 
 const SOURCE_AUDIT_SHA256='eda9e25c490162e4b46e8e72e98da25e84bfd4980afe16c1df773d9020c53560';
 const SEARCH_MANIFEST_SHA256='27bdbee7735e32a468370a1166d4901d12fa3a9ca0774bc66943a79ed1718095';
@@ -13,6 +15,34 @@ const LOW_GENESIS_SHA256='d8b2b7e299174b605c1cdcb576ab70645ec725cbfa03d76c003abe
 const AMENDMENT='generation-2/midi41-derivative-amendment-v1/';
 const SEARCH='generation-2/search-v1/';
 const RECOVERY_V2=SEARCH+'recovery-reconciliation-v2/';
+const MID055_PREFIX=mid055.NAMESPACE+'/';
+const V15_RELATIVE=SEARCH+'performance-verifier-compatibility-v15.json';
+const V15_REQUIRED_PATHS=Object.freeze([
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-paths.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-mid055-diagnostic.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-mid055-diagnostic.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v15.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-paths.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-mid055-diagnostic.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-stage3e-mid055-diagnostic.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v15.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs'
+].sort());
+const V15_TEST_COMMANDS=Object.freeze([
+  'rtk node wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-paths.test.cjs',
+  'rtk node wasm/plugins/dsp/super-synth/test/tools/stage3e-mid055-diagnostic.test.cjs',
+  'rtk node wasm/plugins/dsp/super-synth/test/tools/run-stage3e-mid055-diagnostic.test.cjs',
+  'rtk node wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v15.test.cjs',
+  'rtk node wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+  'rtk node wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+  'rtk node wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v14.test.cjs',
+  'rtk node wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.test.cjs',
+  'rtk node wasm/plugins/dsp/super-synth/test/tools/run-stage3e-generation2.test.cjs',
+  'rtk git diff --check'
+]);
 
 function sha256(bytes){return crypto.createHash('sha256').update(bytes).digest('hex');}
 function jsonBytes(value){return Buffer.from(JSON.stringify(value,null,2)+'\n');}
@@ -199,6 +229,16 @@ function readMidScreenCellBindings(primaryRoot,secondaryRoot,manifestSha256=SEAR
 
 function isSearchAddition(relative,{authorizedKeys=[],screenAuthorizedKeys=new Map(),validationAuthorizedKeys=new Map()}={}){
   if(isAmendmentAddition(relative))return true;
+  if(relative===V15_RELATIVE)return true;
+  if(relative.startsWith(MID055_PREFIX)){
+    const leaf=relative.slice(MID055_PREFIX.length);
+    if(new Set(['authorization.json','diagnostic-manifest.json','diagnostic-ledger.json','result.json','evidence-manifest.json',
+      'evidence-manifest.sha256','ledger-transition-journal/genesis.json','ledger-transition-journal/genesis-ledger.json',
+      `archives/mid-0.55-screen-v1.tar.gz`]).has(leaf))return true;
+    if(/^ledger-transition-journal\/(?:transition|render-start)-\d{6}\.json$/.test(leaf))return true;
+    if(/^cells\/[A-Za-z0-9._-]+\.json$/.test(leaf))return mid055.exactCells().some(cell=>leaf===cell.relativePath);
+    return false;
+  }
   const recoveryV2Files=new Set([
     'source-audit.json','invalid-recovery-disposition.json','authorization-v2.json','transaction-intent.json',
     'transaction-receipt.json','reconciliation-result.json','evidence-manifest.json','evidence-manifest.sha256',
@@ -268,6 +308,23 @@ function isSearchAddition(relative,{authorizedKeys=[],screenAuthorizedKeys=new M
   return false;
 }
 
+function validateV15CompatibilityRecord(record){
+  if(!record||record.schemaVersion!==1||record.kind!=='STAGE3E_PERFORMANCE_VERIFIER_SOURCE_COMPATIBILITY_V15'||
+     record.decision!=='STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE'||record.parentRelative!=='performance-verifier-compatibility-v14.json'||
+     record.parentSha256!=='f913fb5597c584c293e0106c50242ead507bf52f1e32097543c9f1c6b25771f1'||
+     record.parentAcceptedCommit!=='f3abab2d5999f86e959e2c5e57a09bddc2a8adbe'||record.primarySecondaryIntegrity!=='PASS'||
+     !/^[0-9a-f]{40}$/.test(record.acceptedCommit||'')||!same(record.allowedChangedPaths,V15_REQUIRED_PATHS)||
+     !record.verifierFileSha256||V15_REQUIRED_PATHS.some(relative=>!/^[0-9a-f]{64}$/.test(record.verifierFileSha256[relative]||''))||
+     !/^[0-9a-f]{64}$/.test(record.allowedVerifierOnlyDiffSha256||'')||!Array.isArray(record.testResults)||
+     !same(record.testResults.map(test=>test?.command),V15_TEST_COMMANDS)||
+     record.testResults.some(test=>!test||test.status!=='PASS'||! /^[0-9a-f]{64}$/.test(test.outputSha256||''))||
+     record.testResultsSha256!==sha256(jsonBytes(record.testResults))||record.acousticRenders!==0||record.builds!==0||record.evidenceWrites!==0||
+     record.stage3eWasmSha256!=='6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'||
+     record.stage3eAcousticIdentity?.diagnosticWasmSha256!==record.stage3eWasmSha256)
+    throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: performance verifier v15 source compatibility schema mismatch');
+  return record;
+}
+
 function validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedKeys=[],manifestSha256=SEARCH_MANIFEST_SHA256}={}){
   const primaryFrozen=audit&&audit.immutablePreexistingFileInventory&&audit.immutablePreexistingFileInventory.primary&&audit.immutablePreexistingFileInventory.primary.files;
   const secondaryFrozen=audit&&audit.immutablePreexistingFileInventory&&audit.immutablePreexistingFileInventory.secondary&&audit.immutablePreexistingFileInventory.secondary.files;
@@ -275,6 +332,20 @@ function validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedK
   const s=validateFrozenSide(secondaryRoot,secondaryFrozen,'secondary');
   const pNames=p.extras.map(item=>item.path),sNames=s.extras.map(item=>item.path);
   if(!same(pNames,sNames))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: addition path sets differ');
+  const mid055Touched=pNames.some(name=>name.startsWith(MID055_PREFIX))||
+    fs.existsSync(evidencePaths.resolveMid055DiagnosticRoots({primary:primaryRoot,secondary:secondaryRoot}).primary)||
+    fs.existsSync(evidencePaths.resolveMid055DiagnosticRoots({primary:primaryRoot,secondary:secondaryRoot}).secondary);
+  if(mid055Touched){
+    const v15Primary=path.join(primaryRoot,V15_RELATIVE),v15Secondary=path.join(secondaryRoot,V15_RELATIVE);
+    if(!fs.existsSync(v15Primary)||!fs.existsSync(v15Secondary))
+      throw new Error('BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY: diagnostic namespace requires a dual-copy v15 attestation');
+    const v15Stored=durable.verifyDualCopy(v15Primary,v15Secondary);
+    let v15Record;try{v15Record=JSON.parse(v15Stored.bytes.toString('utf8'));}
+    catch{throw new Error('BLOCKED_STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY: invalid v15 attestation JSON');}
+    validateV15CompatibilityRecord(v15Record);
+    mid055.validateMid055DiagnosticNamespace({primaryRoot,secondaryRoot,parentManifestSha256:manifestSha256,
+      sourceCommit:v15Record.acceptedCommit,v15AttestationSha256:v15Stored.sha256});
+  }
   const byPath=new Map(s.extras.map(item=>[item.path,item]));
   const validationBindings=new Map();
   const screenBindings=new Map();
@@ -664,6 +735,12 @@ function validateNamespaceAdditions({primaryRoot,secondaryRoot,audit,authorizedK
          record.testResultsSha256!==sha256(jsonBytes(record.testResults))||record.acousticRenders!==0||record.builds!==0)
         throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: performance verifier v14 source compatibility schema mismatch');
     }
+    if(item.path===V15_RELATIVE){
+      let record;
+      try{record=JSON.parse(fs.readFileSync(path.join(primaryRoot,item.path),'utf8'));}
+      catch{throw new Error('BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE: invalid performance verifier v15 source compatibility JSON');}
+      validateV15CompatibilityRecord(record);
+    }
     const other=byPath.get(item.path);
     if(!other||item.sizeBytes!==other.sizeBytes||item.sha256!==other.sha256)
       throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: addition differs: '+item.path);
@@ -824,5 +901,5 @@ function validateLedgerTransitions({genesisLedgerBytes,currentLedgerBytes,transi
 module.exports={
   SOURCE_AUDIT_SHA256,SEARCH_MANIFEST_SHA256,LOW_GENESIS_SHA256,AMENDMENT,SEARCH,RECOVERY_V2,
   sha256,jsonBytes,stable,same,safeRelative,walkFiles,validateFrozenSide,isAmendmentAddition,
-  isSearchAddition,validateNamespaceAdditions,verifyDualFile,validateLowGenesis,validateLedgerTransitions
+  isSearchAddition,validateV15CompatibilityRecord,validateNamespaceAdditions,verifyDualFile,validateLowGenesis,validateLedgerTransitions
 };

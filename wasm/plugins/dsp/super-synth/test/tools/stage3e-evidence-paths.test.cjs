@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
-const {resolveStage3eEvidencePaths,lowLedgerPath,resolvePhaseRoots,resolveVerificationCheckpointRoots}=require('./stage3e-evidence-paths.cjs');
+const {resolveStage3eEvidencePaths,lowLedgerPath,resolvePhaseRoots,resolveMid055DiagnosticRoots,resolveVerificationCheckpointRoots}=require('./stage3e-evidence-paths.cjs');
 
 function fixture(){
   const base=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-paths-'));
@@ -44,6 +44,39 @@ function fixture(){
     const outside=path.join(x.base,'outside');fs.mkdirSync(outside);
     fs.symlinkSync(outside,path.join(x.roots.primary,'low'));
     assert.throws(()=>resolveStage3eEvidencePaths(x.roots,x.manifest),/symlink escapes root/);
+  }finally{fs.rmSync(x.base,{recursive:true,force:true});}
+}
+
+{
+  const x=fixture();
+  try{
+    const resolved=resolveMid055DiagnosticRoots(x.roots);
+    const expected=path.join('generation-2','diagnostics','mid-0.55-screen-v1');
+    assert.equal(resolved.relative,expected);
+    assert.equal(path.relative(x.roots.primary,resolved.primary),expected);
+    assert.equal(path.relative(x.roots.secondary,resolved.secondary),expected);
+    assert.equal(fs.existsSync(resolved.primary),false,'read-only resolution does not create the namespace');
+    assert.equal(path.relative(x.roots.primary,resolvePhaseRoots(x.roots,'mid').primary),'mid',
+      'the historic phase resolver remains unchanged');
+    assert.throws(()=>resolveMid055DiagnosticRoots({...x.roots,secondary:x.roots.primary}),/roots overlap/);
+
+    const outside=path.join(x.base,'outside');fs.mkdirSync(outside);
+    fs.mkdirSync(path.dirname(resolved.primary),{recursive:true});
+    fs.symlinkSync(outside,resolved.primary);
+    assert.throws(()=>resolveMid055DiagnosticRoots(x.roots),/diagnostic namespace contains a symlink/);
+  }finally{fs.rmSync(x.base,{recursive:true,force:true});}
+}
+
+{
+  const x=fixture();
+  try{
+    const resolved=resolveMid055DiagnosticRoots(x.roots);
+    fs.mkdirSync(resolved.primary,{recursive:true});
+    fs.mkdirSync(resolved.secondary,{recursive:true});
+    const bad=path.join(x.base,'bad');fs.writeFileSync(bad,'not a directory');
+    fs.rmSync(path.join(x.roots.primary,'generation-2'),{recursive:true,force:true});
+    fs.symlinkSync(bad,path.join(x.roots.primary,'generation-2'));
+    assert.throws(()=>resolveMid055DiagnosticRoots(x.roots),/diagnostic namespace contains a symlink/);
   }finally{fs.rmSync(x.base,{recursive:true,force:true});}
 }
 

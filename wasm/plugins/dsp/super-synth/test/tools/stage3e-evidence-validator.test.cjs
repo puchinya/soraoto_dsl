@@ -7,6 +7,8 @@ const validator=require('./stage3e-evidence-validator.cjs');
 const search=require('./stage3e-search-core.cjs');
 const verifierV12=require('./stage3e-performance-verifier-continuation-v12.cjs');
 const verifierV14=require('./stage3e-performance-verifier-continuation-v14.cjs');
+const verifierV15=require('./stage3e-performance-verifier-continuation-v15.cjs');
+const mid055=require('./stage3e-mid055-diagnostic.cjs');
 
 function write(file,bytes){fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);}
 function inventory(root){return validator.walkFiles(root);}
@@ -570,4 +572,55 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     transitionEntries:[first,aborted,requeue,requeue],expectedCells:[cell],bindings:{...common,compatibilitySha256:v3,
       acceptedCompatibilitySha256s:[v2],recoveryCompatibilitySha256:v3}}),/BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE/);
 }
+{
+  const roots=makeRoots();
+  try{
+    const audit=auditFor(roots.primary,roots.secondary),cells=mid055.exactCells().map(cell=>({...cell,captureOptions:mid055.captureOptionsForCell(cell)}));
+    const controls=cells.map(cell=>{
+      const control={phase:'mid-screen',response:{...mid055.CONTROL_RESPONSE},pitch:cell.pitch,velocity:cell.velocity,velocityNormalized:cell.velocityNormalized};
+      const key=search.cellId(control);
+      return {cellKey:key,pitch:cell.pitch,velocity:cell.velocity,response:control.response,relativePath:`mid/cells/${key}.json`,sha256:'a'.repeat(64)};
+    });
+    const sourceCommit='f'.repeat(40),executionId='issue9-validation-fixture';
+    const manifest={schemaVersion:1,kind:'ISSUE9_MID055_DIAGNOSTIC_MANIFEST',issue:9,phase:'mid-0.55-screen-v1',
+      parentManifestSha256:mid055.PARENT_MANIFEST_SHA256,sourceCommit,v15AttestationSha256:'b'.repeat(64),
+      sourceCompatibility:{v14AttestationSha256:'c'.repeat(64),v15AttestationSha256:'b'.repeat(64)},executionId,
+      createdAt:'2026-10-12T00:00:00.000Z',acousticIdentity:{diagnosticWasmSha256:'d'.repeat(64)},
+      searchIdentity:{searchEpoch:'search-v1'},captureIdentity:{captureHelperSha256:'e'.repeat(64)},cells,controls,
+      outputMetricIdentity:{field:'metrics.envelopeDbfs[3]'},runnerSha256:'1'.repeat(64),verifierSha256:'2'.repeat(64),official16LayerAcceptance:'NOT_RUN'};
+    const manifestBytes=mid055.jsonBytes(manifest),manifestSha256=mid055.sha256(manifestBytes);
+    const ledger=mid055.freshLedger(cells,{executionId,manifestSha256,sourceCommit,createdAt:manifest.createdAt});
+    const ledgerBytes=mid055.jsonBytes(ledger),genesis={schemaVersion:1,kind:'ISSUE9_MID055_DIAGNOSTIC_GENESIS',executionId,
+      manifestSha256,initialLedgerSha256:mid055.sha256(ledgerBytes),attemptCount:0,createdAt:manifest.createdAt};
+    const files=new Map([
+      ['diagnostic-manifest.json',manifestBytes],['diagnostic-ledger.json',ledgerBytes],
+      ['ledger-transition-journal/genesis-ledger.json',ledgerBytes],['ledger-transition-journal/genesis.json',mid055.jsonBytes(genesis)]
+    ]);
+    const namespace=path.join('generation-2','diagnostics','mid-0.55-screen-v1');
+    for(const root of [roots.primary,roots.secondary])for(const [relative,bytes] of files)write(path.join(root,namespace,relative),bytes);
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:[]}),
+      /requires a dual-copy v15 attestation/,'diagnostic data cannot be accepted without source-bound v15 evidence');
+    assert.equal(validator.isSearchAddition(`${namespace}/unexpected.bin`),false,'unknown diagnostic leaves are outside the exact allowlist');
+    write(path.join(roots.primary,namespace,'unexpected.bin'),Buffer.from('unexpected'));
+    write(path.join(roots.secondary,namespace,'unexpected.bin'),Buffer.from('unexpected'));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:[]}),
+      /requires a dual-copy v15 attestation/);
+  }finally{fs.rmSync(roots.base,{recursive:true,force:true});}
+}
+
+{
+  assert.equal(validator.isSearchAddition('generation-2/search-v1/performance-verifier-compatibility-v15.json'),true);
+  assert.equal(validator.isSearchAddition('generation-2/search-v1/performance-verifier-compatibility-v16.json'),false);
+  const testResults=verifierV15.TEST_COMMANDS.map(command=>({command,status:'PASS',outputSha256:'e'.repeat(64)}));
+  const record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_SOURCE_COMPATIBILITY_V15',
+    decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',parentRelative:'performance-verifier-compatibility-v14.json',
+    parentSha256:verifierV15.PARENT_SHA256,parentAcceptedCommit:verifierV15.PARENT_ACCEPTED_COMMIT,acceptedCommit:'a'.repeat(40),
+    allowedChangedPaths:verifierV15.REQUIRED_CHANGED_PATHS,verifierFileSha256:Object.fromEntries(verifierV15.REQUIRED_CHANGED_PATHS.map(name=>[name,'b'.repeat(64)])),
+    allowedVerifierOnlyDiffSha256:'c'.repeat(64),testResults,testResultsSha256:validator.sha256(validator.jsonBytes(testResults)),
+    acousticRenders:0,builds:0,evidenceWrites:0,primarySecondaryIntegrity:'PASS',
+    stage3eWasmSha256:verifierV15.STAGE3E_WASM_SHA256,stage3eAcousticIdentity:{diagnosticWasmSha256:verifierV15.STAGE3E_WASM_SHA256}};
+  assert.equal(validator.validateV15CompatibilityRecord(record),record);
+  assert.throws(()=>validator.validateV15CompatibilityRecord({...record,parentSha256:'0'.repeat(64)}),/v15 source compatibility schema mismatch/);
+}
+
 console.log('PASS Stage3E frozen inventory, append-only namespace, dual-copy, and ledger transition validation');

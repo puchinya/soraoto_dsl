@@ -12,6 +12,7 @@ const RELATIVE=Object.freeze({
   genesisLedger:'ledger-transition-journal/genesis-ledger.json',
   genesisRecord:'ledger-transition-journal/genesis.json',
 });
+const MID055_DIAGNOSTIC_RELATIVE=path.join('generation-2','diagnostics','mid-0.55-screen-v1');
 
 function inside(root,candidate){
   const relative=path.relative(root,candidate);
@@ -57,6 +58,29 @@ function resolvePhaseRoots(roots,phase){
     throw new Error(`BLOCKED_STAGE3E_EVIDENCE_PATH: primary/secondary phase path mismatch for ${phase}`);
   return result;
 }
+function resolveMid055DiagnosticRoots(roots){
+  if(!roots||typeof roots!=='object')throw new Error('BLOCKED_STAGE3E_EVIDENCE_PATH: primary and secondary roots are required');
+  const primary=canonicalRoot(roots.primary,'primary'),secondary=canonicalRoot(roots.secondary,'secondary');
+  if(primary.real===secondary.real||inside(primary.real,secondary.real)||inside(secondary.real,primary.real))
+    throw new Error('BLOCKED_STAGE3E_EVIDENCE_PATH: primary and secondary roots overlap');
+  const resolve=(root,side)=>{
+    let candidate=root.resolved;
+    for(const part of MID055_DIAGNOSTIC_RELATIVE.split(path.sep)){
+      candidate=path.join(candidate,part);
+      if(!fs.existsSync(candidate))continue;
+      const stat=fs.lstatSync(candidate);
+      if(stat.isSymbolicLink())throw new Error(`BLOCKED_STAGE3E_EVIDENCE_PATH: ${side} diagnostic namespace contains a symlink`);
+      if(!stat.isDirectory())throw new Error(`BLOCKED_STAGE3E_EVIDENCE_PATH: ${side} diagnostic path is not a directory`);
+      const real=fs.realpathSync(candidate);
+      if(!inside(root.real,real))throw new Error(`BLOCKED_STAGE3E_EVIDENCE_PATH: ${side} diagnostic namespace escapes its root`);
+    }
+    return candidate;
+  };
+  const result={primary:resolve(primary,'primary'),secondary:resolve(secondary,'secondary'),relative:MID055_DIAGNOSTIC_RELATIVE};
+  if(path.relative(primary.resolved,result.primary)!==path.relative(secondary.resolved,result.secondary))
+    throw new Error('BLOCKED_STAGE3E_EVIDENCE_PATH: primary/secondary diagnostic path mismatch');
+  return result;
+}
 function resolveVerificationCheckpointRoots(roots,phase){
   const phaseRoots=resolvePhaseRoots(roots,phase);
   const primary=canonicalRoot(roots.primary,'primary'),secondary=canonicalRoot(roots.secondary,'secondary');
@@ -85,4 +109,5 @@ function resolveStage3eEvidencePaths(root,manifest){
   return {primary:p,secondary:s,relative:RELATIVE};
 }
 
-module.exports={RELATIVE,lowLedgerPath,resolvePhaseRoots,resolveVerificationCheckpointRoots,resolveStage3eEvidencePaths};
+module.exports={RELATIVE,MID055_DIAGNOSTIC_RELATIVE,lowLedgerPath,resolvePhaseRoots,resolveMid055DiagnosticRoots,
+  resolveVerificationCheckpointRoots,resolveStage3eEvidencePaths};

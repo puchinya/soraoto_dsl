@@ -146,7 +146,16 @@ assert.equal(typeof velocity.evidencePreflight,'function');assert.equal(typeof p
     const v10=require('./stage3e-performance-verifier-continuation-v10.cjs');
     const v11=require('./stage3e-performance-verifier-continuation-v11.cjs');
     const v12=require('./stage3e-performance-verifier-continuation-v12.cjs');
+    const v15=require('./stage3e-performance-verifier-continuation-v15.cjs');
     assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v1');
+    const v15Primary=path.join(roots.primary,preflight.PERFORMANCE_CONTINUATION_V15_RELATIVE);
+    const v15Secondary=path.join(roots.secondary,preflight.PERFORMANCE_CONTINUATION_V15_RELATIVE);
+    fs.writeFileSync(v15Primary,'{}');
+    assert.throws(()=>preflight.selectPerformanceVerifier({roots}),/performance v15 continuation exists in only one store/);
+    fs.rmSync(v15Primary);
+    fs.writeFileSync(v15Primary,'{}');fs.writeFileSync(v15Secondary,'{}');
+    assert.equal(preflight.selectPerformanceVerifier({roots}),v15.runtimeContext,'v15 wins only when both exact copies exist');
+    fs.rmSync(v15Primary);fs.rmSync(v15Secondary);
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_RELATIVE),'{}');
     assert.equal(preflight.selectPerformanceVerifier({roots}).sourceVerifierVersion,'v2');
     for(const side of Object.values(roots))fs.writeFileSync(path.join(side,preflight.PERFORMANCE_CONTINUATION_V3_RELATIVE),'{}');
