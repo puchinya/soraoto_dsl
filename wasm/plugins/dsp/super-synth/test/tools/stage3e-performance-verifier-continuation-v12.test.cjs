@@ -40,9 +40,9 @@ assert.notEqual(v12.sha256(v12.jsonBytes([{status:'PASS'}])),
     assert.throws(()=>v11.readV10('/repo',roots),/immutable v10 parent SHA-256 differs from its fixed identity/);
     writeMirror(v11.RELATIVE);
     assert.throws(()=>v12.readV11('/repo',roots),/immutable v11 parent SHA-256 differs from its fixed identity/);
-    writeMirror(v12.RELATIVE);
-    assert.throws(()=>v12.runtimeContext({root:'/repo',roots}),/immutable v12 parent SHA-256 differs from fixed identity/);
-    assert.throws(()=>v12.main(['--verify'],{root:'/repo',roots}),/immutable v12 parent SHA-256 differs from fixed identity/);
+    writeMirror('performance-verifier-compatibility-v13.json');
+    assert.throws(()=>v12.runtimeContext({root:'/repo',roots}),/immutable v13 parent SHA-256 differs from fixed identity/);
+    assert.throws(()=>v12.main(['--verify'],{root:'/repo',roots}),/immutable v13 parent SHA-256 differs from fixed identity/);
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 }
 
@@ -87,5 +87,5 @@ assert.notEqual(v12.sha256(v12.jsonBytes([{status:'PASS'}])),
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 }
 
-console.log('PASS Stage3E v12 requires fixed parent bytes through runtimeContext and CLI verify');
+console.log('PASS Stage3E v12 CLI delegation requires the fixed v13 parent bytes');
 console.log('PASS Stage3E v12 chains immutable v11 evidence and binds verifier source and canonical test hashes');

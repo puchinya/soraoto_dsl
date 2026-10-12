@@ -108,16 +108,7 @@ function validateRecord(record,expected){
 }
 
 function runtimeContext({root=search.ROOT,home=process.env.HOME,roots=rootsFor(root,home)}={}){
-  const parent=readV12(root,roots),primary=path.join(roots.primary,RELATIVE),secondary=path.join(roots.secondary,RELATIVE);
-  const hasPrimary=fs.existsSync(primary),hasSecondary=fs.existsSync(secondary);
-  if(hasPrimary!==hasSecondary)fail('v13 compatibility record exists in only one durable store','BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE');
-  if(!hasPrimary)fail('v13 compatibility record is required before verifier execution');
-  const stored=durable.verifyDualCopy(primary,secondary);
-  let record;try{record=JSON.parse(stored.bytes.toString('utf8'));}catch{fail('v13 compatibility record is not valid JSON');}
-  const expected=snapshot({root,roots,acceptedCommit:record.acceptedCommit});
-  validateRecord(record,expected);
-  return {decision:record.decision,acceptedCommit:record.acceptedCommit,sha256:stored.sha256,record,
-    parentSha256:parent.sha256,builds:0,acousticRenders:0,evidenceWrites:0};
+  return require('./stage3e-performance-verifier-continuation-v14.cjs').runtimeContext({root,home,roots});
 }
 
 function buildRecord({root=search.ROOT,home=process.env.HOME,roots=rootsFor(root,home),testResults,acceptedCommit=head(root)}={}){
@@ -140,6 +131,10 @@ function runVerifierTests(root=search.ROOT){
     return {command:`rtk node ${relative}`,status:'PASS',outputSha256:sha256(output)};
   });
 }
+
+module.exports={RELATIVE,PARENT_SHA256,PARENT_ACCEPTED_COMMIT,STAGE3E_WASM_SHA256,REQUIRED_CHANGED_PATHS,TEST_FILES,
+  sha256,jsonBytes,stable,same,head,ancestor,pathsBetween,hashAt,currentHash,hashesAt,rootsFor,readV12,
+  effectiveVerifierFileSha256,validateCurrentVerifierFiles,snapshot,validateRecord,runtimeContext,buildRecord,runVerifierTests,main};
 
 function main(argv=process.argv.slice(2),options={}){
   if(argv.length!==1||!['--dry-run','--create','--verify'].includes(argv[0]))throw new Error('explicit mode required: --dry-run, --create, or --verify');
@@ -168,7 +163,3 @@ function main(argv=process.argv.slice(2),options={}){
 }
 
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
-
-module.exports={RELATIVE,PARENT_SHA256,PARENT_ACCEPTED_COMMIT,STAGE3E_WASM_SHA256,REQUIRED_CHANGED_PATHS,TEST_FILES,
-  sha256,jsonBytes,stable,same,head,ancestor,pathsBetween,hashAt,currentHash,hashesAt,rootsFor,readV12,
-  effectiveVerifierFileSha256,validateCurrentVerifierFiles,snapshot,validateRecord,runtimeContext,buildRecord,runVerifierTests,main};

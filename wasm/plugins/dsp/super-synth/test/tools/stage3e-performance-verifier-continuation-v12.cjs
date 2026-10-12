@@ -119,7 +119,7 @@ function validateRecord(record,expected){
 }
 
 function runtimeContext({root=search.ROOT,home=process.env.HOME,roots=rootsFor(root,home)}={}){
-  return require('./stage3e-performance-verifier-continuation-v13.cjs').runtimeContext({root,home,roots});
+  return require('./stage3e-performance-verifier-continuation-v14.cjs').runtimeContext({root,home,roots});
 }
 
 function buildRecord({root=search.ROOT,home=process.env.HOME,roots=rootsFor(root,home),testResults,acceptedCommit=head(root)}={}){
@@ -171,9 +171,9 @@ function main(argv=process.argv.slice(2),options={}){
     builds:0,acousticRenders:0,evidenceWrites:1})+'\n');
 }
 
-if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
-
 module.exports={RELATIVE,PARENT_SHA256,PARENT_ACCEPTED_COMMIT,BASE_COMMIT,CHECKPOINT_FIX_COMMIT,
   INCREMENTAL_VERIFIER_PATH,CHECKPOINT_VERIFIER_SHA256,STAGE3E_WASM_SHA256,REQUIRED_CHANGED_PATHS,TEST_FILES,
   sha256,jsonBytes,stable,same,pathsBetween,hashAt,currentHash,diffSha256,rootsFor,readV11,validateIncrementalSource,
   snapshot,validateRecord,buildRecord,runtimeContext,runVerifierTests,main};
+
+if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=1;}}
