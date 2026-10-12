@@ -6,6 +6,7 @@ const os=require('node:os');
 const path=require('node:path');
 const {execFileSync}=require('node:child_process');
 const v12=require('./stage3e-performance-verifier-continuation-v12.cjs');
+const v11=require('./stage3e-performance-verifier-continuation-v11.cjs');
 
 function git(root,args,encoding='utf8'){
   return execFileSync('rtk',['git',...args],{cwd:root,encoding,stdio:['ignore','pipe','pipe']}).trim();
@@ -22,6 +23,28 @@ assert.equal(v12.CHECKPOINT_VERIFIER_SHA256,'dcf2f297cc3e197df4d84ec7f9acc671aea
 assert.notEqual(v12.sha256(v12.jsonBytes([{status:'PASS'}])),
   v12.sha256(Buffer.from(JSON.stringify([{status:'PASS'}])+'\n')),
   'v12 result hashing uses the validator canonical pretty-JSON representation');
+
+{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-v12-parent-sha-'));
+  const roots={primary:path.join(root,'primary'),secondary:path.join(root,'secondary')};
+  const writeMirror=(relative)=>{
+    const bytes=Buffer.from(JSON.stringify({acceptedCommit:'changed-but-identical-in-both-stores'}));
+    for(const store of [roots.primary,roots.secondary]){
+      const file=path.join(store,relative);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);
+    }
+    assert.equal(v12.sha256(fs.readFileSync(path.join(roots.primary,relative))),
+      v12.sha256(fs.readFileSync(path.join(roots.secondary,relative))));
+  };
+  try{
+    writeMirror('performance-verifier-compatibility-v10.json');
+    assert.throws(()=>v11.readV10('/repo',roots),/immutable v10 parent SHA-256 differs from its fixed identity/);
+    writeMirror(v11.RELATIVE);
+    assert.throws(()=>v12.readV11('/repo',roots),/immutable v11 parent SHA-256 differs from its fixed identity/);
+    writeMirror(v12.RELATIVE);
+    assert.throws(()=>v12.runtimeContext({root:'/repo',roots}),/immutable v12 parent SHA-256 differs from fixed identity/);
+    assert.throws(()=>v12.main(['--verify'],{root:'/repo',roots}),/immutable v12 parent SHA-256 differs from fixed identity/);
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+}
 
 {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-v12-source-'));
@@ -64,4 +87,5 @@ assert.notEqual(v12.sha256(v12.jsonBytes([{status:'PASS'}])),
   }finally{fs.rmSync(root,{recursive:true,force:true});}
 }
 
+console.log('PASS Stage3E v12 requires fixed parent bytes through runtimeContext and CLI verify');
 console.log('PASS Stage3E v12 chains immutable v11 evidence and binds verifier source and canonical test hashes');

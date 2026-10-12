@@ -69,6 +69,7 @@ function validateAcceptedVerifierFiles({root,acceptedCommit,paths=REQUIRED_CHANG
 
 function readV10(root,roots){
   const stored=durable.verifyDualCopy(path.join(roots.primary,v10.RELATIVE),path.join(roots.secondary,v10.RELATIVE),V10_SHA256);
+  if(stored.sha256!==V10_SHA256)fail('immutable v10 parent SHA-256 differs from its fixed identity');
   let record;try{record=JSON.parse(stored.bytes.toString('utf8'));}catch{fail('immutable v10 parent is not valid JSON');}
   if(record.acceptedCommit!==V10_ACCEPTED_COMMIT||record.primarySecondaryIntegrity!=='PASS')fail('immutable v10 parent identity differs');
   const prior=v10.readAndValidateParent(root,roots);

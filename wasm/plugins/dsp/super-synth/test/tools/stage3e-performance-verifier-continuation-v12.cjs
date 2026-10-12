@@ -61,6 +61,7 @@ function rootsFor(root=search.ROOT,home=process.env.HOME){return v10.rootsFor(ro
 
 function readV11(root,roots){
   const stored=durable.verifyDualCopy(path.join(roots.primary,v11.RELATIVE),path.join(roots.secondary,v11.RELATIVE),PARENT_SHA256);
+  if(stored.sha256!==PARENT_SHA256)fail('immutable v11 parent SHA-256 differs from its fixed identity');
   let record;try{record=JSON.parse(stored.bytes.toString('utf8'));}catch{fail('immutable v11 parent is not valid JSON');}
   if(record.acceptedCommit!==PARENT_ACCEPTED_COMMIT||record.parentSha256!==v11.V10_SHA256||
      record.checkpointFixCommit!==CHECKPOINT_FIX_COMMIT||record.incrementalVerifierSha256!==CHECKPOINT_VERIFIER_SHA256||
@@ -84,7 +85,7 @@ function validateIncrementalSource({root,acceptedCommit,expectedSha256=hashAt(ro
   return {commit:acceptedCommit,sha256:actual};
 }
 
-function snapshot({root=search.ROOT,roots=rootsFor(root),acceptedCommit=head(root)}={}){
+function snapshot({root=search.ROOT,roots=rootsFor(root),acceptedCommit=head(root),verifyCurrentFiles=true}={}){
   const parent=readV11(root,roots);
   if(!ancestor(root,BASE_COMMIT,acceptedCommit))fail('v12 verifier source is outside immutable v11 ancestry','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
   const paths=pathsBetween(root,BASE_COMMIT,acceptedCommit);
@@ -94,7 +95,7 @@ function snapshot({root=search.ROOT,roots=rootsFor(root),acceptedCommit=head(roo
     fail('Stage3E acoustic creator inputs differ from immutable v11','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
   const checkpointSource=validateIncrementalSource({root,acceptedCommit:CHECKPOINT_FIX_COMMIT,expectedSha256:CHECKPOINT_VERIFIER_SHA256});
   const verifierFileSha256=hashesAt(root,acceptedCommit,REQUIRED_CHANGED_PATHS);
-  if(!same(currentHashes(root,REQUIRED_CHANGED_PATHS),verifierFileSha256))
+  if(verifyCurrentFiles&&!same(currentHashes(root,REQUIRED_CHANGED_PATHS),verifierFileSha256))
     fail('current v12 verifier files differ from accepted source commit','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
   return {root,roots,parent,paths,acceptedCommit,diffSha256:diffSha256(root,BASE_COMMIT,acceptedCommit,paths),
     verifierFileSha256,checkpointSource,stage3eAcousticIdentity};
@@ -117,26 +118,8 @@ function validateRecord(record,expected){
     incrementalVerifierSha256:record.incrementalVerifierSha256};
 }
 
-function validateCurrentV11Tree(root,roots,parent){
-  for(const [relative,expected] of Object.entries(parent.record.verifierFileSha256||{}))
-    if(currentHash(root,relative)!==expected)fail(`v12 continuation is absent and v11-bound source changed: ${relative}`,'BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
-  validateIncrementalSource({root,acceptedCommit:parent.record.acceptedCommit,expectedSha256:parent.record.verifierFileSha256?.[INCREMENTAL_VERIFIER_PATH]});
-  const identity=acoustic.currentStage3eAcousticIdentity(root);
-  if(!same(identity,parent.identity))fail('Stage3E acoustic identity differs from immutable v11','BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');
-  return {decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',acceptedCommit:parent.record.acceptedCommit,
-    sha256:parent.sha256,record:parent.record,builds:0,acousticRenders:0,evidenceWrites:0};
-}
-
 function runtimeContext({root=search.ROOT,home=process.env.HOME,roots=rootsFor(root,home)}={}){
-  const parent=readV11(root,roots),primary=path.join(roots.primary,RELATIVE),secondary=path.join(roots.secondary,RELATIVE);
-  const hasPrimary=fs.existsSync(primary),hasSecondary=fs.existsSync(secondary);
-  if(hasPrimary!==hasSecondary)fail('v12 source attestation exists in only one durable store','BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE');
-  if(!hasPrimary)return validateCurrentV11Tree(root,roots,parent);
-  const stored=durable.verifyDualCopy(primary,secondary);
-  let record;try{record=JSON.parse(stored.bytes.toString('utf8'));}catch{fail('v12 source attestation is not valid JSON');}
-  const expected=snapshot({root,roots,acceptedCommit:record.acceptedCommit});validateRecord(record,expected);
-  return {decision:record.decision,acceptedCommit:record.acceptedCommit,sha256:stored.sha256,record,
-    builds:0,acousticRenders:0,evidenceWrites:0};
+  return require('./stage3e-performance-verifier-continuation-v13.cjs').runtimeContext({root,home,roots});
 }
 
 function buildRecord({root=search.ROOT,home=process.env.HOME,roots=rootsFor(root,home),testResults,acceptedCommit=head(root)}={}){
@@ -162,9 +145,10 @@ function runVerifierTests(root=search.ROOT){
   });
 }
 
-function main(argv=process.argv.slice(2)){
+function main(argv=process.argv.slice(2),options={}){
   if(argv.length!==1||!['--dry-run','--create','--verify'].includes(argv[0]))throw new Error('explicit mode required: --dry-run, --create, or --verify');
-  const root=search.ROOT,home=process.env.HOME,roots=rootsFor(root,home),mode=argv[0];
+  const root=options.root||search.ROOT,home=options.home===undefined?process.env.HOME:options.home,
+    roots=options.roots||rootsFor(root,home),mode=argv[0];
   if(mode==='--verify'){
     const result=runtimeContext({root,home,roots});process.stdout.write(JSON.stringify({...result,record:undefined})+'\n');return;
   }

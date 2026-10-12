@@ -265,6 +265,53 @@ function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{
     write(path.join(roots.primary,v12Path),mismatchedV12);write(path.join(roots.secondary,v12Path),mismatchedV12);
     assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
       /performance verifier v12 source compatibility schema mismatch/);
+    write(path.join(roots.primary,v12Path),v12Bytes);write(path.join(roots.secondary,v12Path),v12Bytes);
+    const v13RequiredPaths=[
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v11.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v12.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v12.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v13.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v13.test.cjs'
+    ].sort();
+    const effectivePaths=[
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v10.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v11.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v11.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v12.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v12.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v13.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v13.test.cjs'
+    ].sort();
+    const v13Results=[{command:'continuation-v13.test.cjs',status:'PASS',outputSha256:'2'.repeat(64)}];
+    const v13Record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_SOURCE_COMPATIBILITY_V13',
+      decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',parentRelative:'performance-verifier-compatibility-v12.json',
+      parentSha256:'295be44b3b7da844f7f581abcf64d304d1663b24025c004c9c6ffc0400055f2c',
+      parentAcceptedCommit:'2a311bc44f581fc2b11678f9d135bbea2f4d29fb',acceptedCommit:'9'.repeat(40),
+      allowedChangedPaths:v13RequiredPaths,allowedVerifierOnlyDiffSha256:'3'.repeat(64),
+      verifierFileSha256:Object.fromEntries(effectivePaths.map(item=>[item,'4'.repeat(64)])),
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:v13Results,testResultsSha256:validator.sha256(validator.jsonBytes(v13Results)),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const v13Path='generation-2/search-v1/performance-verifier-compatibility-v13.json';
+    const v13Bytes=Buffer.from(JSON.stringify(v13Record));
+    write(path.join(roots.primary,v13Path),v13Bytes);write(path.join(roots.secondary,v13Path),v13Bytes);
+    const withV13=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV13.additionCount,28);
+    write(path.join(roots.primary,v13Path),Buffer.from(JSON.stringify({...v13Record,parentSha256:'0'.repeat(64)})));
+    write(path.join(roots.secondary,v13Path),Buffer.from(JSON.stringify({...v13Record,parentSha256:'0'.repeat(64)})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v13 source compatibility schema mismatch/);
+    write(path.join(roots.primary,v13Path),v13Bytes);write(path.join(roots.secondary,v13Path),v13Bytes);
+    assert.equal(validator.isSearchAddition(v13Path),true);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/cells/unauthorized.json',{authorizedKeys:expected}),false);
     assert.equal(validator.isSearchAddition('generation-2/search-v1/low/validations/low-full-x/cells/unauthorized.json',{authorizedKeys:expected}),false);
     const lowFullValidation='generation-2/search-v1/low/validations/low-full-0.35-0.5/';
