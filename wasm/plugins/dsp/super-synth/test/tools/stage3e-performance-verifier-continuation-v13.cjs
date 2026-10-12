@@ -46,7 +46,7 @@ function git(root,args,encoding=null){
 }
 function head(root){return git(root,['rev-parse','HEAD'],'utf8').trim();}
 function ancestor(root,from,to){try{git(root,['merge-base','--is-ancestor',from,to]);return true;}catch{return false;}}
-function pathsBetween(root,from,to){return git(root,['diff','--name-only','--no-renames',from,to,'--'],'utf8').split(/\r?\n/).map(value=>value.trim()).filter(Boolean).sort();}
+function pathsBetween(root,from,to){return git(root,['diff','--name-only','--no-renames',from,to,'--'],'utf8').split(/\r?\n/).map(value=>value.trim()).filter(value=>value&&value!=='Changes:').sort();}
 function hashAt(root,commit,relative){return sha256(git(root,['show',`${commit}:${relative}`]));}
 function currentHash(root,relative){const file=path.join(root,relative);if(!fs.existsSync(file)||!fs.statSync(file).isFile())fail(`effective verifier file is missing: ${relative}`,'BLOCKED_STAGE3E_ACOUSTIC_CREATOR_DRIFT');return sha256(fs.readFileSync(file));}
 function hashesAt(root,commit,paths){return Object.fromEntries(paths.map(relative=>[relative,hashAt(root,commit,relative)]));}
