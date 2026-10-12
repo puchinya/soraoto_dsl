@@ -4,7 +4,7 @@
   "pullRequest": 8,
   "epoch": "current-build-v1",
   "builtAt": "2026-10-13",
-  "sourceCommit": "506cae8dd7d4d6c2637de1b6b5fff307d74ae7fc",
+  "sourceCommit": "b59b9a8909129e7012a37ccda3f402c8c4147928",
   "branch": "codex/issue-7-supersynth-v9",
   "worktreeCleanBeforeAndAfterBuild": true,
   "toolchain": {
