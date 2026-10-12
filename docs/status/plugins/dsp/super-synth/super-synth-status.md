@@ -3,48 +3,77 @@
 > This document records current evidence. It is non-normative; the product specification and approved design define requirements and decisions.
 
 **Owning Issue:** [#7](https://github.com/puchinya/soraoto_dsl/issues/7) — SuperSynth V9 Salamander Calibration and Full-Range Delivery
-**Issue phase:** `phase:implementation`
-**Updated:** 2026-09-26
+**Pull Request:** [#8](https://github.com/puchinya/soraoto_dsl/pull/8)
+**Issue phase:** `phase:design`
+**Updated:** 2026-09-27
 
 ## Progress
 
 | Work item | Status | Evidence / limitation |
 |---|---|---|
-| Implementation contract and approval | PASS | Exact physical-model/SIMD delta copy matches its source SHA-256 `3c260156dcd84e12e388b200fb691abb2e03d7f2f71f0aa8db602fa0b8a18bc4`; the user supplied the decision-complete approved architecture on 2026-09-26 |
-| Product specification, design, and Issue checklist | PASS | Normative V9 requirements and companion concert-grand design now cover the approved delta; Issue #7 records the user approval and 97-item unchecked delta checklist |
-| Owning Issue and phase | IN PROGRESS | Issue #7 passed through `phase:ready` to `phase:implementation`; PR #8 remains open at pre-delta HEAD `28113fa0a6ee33a5366b8da8a8851d2d35d2d5ac` |
-| Official Salamander reference | PASS (pre-delta evidence) | FreePats V3 SFZ+FLAC archive; 741,757,374 bytes; expected archive SHA-256 `b7760e168494cf095344e217b0af013fc449ad033abbbdf1c65211cf11dc038b` |
-| Per-file reference provenance binding | IN PROGRESS | Delta requires a committed manifest for the SFZ, all 641 referenced audio files, license/provenance files, and archive SHA; extracted-file verification is pending |
-| Physical architecture | IN PROGRESS | Dynamic hammer, shared bridge, fitted passive board, sympathetic register, longitudinal modes, passivity, and lifecycle regressions are pending implementation |
-| SIMD and CPU evidence | IN PROGRESS | Production kernels, scalar differential build, active-voice mask, baseline comparisons, and performance summary are pending |
-| Full-range calibration and V9 implementation | IN PROGRESS | Existing 480 direct, 1,408 full-range, and 1,392 adjacent results describe the pre-delta model only and are stale for changed behavior |
-| Repository and Web Player verification | IN PROGRESS | Prior WASM/CTest and Web Player passes are pre-delta evidence; rerun after implementation |
-| Native browser/audio interaction | NOT RUN | Automated tests establish render and integration properties, not actual device playback or browser listening |
-| Independent Drive cloud archive hash readback | NOT AVAILABLE | The Drive download connector limit is 268,435,456 bytes, below the 741,757,374-byte archive; local DriveFS hash and Drive listing/upload state were verified |
-| Commit, push, pull request, Issue review phase | IN PROGRESS | Continue on the existing PR branch; return Issue #7 to `phase:review` only after the delta evidence and self-review are complete |
+| Physical-model / SIMD / CPU contract | PASS | Exact user attachment preserved at `.agent-state/issues/7/implementation-contract-physical-model-simd-cpu.txt`; SHA-256 `3c260156dcd84e12e388b200fb691abb2e03d7f2f71f0aa8db602fa0b8a18bc4` |
+| Preset-owned physical-configuration contract | PASS | Exact user attachment preserved at `.agent-state/issues/7/implementation-contract-preset-physical-config.txt`; SHA-256 `a84d8e9c591c5bfa96a2c9aeb93fb68d864d8854467866256663b4fe7806f9e6` |
+| Owning Issue and phase | IN PROGRESS | Issue #7 is `phase:implementation`; all supplied contracts, approved design, normative updates, and Reviewer Checklist are recorded |
+| PR #8 baseline identity | PASS | PR head and contract baseline are `6f4ab32bf20f9267eeb368aa4d7809e0fe846329`; working branch contains documentation and implementation changes that still require verification and push |
+| Product specification and design | PASS | Project remains an ephemeral IR generated from DSL; no Project save/load or Plugin state restore path; `grand_piano_v1` remains at its existing revision |
+| Existing V9 physical renderer | BASELINE | Hammer, waveguide strings, bridge, board, sympathetic, and longitudinal paths exist in `plugin.c`; sound-affecting coefficients remain split across C, `presets.json`, and `grand_physics_fit_v9.h` |
+| Grand profile schema/generator | IN PROGRESS | Profile schema, deterministic generator, and metadata tests are being updated; build evidence is pending |
+| Preset/runtime configuration | IN PROGRESS | Apply the DSL-selected factory preset and profile, remove state hooks, and clear incompatible transient DSP state on profile changes |
+| Baseline migration equivalence | NOT RUN | Must pass before acoustic tuning: 8 MIDI keys × 3 velocities × sustain off/on, with contract deltas for lifecycle, peak, envelope, pitch, and spectral metrics |
+| Post-migration acoustic calibration | NOT STARTED | After equivalence, follow expected-f0 pitch, independent hammer/radiation, windowed C4 harmonics, held-vs-release decay, bypass routing, and pan-fit order |
+| Production-SIMD final matrix | NOT RUN | Final 480 direct-reference cells, 1,408 production lifecycle cells, 1,392 adjacent comparisons, and acoustic regressions are pending; SIMD/scalar and speed ratios are informational |
+| Salamander reference and provenance | PASS (prior evidence) | Approved FreePats V3 SFZ+FLAC archive, 48 kHz/24-bit, CC BY 3.0; archive SHA `b7760e168494cf095344e217b0af013fc449ad033abbbdf1c65211cf11dc038b` |
+| Per-file reference hash manifest | NOT RUN | Bind SFZ, all 641 referenced audio files, required license/provenance files, and archive hash; analyzer must verify before analysis |
+| Repository/Web Player verification | NOT RUN | Full CTest and Web Player test/build must be rerun after implementation |
+| Native browser/audio interaction | NOT RUN | No physical-device playback or listening evidence is claimed |
+| Delivery | IN PROGRESS | Continue on the existing PR branch; commit/push, update PR #8, and move Issue to `phase:review` after all required evidence and self-review |
 
 ## Verification
 
 | Check | Status | Result |
 |---|---|---|
-| Delta contract provenance | PASS | Source attachment and preserved copy both hash to `3c260156dcd84e12e388b200fb691abb2e03d7f2f71f0aa8db602fa0b8a18bc4` |
-| PR #8 baseline identity | PASS | Remote PR HEAD is `28113fa0a6ee33a5366b8da8a8851d2d35d2d5ac`, the required pre-delta baseline |
-| Official source archive | PASS (pre-delta evidence) | Prior Issue evidence records the verified 741,757,374-byte archive and SHA-256; recheck while producing the required per-file manifest |
-| Extracted-file hash manifest | IN PROGRESS | The required SFZ, 641 audio, and provenance-file hashes have not yet been bound and checked by the analyzer |
-| Analyzer and board/longitudinal metrics | IN PROGRESS | Existing 480-cell metrics are pre-delta; hash enforcement, low-register peaks, fit bands, brightness direction, and dynamic-span evidence remain |
-| Latest fit artifact/source alignment | FAIL | The fit report records board radiation scale 6.5784186, while `grand_physics_fit_v9.h` currently sets 3.249554; regenerate and validate the fit evidence after calibration |
-| PR #8 full-range baseline | PASS (baseline only) | Prior report: 480 direct cells, 1,408 renders, 1,392 adjacent comparisons; peak reached +1.5836 dBFS under the old +1.6 dBFS gate, so it does not meet the new <0 dBFS delta gate |
-| WASM configure/build and CTest | IN PROGRESS | Prior 27/27 CTest pass is baseline-only; rerun against the final model and SIMD tests |
-| Latest `concert-grand` regression | FAIL | `rtk node wasm/plugins/dsp/super-synth/test/concert-grand-regression.test.js` fails with `string harmonic spectrum too sparse` (0.0005212328942458759 / 0.00004030822268236699 / 8.61389257455428e-7) |
-| Latest 480-cell output-guard sweep | FAIL | At hammer-force scale 100, default preset hardness 0.81, and board radiation scale 3.249554, 145/480 cells reached or exceeded 0 dBFS and the final guard recorded 36,596 hits; the required 1,408-key/layer matrix is not current evidence |
-| Web Player tests/build | IN PROGRESS | Prior 39/39 tests and build pass are baseline-only; rerun after the delta |
-| SIMD/scalar differential and performance | IN PROGRESS | Final-topology scalar comparison, kernel speedups, PR #8 CPU ratios, and `performance-simd-summary.json` are pending |
-| Diff hygiene and artifact/privacy scan | NOT RUN | Run after the final scoped edits |
-| Native browser/audio interaction | NOT RUN | No browser listening or hardware audio session was performed |
+| Contract preservation | PASS | Physical-model, preset-owned, and architecture-delta copies match their attachments: `3c260156dcd84e12e388b200fb691abb2e03d7f2f71f0aa8db602fa0b8a18bc4`, `a84d8e9c591c5bfa96a2c9aeb93fb68d864d8854467866256663b4fe7806f9e6`, `2cd6f433881f81fc349199ca87b3c1e6aba603df0bfce33e4ba09aa8ea4a79ca` |
+| Issue phase and PR head | PASS | Issue #7 is `phase:implementation`; open PR #8 head remains baseline `6f4ab32bf20f9267eeb368aa4d7809e0fe846329` until changes are pushed |
+| Current baseline acoustic artifacts | BASELINE ONLY | Existing reports describe the pre-refactor renderer; they cannot prove migration equivalence or final calibration |
+| Production-only lifecycle gate | NOT RUN | Dedicated production-SIMD evidence is required; scalar/SIMD differential `pass:false` is diagnostic only |
+| WASM build and CTest | NOT RUN | Rerun after the profile loader/configuration changes |
+| Web Player tests/build | NOT RUN | Rerun after implementation |
+| Diff hygiene/privacy scan | NOT RUN | Run against final pushed diff |
 
-The pre-delta full-range report used a shared gain offset of +4.7693 dB. Direct-cell absolute level error was P50 4.2236 dB / P95 11.8864 dB / maximum 19.1777 dB; peak reached +1.5836 dBFS against the old +1.6 dBFS gate. Those baseline results had no failures under the old checks, but fail the new contract's strict peak limit and do not prove per-cell pitch/release or output-guard behavior. Centroid checks below 0.1% power above 2 kHz remain low-energy diagnostics; one baseline cell and five adjacent pairs fell below that energy floor. Velocity brightness evolved for 83/88 pitches (94.32%) under the aggregate check; the delta requires direct-pitch checks, including MIDI 21/24/27.
+The baseline renderer has previously reported a sparse C4 harmonic spectrum and output-guard/peak
+failures. Those failures will be re-established after the presetization equivalence gate and resolved
+only by changing the owning profile values or model behavior in the user's fixed calibration order.
+The previous scalar/SIMD aggregate `pass:false` is not used as the production gate result.
 
-The Studio Piano and fuhton references are excluded from the active calibration plan. Raw Salamander audio remains in the user's private Drive and is not included in the repository or distributed plugin.
+## 2026-09-30 Stage2F Anchored Local Recovery
+
+| Item | Status | Evidence |
+|---|---|---|
+| Anchor provenance | PASS | Resolved historical Stage2B results `stage2b-v1-0001/0015/0016` to Stage2 v3 candidates by preserved provenance and exact six-axis vectors; manifest SHA-256 `17a8a88df8b8644bfb497808383c910478544e5939c03a44688f775a420d43e6`. |
+| Calibration-only unison lower bound | PASS | `active-search-space.json` now uses `piano_string_unison` range `[0.4, 1.0]`; public Plugin range remains `[0.0, 1.0]`. |
+| Current anchor requalification | BLOCKED | Three fresh production-SIMD renders pass Stage1/Stage2 pitch, finite, peak, guard, and buzz gates. All three fail `release_tail2_min_violation` by 3.02%–4.34%; zero anchors qualify. |
+| Stage2F local design | NOT RUN | Correctly locked because there is no current eligible anchor. 0/21 local points rendered; no Stage 3, Stage 4, or final bake. |
+| Focused verification | PASS | Python tuning tests 52/52; WASM configure/build; pitch conformance 96 fixtures; candidate/floor overlays; board-fit test; concert-grand regression; soundboard diagnostic transparency. |
+| Full parent acceptance | BLOCKED / NOT RUN | 480 direct, 1,408 lifecycle, 1,392 adjacent, CTest, and Web Player suites were not run after Stage2F; return to design is required before local tuning can proceed. |
+
+Full copyable report: `.agent-state/issues/7/reports/2026-09-30-stage2f-anchor-blocked.md`. Issue #7 remains `phase:implementation` + `blocked`; PR #8 remains open.
+
+Raw Salamander audio remains in the user's private reference store and is not included in Git or the
+distributed plugin. No private Drive identifiers, credentials, or absolute reference paths are
+committed.
+
+## 2026-09-30 Post-Attack Residual Diagnostic
+
+| Item | Status | Evidence |
+|---|---|---|
+| Signed post-attack residual decomposition | PASS (diagnostic) | 8 conditions × 90 direct cells; 720 matrix cells plus calibration/transparency renders. Used the exact Stage 3 residual formula and retained signed early/late values. |
+| Residual-owning subsystem | IDENTIFIED | Center A amount 0 had 9/90 cells above the existing 10 dB shape limit; all nine were late-dominant. Existing string-damping 0↔1 OAT moved a coherent treble group by >2.5 dB. Classification: `STRING_TERMINATION_DECAY`. |
+| Soundboard attribution | DIAGNOSTIC ONLY | Component RMS was captured for normal mix and `RADIATION_BYPASS_DELTA`. Bypass p90 residual movement was <0.4 dB in both centers; board is not the owner of this late residual. Production soundboard values/routing were not changed. |
+| Pitch / render health | DIAGNOSTIC | Five invalid pitch measurements occurred only in bypass conditions; zero guard hits, zero non-finite cells, worst peak `-7.672 dBFS`. Center A worst valid pitch was `27.571 cents`, outside the unchanged ±15-cent requirement. |
+| Focused regression | PASS | WASM build, Stage 3 residual tests, diagnostic matrix/provenance tests, pitch-estimator synthetic conformance, `concert-grand-regression.test.js`, and paired-build soundboard diagnostic transparency passed. Python tuning suite could not import seven tests because Optuna was not installed in an isolated venv. |
+| Final Issue #7 acceptance | BLOCKED / NOT RUN | This subset is not the 480 direct, 1,408 lifecycle, or 1,392 adjacency acceptance. Stage 3/4 were not started. No new parameter or production DSP change was made. |
+
+Full copyable diagnostic report: `.agent-state/issues/7/reports/2026-09-30-post-attack-residual-mechanism.md`. Issue #7 remains `phase:implementation` + `blocked`; PR #8 remains open.
 
 ## 2026-10-02 Stage2H Corrective Review and Stage2I Loss-Authority Audit
 
@@ -85,3 +114,16 @@ Copyable report: `.agent-state/issues/7/reports/2026-10-02-stage2h-stage2i-loss-
 | Protected inputs | PASS | 75/75 protected SHA-256 values unchanged; no production source, preset, fixture, threshold, or WASM modification. |
 | Verification | PASS | Stage2K tests 7/7; full tuning suite 108/108; candidate export checks; preflight dry-run; reference fixture 480/480 cells / 641 samples; scoped privacy and diff checks. Existing candidate artifact was reused; no rebuild was needed. |
 | Issue #7 acceptance | BLOCKED | Candidate 25 fails Stage2B shape/span constraints. Budget is exhausted, so further acoustic tuning requires a separate requirements/design contract and explicit budget approval. Stage 3/4, full CTest, Web Player, source-audio decode, and manual listening remain NOT RUN. Issue remains `phase:implementation` + `blocked`; PR #8 remains open. |
+
+## 2026-10-03 Stage2L revision-2 model evaluation
+
+| Item | Status | Evidence |
+|---|---|---|
+| Revision-2 implementation | PASS | Added time-normalized scalar string loss cached by prepared pitch, made passive loss velocity-independent, and replaced piecewise hardness with the approved continuous pivot mapping. Internal profile revision is 2; public ABI/product versions unchanged. |
+| Candidate 1 | BLOCKED BY DIRECTION GATE | Production-SIMD Stage2E completed 284 direct-proxy cells and 16 MIDI 45 velocity layers. C8 post-attack violation improved from +2.101440 to −0.179817 dB, but MIDI 45 span violation worsened from +3.528952 to +4.674648 dB; pitch violation +0.966510 is also positive. |
+| Safety / lifecycle | MIXED | Peak −5.340350 dBFS, guard 0, finite, invalid measurements 0, buzz 0.110870, release finite, stuck voices 0. |
+| Revision-2 budget | STOPPED | 1/12 identities used. Candidate 1 failed the requirement to improve both primary failures without a new independent safety violation; no GPSampler proposal, Stage 3, or Stage 4 followed. |
+| Focused verification | PASS / FAIL | Build, Stage2L 6/6, tuning suite 107 passed + 1 skipped, loss-math error 1.1920929e−7, dry-run zero render, and `git diff --check` PASS. Concert-grand regression still FAILS the independent soundboard-control check at 0.00039014785809495076. |
+| Issue #7 | BLOCKED / NOT ACCEPTED | Further physical tuning requires a new requirements/design decision. Full CTest, Web Player, Stage 3/4, original audio decode, and manual listening remain NOT RUN. Issue stays `phase:implementation` + `blocked`; PR #8 remains open. |
+
+Copyable report: [`stage2l-model-revision.md`](stage2l-model-revision.md).

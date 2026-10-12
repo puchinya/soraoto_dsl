@@ -33,8 +33,7 @@
       "id": 0,
       "parent_id": null,
       "name": "Root",
-      "program_list_id": 1,
-      "supports_unit_data": false
+      "program_list_id": 1
     }
   ],
   "audio_buses": [
@@ -5010,7 +5009,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5029,7 +5028,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5048,7 +5047,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5067,7 +5066,7 @@
         "instrument": "Pluck",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5085,7 +5084,7 @@
         "instrument": "Brass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5103,7 +5102,7 @@
         "instrument": "Pluck",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5122,7 +5121,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5141,7 +5140,7 @@
         "instrument": "Pluck",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5160,7 +5159,7 @@
         "instrument": "Guitar",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5179,7 +5178,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5198,7 +5197,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5217,7 +5216,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5236,7 +5235,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5255,7 +5254,7 @@
         "instrument": "Guitar",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5274,7 +5273,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5293,7 +5292,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5312,7 +5311,7 @@
         "instrument": "Motion",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5331,7 +5330,7 @@
         "instrument": "Wind",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5350,7 +5349,7 @@
         "instrument": "Pluck",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5369,7 +5368,7 @@
         "instrument": "Harp",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5388,7 +5387,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5407,7 +5406,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5426,7 +5425,7 @@
         "instrument": "Lead",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5445,7 +5444,7 @@
         "instrument": "Pluck",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5464,7 +5463,7 @@
         "instrument": "Motion",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5483,7 +5482,7 @@
         "instrument": "Lead",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5502,7 +5501,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5521,7 +5520,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5540,7 +5539,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5559,7 +5558,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5578,7 +5577,7 @@
         "instrument": "Brass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5597,7 +5596,7 @@
         "instrument": "Lead",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5616,7 +5615,7 @@
         "instrument": "Motion",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5635,7 +5634,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5654,7 +5653,7 @@
         "instrument": "Motion",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5673,7 +5672,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5692,7 +5691,7 @@
         "instrument": "Wind",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5712,7 +5711,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5731,7 +5730,7 @@
         "instrument": "Lead",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5750,7 +5749,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5769,7 +5768,7 @@
         "instrument": "Strings",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5788,7 +5787,7 @@
         "instrument": "Lead",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5806,7 +5805,7 @@
         "instrument": "Vocal",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5825,7 +5824,7 @@
         "instrument": "Brass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5844,7 +5843,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     }
@@ -5854,7 +5853,6 @@
       "id": 1,
       "unit_id": 0,
       "name": "SuperSynth Factory",
-      "supports_program_data": false,
       "mutable_program_names": false,
       "programs": [
         {
@@ -6928,11 +6926,6 @@
       ]
     }
   ],
-  "state": {
-    "schema_id": "net.puchinya.soraotodsl.super-synth-v8.state",
-    "schema_version": 1,
-    "max_snapshot_bytes": 636
-  },
   "prefetch_support": "never",
   "max_event_output_per_block": 0,
   "max_host_requests_per_block": 0,

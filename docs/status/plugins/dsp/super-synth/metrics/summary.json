@@ -35,7 +35,7 @@
     "adjacentComparisons": 1392,
     "interpolatedPitches": 58
   },
-  "sharedGainOffsetDb": 4.7693,
+  "sharedGainOffsetDb": 34.2425,
   "limits": {
     "peakMaxDbfs": 1.6,
     "peakMinDbfs": -90,
@@ -54,140 +54,161 @@
   },
   "directAndFullRangeErrorDistribution": {
     "absoluteLevelErrorDbAllCells": {
-      "p50": 4.5532,
-      "p90": 9.6086,
-      "p95": 11.857,
-      "max": 19.1777
+      "p50": 9.1547,
+      "p90": 17.2893,
+      "p95": 21.5181,
+      "max": 43.312
     },
     "directReferenceAbsoluteLevelErrorDb": {
-      "p50": 4.2236,
-      "p90": 9.4076,
-      "p95": 11.8864,
-      "max": 19.1777
+      "p50": 9.1547,
+      "p90": 17.8327,
+      "p95": 22.6737,
+      "max": 43.312
     },
     "interpolatedKeyAbsoluteLevelErrorDb": {
-      "p50": 4.7556,
-      "p90": 9.7161,
-      "p95": 11.6773,
-      "max": 16.9562
+      "p50": 9.138,
+      "p90": 16.8759,
+      "p95": 21.1677,
+      "max": 34.5023
     },
     "peakDbfs": {
-      "p50": -8.1527,
-      "p90": 0.4155,
-      "p95": 1.217,
+      "p50": -5.8066,
+      "p90": 1.5836,
+      "p95": 1.5836,
       "max": 1.5836
     },
     "centroidRatio": {
-      "p50": 1.3345,
-      "p90": 2.4186,
-      "p95": 3.148,
-      "max": 8.3143
+      "p50": 1.8475,
+      "p90": 4.8709,
+      "p95": 5.5324,
+      "max": 11.0952
     },
     "centroidRatioWhenEnergyFloorMet": {
-      "p50": 1.3459,
-      "p90": 2.5467,
-      "p95": 3.1853,
-      "max": 5.2784
+      "p50": 1.566,
+      "p90": 3.3758,
+      "p95": 4.3798,
+      "max": 11.0952
     },
-    "lowEnergyCentroidOutliersDiagnostic": 1,
+    "lowEnergyCentroidOutliersDiagnostic": 0,
     "above2kAbsoluteDelta": {
-      "p50": 0.0032,
-      "p90": 0.443,
-      "p95": 0.5982,
-      "max": 0.912
+      "p50": 0.0038,
+      "p90": 0.3713,
+      "p95": 0.6599,
+      "max": 0.9867
     },
     "postAttackShapeErrorDb": {
-      "p50": 2.4075,
-      "p90": 5.1581,
-      "p95": 6.5377,
-      "max": 9.3446
+      "p50": 8.9614,
+      "p90": 19.9155,
+      "p95": 21.1977,
+      "max": 34.4862
     },
     "maxHarmonicRatioFactorWith0_01Floor": {
-      "p50": 5.7242,
-      "p90": 49.5573,
-      "p95": 115.5318,
-      "max": 32461.893
+      "p50": 31.1703,
+      "p90": 1758.5252,
+      "p95": 3143.0236,
+      "max": 15033.2278
     },
     "stereoWidthDeltaDiagnostic": {
-      "p50": 0.5023,
-      "p90": 1.1575,
-      "p95": 1.5247,
-      "max": 2.5708
+      "p50": 0.5836,
+      "p90": 1.2655,
+      "p95": 1.4209,
+      "max": 2.4407
     },
     "inharmonicityAbsoluteDeltaDiagnostic": {
-      "p50": 0.0019,
-      "p90": 0.0097,
-      "p95": 0.02,
-      "max": 0.0815
+      "p50": 0.001,
+      "p90": 0.0085,
+      "p95": 0.0189,
+      "max": 0.0728
     },
     "spectralSpreadRatioDiagnostic": {
-      "p50": 1.5971,
-      "p90": 3.3489,
-      "p95": 3.9404,
-      "max": 9.1793
+      "p50": 3.392,
+      "p90": 5.789,
+      "p95": 6.5376,
+      "max": 21.9372
     },
     "onsetAbsoluteDeltaMsDiagnostic": {
-      "p50": 10.6667,
-      "p90": 14,
-      "p95": 16,
+      "p50": 10,
+      "p90": 13.3333,
+      "p95": 14,
       "max": 36
     },
     "earlyAttackShapeErrorDbDiagnostic": {
-      "p50": 5.4054,
-      "p90": 9.2801,
-      "p95": 15.1799,
-      "max": 32.5735
+      "p50": 37.8236,
+      "p90": 43.8912,
+      "p95": 45.7685,
+      "max": 56.0948
     }
   },
   "adjacentContinuityDistribution": {
     "levelJumpDb": {
-      "p50": 0.4427,
-      "p90": 2.3803,
-      "p95": 3.6914,
-      "max": 7.2905
+      "p50": 0.7927,
+      "p90": 2.4753,
+      "p95": 5.1476,
+      "max": 20.1041
     },
     "centroidRatio": {
-      "p50": 1.0681,
-      "p90": 1.3788,
-      "p95": 1.5083,
-      "max": 7.5466
+      "p50": 1.239,
+      "p90": 1.8717,
+      "p95": 2.0833,
+      "max": 4.4502
     },
     "centroidRatioWhenEnergyFloorMet": {
-      "p50": 1.0668,
-      "p90": 1.3056,
-      "p95": 1.4042,
-      "max": 1.8207
+      "p50": 1.2699,
+      "p90": 1.9402,
+      "p95": 2.4359,
+      "max": 3.7331
     },
     "above2kAbsoluteDelta": {
-      "p50": 0.0004,
-      "p90": 0.0279,
-      "p95": 0.0689,
-      "max": 0.4243
+      "p50": 0.0001,
+      "p90": 0.0244,
+      "p95": 0.1013,
+      "max": 0.7458
     },
     "lateDecayDeltaDb": {
-      "p50": 0.2196,
-      "p90": 1.0476,
-      "p95": 1.3278,
-      "max": 3.086
+      "p50": 0.2585,
+      "p90": 2.9277,
+      "p95": 4.2267,
+      "max": 18.1082
     },
     "stereoPanDelta": {
-      "p50": 0.0146,
-      "p90": 0.0533,
-      "p95": 0.0657,
-      "max": 0.0842
+      "p50": 0.005,
+      "p90": 0.0504,
+      "p95": 0.0711,
+      "max": 0.1492
     },
-    "lowEnergyCentroidOutliersDiagnostic": 5
+    "lowEnergyCentroidOutliersDiagnostic": 0
   },
   "velocityResponse": {
-    "pitchesWithBrightnessEvolution": 83,
-    "brightnessEvolutionCoverage": 0.9432,
+    "pitchesWithBrightnessEvolution": 40,
+    "brightnessEvolutionCoverage": 0.4545,
     "levelDropToleranceDb": 1,
     "minimumLevelSpanDb": 6
   },
   "failures": {
-    "directAndInterpolatedCells": 0,
-    "adjacentComparisons": 0,
-    "velocityPitchesOrLayers": 0,
-    "examples": []
+    "directAndInterpolatedCells": 688,
+    "adjacentComparisons": 39,
+    "velocityPitchesOrLayers": 4,
+    "examples": [
+      "21:117: postAttackShape",
+      "21:124: postAttackShape",
+      "30:14: directLevel",
+      "33:14: directLevel",
+      "33:31: directLevel",
+      "36:14: postAttackShape",
+      "36:31: postAttackShape",
+      "36:36: postAttackShape",
+      "36:40: postAttackShape",
+      "36:45: postAttackShape",
+      "36:49: postAttackShape",
+      "36:54: postAttackShape",
+      "36:61: postAttackShape",
+      "36:69: postAttackShape",
+      "36:77: postAttackShape",
+      "36:85: postAttackShape",
+      "36:93: postAttackShape",
+      "36:101: postAttackShape",
+      "36:109: postAttackShape",
+      "36:117: postAttackShape"
+    ]
   }
 }

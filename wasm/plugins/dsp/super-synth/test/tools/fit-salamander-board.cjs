@@ -8,18 +8,18 @@ const REPO = path.resolve(__dirname, '../../../../../../');
 const DEFAULT_METRICS = path.join(REPO, 'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json');
 const DEFAULT_DRY = path.join(REPO, 'wasm/plugins/dsp/super-synth/test/reference/supersynth-v9-board-dry-matrix.json');
 const DEFAULT_FIT = path.join(REPO, 'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-board-fit.json');
-const DEFAULT_HEADER = path.join(REPO, 'wasm/plugins/dsp/super-synth/src/grand_physics_fit_v9.h');
 const BAND_COUNT = 64, BAND_LOW_HZ = 40, BAND_HIGH_HZ = 16000, LONG_PITCHES = [21,24,27,30,33,36,39,42,45];
+const PEAK_HEADROOM_DBFS = -3.0;
 
 function usage() {
-  return 'Usage: fit-salamander-board.cjs [--metrics <fixture.json>] [--dry-matrix <matrix.json>] [--measured <current-fit-matrix.json>] [--output <fit.json>] [--header <fit.h>]';
+  return 'Usage: fit-salamander-board.cjs [--metrics <fixture.json>] [--dry-matrix <matrix.json>] [--measured <current-fit-matrix.json>] [--headroom <component-headroom.json>] [--output <fit.json>]';
 }
 
 function parseArgs(argv) {
-  const out = { metrics:DEFAULT_METRICS, 'dry-matrix':DEFAULT_DRY, measured:null, output:DEFAULT_FIT, header:DEFAULT_HEADER };
+  const out = { metrics:DEFAULT_METRICS, 'dry-matrix':DEFAULT_DRY, measured:null, headroom:null, output:DEFAULT_FIT };
   for (let i = 0; i < argv.length; i++) {
     const key = argv[i];
-    if (!['--metrics','--dry-matrix','--measured','--output','--header'].includes(key) || !argv[i + 1]) throw new Error(usage());
+    if (!['--metrics','--dry-matrix','--measured','--headroom','--output'].includes(key) || !argv[i + 1]) throw new Error(usage());
     out[key.slice(2)] = path.resolve(argv[++i]);
   }
   return out;
@@ -29,6 +29,49 @@ function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
 function avg(xs) { return xs.length ? xs.reduce((a,b)=>a+b,0)/xs.length : 0; }
 function median(xs) { if(!xs.length)return NaN;const sorted=xs.slice().sort((a,b)=>a-b);return sorted[Math.floor((sorted.length-1)/2)]; }
 function round(x, places=6) { const p=10**places; return Math.round(x*p)/p; }
+function fitRadiationScale(current, requestedCorrectionDb, maximumSafeScale) {
+  if(!Number.isFinite(current)||current<=0||!Number.isFinite(requestedCorrectionDb)||!Number.isFinite(maximumSafeScale)||maximumSafeScale<=0)
+    throw new Error('radiation-scale fit requires finite measurements and a positive current/headroom scale');
+  const requested=current*10**(requestedCorrectionDb/20);
+  const headroom=maximumSafeScale;
+  const scale=Math.min(requested,headroom,100);
+  if(!Number.isFinite(scale)||scale<=0)throw new Error('radiation-scale fit produced a non-positive or non-finite scale');
+  return {scale,requested,headroom,limitedByHeadroom:headroom<requested};
+}
+function maximumSafeScaleFromComponents(dryChannels, wetChannels, currentScale, targetDbfs=PEAK_HEADROOM_DBFS) {
+  if(!Array.isArray(dryChannels)||!Array.isArray(wetChannels)||dryChannels.length===0||dryChannels.length!==wetChannels.length
+    ||!Number.isFinite(currentScale)||currentScale<=0||!Number.isFinite(targetDbfs))
+    throw new Error('component headroom requires matching channel arrays, a positive current scale, and finite target');
+  const target=10**(targetDbfs/20);
+  let minimumFactor=0,maximumFactor=Infinity,limiting=null;
+  for(let channel=0;channel<dryChannels.length;channel++){
+    const dry=dryChannels[channel],wet=wetChannels[channel];
+    if(!dry||!wet||dry.length!==wet.length)throw new Error(`dry/wet component channel ${channel} has incompatible lengths`);
+    for(let index=0;index<dry.length;index++){
+      const base=Number(dry[index]),delta=Number(wet[index])-base;
+      if(!Number.isFinite(base)||!Number.isFinite(delta))throw new Error(`non-finite dry/board component at channel ${channel}, sample ${index}`);
+      if(Math.abs(delta)<1e-20){if(Math.abs(base)>target)return {maximumSafeScale:0,maximumFactor:0,targetPeak:target,limiting:{channel,index,dry:base,boardDelta:delta}};continue;}
+      const first=(-target-base)/delta,second=(target-base)/delta;
+      const lower=Math.min(first,second),upper=Math.max(first,second);
+      if(lower>minimumFactor)minimumFactor=lower;
+      if(upper<maximumFactor){maximumFactor=upper;limiting={channel,index,dry:base,boardDelta:delta};}
+    }
+  }
+  if(!Number.isFinite(maximumFactor)||maximumFactor<minimumFactor||minimumFactor>1||maximumFactor<1)
+    throw new Error('current dry/board capture does not provide a feasible component headroom interval');
+  return {maximumSafeScale:currentScale*maximumFactor,maximumFactor,targetPeak:target,limiting};
+}
+function assertCompatibleFitMatrices(dry, measured) {
+  const dryRender=dry?.render||{},measuredRender=measured?.render||{};
+  for(const field of ['sourcePluginSha256','calibrationConfigSha256','hammerForceScale','preset','sampleRate']){
+    if(dryRender[field]===undefined||measuredRender[field]===undefined)
+      throw new Error(`fit matrices are missing required provenance field ${field}`);
+    if(dryRender[field]!==measuredRender[field])
+      throw new Error(`dry and measured fit matrices disagree on ${field}`);
+  }
+  if(dryRender.soundboardBypassed!==true)throw new Error('dry fit matrix must bypass soundboard radiation');
+  if(measuredRender.soundboardBypassed!==false)throw new Error('measured fit matrix must include soundboard radiation');
+}
 function zone(pitch) { return pitch < 48 ? 0 : pitch < 72 ? 1 : 2; }
 function bandCenter(i) { return BAND_LOW_HZ * (BAND_HIGH_HZ/BAND_LOW_HZ)**((i+.5)/BAND_COUNT); }
 
@@ -78,9 +121,27 @@ function fillMissingLongitudinal(rows) {
   return all;
 }
 
-function fitBoard(reference, dry, measured=null) {
+function assertCompatibleHeadroom(measured, headroom) {
+  if(!headroom||headroom.schemaVersion!==1||headroom.coverage?.directCells!==480||headroom.matrix?.length!==480)
+    throw new Error('component headroom evidence must cover all 480 direct cells');
+  const expected=measured?.render||{},actual=headroom.render||{};
+  for(const field of ['sourceRevision','sourcePluginSha256','calibrationConfigSha256','presetConfigSha256','wasmSha256','boardRadiationScale','sampleRate','preset']){
+    if(expected[field]===undefined||actual[field]===undefined)throw new Error(`component headroom evidence is missing provenance field ${field}`);
+    if(expected[field]!==actual[field])throw new Error(`component headroom evidence disagrees with measured matrix on ${field}`);
+  }
+  const maximumSafeScale=Math.min(...headroom.matrix.map(row=>Number(row.maximumSafeScale)));
+  if(!Number.isFinite(maximumSafeScale)||maximumSafeScale<=0||Math.abs(maximumSafeScale-Number(headroom.summary?.maximumSafeScale))>1e-12)
+    throw new Error('component headroom evidence has an invalid maximum safe radiation scale');
+  return maximumSafeScale;
+}
+
+function fitBoard(reference, dry, measured=null, headroom=null) {
   if(reference.schemaVersion!==3 || reference.coverage?.directCells!==480 || reference.directCells?.length!==480) throw new Error('reference metrics must be the hash-verified 480-cell schema v3 fixture');
   if(!dry.render?.soundboardBypassed || dry.render?.preset!=='concert_grand') throw new Error('dry matrix must use the concert_grand preset with piano_soundboard_mix=0');
+  if(measured)assertCompatibleFitMatrices(dry,measured);
+  if(measured&&!headroom)throw new Error('measured fit matrix requires component-derived --headroom evidence');
+  if(headroom&&!measured)throw new Error('component headroom evidence requires a matching --measured matrix');
+  const maximumSafeScale=measured?assertCompatibleHeadroom(measured,headroom):null;
   const dryByKey=new Map(dry.matrix.map(row=>[`${row.pitch}:${row.velocity}`,row]));
   const measuredByKey=measured?new Map(measured.matrix.map(row=>[`${row.pitch}:${row.velocity}`,row])):null;
   if(measured&&measured.matrix?.length!==reference.directCells.length)throw new Error('measured fit matrix must have one cell for every direct reference cell');
@@ -140,7 +201,7 @@ function fitBoard(reference, dry, measured=null) {
     const meanExcess=avg(zoneExcess[z]);
     feedbackScale.push(round(clamp(meanExcess/(1+meanExcess)*.04,0,.04),8));
   }
-  let radiationScale=1,radiationScaleRequested=1,radiationScaleHeadroom=1,radiationScaleCurrent=1,maxMeasuredPeakDbfs=null;
+  let radiationScale=1,radiationScaleRequested=1,radiationScaleHeadroom=1,radiationScaleCurrent=1,maxMeasuredPeakDbfs=null,radiationScaleLimitedByHeadroom=false;
   if(measured){
     radiationScaleCurrent=Number(measured.render?.boardRadiationScale??1);
     if(!Number.isFinite(radiationScaleCurrent)||radiationScaleCurrent<=0)throw new Error('measured matrix has an invalid current board radiation scale');
@@ -151,9 +212,11 @@ function fitBoard(reference, dry, measured=null) {
     return cell.metrics.peakDbfs-row.metrics.peakDbfs;
     });
     maxMeasuredPeakDbfs=Math.max(...measured.matrix.map(row=>row.metrics.peakDbfs));
-    radiationScaleRequested=radiationScaleCurrent*10**(median(corrections)/20);
-    radiationScaleHeadroom=radiationScaleCurrent*10**((-.5-maxMeasuredPeakDbfs)/20);
-    radiationScale=clamp(Math.min(radiationScaleRequested,radiationScaleHeadroom),.001,100);
+    const scaleFit=fitRadiationScale(radiationScaleCurrent,median(corrections),maximumSafeScale);
+    radiationScaleRequested=scaleFit.requested;
+    radiationScaleHeadroom=scaleFit.headroom;
+    radiationScaleLimitedByHeadroom=scaleFit.limitedByHeadroom;
+    radiationScale=scaleFit.scale;
   }
 
   const pitchList=reference.coverage.pitches;
@@ -184,53 +247,14 @@ function fitBoard(reference, dry, measured=null) {
     schemaVersion:1,
     method:'deterministic positive-gain log-band transfer fit; effective bridge-to-radiation proxy only',
     reference:{archiveSha256:reference.source.archiveSha256,sfzSha256:reference.source.sfzSha256,fileHashesManifest:reference.source.fileHashesManifest,metricSchemaVersion:reference.schemaVersion},
-    dryMatrix:{matchedCells:matched,sourceRevision:dry.render.sourceRevision||'not-recorded',sourceTreeDirty:dry.render.sourceTreeDirty??null,sourcePluginSha256:dry.render.sourcePluginSha256||null,fitHeaderSha256:dry.render.fitHeaderSha256||null,wasmSha256:dry.render.wasmSha256||null,soundboardBypassed:true,preset:dry.render.preset},
-    fitConstraints:{modes:24,bands:BAND_COUNT,frequencyRangeHz:[BAND_LOW_HZ,BAND_HIGH_HZ],nonNegativeRadiationGain:true,maximumModeGain:.88,stringInharmonicityBRange:[0,.02],peakHeadroomDbfs:-.5,radiationScaleFit:measured?'median peak level ratio limited by measured output headroom':'bootstrap'},
-    board:{modes,zonePan:zonePan.map(x=>round(x,6)),residualAlpha,residualGain,feedbackScale,radiationScale:round(radiationScale,7),radiationScaleRequested:round(radiationScaleRequested,7),radiationScaleHeadroomLimit:round(radiationScaleHeadroom,7),radiationScaleCurrent:round(radiationScaleCurrent,7),maxMeasuredPeakDbfs:maxMeasuredPeakDbfs===null?null:round(maxMeasuredPeakDbfs,6)},
+    dryMatrix:{matchedCells:matched,sourceRevision:dry.render.sourceRevision||'not-recorded',sourceTreeDirty:dry.render.sourceTreeDirty??null,sourcePluginSha256:dry.render.sourcePluginSha256||null,presetConfigSha256:dry.render.presetConfigSha256||dry.render.fitHeaderSha256||null,wasmSha256:dry.render.wasmSha256||null,soundboardBypassed:true,preset:dry.render.preset},
+    fitConstraints:{modes:24,bands:BAND_COUNT,frequencyRangeHz:[BAND_LOW_HZ,BAND_HIGH_HZ],nonNegativeRadiationGain:true,maximumModeGain:.88,stringInharmonicityBRange:[0,.02],peakHeadroomDbfs:PEAK_HEADROOM_DBFS,radiationScaleFit:measured?'median peak correction limited by exact dry-plus-board component headroom':'bootstrap'},
+    board:{modes,zonePan:zonePan.map(x=>round(x,6)),residualAlpha,residualGain,feedbackScale,radiationScale:round(radiationScale,7),radiationScaleRequested:round(radiationScaleRequested,7),radiationScaleHeadroomLimit:round(radiationScaleHeadroom,7),radiationScaleCurrent:round(radiationScaleCurrent,7),radiationScaleLimitedByHeadroom,maxMeasuredPeakDbfs:maxMeasuredPeakDbfs===null?null:round(maxMeasuredPeakDbfs,6)},
     stringInharmonicity:{pitches:pitchList,b: stringB},
     sympathetic:{qUndamped:sympQ.map(x=>round(x,5)),qDamped:sympDampedQ.map(x=>round(x,5)),gain:[round(Math.sqrt(h2Power),7),round(Math.sqrt(h3Power),7)],dampedGain:sympQ.map((q,i)=>round(sympDampedQ[i]/q,8)),excitationGain:round(Math.sqrt(h2Power+h3Power),7),returnGain:round(avg(feedbackScale),8)},
     longitudinal:{pitches:longRows.map(row=>row.pitch),modes:longRows.map(row=>row.modes.map(m=>({frequencyHz:round(m.frequencyHz,4),q:round(m.q,4),gain:round(m.gain,7),observations:m.observations})))},
   };
   return fit;
-}
-
-function f(value) { return `${Number(value).toFixed(9)}f`; }
-function cArray(name, values, align=true) {
-  const suffix=align?' __attribute__((aligned(16)))':'';
-  return `static const float ${name}[${values.length}]${suffix} = { ${values.map(f).join(', ')} };`;
-}
-function cMatrix(name, rows) {
-  return `static const float ${name}[${rows.length}][${rows[0].length}] __attribute__((aligned(16))) = {\n${rows.map(row=>`  { ${row.map(f).join(', ')} }`).join(',\n')}\n};`;
-}
-function makeHeader(fit) {
-  const modes=fit.board.modes;
-  const arrays=[
-    cArray('GRAND_FIT_PITCHES',fit.stringInharmonicity.pitches),
-    cArray('GRAND_FIT_STRING_INHARMONICITY_B',fit.stringInharmonicity.b),
-    cArray('GRAND_FIT_BOARD_FREQ_HZ',modes.map(x=>x.frequencyHz)),
-    cArray('GRAND_FIT_BOARD_Q',modes.map(x=>x.q)),
-    cArray('GRAND_FIT_BOARD_GAIN',modes.map(x=>x.gain)),
-    cArray('GRAND_FIT_BOARD_PAN',modes.map(x=>x.pan)),
-    cArray('GRAND_FIT_BOARD_ZONE_B',modes.map(x=>x.zoneCoupling[0])),
-    cArray('GRAND_FIT_BOARD_ZONE_M',modes.map(x=>x.zoneCoupling[1])),
-    cArray('GRAND_FIT_BOARD_ZONE_T',modes.map(x=>x.zoneCoupling[2])),
-    cArray('GRAND_FIT_BOARD_FEEDBACK_B',modes.map(x=>x.gain*x.zoneCoupling[0]*.015)),
-    cArray('GRAND_FIT_BOARD_FEEDBACK_M',modes.map(x=>x.gain*x.zoneCoupling[1]*.015)),
-    cArray('GRAND_FIT_BOARD_FEEDBACK_T',modes.map(x=>x.gain*x.zoneCoupling[2]*.015)),
-    cArray('GRAND_FIT_BOARD_ZONE_PAN',fit.board.zonePan),
-    cArray('GRAND_FIT_BOARD_RESIDUAL_ALPHA',fit.board.residualAlpha),
-    cArray('GRAND_FIT_BOARD_RESIDUAL_GAIN',fit.board.residualGain),
-    cArray('GRAND_FIT_BOARD_FEEDBACK_SCALE',fit.board.feedbackScale),
-    cArray('GRAND_FIT_SYMP_Q_UNDAMPED',fit.sympathetic.qUndamped,false),
-    cArray('GRAND_FIT_SYMP_Q_DAMPED',fit.sympathetic.qDamped,false),
-    cArray('GRAND_FIT_SYMP_GAIN',fit.sympathetic.gain,false),
-    cArray('GRAND_FIT_SYMP_DAMPED_GAIN',fit.sympathetic.dampedGain,false),
-    cMatrix('GRAND_FIT_LONG_FREQ_HZ',fit.longitudinal.modes.map(row=>row.map(x=>x.frequencyHz))),
-    cMatrix('GRAND_FIT_LONG_Q',fit.longitudinal.modes.map(row=>row.map(x=>x.q))),
-    cMatrix('GRAND_FIT_LONG_GAIN',fit.longitudinal.modes.map(row=>row.map(x=>x.gain))),
-    cArray('GRAND_FIT_LONG_PITCH',fit.longitudinal.pitches),
-  ];
-  return `#ifndef SORAOTO_SUPERSYNTH_GRAND_PHYSICS_FIT_V9_H\n#define SORAOTO_SUPERSYNTH_GRAND_PHYSICS_FIT_V9_H\n\n#define GRAND_FIT_PITCH_COUNT ${fit.stringInharmonicity.pitches.length}\n#define GRAND_FIT_LONG_PITCH_COUNT ${fit.longitudinal.pitches.length}\n#define GRAND_FIT_BOARD_RADIATION_SCALE ${f(fit.board.radiationScale)}\n#define GRAND_FIT_SYMP_EXCITATION_GAIN ${f(fit.sympathetic.excitationGain)}\n#define GRAND_FIT_SYMP_RETURN_GAIN ${f(fit.sympathetic.returnGain)}\n\n${arrays.join('\n\n')}\n\n#endif\n`;
 }
 
 function writeAtomic(file, text) {
@@ -243,13 +267,15 @@ function main() {
   const reference=JSON.parse(fs.readFileSync(args.metrics,'utf8'));
   const dry=JSON.parse(fs.readFileSync(args['dry-matrix'],'utf8'));
   const measured=args.measured?JSON.parse(fs.readFileSync(args.measured,'utf8')):null;
-  const fit=fitBoard(reference,dry,measured);
+  const headroom=args.headroom?JSON.parse(fs.readFileSync(args.headroom,'utf8')):null;
+  const fit=fitBoard(reference,dry,measured,headroom);
   writeAtomic(args.output,`${JSON.stringify(fit,null,2)}\n`);
-  writeAtomic(args.header,makeHeader(fit));
-  console.log(JSON.stringify({fit:args.output,header:args.header,matchedCells:fit.dryMatrix.matchedCells,boardModes:fit.board.modes.length,longitudinalPitches:fit.longitudinal.pitches.length,archiveSha256:fit.reference.archiveSha256}));
+  console.log(JSON.stringify({fit:args.output,matchedCells:fit.dryMatrix.matchedCells,boardModes:fit.board.modes.length,longitudinalPitches:fit.longitudinal.pitches.length,archiveSha256:fit.reference.archiveSha256}));
 }
 
-try { main(); }
-catch (error) { console.error(`ERROR: ${error.stack||error.message}`); process.exitCode=1; }
+if (require.main === module) {
+  try { main(); }
+  catch (error) { console.error(`ERROR: ${error.stack||error.message}`); process.exitCode=1; }
+}
 
-module.exports={fitBoard,makeHeader};
+module.exports={fitBoard,fitRadiationScale,maximumSafeScaleFromComponents,assertCompatibleFitMatrices,assertCompatibleHeadroom};

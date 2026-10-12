@@ -21,6 +21,16 @@ npm run preview
 
 Realtime WASM Plugin playback requires a secure context in deployed environments.
 
+## Source and runtime data
+
+The browser compiler creates the Project and `Resolved Project IR` in memory from DSL source. They
+are ephemeral runtime data, not saved Project formats. Reloading source recompiles it and rebuilds
+the Plugin graph from DSL configuration.
+
+The convenience `localStorage` entry `soraotoDSL.source` stores editor source text only. Authored
+preset selections and parameter values remain in that source. The Web Player does not persist or
+restore derived Project/IR, graph, Plugin state, or runtime parameter snapshots separately.
+
 ## Documentation
 
 - Web Player external/support contract:

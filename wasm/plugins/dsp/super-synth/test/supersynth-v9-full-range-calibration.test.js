@@ -2,7 +2,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const {VELOCITIES} = require('./tools/capture-supersynth-matrix.cjs');
+const {captureMatrix, VELOCITIES} = require('./tools/capture-supersynth-matrix.cjs');
+const {postAttackShapeErrorDb, dynamicSpanMetrics} = require('./tools/stage3-direct-reference-metrics.cjs');
 
 const ROOT = path.resolve(__dirname, '../../../../../');
 const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'reference/salamander-grand-piano-v3-metrics.json'), 'utf8'));
@@ -201,10 +202,7 @@ function main() {
     const onsetDeltaMs = measured.onsetMs - reference.onsetMs;
     const earlyAttackShapeErrorDb = Math.max(...measured.envelope20msDbfs.slice(0, 5).map((value, i) =>
       Math.abs((value - measured.envelope20msDbfs[3]) - (reference.envelope20msDbfs[i] - reference.envelope20msDbfs[3]))));
-    const postAttackShapeErrorDb = Math.max(
-      Math.abs((measured.envelopeDbfs[2] - measured.envelopeDbfs[3]) - (reference.envelopeDbfs[2] - reference.envelopeDbfs[3])),
-      Math.abs((measured.envelopeDbfs[4] - measured.envelopeDbfs[3]) - (reference.envelopeDbfs[4] - reference.envelopeDbfs[3]))
-    );
+    const postAttackShapeError = postAttackShapeErrorDb(measured, reference);
     const harmonicFactors = measured.harmonicRatiosH2ToH6.flatMap((value, i) => {
       const targetValue = reference.harmonicRatiosH2ToH6[i];
       if (!Number.isFinite(targetValue)) return [];
@@ -217,7 +215,7 @@ function main() {
     if (target.direct && Math.abs(levelErrorDb) > LIMITS.directLevelErrorDb) hardFailures.push('directLevel');
     if (centroidComparable && centroidRatio > LIMITS.centroidRatio) hardFailures.push('centroid');
     if (above2kDelta > LIMITS.above2kDelta) hardFailures.push('above2k');
-    if (postAttackShapeErrorDb > LIMITS.postAttackShapeErrorDb) hardFailures.push('postAttackShape');
+    if (postAttackShapeError > LIMITS.postAttackShapeErrorDb) hardFailures.push('postAttackShape');
     if (hardFailures.length) cellFailures.push(`${key}: ${hardFailures.join('+')}`);
     cells.push({
       pitch: target.pitch, velocity: target.velocity, directReference: target.direct,
@@ -232,7 +230,7 @@ function main() {
       ])),
       centroidHz: measured.spectralCentroidHz, referenceCentroidHz: +reference.spectralCentroidHz.toFixed(4), centroidRatio: +centroidRatio.toFixed(4), centroidComparable,
       above2kPowerRatio: measured.above2kPowerRatio, referenceAbove2kPowerRatio: +reference.above2kPowerRatio.toFixed(6), above2kDelta: +above2kDelta.toFixed(6),
-      postAttackShapeErrorDb: +postAttackShapeErrorDb.toFixed(4), h2ToH6MaxFactor: +h2ToH6MaxFactor.toFixed(4),
+      postAttackShapeErrorDb: +postAttackShapeError.toFixed(4), h2ToH6MaxFactor: +h2ToH6MaxFactor.toFixed(4),
       ...Object.fromEntries([2, 3, 4, 5, 6].flatMap((n, i) => [
         [`renderH${n}ToH1`, measured.harmonicRatiosH2ToH6[i] ?? null],
         [`referenceH${n}ToH1`, Number.isFinite(reference.harmonicRatiosH2ToH6[i]) ? +reference.harmonicRatiosH2ToH6[i].toFixed(6) : null]
@@ -249,7 +247,7 @@ function main() {
     cellMetrics.centroid.push(centroidRatio);
     if (centroidComparable) cellMetrics.comparableCentroid.push(centroidRatio);
     cellMetrics.above2k.push(above2kDelta);
-    cellMetrics.shape.push(postAttackShapeErrorDb);
+    cellMetrics.shape.push(postAttackShapeError);
     cellMetrics.harmonicFactor.push(h2ToH6MaxFactor);
     cellMetrics.stereoWidth.push(stereoWidthDelta);
     cellMetrics.inharmonicity.push(Math.abs(measured.inharmonicityB - reference.inharmonicityB));
@@ -305,7 +303,7 @@ function main() {
     const levels = row.map(item => item.envelopeDbfs[3]);
     const minimumAdjacentLevelChangeDb = Math.min(...levels.slice(1).map((value, i) => value - levels[i]));
     const inversionsOverLimit = levels.slice(1).filter((value, i) => value < levels[i] - LIMITS.velocityLevelDropDb).length;
-    const levelSpanDb = Math.max(...levels) - Math.min(...levels);
+    const levelSpanDb = dynamicSpanMetrics(levels, levels).actualSpanDb;
     const lowToHighCentroidRatio = row.at(-1).spectralCentroidHz / row[0].spectralCentroidHz;
     const lowToHighAbove2kDelta = row.at(-1).above2kPowerRatio - row[0].above2kPowerRatio;
     if (inversionsOverLimit) velocityFailures.push(`${pitch}: ${inversionsOverLimit} layer drop(s) exceed ${LIMITS.velocityLevelDropDb} dB`);
