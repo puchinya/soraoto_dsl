@@ -211,6 +211,7 @@ test('synthetic fake-DSP chain reaches mid-full with exact response tuples and r
     candidates.map(tuple=>`${tuple.low}:${tuple.mid}:${tuple.bassHardness}`));
   const selection=core.readDualJson(roots,'selection.json');
   assert.deepEqual(selection.selectedResponse,candidates[0]);
+  assert.equal(selection.phaseResultSha256,core.readFinal(roots,'mid-full').sha256);
   assert.equal(selection.syntheticTest,true);
 });
 

@@ -446,7 +446,7 @@ function runCellsLocked({root,roots,record,identity,phase,cells,authorization,va
   const synthetic=auth.syntheticTest===true;
   if(synthetic)evaluation.syntheticTest=true;
   const finalized=core.finalizePhase({roots,phase,decision:evaluation.decision,summary:evaluation,now});
-  if(phase==='mid-full'&&evaluation.pass)createSelection(roots,identity,evaluation,finalized.result,now);
+  if(phase==='mid-full'&&evaluation.pass)createSelection(roots,identity,evaluation,{...finalized.result,sha256:finalized.sha256},now);
   return {decision:finalized.result.decision,phase,calls,renderCount:finalized.result.renderCount,counts,summary:evaluation,
     resultSha256:finalized.sha256,archiveSha256:finalized.archiveSha256,syntheticTest:synthetic,acousticRenders:calls};
 }

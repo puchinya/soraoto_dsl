@@ -190,7 +190,7 @@ function assertProductionExports(root,record){
     if(!names.includes(name))throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: production export missing ${name}`);
   return names.sort();
 }
-function readSelection(root=ROOT,home=os.homedir(),epoch=core.EPOCH){
+function readSelection(root=ROOT,home=os.homedir(),epoch=core.EPOCH,{allowSyntheticTest=false}={}){
   const roots=core.resolveRoots(root,'stage3e',epoch,{home});
   let stored,final;
   try{
@@ -198,7 +198,8 @@ function readSelection(root=ROOT,home=os.homedir(),epoch=core.EPOCH){
     final=core.readFinal(roots,'mid-full');
   }catch(error){throw new Error(`BLOCKED_STAGE3E_SELECTION_REQUIRED: ${error.message}`);}
   const selection=JSON.parse(stored.bytes.toString('utf8'));
-  if(selection.issue!==7||selection.epoch!==epoch||selection.decision!=='STAGE3E_SELECTED_RESPONSE'||selection.syntheticTest===true)
+  if(selection.issue!==7||selection.epoch!==epoch||selection.decision!=='STAGE3E_SELECTED_RESPONSE'
+      ||(selection.syntheticTest===true&&!allowSyntheticTest))
     throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: selection is invalid or synthetic');
   if(final.result.decision!=='STAGE3E_MID_FULL_PASS'||selection.phaseResultSha256!==final.sha256)
     throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: selection is not bound to a passing mid-full result');
@@ -232,8 +233,8 @@ function readRegressions(root=ROOT,relative=REGRESSION_REL){
   evaluator.validateRegressionResults(results);
   return {file,relative:rel,bytes,sha256:sha256(bytes),results};
 }
-function currentIdentity({root=ROOT,home=os.homedir(),epoch=core.EPOCH,record=identityRecord(root),selection,regressions,regressionPath=REGRESSION_REL,production:providedProduction}={}){
-  const selected=selection||readSelection(root,home,epoch),regression=regressions||readRegressions(root,regressionPath);
+function currentIdentity({root=ROOT,home=os.homedir(),epoch=core.EPOCH,record=identityRecord(root),selection,regressions,regressionPath=REGRESSION_REL,production:providedProduction,allowSyntheticTest=false}={}){
+  const selected=selection||readSelection(root,home,epoch,{allowSyntheticTest}),regression=regressions||readRegressions(root,regressionPath);
   const production=providedProduction||deriveProductionBuildIdentity({root,record,selection:selected});
   const builds=Object.fromEntries(Object.entries(production.derived.builds).map(([role,build])=>[role,
     {cmakeCacheSha256:build.cmakeCacheSha256,wasmSha256:build.wasm.sha256,flags:build.flags}]));
@@ -302,8 +303,8 @@ function finalize({roots,identity,regressions,now=()=>new Date().toISOString()}=
   return {decision:result.result.decision,phase:PHASE,renderCount:result.result.renderCount,coverage:evaluation.coverage,
     resultSha256:result.sha256,archiveSha256:result.archiveSha256,summary:evaluation,identitySha256:sha256(core.canonicalBytes(identity)),acousticRenders:0};
 }
-function prepare({root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResultsPath=REGRESSION_REL}={}){
-  const record=identityRecord(root),selected=readSelection(root,home,epoch),regressions=readRegressions(root,regressionResultsPath);
+function prepare({root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResultsPath=REGRESSION_REL,allowSyntheticTest=false}={}){
+  const record=identityRecord(root),selected=readSelection(root,home,epoch,{allowSyntheticTest}),regressions=readRegressions(root,regressionResultsPath);
   assertPromotedValues(root,selected.tuple);
   const production=deriveProductionBuildIdentity({root,record,selection:selected});
   const identity=currentIdentity({root,home,epoch,record,selection:selected,regressions,regressionPath:regressionResultsPath,production});
@@ -324,8 +325,10 @@ function execute({root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,reg
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
   return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionResultsPath,render,now,roots,githubReadback}));
 }
-function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionResultsPath,render,now,roots,githubReadback=core.readGitHubApproval}){
-  const prepared=prepare({root,home,epoch,regressionResultsPath});
+function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionResultsPath,render,now,roots,githubReadback=core.readGitHubApproval,allowSyntheticTest=false}){
+  if(allowSyntheticTest!==(auth?.syntheticTest===true)||(allowSyntheticTest&&(approved?.synthetic!==true||approved?.label!=='SYNTHETIC TEST')))
+    throw new Error('AUTHORIZATION_REQUIRED: synthetic Stage3 execution is available only to the explicit test adapter');
+  const prepared=prepare({root,home,epoch,regressionResultsPath,allowSyntheticTest});
   if(prepared.record.sourceCommit&&!isAncestor(root,prepared.record.sourceCommit))
     throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: build source commit is not an ancestor of current HEAD');
   const verified=core.verifyAndPersistAuthorization(approved,{roots,stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:486,
@@ -344,7 +347,7 @@ function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionR
     const existing=core.readCell(roots,PHASE,cell.key);
     if(existing.cell.state==='COMPLETE')continue;
     const started=core.startCell({roots,phase:PHASE,cellKey:cell.key,cell,identity:prepared.identity,
-      identityNow:()=>currentIdentity({root,home,epoch,record:identityRecord(root),regressionPath:regressionResultsPath}),now});
+      identityNow:()=>currentIdentity({root,home,epoch,record:identityRecord(root),regressionPath:regressionResultsPath,allowSyntheticTest}),now});
     if(started.skipped)continue;
     calls+=1;
     let observed;

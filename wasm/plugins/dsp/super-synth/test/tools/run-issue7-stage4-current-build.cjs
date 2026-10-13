@@ -56,7 +56,7 @@ function readStage3(root=ROOT,home=os.homedir(),epoch=core.EPOCH,{allowSynthetic
   try{
     final=core.readFinal(roots,'stage3');
     artifact=core.readDualBytes(roots,'artifacts/production-plugin.wasm');
-    prepared=stage3.prepare({root,home,epoch});
+    prepared=stage3.prepare({root,home,epoch,allowSyntheticTest});
     derived=core.readDualJson(roots,stage3.DERIVED_IDENTITY_REL);
   }catch(error){throw new Error(`BLOCKED_STAGE4_STAGE3_REQUIRED: ${error.message}`);}
   if(final.result.decision!=='STAGE3_READY_FOR_STAGE4')throw new Error('BLOCKED_STAGE4_STAGE3_REQUIRED: Stage3 did not reach STAGE3_READY_FOR_STAGE4');
@@ -169,6 +169,8 @@ function execute({root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,ren
 }
 function executeLocked({root,home,epoch,render,now,roots,phaseCells,approved,validated,githubReadback=core.readGitHubApproval,
   allowSyntheticTest=false,legacyConformance}={}){
+  if(allowSyntheticTest!==(validated?.syntheticTest===true)||(allowSyntheticTest&&(approved?.synthetic!==true||approved?.label!=='SYNTHETIC TEST')))
+    throw new Error('AUTHORIZATION_REQUIRED: synthetic Stage4 execution is available only to the explicit test adapter');
   const record=identityRecord(root),stage3State=readStage3(root,home,epoch,{allowSyntheticTest}),identity=currentIdentity({root,home,epoch,record,stage3State});
   const verified=core.verifyAndPersistAuthorization(approved,{roots,stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:1423,
     readback:details=>githubReadback({...details,root})});
@@ -186,7 +188,7 @@ function executeLocked({root,home,epoch,render,now,roots,phaseCells,approved,val
     if(existing.cell.state==='COMPLETE')continue;
     const started=core.startCell({roots,phase:PHASE,cellKey:cell.key,cell,identity,
       identityNow:()=>{
-        const currentPrepared=stage3.prepare({root,home,epoch});
+        const currentPrepared=stage3.prepare({root,home,epoch,allowSyntheticTest});
         if(!core.same(currentPrepared.identity,stage3State.prepared.identity)||
             !core.same(currentPrepared.derivedBuildIdentity,stage3State.derived)||
             currentPrepared.productionBuildIdentitySha256!==stage3State.prepared.productionBuildIdentitySha256)
