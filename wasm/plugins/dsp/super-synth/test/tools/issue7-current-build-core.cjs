@@ -181,6 +181,12 @@ function hashInputs(root=ROOT,builds){
   const record=builds||storedRecord;
   if(!same(record,storedRecord))throw new Error('BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT: build-identity.json differs from the supplied record');
   if(record.epoch!==EPOCH||record.issue!==ISSUE)throw new Error('BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT: wrong issue or epoch');
+  const toolchainFile=record.toolchain?.toolchainFile,toolchainSha256=record.toolchain?.toolchainFileSha256;
+  if(!toolchainFile||!/^[a-f0-9]{64}$/.test(toolchainSha256||''))
+    throw new Error('BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT: toolchain file path or SHA-256 is missing');
+  const actualToolchainSha256=sha256(fs.readFileSync(inputPath(repositoryRoot,toolchainFile)));
+  if(actualToolchainSha256!==toolchainSha256)
+    throw new Error(`BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT: ${toolchainFile}`);
   const inputs={};
   for(const [key,entry] of Object.entries(record.inputs||{})){
     if(!entry?.path||!entry?.sha256)throw new Error(`BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT: incomplete input ${key}`);

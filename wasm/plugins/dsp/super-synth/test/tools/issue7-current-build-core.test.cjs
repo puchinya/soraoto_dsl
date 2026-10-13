@@ -36,6 +36,7 @@ function statInventory(root){
 function copyIdentityWorkspace(target){
   fs.mkdirSync(target,{recursive:true});
   const files=[...Object.values(IDENTITY.inputs).map(entry=>entry.path),
+    IDENTITY.toolchain.toolchainFile,
     'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json'];
   for(const build of Object.values(IDENTITY.builds)){
     files.push(`${build.buildDirectory}/CMakeCache.txt`,`${build.buildDirectory}/${build.wasm.path}`,
@@ -71,6 +72,7 @@ test('frozen identity rejects a one-byte change in each acoustic-critical input'
     IDENTITY.inputs.pluginC.path,
     IDENTITY.inputs.presets.path,
     IDENTITY.inputs.generatedProfile.path,
+    IDENTITY.toolchain.toolchainFile,
     `${IDENTITY.builds.production.buildDirectory}/CMakeCache.txt`,
     IDENTITY.inputs.captureHelper.path,
     IDENTITY.inputs.stage3Evaluator.path

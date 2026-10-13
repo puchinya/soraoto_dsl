@@ -53,6 +53,7 @@ function promoteProfile(root,record,tuple){
 function createPromotedStage3Fixture(root,sourceRoot){
   const record=structuredClone(stage3.identityRecord(sourceRoot));
   for(const entry of Object.values(record.inputs))copyFile(sourceRoot,root,entry.path);
+  copyFile(sourceRoot,root,record.toolchain.toolchainFile);
   for(const build of Object.values(record.builds))for(const relative of ['CMakeCache.txt',build.wasm.path,
     'generated/super-synth_descriptor.cbor','generated/super-synth_descriptor.h'])copyFile(sourceRoot,root,`${build.buildDirectory}/${relative}`);
   for(const relative of ['wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-matrix.cjs',
@@ -84,6 +85,7 @@ function createPromotedStage3Fixture(root,sourceRoot){
 function createIssue7E2EBase(root,sourceRoot){
   const record=structuredClone(stage3.identityRecord(sourceRoot));
   for(const entry of Object.values(record.inputs))copyFile(sourceRoot,root,entry.path);
+  copyFile(sourceRoot,root,record.toolchain.toolchainFile);
   for(const build of Object.values(record.builds))for(const relative of ['CMakeCache.txt',build.wasm.path,
     'generated/super-synth_descriptor.cbor','generated/super-synth_descriptor.h'])copyFile(sourceRoot,root,`${build.buildDirectory}/${relative}`);
   const toolFiles=[...stage3e.EXTRA_INPUTS,'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.cjs',
@@ -467,6 +469,16 @@ test('continuous synthetic Stage3E selection, Stage3 promotion, and Stage4 accep
     assert.equal(stage3Result.renderCount,486);
     assert.throws(()=>runner.readStage3(root,home,core.EPOCH),/BLOCKED_STAGE4_STAGE3_REQUIRED/);
 
+    const stage3DocsPath='docs/status/plugins/dsp/super-synth/stage3-promotion-descendant-verification.md';
+    fs.writeFileSync(path.join(root,stage3DocsPath),'Synthetic docs-only descendant commit after Stage3 identity was frozen.\n');
+    git(root,['add',stage3DocsPath]);git(root,['commit','-m','docs: verify Stage3 promotion descendant']);
+    assert.deepEqual(git(root,['diff-tree','--no-commit-id','--name-only','-r','HEAD']).split(/\r?\n/).filter(Boolean),[stage3DocsPath]);
+    const stage3CallsBeforeVerify=stage3Calls.count;
+    const stage3Verified=stage3.run({mode:'verify',root,home,allowSyntheticTest:true});
+    assert.equal(stage3Verified.decision,'STAGE3_READY_FOR_STAGE4');
+    assert.equal(stage3Verified.acousticRenders,0);
+    assert.equal(stage3Calls.count,stage3CallsBeforeVerify);
+
     const stage3Rows=stage3.readRows(stage3Roots,stage3Cells),stage3ByCell=new Map(stage3Rows.map(row=>[`${row.pitch}:${row.velocity}`,row]));
     const stage4Cells=runner.cells(),stage4Authorization=syntheticAuthorization('stage4','stage4',stage4Cells);
     const stage4Validated=core.validateAuthorization(stage4Authorization,{stage:'stage4',phase:'stage4',
@@ -491,6 +503,20 @@ test('continuous synthetic Stage3E selection, Stage3 promotion, and Stage4 accep
     assert.deepEqual(stage4Result.summary.coverage,{lifecycleCells:1408,adjacentComparisons:1392,repeatCells:15});
     assert.equal(core.readCell(stage3Roots,'stage3',stage3Cells[0].key).observation.observation.syntheticTest,true);
     assert.equal(core.readCell(stage4Roots,'stage4',stage4Cells[0].key).observation.observation.syntheticTest,true);
+
+    const docsPath='docs/status/plugins/dsp/super-synth/stage4-promotion-descendant-verification.md';
+    fs.writeFileSync(path.join(root,docsPath),'Synthetic docs-only descendant commit for Stage4 identity verification.\n');
+    git(root,['add',docsPath]);git(root,['commit','-m','docs: verify Stage4 promotion descendant']);
+    assert.deepEqual(git(root,['diff-tree','--no-commit-id','--name-only','-r','HEAD']).split(/\r?\n/).filter(Boolean),[docsPath]);
+    const stage3CallsBeforeFinalVerify=stage3Calls.count,stage4CallsBeforeVerify=stage4Calls.count;
+    const stage3FinalVerified=stage3.run({mode:'verify',root,home,allowSyntheticTest:true});
+    const stage4Verified=runner.run({mode:'verify',root,home,allowSyntheticTest:true});
+    assert.equal(stage3FinalVerified.decision,'STAGE3_READY_FOR_STAGE4');
+    assert.equal(stage4Verified.decision,'STAGE4_FULL_RANGE_COMPLETE');
+    assert.equal(stage3FinalVerified.acousticRenders,0);
+    assert.equal(stage4Verified.acousticRenders,0);
+    assert.equal(stage3Calls.count,stage3CallsBeforeFinalVerify);
+    assert.equal(stage4Calls.count,stage4CallsBeforeVerify);
   }finally{restore();}
 });
 

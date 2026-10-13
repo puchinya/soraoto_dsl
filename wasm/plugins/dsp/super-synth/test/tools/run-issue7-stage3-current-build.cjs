@@ -58,39 +58,70 @@ function repoFile(root,relative){
   FILE_BYTES_CACHE.set(absolute,{fingerprint,bytes});
   return bytes;
 }
-function promotionDetails(root){
+function readStoredPromotionIdentity(root,selection){
+  const selectedRoots=selection?.roots;
+  if(!selectedRoots?.commonDirectory||!selectedRoots?.home)return null;
+  const roots=core.resolveRoots(root,STAGE,core.EPOCH,{home:selectedRoots.home,commonDirectory:selectedRoots.commonDirectory});
+  const paths=core.dualPaths(roots,DERIVED_IDENTITY_REL);
+  if(!fs.existsSync(paths.primary)&&!fs.existsSync(paths.secondary))return null;
+  const stored=core.readDualBytes(roots,DERIVED_IDENTITY_REL),derived=JSON.parse(stored.bytes.toString('utf8'));
+  if(!stored.bytes.equals(core.canonicalBytes(derived)))throw new Error('BLOCKED_STAGE3_PROMOTION: stored production identity is not canonical');
+  return derived;
+}
+function validateFrozenPromotion(details,frozen){
+  if(!frozen)return details;
+  if(details.commit!==frozen.promotionCommit||details.parent!==frozen.promotionParentCommit
+      ||details.parentTree!==frozen.promotionParentTree||details.commitTree!==frozen.promotionCommitTree)
+    throw new Error('BLOCKED_STAGE3_PROMOTION: promotion commit, parent, or tree differs from immutable production identity');
+  if(details.currentHeadDescendsFromPromotion!==true)
+    throw new Error('BLOCKED_STAGE3_PROMOTION: current HEAD is not a descendant of the immutable promotion commit');
+  return details;
+}
+function promotionDetails(root,frozen){
   const canonicalRoot=fs.realpathSync(path.resolve(root)),status=git(root,['status','--porcelain=v2','--branch','--untracked-files=no']);
   const statusLines=status.split(/\r?\n/),branch=statusLines.find(line=>line.startsWith('# branch.oid '));
-  const commit=branch?.slice('# branch.oid '.length),cacheKey=`${canonicalRoot}:${commit}`;
-  if(!commit||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(commit))throw new Error('BLOCKED_STAGE3_PROMOTION: current HEAD identity is unavailable');
+  const head=branch?.slice('# branch.oid '.length),commit=frozen?.promotionCommit||head,cacheKey=`${canonicalRoot}:${head}:${commit}`;
+  if(!head||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(head)||!commit||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(commit))
+    throw new Error('BLOCKED_STAGE3_PROMOTION: current HEAD or promotion identity is unavailable');
   if(statusLines.some(line=>line&&!line.startsWith('# ')))throw new Error('BLOCKED_STAGE3_PROMOTION: tracked worktree changes remain after the dedicated promotion commit');
-  const cached=PROMOTION_CACHE.get(cacheKey);if(cached)return cached;
-  const parents=git(root,['rev-list','--parents','-n','1','HEAD']).split(/\s+/).filter(Boolean);
+  const cached=PROMOTION_CACHE.get(cacheKey);if(cached)return validateFrozenPromotion(cached,frozen);
+  if(frozen&&!isCommitAncestor(root,commit,head))throw new Error('BLOCKED_STAGE3_PROMOTION: current HEAD is not a descendant of the immutable promotion commit');
+  const parents=git(root,['rev-list','--parents','-n','1',commit]).split(/\s+/).filter(Boolean);
   if(parents.length!==2||parents[0]!==commit)throw new Error('BLOCKED_STAGE3_PROMOTION: promotion must be a single-parent commit');
-  const parent=parents[1],changedPaths=git(root,['diff-tree','--no-commit-id','--name-only','-r','--no-renames','HEAD']).split(/\r?\n/).filter(Boolean).sort();
+  const parent=parents[1],changedPaths=git(root,['diff-tree','--no-commit-id','--name-only','-r','--no-renames',commit]).split(/\r?\n/).filter(Boolean).sort();
+  const parentTree=git(root,['rev-parse',`${parent}^{tree}`]),commitTree=git(root,['rev-parse',`${commit}^{tree}`]);
   const readBlob=(revision,relative)=>{
     const key=`${canonicalRoot}:${revision}:${relative}`;
     if(!COMMIT_BLOB_CACHE.has(key))COMMIT_BLOB_CACHE.set(key,execFileSync('rtk',['git','show',`${revision}:${relative}`],{cwd:root,maxBuffer:16*1024*1024}));
     return COMMIT_BLOB_CACHE.get(key);
   };
-  const details={commit,parent,changedPaths,
+  const details={commit,parent,parentTree,commitTree,changedPaths,currentHead:head,currentHeadDescendsFromPromotion:isCommitAncestor(root,commit,head),
     readParentFile:relative=>readBlob(parent,relative),
     readCommitFile:relative=>readBlob(commit,relative),
     sourceCommitIsAncestor:isCommitAncestor(root,identityRecord(root).sourceCommit,parent)};
   PROMOTION_CACHE.set(cacheKey,details);
-  return details;
+  return validateFrozenPromotion(details,frozen);
 }
 function validatePromotionDetails(details,sourceCommit){
   if(!details||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.commit||'')||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.parent||''))
     throw new Error('BLOCKED_STAGE3_PROMOTION: promotion commit identity is invalid');
+  if(!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.parentTree||'')||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.commitTree||''))
+    throw new Error('BLOCKED_STAGE3_PROMOTION: promotion parent and commit tree identities are required');
   if(!core.same(details.changedPaths,PROMOTION_PATHS))
     throw new Error('BLOCKED_STAGE3_PROMOTION: dedicated promotion commit must change exactly presets.json and the generated profile');
   if(details.sourceCommitIsAncestor!==true)throw new Error('BLOCKED_STAGE3_PROMOTION: original build source commit is not an ancestor of the promotion parent');
+  if(details.currentHeadDescendsFromPromotion!==true)throw new Error('BLOCKED_STAGE3_PROMOTION: current HEAD must descend from the dedicated promotion commit');
   if(typeof details.readParentFile!=='function'||typeof details.readCommitFile!=='function')
     throw new Error('BLOCKED_STAGE3_PROMOTION: immutable parent and commit file readback is required');
   return true;
 }
 function derivedBuildSnapshot(root,record,baselineIdentity,promotion){
+  const toolchainFile=record.toolchain?.toolchainFile,expectedToolchainSha256=record.toolchain?.toolchainFileSha256;
+  if(!toolchainFile||!/^([a-f0-9]{64})$/.test(expectedToolchainSha256||''))
+    throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: toolchain file identity is missing');
+  const toolchainFileSha256=repoSha(root,toolchainFile);
+  if(toolchainFileSha256!==expectedToolchainSha256)
+    throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: toolchain file changed: ${toolchainFile}`);
   const inputs={};
   for(const [key,entry] of Object.entries(record.inputs||{})){
     const bytes=repoFile(root,entry.path),actual=repoSha(root,entry.path),baseline=baselineIdentity.inputs?.[key]?.sha256;
@@ -126,7 +157,7 @@ function derivedBuildSnapshot(root,record,baselineIdentity,promotion){
       wasm:{path:build.wasm.path,bytes:wasmBytes.length,sha256:wasmSha}};
     metadataOutputs[role]=descriptors;
   }
-  return {inputs,builds,metadataOutputs};
+  return {inputs,builds,metadataOutputs,toolchainFileSha256};
 }
 function hashCommitBlob(promotion,relative,side){
   let digests=COMMIT_BLOB_SHA_CACHE.get(promotion);
@@ -143,7 +174,8 @@ function deriveProductionBuildIdentity({root=ROOT,record=identityRecord(root),se
   if(!core.same(JSON.parse(identityBytes.toString('utf8')),record))throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: supplied original build record differs from the immutable tracked bytes');
   if(selectionIdentity?.buildIdentitySha256!==identitySha256||selectionIdentity?.sourceCommit!==record.sourceCommit)
     throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: Stage3E result is not bound to the immutable original build identity');
-  const promotion=providedPromotion||promotionDetails(root);
+  const frozenPromotion=readStoredPromotionIdentity(root,selection);
+  const promotion=providedPromotion||promotionDetails(root,frozenPromotion);
   validatePromotionDetails(promotion,record.sourceCommit);
   const snapshot=derivedBuildSnapshot(root,record,selectionIdentity,promotion);
   const tuple=selection.tuple;
@@ -163,7 +195,8 @@ function deriveProductionBuildIdentity({root=ROOT,record=identityRecord(root),se
       allThreeBuildsIdentical:Object.values(snapshot.metadataOutputs).every(item=>core.same(item,snapshot.metadataOutputs.production))}};
   const exports=assertProductionExports(root,productionRecord);
   const derived={schemaVersion:1,issue:7,epoch:core.EPOCH,stage:'stage3-production',promotionCommit:promotion.commit,
-    promotionParentCommit:promotion.parent,parentBuildIdentitySha256:identitySha256,parentSourceCommit:record.sourceCommit,
+    promotionParentCommit:promotion.parent,promotionParentTree:promotion.parentTree,promotionCommitTree:promotion.commitTree,
+    parentBuildIdentitySha256:identitySha256,parentSourceCommit:record.sourceCommit,toolchainFileSha256:snapshot.toolchainFileSha256,
     stage3eSelectionSha256:selection.selectionSha256,stage3eResultSha256:selection.final.sha256,
     stage3eIdentitySha256:sha256(core.canonicalBytes(selectionIdentity)),selectedResponse:tuple,
     inputs:snapshot.inputs,builds:snapshot.builds,metadataOutputs:snapshot.metadataOutputs,productionExports:exports};
@@ -378,13 +411,13 @@ function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionR
     summary:evaluation,resultSha256:finalized.sha256,archiveSha256:finalized.archiveSha256,syntheticTest,acousticRenders:calls};
 }
 function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,regressionResultsPath=REGRESSION_REL,render=renderDefault,
-  now=()=>new Date().toISOString(),githubReadback=core.readGitHubApproval}={}){
+  now=()=>new Date().toISOString(),githubReadback=core.readGitHubApproval,allowSyntheticTest=false}={}){
   if(!['dry-run','execute','finalize','verify'].includes(mode))throw new Error('explicit mode required: dry-run, execute, finalize, or verify');
   if(mode==='execute')return execute({root,home,epoch,authorization,regressionResultsPath,render,now,githubReadback});
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
   if(mode==='verify'){
     const final=core.readFinal(roots,PHASE);
-    const prepared=prepare({root,home,epoch,regressionResultsPath});
+    const prepared=prepare({root,home,epoch,regressionResultsPath,allowSyntheticTest});
     core.checkFrozenIdentity(final.result.identity,prepared.identity);
     return {decision:final.result.decision,phase:PHASE,resultSha256:final.sha256,archiveSha256:final.archiveSha256,
       renderCount:final.result.renderCount,builds:0,renders:0,writes:0,acousticRenders:0};
@@ -392,7 +425,7 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,re
   if(mode==='finalize'){
     return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>{
       const identity=core.readDualJson(roots,'execution-identity.json');
-      const prepared=prepare({root,home,epoch,regressionResultsPath});
+      const prepared=prepare({root,home,epoch,regressionResultsPath,allowSyntheticTest});
       core.checkFrozenIdentity(identity,prepared.identity);
       const regressionBytes=core.readDualBytes(roots,'regression-results.json'),regressions=JSON.parse(regressionBytes.bytes.toString('utf8'));
       if(core.sha256(regressionBytes.bytes)!==prepared.regressions.sha256)throw new Error('BLOCKED_STAGE3_REGRESSION_RESULTS: stored regression evidence changed');

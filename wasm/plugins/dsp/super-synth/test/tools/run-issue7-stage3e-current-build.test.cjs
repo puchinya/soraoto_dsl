@@ -65,6 +65,46 @@ test('baseline plan contains the exact 12 coordinate pairs and 24 build captures
   assert.deepEqual(runner.MIDI41_FIELDS,['velocityDerivative','velocityDerivativeWindowMs']);
 });
 
+test('Stage3E cumulative budget includes baseline and initial diagnostic and reports the conditional 80-call skip',()=>{
+  const budget=runner.budgetPlan();
+  assert.equal(budget.maximumCalls,2555);
+  assert.deepEqual(budget.phases.map(({phase,maxCalls})=>[phase,maxCalls]),[
+    ['baseline',24],['midi51-diagnostic',16],['low-screen',1512],['midi51-candidate-diagnostic',80],
+    ['low-full',415],['mid-screen',108],['midi51-final-diagnostic',80],['mid-full',320]
+  ]);
+  assert.deepEqual(budget.initialDiagnosticPass,{skippedPhase:'midi51-candidate-diagnostic',skippedCalls:80,maximumCalls:2475});
+});
+
+test('synthetic approval cannot use the production WASM renderer and CLI mode rejects it before markers or renders',t=>{
+  const authorization={synthetic:true,label:'SYNTHETIC TEST',issue:7,epoch:core.EPOCH,stage:'stage3e',phase:'baseline'};
+  assert.throws(()=>runner.validateExecutionMode({authorization,syntheticTest:true,render:runner.renderDefault}),/cannot invoke the production WASM renderer/);
+  const home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-synthetic-boundary-home-'));
+  const common=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-synthetic-boundary-common-'));
+  t.after(()=>{fs.rmSync(home,{recursive:true,force:true});fs.rmSync(common,{recursive:true,force:true});});
+  const roots=core.resolveRoots(runner.ROOT,'stage3e',core.EPOCH,{home,commonDirectory:common});
+  let calls=0;
+  assert.throws(()=>runner.run({mode:'baseline',root:runner.ROOT,home,commonDirectory:common,authorization,
+    render:()=>{calls++;return {};}}),/synthetic test mode must match/);
+  assert.equal(calls,0);
+  assert.equal(fs.existsSync(roots.primary),false);
+  assert.equal(fs.existsSync(roots.secondary),false);
+});
+
+test('selection creation requires explicit finalized result and SHA and binds the SHA identically',t=>{
+  const home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-selection-sha-home-'));
+  const common=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-selection-sha-common-'));
+  t.after(()=>{fs.rmSync(home,{recursive:true,force:true});fs.rmSync(common,{recursive:true,force:true});});
+  const roots=core.resolveRoots(runner.ROOT,'stage3e',core.EPOCH,{home,commonDirectory:common});
+  const identity={identity:'synthetic'},summary={selectedTuple:{low:0.9,mid:0.95,bassHardness:0.5},syntheticTest:true};
+  const final={result:{decision:'STAGE3E_MID_FULL_PASS'},sha256:'a'.repeat(64)};
+  assert.throws(()=>runner.createSelection(roots,identity,summary,{result:final.result}),/finalized phase result and SHA-256/);
+  const paths=core.dualPaths(roots,'selection.json');
+  assert.equal(fs.existsSync(paths.primary),false);
+  const selection=runner.createSelection(roots,identity,summary,final,()=> '2026-10-14T00:00:00.000Z');
+  assert.equal(selection.phaseResultSha256,final.sha256);
+  assert.equal(core.readDualJson(roots,'selection.json').phaseResultSha256,final.sha256);
+});
+
 test('baseline comparison accepts matching metrics and rejects missing, NaN, and over-tolerance values',()=>{
   const rows=baselineRows();
   assert.equal(runner.compareBaseline(rows).decision,'STAGE3E_BASELINE_EQUIVALENCE_PASS');
@@ -256,6 +296,8 @@ test('dry-run does not change either canonical Stage3E store',t=>{
     assert.equal(result.renders,0);
     assert.equal(result.writes,0);
     assert.equal(result.acousticRenders,0);
+    assert.equal(result.plan.maxGridCalls,2555);
+    assert.deepEqual(result.plan.budget,runner.budgetPlan());
     assert.equal(calls,0);
     assert.deepEqual(after,before);
   }finally{fs.rmSync(home,{recursive:true,force:true});}

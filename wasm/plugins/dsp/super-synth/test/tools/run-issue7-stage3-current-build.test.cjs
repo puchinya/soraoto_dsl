@@ -50,6 +50,8 @@ test('derived production identity binds the selected tuple to a dedicated promot
       const target=path.join(root,entry.path);fs.mkdirSync(path.dirname(target),{recursive:true});
       fs.copyFileSync(path.join(sourceRoot,entry.path),target);
     }
+    const toolchainTarget=path.join(root,record.toolchain.toolchainFile);
+    fs.mkdirSync(path.dirname(toolchainTarget),{recursive:true});fs.copyFileSync(path.join(sourceRoot,record.toolchain.toolchainFile),toolchainTarget);
     for(const build of Object.values(record.builds)){
       for(const relative of ['CMakeCache.txt',build.wasm.path,'generated/super-synth_descriptor.cbor','generated/super-synth_descriptor.h']){
         const source=path.join(sourceRoot,build.buildDirectory,relative),target=path.join(root,build.buildDirectory,relative);
@@ -77,7 +79,8 @@ test('derived production identity binds the selected tuple to a dedicated promot
       builds:Object.fromEntries(Object.entries(record.builds).map(([role,build])=>[role,{cmakeCacheSha256:build.cmakeCacheSha256,wasmSha256:build.wasm.sha256}]))};
     const parentFiles=new Map(runner.PROMOTION_PATHS.map(relative=>[relative,fs.readFileSync(path.join(sourceRoot,relative))]));
     const selection={selectionSha256:'a'.repeat(64),tuple,final:{sha256:'b'.repeat(64),result:{decision:'STAGE3E_MID_FULL_PASS',identity:baselineIdentity}}};
-    const promotion={commit:'d'.repeat(40),parent:'c'.repeat(40),changedPaths:[...runner.PROMOTION_PATHS],sourceCommitIsAncestor:true,
+    const promotion={commit:'d'.repeat(40),parent:'c'.repeat(40),parentTree:'e'.repeat(40),commitTree:'f'.repeat(40),
+      changedPaths:[...runner.PROMOTION_PATHS],sourceCommitIsAncestor:true,currentHeadDescendsFromPromotion:true,
       readParentFile:relative=>parentFiles.get(relative),readCommitFile:relative=>fs.readFileSync(path.join(root,relative))};
     const result=runner.deriveProductionBuildIdentity({root,record,selection,promotion});
     assert.equal(result.derived.parentBuildIdentitySha256,baselineIdentity.buildIdentitySha256);

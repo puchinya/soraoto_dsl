@@ -69,8 +69,8 @@ function readStage3(root=ROOT,home=os.homedir(),epoch=core.EPOCH,{allowSynthetic
     throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: preserved Stage3 production WASM does not match the current identity');
   return {roots,final,artifact,prepared,derived,stage3Identity:{resultSha256:final.sha256,identity:final.result.identity}};
 }
-function currentIdentity({root=ROOT,home=os.homedir(),epoch=core.EPOCH,record=identityRecord(root),stage3State}={}){
-  const completed=stage3State||readStage3(root,home,epoch);
+function currentIdentity({root=ROOT,home=os.homedir(),epoch=core.EPOCH,record=identityRecord(root),stage3State,allowSyntheticTest=false}={}){
+  const completed=stage3State||readStage3(root,home,epoch,{allowSyntheticTest});
   const derived=completed.prepared.derivedBuildIdentity;
   return {issue:7,epoch,stage:STAGE,sourceCommit:record.sourceCommit,buildIdentitySha256:derived.parentBuildIdentitySha256,
     toolchain:record.toolchain,inputs:derived.inputs,builds:completed.prepared.identity.builds,
@@ -222,13 +222,13 @@ function executeLocked({root,home,epoch,render,now,roots,phaseCells,approved,val
     summary,resultSha256:result.sha256,archiveSha256:result.archiveSha256,syntheticTest:validated.syntheticTest,acousticRenders:calls,exports};
 }
 function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,render=renderDefault,
-  now=()=>new Date().toISOString(),githubReadback=core.readGitHubApproval}={}){
+  now=()=>new Date().toISOString(),githubReadback=core.readGitHubApproval,allowSyntheticTest=false}={}){
   if(!['dry-run','execute','finalize','verify'].includes(mode))throw new Error('explicit mode required: dry-run, execute, finalize, or verify');
   if(mode==='execute')return execute({root,home,epoch,authorization,render,now,githubReadback});
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
   if(mode==='verify'){
     const final=core.readFinal(roots,PHASE);
-    const current=currentIdentity({root,home,epoch,record:identityRecord(root)});
+    const current=currentIdentity({root,home,epoch,record:identityRecord(root),allowSyntheticTest});
     core.checkFrozenIdentity(final.result.identity,current);
     return {decision:final.result.decision,phase:PHASE,resultSha256:final.sha256,archiveSha256:final.archiveSha256,
       renderCount:final.result.renderCount,builds:0,renders:0,writes:0,acousticRenders:0};
@@ -236,14 +236,14 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,re
   if(mode==='finalize'){
     return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>{
       const final=core.readFinal(roots,PHASE);
-      const current=currentIdentity({root,home,epoch,record:identityRecord(root)});
+      const current=currentIdentity({root,home,epoch,record:identityRecord(root),allowSyntheticTest});
       core.checkFrozenIdentity(final.result.identity,current);
       return {decision:final.result.decision,phase:PHASE,resultSha256:final.sha256,archiveSha256:final.archiveSha256,
         renderCount:final.result.renderCount,builds:0,renders:0,writes:0,acousticRenders:0};
     });
   }
   try{
-    const record=identityRecord(root),stage3State=readStage3(root,home,epoch),identity=currentIdentity({root,home,epoch,record,stage3State});
+    const record=identityRecord(root),stage3State=readStage3(root,home,epoch,{allowSyntheticTest}),identity=currentIdentity({root,home,epoch,record,stage3State,allowSyntheticTest});
     const exports=assertStage4Exports(root,record);
     return {decision:'STAGE4_DRY_RUN_READY',phase:PHASE,identitySha256:core.sha256(core.canonicalBytes(identity)),
       lifecycleCells:1408,repeatCells:15,adjacentComparisons:1392,builds:0,renders:0,writes:0,acousticRenders:0,exports};
