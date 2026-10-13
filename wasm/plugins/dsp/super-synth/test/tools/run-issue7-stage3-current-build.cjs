@@ -25,12 +25,21 @@ const EVALUATOR_REL='wasm/plugins/dsp/super-synth/test/tools/stage3-direct-refer
 const RUNNER_REL='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.cjs';
 const DERIVED_IDENTITY_REL='production-build-identity.json';
 const PROMOTION_PATHS=Object.freeze([PRESETS_REL,PROFILE_REL].sort());
+const FILE_BYTES_CACHE=new Map(),FILE_SHA_CACHE=new Map(),PROMOTION_CACHE=new Map(),COMMIT_BLOB_CACHE=new Map(),COMMIT_BLOB_SHA_CACHE=new WeakMap(),EXPORTS_CACHE=new Map();
 const REQUIRED_REGRESSIONS=Object.freeze([...evaluator.REQUIRED_REGRESSIONS]);
-const CELL_SPECS=Object.freeze(evaluator.CELL_SPECS.map(cell=>Object.freeze({...cell,key:evaluator.key(cell)})));
+const CELL_SPECS=Object.freeze(evaluator.CELL_SPECS.map(cell=>Object.freeze({...cell,key:evaluator.key(cell).replaceAll(':','-')})));
 
 function sha256(bytes){return core.sha256(bytes);}
 function fileSha(root,relative){return sha256(fs.readFileSync(path.join(root,relative)));}
 function identityRecord(root=ROOT){return JSON.parse(fs.readFileSync(path.join(root,IDENTITY_REL),'utf8'));}
+function repoSha(root,relative){
+  const bytes=repoFile(root,relative),absolute=path.resolve(fs.realpathSync(path.resolve(root)),relative),cached=FILE_SHA_CACHE.get(absolute);
+  const entry=FILE_BYTES_CACHE.get(absolute);
+  if(cached?.bytes===bytes)return cached.sha256;
+  const digest=sha256(bytes);FILE_SHA_CACHE.set(absolute,{bytes,sha256:digest});
+  if(entry)entry.sha256=digest;
+  return digest;
+}
 function git(root,args){return execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim();}
 function isCommitAncestor(root,ancestor,descendant='HEAD'){
   try{execFileSync('rtk',['git','merge-base','--is-ancestor',ancestor,descendant],{cwd:root,stdio:'ignore'});return true;}
@@ -40,18 +49,36 @@ function isAncestor(root,ancestor){return isCommitAncestor(root,ancestor,'HEAD')
 function repoFile(root,relative){
   const canonicalRoot=fs.realpathSync(path.resolve(root)),absolute=path.resolve(canonicalRoot,relative);
   if(!core.inside(canonicalRoot,absolute))throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: path escaped repository root: ${relative}`);
-  core.assertNoSymlinkComponents(canonicalRoot,absolute);
-  return fs.readFileSync(absolute);
+  if(fs.realpathSync(absolute)!==absolute)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: symlink input: ${relative}`);
+  const statKey=stat=>[stat.dev,stat.ino,stat.size,stat.mtimeNs,stat.ctimeNs].map(String).join(':');
+  const before=fs.statSync(absolute,{bigint:true}),fingerprint=statKey(before),cached=FILE_BYTES_CACHE.get(absolute);
+  if(cached?.fingerprint===fingerprint)return cached.bytes;
+  const bytes=fs.readFileSync(absolute),after=fs.statSync(absolute,{bigint:true});
+  if(statKey(after)!==fingerprint)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: input changed during identity read: ${relative}`);
+  FILE_BYTES_CACHE.set(absolute,{fingerprint,bytes});
+  return bytes;
 }
 function promotionDetails(root){
-  const commit=git(root,['rev-parse','HEAD']),parents=git(root,['rev-list','--parents','-n','1','HEAD']).split(/\s+/).filter(Boolean);
+  const canonicalRoot=fs.realpathSync(path.resolve(root)),status=git(root,['status','--porcelain=v2','--branch','--untracked-files=no']);
+  const statusLines=status.split(/\r?\n/),branch=statusLines.find(line=>line.startsWith('# branch.oid '));
+  const commit=branch?.slice('# branch.oid '.length),cacheKey=`${canonicalRoot}:${commit}`;
+  if(!commit||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(commit))throw new Error('BLOCKED_STAGE3_PROMOTION: current HEAD identity is unavailable');
+  if(statusLines.some(line=>line&&!line.startsWith('# ')))throw new Error('BLOCKED_STAGE3_PROMOTION: tracked worktree changes remain after the dedicated promotion commit');
+  const cached=PROMOTION_CACHE.get(cacheKey);if(cached)return cached;
+  const parents=git(root,['rev-list','--parents','-n','1','HEAD']).split(/\s+/).filter(Boolean);
   if(parents.length!==2||parents[0]!==commit)throw new Error('BLOCKED_STAGE3_PROMOTION: promotion must be a single-parent commit');
-  if(git(root,['status','--porcelain','--untracked-files=no']))throw new Error('BLOCKED_STAGE3_PROMOTION: tracked worktree changes remain after the dedicated promotion commit');
   const parent=parents[1],changedPaths=git(root,['diff-tree','--no-commit-id','--name-only','-r','--no-renames','HEAD']).split(/\r?\n/).filter(Boolean).sort();
-  return {commit,parent,changedPaths,
-    readParentFile:relative=>execFileSync('rtk',['git','show',`${parent}:${relative}`],{cwd:root}),
-    readCommitFile:relative=>execFileSync('rtk',['git','show',`${commit}:${relative}`],{cwd:root}),
+  const readBlob=(revision,relative)=>{
+    const key=`${canonicalRoot}:${revision}:${relative}`;
+    if(!COMMIT_BLOB_CACHE.has(key))COMMIT_BLOB_CACHE.set(key,execFileSync('rtk',['git','show',`${revision}:${relative}`],{cwd:root,maxBuffer:16*1024*1024}));
+    return COMMIT_BLOB_CACHE.get(key);
+  };
+  const details={commit,parent,changedPaths,
+    readParentFile:relative=>readBlob(parent,relative),
+    readCommitFile:relative=>readBlob(commit,relative),
     sourceCommitIsAncestor:isCommitAncestor(root,identityRecord(root).sourceCommit,parent)};
+  PROMOTION_CACHE.set(cacheKey,details);
+  return details;
 }
 function validatePromotionDetails(details,sourceCommit){
   if(!details||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.commit||'')||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.parent||''))
@@ -66,13 +93,13 @@ function validatePromotionDetails(details,sourceCommit){
 function derivedBuildSnapshot(root,record,baselineIdentity,promotion){
   const inputs={};
   for(const [key,entry] of Object.entries(record.inputs||{})){
-    const bytes=repoFile(root,entry.path),actual=sha256(bytes),baseline=baselineIdentity.inputs?.[key]?.sha256;
+    const bytes=repoFile(root,entry.path),actual=repoSha(root,entry.path),baseline=baselineIdentity.inputs?.[key]?.sha256;
     const promoted=key==='presets'||key==='generatedProfile';
     if(!baseline||baseline!==entry.sha256)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: Stage3E baseline identity differs for ${entry.path}`);
     if(!promoted&&actual!==entry.sha256)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: non-promotion input changed: ${entry.path}`);
-    if(promoted&&sha256(promotion.readParentFile(entry.path))!==entry.sha256)
+    if(promoted&&hashCommitBlob(promotion,entry.path,'parent')!==entry.sha256)
       throw new Error(`BLOCKED_STAGE3_PROMOTION: parent tree does not preserve baseline ${entry.path}`);
-    if(sha256(promotion.readCommitFile(entry.path))!==actual)
+    if(hashCommitBlob(promotion,entry.path,'commit')!==actual)
       throw new Error(`BLOCKED_STAGE3_PROMOTION: committed ${entry.path} differs from the working tree`);
     inputs[key]={path:entry.path,sha256:actual};
   }
@@ -81,17 +108,17 @@ function derivedBuildSnapshot(root,record,baselineIdentity,promotion){
     const base=baselineIdentity.builds?.[role];
     if(!base||base.cmakeCacheSha256!==build.cmakeCacheSha256||base.wasmSha256!==build.wasm.sha256)
       throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: Stage3E baseline build differs for ${role}`);
-    const cacheBytes=repoFile(root,`${build.buildDirectory}/CMakeCache.txt`),cacheSha=sha256(cacheBytes),cacheValues=core.parseCache(cacheBytes);
+    const cacheBytes=repoFile(root,`${build.buildDirectory}/CMakeCache.txt`),cacheSha=repoSha(root,`${build.buildDirectory}/CMakeCache.txt`),cacheValues=core.parseCache(cacheBytes);
     if(cacheSha!==build.cmakeCacheSha256)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: ${role} CMakeCache changed`);
     for(const [name,expected] of Object.entries(build.flags||{})){
       const normalized=String(expected).replace(/\s*\(repository default\)$/,'');
       if(cacheValues[`SORAOTO_SUPERSYNTH_${name}`]!==normalized)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: ${role} flag ${name} changed`);
     }
-    const wasmBytes=repoFile(root,`${build.buildDirectory}/${build.wasm.path}`),wasmSha=sha256(wasmBytes);
+    const wasmBytes=repoFile(root,`${build.buildDirectory}/${build.wasm.path}`),wasmSha=repoSha(root,`${build.buildDirectory}/${build.wasm.path}`);
     if(role!=='production'&&wasmSha!==build.wasm.sha256)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: immutable ${role} WASM changed`);
     const descriptors={};
     for(const [name,relative] of Object.entries({descriptorCbor:`${build.buildDirectory}/generated/super-synth_descriptor.cbor`,descriptorHeader:`${build.buildDirectory}/generated/super-synth_descriptor.h`})){
-      const bytes=repoFile(root,relative),digest=sha256(bytes),expected=record.metadataOutputs[`${name}Sha256`];
+      const bytes=repoFile(root,relative),digest=repoSha(root,relative),expected=record.metadataOutputs[`${name}Sha256`];
       if(role!=='production'&&digest!==expected)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: immutable ${role} ${name} changed`);
       descriptors[name]={path:relative,bytes:bytes.length,sha256:digest};
     }
@@ -100,6 +127,14 @@ function derivedBuildSnapshot(root,record,baselineIdentity,promotion){
     metadataOutputs[role]=descriptors;
   }
   return {inputs,builds,metadataOutputs};
+}
+function hashCommitBlob(promotion,relative,side){
+  let digests=COMMIT_BLOB_SHA_CACHE.get(promotion);
+  if(!digests){digests=new Map();COMMIT_BLOB_SHA_CACHE.set(promotion,digests);}
+  const key=`${side}:${relative}`;
+  if(digests.has(key))return digests.get(key);
+  const bytes=side==='parent'?promotion.readParentFile(relative):promotion.readCommitFile(relative),digest=sha256(bytes);
+  digests.set(key,digest);return digest;
 }
 function deriveProductionBuildIdentity({root=ROOT,record=identityRecord(root),selection,promotion:providedPromotion}={}){
   if(!selection||selection.final?.result?.decision!=='STAGE3E_MID_FULL_PASS')
@@ -145,8 +180,11 @@ function productionWasm(root,record){
   return path.join(buildDirectory(root,record),item.wasm.path);
 }
 function assertProductionExports(root,record){
-  const module=new WebAssembly.Module(fs.readFileSync(productionWasm(root,record)));
-  const names=WebAssembly.Module.exports(module).map(item=>item.name);
+  const item=record.builds?.production,relative=`${item?.buildDirectory}/${item?.wasm?.path}`;
+  if(!item?.wasm?.path)throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: production WASM identity is missing');
+  const bytes=repoFile(root,relative),cacheKey=`${fs.realpathSync(root)}:${sha256(bytes)}`;
+  let names=EXPORTS_CACHE.get(cacheKey);
+  if(!names){names=WebAssembly.Module.exports(new WebAssembly.Module(bytes)).map(entry=>entry.name).sort();EXPORTS_CACHE.set(cacheKey,names);}
   if(names.some(name=>name.includes('stage3e_')))throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: production exports Stage3E diagnostic controls');
   for(const name of ['soraoto_plugin_abi_version','soraoto_plugin_init','soraoto_plugin_process','soraoto_plugin_terminate'])
     if(!names.includes(name))throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: production export missing ${name}`);
@@ -194,9 +232,9 @@ function readRegressions(root=ROOT,relative=REGRESSION_REL){
   evaluator.validateRegressionResults(results);
   return {file,relative:rel,bytes,sha256:sha256(bytes),results};
 }
-function currentIdentity({root=ROOT,home=os.homedir(),epoch=core.EPOCH,record=identityRecord(root),selection,regressions,regressionPath=REGRESSION_REL}={}){
+function currentIdentity({root=ROOT,home=os.homedir(),epoch=core.EPOCH,record=identityRecord(root),selection,regressions,regressionPath=REGRESSION_REL,production:providedProduction}={}){
   const selected=selection||readSelection(root,home,epoch),regression=regressions||readRegressions(root,regressionPath);
-  const production=deriveProductionBuildIdentity({root,record,selection:selected});
+  const production=providedProduction||deriveProductionBuildIdentity({root,record,selection:selected});
   const builds=Object.fromEntries(Object.entries(production.derived.builds).map(([role,build])=>[role,
     {cmakeCacheSha256:build.cmakeCacheSha256,wasmSha256:build.wasm.sha256,flags:build.flags}]));
   return {issue:7,epoch,stage:STAGE,sourceCommit:record.sourceCommit,buildIdentitySha256:production.derived.parentBuildIdentitySha256,
@@ -268,7 +306,7 @@ function prepare({root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResults
   const record=identityRecord(root),selected=readSelection(root,home,epoch),regressions=readRegressions(root,regressionResultsPath);
   assertPromotedValues(root,selected.tuple);
   const production=deriveProductionBuildIdentity({root,record,selection:selected});
-  const identity=currentIdentity({root,home,epoch,record,selection:selected,regressions,regressionPath:regressionResultsPath});
+  const identity=currentIdentity({root,home,epoch,record,selection:selected,regressions,regressionPath:regressionResultsPath,production});
   const stageRoots=core.resolveRoots(root,STAGE,epoch,{home,commonDirectory:selected.roots.commonDirectory});
   const paths=core.dualPaths(stageRoots,DERIVED_IDENTITY_REL);
   if([paths.primary,paths.secondary].some(fs.existsSync)){
@@ -292,6 +330,7 @@ function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionR
     throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: build source commit is not an ancestor of current HEAD');
   const verified=core.verifyAndPersistAuthorization(approved,{roots,stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:486,
     readback:details=>githubReadback({...details,root})});
+  const syntheticTest=verified.syntheticTest===true||auth.syntheticTest===true;
   const previous=core.readPhaseLedger(roots,PHASE);
   const manifest=phaseManifest({root,record:prepared.productionRecord,identity:prepared.identity,authorizationSha256:verified.sha256,
     now:previous?.manifest.createdAt?()=>previous.manifest.createdAt:now,cells:phaseCells});
@@ -319,7 +358,7 @@ function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionR
       throw new Error(`BLOCKED_STAGE3_AMBIGUOUS_RENDER_ACCOUNTING: ${cell.key}; started=${calls}; no observation returned`);
     }
     const row={...observed,pitch:cell.pitch,velocity:cell.velocity,kind:cell.kind,
-      ...(auth.syntheticTest?{syntheticTest:true,label:'SYNTHETIC TEST'}:{})};
+      ...(syntheticTest?{syntheticTest:true,label:'SYNTHETIC TEST'}:{})};
     const completed=core.completeCell({roots,phase:PHASE,cellKey:cell.key,observation:row,now});
     if(completed.decision==='FAIL'){unsafe=true;break;}
   }
@@ -330,10 +369,10 @@ function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionR
   if(unsafe||counts.complete!==486)return {decision:unsafe?'BLOCKED_STAGE3_UNSAFE_OBSERVATION':'BLOCKED_STAGE3_PHASE_INCOMPLETE',phase:PHASE,calls,renderCount:state.ledger.renderCount,counts,acousticRenders:calls};
   const fixture=JSON.parse(fs.readFileSync(path.join(root,FIXTURE_REL),'utf8'));
   const evaluation=evaluate(readRows(roots,phaseCells),fixture,prepared.regressions.results);
-  if(auth.syntheticTest)evaluation.syntheticTest=true;
+  if(syntheticTest)evaluation.syntheticTest=true;
   const finalized=core.finalizePhase({roots,phase:PHASE,decision:evaluation.decision,summary:evaluation,now});
   return {decision:finalized.result.decision,phase:PHASE,calls,renderCount:finalized.result.renderCount,counts,
-    summary:evaluation,resultSha256:finalized.sha256,archiveSha256:finalized.archiveSha256,syntheticTest:verified.syntheticTest,acousticRenders:calls};
+    summary:evaluation,resultSha256:finalized.sha256,archiveSha256:finalized.archiveSha256,syntheticTest,acousticRenders:calls};
 }
 function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,regressionResultsPath=REGRESSION_REL,render=renderDefault,
   now=()=>new Date().toISOString(),githubReadback=core.readGitHubApproval}={}){
@@ -384,4 +423,4 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`${error
 module.exports={ROOT,STAGE,PHASE,AUTH_REL,REGRESSION_REL,REQUIRED_REGRESSIONS,CELL_SPECS,
   sha256,fileSha,identityRecord,buildDirectory,productionWasm,assertProductionExports,readSelection,assertPromotedValues,
   isCommitAncestor,promotionDetails,validatePromotionDetails,derivedBuildSnapshot,deriveProductionBuildIdentity,DERIVED_IDENTITY_REL,PROMOTION_PATHS,
-  readRegressions,currentIdentity,cells,authPath,readAuthorization,phaseManifest,renderDefault,readRows,evaluate,finalize,prepare,execute,run,parseMode,main};
+  readRegressions,currentIdentity,cells,authPath,readAuthorization,phaseManifest,renderDefault,readRows,evaluate,finalize,prepare,execute,executeAuthorized,run,parseMode,main};

@@ -21,8 +21,8 @@ const COMPARISON_REL='wasm/plugins/dsp/super-synth/test/tools/stage3e-generation
 const RUNNER_REL='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage4-current-build.cjs';
 const OUTPUT_FIELDS=Object.freeze(generation.BASELINE_METRIC_FIELDS.filter(name=>!['fullRenderPeakDbfs','finite','outputGuardHits'].includes(name)));
 const CELL_SPECS=Object.freeze([
-  ...capture.LIFECYCLE_CELLS.map(cell=>Object.freeze({...cell,key:capture.key(cell)})),
-  ...capture.REPEAT_CELLS.map(cell=>Object.freeze({...cell,key:capture.key(cell)}))
+  ...capture.LIFECYCLE_CELLS.map(cell=>Object.freeze({...cell,key:capture.key(cell).replaceAll(':','-')})),
+  ...capture.REPEAT_CELLS.map(cell=>Object.freeze({...cell,key:capture.key(cell).replaceAll(':','-')}))
 ]);
 
 function fileSha(root,relative){return core.sha256(fs.readFileSync(path.join(root,relative)));}
@@ -50,7 +50,7 @@ function assertStage4Exports(root,record){
   if(names.some(name=>name.includes('stage3e_')))throw new Error('BLOCKED_STAGE4_BUILD_IDENTITY: Stage4 build contains Stage3E response controls');
   return names.sort();
 }
-function readStage3(root=ROOT,home=os.homedir(),epoch=core.EPOCH){
+function readStage3(root=ROOT,home=os.homedir(),epoch=core.EPOCH,{allowSyntheticTest=false}={}){
   const roots=core.resolveRoots(root,'stage3',epoch,{home});
   let final,artifact,prepared,derived;
   try{
@@ -60,7 +60,7 @@ function readStage3(root=ROOT,home=os.homedir(),epoch=core.EPOCH){
     derived=core.readDualJson(roots,stage3.DERIVED_IDENTITY_REL);
   }catch(error){throw new Error(`BLOCKED_STAGE4_STAGE3_REQUIRED: ${error.message}`);}
   if(final.result.decision!=='STAGE3_READY_FOR_STAGE4')throw new Error('BLOCKED_STAGE4_STAGE3_REQUIRED: Stage3 did not reach STAGE3_READY_FOR_STAGE4');
-  if(final.result.summary?.syntheticTest===true||!core.same(final.result.identity,prepared.identity))
+  if((final.result.summary?.syntheticTest===true&&!allowSyntheticTest)||!core.same(final.result.identity,prepared.identity))
     throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: finalized Stage3 identity differs from current production inputs');
   if(!core.same(derived,prepared.derivedBuildIdentity)||final.result.identity.productionBuildIdentitySha256!==prepared.productionBuildIdentitySha256)
     throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: immutable derived production identity differs');
@@ -148,9 +148,9 @@ function compareStage3Output(stage3Rows,matrix,{tolerance=1e-6}={}){
   }
   return {pass:differences.length===0,comparedCells:stage3Rows.length,tolerance,maximumDifference:maxDifference.value,differences:differences.slice(0,100)};
 }
-function evaluate({root,roots,identity,stage3Identity,matrix,repeats,stage3Rows}={}){
+function evaluate({root,roots,identity,stage3Identity,matrix,repeats,stage3Rows,legacyConformance}={}){
   const summary=evaluator.evaluate({root,identity,stage3Identity,matrix,repeats,legacyMatrixPath:core.dualPaths(roots,'lifecycle-capture.json').primary,
-    legacy:({document})=>safeLegacyConformance({root,roots,document})});
+    legacy:legacyConformance||(({document})=>safeLegacyConformance({root,roots,document}))});
   const outputEquivalence=compareStage3Output(stage3Rows,matrix);
   summary.outputEquivalence=outputEquivalence;
   if(!outputEquivalence.pass)summary.decision='BLOCKED_STAGE4_OUTPUT_EQUIVALENCE';
@@ -167,8 +167,9 @@ function execute({root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,ren
   const checked=authCheck(root,authorization),roots=core.resolveRoots(root,STAGE,epoch,{home});
   return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>executeLocked({root,home,epoch,render,now,roots,githubReadback,...checked}));
 }
-function executeLocked({root,home,epoch,render,now,roots,phaseCells,approved,validated,githubReadback=core.readGitHubApproval}={}){
-  const record=identityRecord(root),stage3State=readStage3(root,home,epoch),identity=currentIdentity({root,home,epoch,record,stage3State});
+function executeLocked({root,home,epoch,render,now,roots,phaseCells,approved,validated,githubReadback=core.readGitHubApproval,
+  allowSyntheticTest=false,legacyConformance}={}){
+  const record=identityRecord(root),stage3State=readStage3(root,home,epoch,{allowSyntheticTest}),identity=currentIdentity({root,home,epoch,record,stage3State});
   const verified=core.verifyAndPersistAuthorization(approved,{roots,stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:1423,
     readback:details=>githubReadback({...details,root})});
   const exports=assertStage4Exports(root,record),previous=core.readPhaseLedger(roots,PHASE);
@@ -184,7 +185,14 @@ function executeLocked({root,home,epoch,render,now,roots,phaseCells,approved,val
     const existing=core.readCell(roots,PHASE,cell.key);
     if(existing.cell.state==='COMPLETE')continue;
     const started=core.startCell({roots,phase:PHASE,cellKey:cell.key,cell,identity,
-      identityNow:()=>currentIdentity({root,home,epoch,record:identityRecord(root),stage3State:readStage3(root,home,epoch)}),now});
+      identityNow:()=>{
+        const currentPrepared=stage3.prepare({root,home,epoch});
+        if(!core.same(currentPrepared.identity,stage3State.prepared.identity)||
+            !core.same(currentPrepared.derivedBuildIdentity,stage3State.derived)||
+            currentPrepared.productionBuildIdentitySha256!==stage3State.prepared.productionBuildIdentitySha256)
+          throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: current Stage3 inputs differ from the finalized production identity');
+        return currentIdentity({root,home,epoch,record:identityRecord(root),stage3State:{...stage3State,prepared:currentPrepared}});
+      },now});
     if(started.skipped)continue;
     calls+=1;
     let observed;
@@ -205,7 +213,7 @@ function executeLocked({root,home,epoch,render,now,roots,phaseCells,approved,val
   if(unsafe||count!==1423)return {decision:unsafe?'BLOCKED_STAGE4_UNSAFE_OBSERVATION':'BLOCKED_STAGE4_PHASE_INCOMPLETE',phase:PHASE,calls,renderCount:ledger.renderCount,completeCells:count,acousticRenders:calls,exports};
   const {matrix,repeats}=readRows(roots,phaseCells),stage3Identity=stage3State.stage3Identity;
   const stage3Rows=stage3.readRows(stage3State.roots,stage3.cells());
-  const summary=evaluate({root,roots,identity,stage3Identity,matrix,repeats,stage3Rows});
+  const summary=evaluate({root,roots,identity,stage3Identity,matrix,repeats,stage3Rows,legacyConformance});
   if(validated.syntheticTest)summary.syntheticTest=true;
   const result=core.finalizePhase({roots,phase:PHASE,decision:summary.decision,summary,now});
   return {decision:result.result.decision,phase:PHASE,calls,renderCount:result.result.renderCount,completeCells:count,

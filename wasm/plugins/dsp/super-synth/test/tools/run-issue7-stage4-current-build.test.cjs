@@ -21,6 +21,7 @@ test('Stage4 cell plan is exactly 1,408 lifecycle plus 15 repeat cells',()=>{
   assert.equal(cells.filter(cell=>cell.kind==='lifecycle').length,1408);
   assert.equal(cells.filter(cell=>cell.kind==='repeat').length,15);
   assert.equal(new Set(cells.map(cell=>cell.key)).size,1423);
+  assert.ok(cells.every(cell=>/^[a-z0-9._-]+$/.test(cell.key)),'phase ledger keys must use the safe key alphabet');
   assert.equal(capture.LIFECYCLE_CELLS[0].pitch,21);
   assert.equal(capture.LIFECYCLE_CELLS.at(-1).pitch,108);
 });
@@ -53,18 +54,27 @@ test('Stage4 dry-run reports the missing Stage3 result without writes or renders
 });
 
 test('Stage4 identity consumes the immutable derived production SHA from Stage3',()=>{
-  const record=runner.identityRecord(runner.ROOT),stage3Identity={productionBuildIdentitySha256:'d'.repeat(64),builds:{production:{wasmSha256:'b'.repeat(64)}}};
+  const record=runner.identityRecord(runner.ROOT),baselineSha='a'.repeat(64);
+  const derivedBuildIdentity={schemaVersion:1,parentBuildIdentitySha256:baselineSha,selectedResponse:{low:0.9,mid:0.95,bassHardness:0.5},
+    inputs:{presets:{path:'wasm/plugins/dsp/super-synth/presets.json',sha256:'f'.repeat(64)}},
+    builds:{production:{wasm:{path:'plugin.wasm',sha256:'b'.repeat(64)}},stage4:{wasm:{path:'stage4.wasm',sha256:'c'.repeat(64)}}}};
+  const productionBuildIdentitySha256=core.sha256(core.canonicalBytes(derivedBuildIdentity));
+  const stage3Identity={productionBuildIdentitySha256,builds:{production:{wasmSha256:'b'.repeat(64)}}};
   const stage3State={final:{sha:'e'.repeat(64),result:{identity:stage3Identity}},prepared:{
-    productionBuildIdentitySha256:'d'.repeat(64),identity:{builds:{production:{wasmSha256:'b'.repeat(64)},stage4:{wasmSha256:'c'.repeat(64)}}},
-    derivedBuildIdentity:{parentBuildIdentitySha256:'a'.repeat(64),inputs:{presets:{sha256:'f'.repeat(64)}},
-      builds:{production:{wasm:{sha256:'b'.repeat(64)}},stage4:{wasm:{sha256:'c'.repeat(64)}}}}
+    productionBuildIdentitySha256,identity:{builds:{production:{wasmSha256:'b'.repeat(64)},stage4:{wasmSha256:'c'.repeat(64)}}},derivedBuildIdentity
   }};
   const identity=runner.currentIdentity({root:runner.ROOT,record,stage3State});
-  assert.equal(identity.productionBuildIdentitySha256,'d'.repeat(64));
+  assert.notEqual(productionBuildIdentitySha256,baselineSha,'promotion must have a distinct derived identity');
+  assert.equal(identity.productionBuildIdentitySha256,productionBuildIdentitySha256);
   assert.equal(identity.productionWasmSha256,'b'.repeat(64));
   assert.equal(identity.stage4WasmSha256,'c'.repeat(64));
-  assert.equal(identity.buildIdentitySha256,'a'.repeat(64));
+  assert.equal(identity.buildIdentitySha256,baselineSha);
   assert.deepEqual(identity.inputs,stage3State.prepared.derivedBuildIdentity.inputs);
+  const manifest=runner.phaseManifest({root:runner.ROOT,record,identity,authorizationSha256:'9'.repeat(64),phaseCells:runner.cells(),
+    now:()=> '2026-10-13T00:00:00.000Z'});
+  assert.equal(manifest.identity.productionBuildIdentitySha256,productionBuildIdentitySha256);
+  assert.equal(manifest.productionWasmSha256,'b'.repeat(64));
+  assert.equal(manifest.authorizedCellKeys.length,1423);
 });
 
 test('Stage4 evaluator contract requires 1,392 adjacent comparisons',()=>{
