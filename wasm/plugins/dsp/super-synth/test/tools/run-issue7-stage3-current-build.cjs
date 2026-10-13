@@ -23,6 +23,8 @@ const PROFILE_REL='wasm/shared/generated/super-synth_grand_profiles.h';
 const CAPTURE_REL='wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-matrix.cjs';
 const EVALUATOR_REL='wasm/plugins/dsp/super-synth/test/tools/stage3-direct-reference-metrics.cjs';
 const RUNNER_REL='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.cjs';
+const DERIVED_IDENTITY_REL='production-build-identity.json';
+const PROMOTION_PATHS=Object.freeze([PRESETS_REL,PROFILE_REL].sort());
 const REQUIRED_REGRESSIONS=Object.freeze([...evaluator.REQUIRED_REGRESSIONS]);
 const CELL_SPECS=Object.freeze(evaluator.CELL_SPECS.map(cell=>Object.freeze({...cell,key:evaluator.key(cell)})));
 
@@ -30,9 +32,107 @@ function sha256(bytes){return core.sha256(bytes);}
 function fileSha(root,relative){return sha256(fs.readFileSync(path.join(root,relative)));}
 function identityRecord(root=ROOT){return JSON.parse(fs.readFileSync(path.join(root,IDENTITY_REL),'utf8'));}
 function git(root,args){return execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim();}
-function isAncestor(root,ancestor){
-  try{execFileSync('rtk',['git','merge-base','--is-ancestor',ancestor,'HEAD'],{cwd:root,stdio:'ignore'});return true;}
+function isCommitAncestor(root,ancestor,descendant='HEAD'){
+  try{execFileSync('rtk',['git','merge-base','--is-ancestor',ancestor,descendant],{cwd:root,stdio:'ignore'});return true;}
   catch{return false;}
+}
+function isAncestor(root,ancestor){return isCommitAncestor(root,ancestor,'HEAD');}
+function repoFile(root,relative){
+  const canonicalRoot=fs.realpathSync(path.resolve(root)),absolute=path.resolve(canonicalRoot,relative);
+  if(!core.inside(canonicalRoot,absolute))throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: path escaped repository root: ${relative}`);
+  core.assertNoSymlinkComponents(canonicalRoot,absolute);
+  return fs.readFileSync(absolute);
+}
+function promotionDetails(root){
+  const commit=git(root,['rev-parse','HEAD']),parents=git(root,['rev-list','--parents','-n','1','HEAD']).split(/\s+/).filter(Boolean);
+  if(parents.length!==2||parents[0]!==commit)throw new Error('BLOCKED_STAGE3_PROMOTION: promotion must be a single-parent commit');
+  if(git(root,['status','--porcelain','--untracked-files=no']))throw new Error('BLOCKED_STAGE3_PROMOTION: tracked worktree changes remain after the dedicated promotion commit');
+  const parent=parents[1],changedPaths=git(root,['diff-tree','--no-commit-id','--name-only','-r','--no-renames','HEAD']).split(/\r?\n/).filter(Boolean).sort();
+  return {commit,parent,changedPaths,
+    readParentFile:relative=>execFileSync('rtk',['git','show',`${parent}:${relative}`],{cwd:root}),
+    readCommitFile:relative=>execFileSync('rtk',['git','show',`${commit}:${relative}`],{cwd:root}),
+    sourceCommitIsAncestor:isCommitAncestor(root,identityRecord(root).sourceCommit,parent)};
+}
+function validatePromotionDetails(details,sourceCommit){
+  if(!details||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.commit||'')||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.parent||''))
+    throw new Error('BLOCKED_STAGE3_PROMOTION: promotion commit identity is invalid');
+  if(!core.same(details.changedPaths,PROMOTION_PATHS))
+    throw new Error('BLOCKED_STAGE3_PROMOTION: dedicated promotion commit must change exactly presets.json and the generated profile');
+  if(details.sourceCommitIsAncestor!==true)throw new Error('BLOCKED_STAGE3_PROMOTION: original build source commit is not an ancestor of the promotion parent');
+  if(typeof details.readParentFile!=='function'||typeof details.readCommitFile!=='function')
+    throw new Error('BLOCKED_STAGE3_PROMOTION: immutable parent and commit file readback is required');
+  return true;
+}
+function derivedBuildSnapshot(root,record,baselineIdentity,promotion){
+  const inputs={};
+  for(const [key,entry] of Object.entries(record.inputs||{})){
+    const bytes=repoFile(root,entry.path),actual=sha256(bytes),baseline=baselineIdentity.inputs?.[key]?.sha256;
+    const promoted=key==='presets'||key==='generatedProfile';
+    if(!baseline||baseline!==entry.sha256)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: Stage3E baseline identity differs for ${entry.path}`);
+    if(!promoted&&actual!==entry.sha256)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: non-promotion input changed: ${entry.path}`);
+    if(promoted&&sha256(promotion.readParentFile(entry.path))!==entry.sha256)
+      throw new Error(`BLOCKED_STAGE3_PROMOTION: parent tree does not preserve baseline ${entry.path}`);
+    if(sha256(promotion.readCommitFile(entry.path))!==actual)
+      throw new Error(`BLOCKED_STAGE3_PROMOTION: committed ${entry.path} differs from the working tree`);
+    inputs[key]={path:entry.path,sha256:actual};
+  }
+  const builds={},metadataOutputs={};
+  for(const [role,build] of Object.entries(record.builds||{})){
+    const base=baselineIdentity.builds?.[role];
+    if(!base||base.cmakeCacheSha256!==build.cmakeCacheSha256||base.wasmSha256!==build.wasm.sha256)
+      throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: Stage3E baseline build differs for ${role}`);
+    const cacheBytes=repoFile(root,`${build.buildDirectory}/CMakeCache.txt`),cacheSha=sha256(cacheBytes),cacheValues=core.parseCache(cacheBytes);
+    if(cacheSha!==build.cmakeCacheSha256)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: ${role} CMakeCache changed`);
+    for(const [name,expected] of Object.entries(build.flags||{})){
+      const normalized=String(expected).replace(/\s*\(repository default\)$/,'');
+      if(cacheValues[`SORAOTO_SUPERSYNTH_${name}`]!==normalized)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: ${role} flag ${name} changed`);
+    }
+    const wasmBytes=repoFile(root,`${build.buildDirectory}/${build.wasm.path}`),wasmSha=sha256(wasmBytes);
+    if(role!=='production'&&wasmSha!==build.wasm.sha256)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: immutable ${role} WASM changed`);
+    const descriptors={};
+    for(const [name,relative] of Object.entries({descriptorCbor:`${build.buildDirectory}/generated/super-synth_descriptor.cbor`,descriptorHeader:`${build.buildDirectory}/generated/super-synth_descriptor.h`})){
+      const bytes=repoFile(root,relative),digest=sha256(bytes),expected=record.metadataOutputs[`${name}Sha256`];
+      if(role!=='production'&&digest!==expected)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: immutable ${role} ${name} changed`);
+      descriptors[name]={path:relative,bytes:bytes.length,sha256:digest};
+    }
+    builds[role]={buildDirectory:build.buildDirectory,target:build.target,cmakeCacheSha256:cacheSha,flags:build.flags,
+      wasm:{path:build.wasm.path,bytes:wasmBytes.length,sha256:wasmSha}};
+    metadataOutputs[role]=descriptors;
+  }
+  return {inputs,builds,metadataOutputs};
+}
+function deriveProductionBuildIdentity({root=ROOT,record=identityRecord(root),selection,promotion:providedPromotion}={}){
+  if(!selection||selection.final?.result?.decision!=='STAGE3E_MID_FULL_PASS')
+    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: a passing Stage3E mid-full result is required for promotion');
+  const selectionIdentity=selection.final.result.identity,identityBytes=repoFile(root,IDENTITY_REL),identitySha256=sha256(identityBytes);
+  if(!core.same(JSON.parse(identityBytes.toString('utf8')),record))throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: supplied original build record differs from the immutable tracked bytes');
+  if(selectionIdentity?.buildIdentitySha256!==identitySha256||selectionIdentity?.sourceCommit!==record.sourceCommit)
+    throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: Stage3E result is not bound to the immutable original build identity');
+  const promotion=providedPromotion||promotionDetails(root);
+  validatePromotionDetails(promotion,record.sourceCommit);
+  const snapshot=derivedBuildSnapshot(root,record,selectionIdentity,promotion);
+  const tuple=selection.tuple;
+  assertPromotedValues(root,tuple);
+  if(snapshot.inputs.presets.sha256===record.inputs.presets.sha256&&snapshot.inputs.generatedProfile.sha256===record.inputs.generatedProfile.sha256)
+    throw new Error('BLOCKED_STAGE3_PROMOTION: selected tuple produced no committed preset/profile change');
+  const productionBuild=snapshot.builds.production;
+  if(productionBuild.wasm.sha256===record.builds.production.wasm.sha256)
+    throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: promoted production WASM SHA did not change with the selected profile');
+  const productionRecord={...record,inputs:snapshot.inputs,builds:{...record.builds,production:{...record.builds.production,
+      cmakeCacheSha256:productionBuild.cmakeCacheSha256,wasm:productionBuild.wasm}},
+    metadataOutputs:{...record.metadataOutputs,
+      descriptorCborBytes:snapshot.metadataOutputs.production.descriptorCbor.bytes,
+      descriptorCborSha256:snapshot.metadataOutputs.production.descriptorCbor.sha256,
+      descriptorHeaderBytes:snapshot.metadataOutputs.production.descriptorHeader.bytes,
+      descriptorHeaderSha256:snapshot.metadataOutputs.production.descriptorHeader.sha256,
+      allThreeBuildsIdentical:Object.values(snapshot.metadataOutputs).every(item=>core.same(item,snapshot.metadataOutputs.production))}};
+  const exports=assertProductionExports(root,productionRecord);
+  const derived={schemaVersion:1,issue:7,epoch:core.EPOCH,stage:'stage3-production',promotionCommit:promotion.commit,
+    promotionParentCommit:promotion.parent,parentBuildIdentitySha256:identitySha256,parentSourceCommit:record.sourceCommit,
+    stage3eSelectionSha256:selection.selectionSha256,stage3eResultSha256:selection.final.sha256,
+    stage3eIdentitySha256:sha256(core.canonicalBytes(selectionIdentity)),selectedResponse:tuple,
+    inputs:snapshot.inputs,builds:snapshot.builds,metadataOutputs:snapshot.metadataOutputs,productionExports:exports};
+  return {derived,productionRecord,productionBuildIdentitySha256:sha256(core.canonicalBytes(derived))};
 }
 function buildDirectory(root,record){
   const item=record.builds?.production;
@@ -96,7 +196,13 @@ function readRegressions(root=ROOT,relative=REGRESSION_REL){
 }
 function currentIdentity({root=ROOT,home=os.homedir(),epoch=core.EPOCH,record=identityRecord(root),selection,regressions,regressionPath=REGRESSION_REL}={}){
   const selected=selection||readSelection(root,home,epoch),regression=regressions||readRegressions(root,regressionPath);
-  return {...core.hashInputs(root,record),issue:7,epoch,stage:STAGE,selectionSha256:selected.selectionSha256,
+  const production=deriveProductionBuildIdentity({root,record,selection:selected});
+  const builds=Object.fromEntries(Object.entries(production.derived.builds).map(([role,build])=>[role,
+    {cmakeCacheSha256:build.cmakeCacheSha256,wasmSha256:build.wasm.sha256,flags:build.flags}]));
+  return {issue:7,epoch,stage:STAGE,sourceCommit:record.sourceCommit,buildIdentitySha256:production.derived.parentBuildIdentitySha256,
+    toolchain:record.toolchain,inputs:production.derived.inputs,builds,
+    productionBuildIdentitySha256:production.productionBuildIdentitySha256,
+    selectionSha256:selected.selectionSha256,
     selectedResponse:selected.tuple,stage3eResultSha256:selected.final.sha256,
     regressionResultsSha256:regression.sha256,regressions:evaluator.validateRegressionResults(regression.results),
     captureHelperSha256:fileSha(root,CAPTURE_REL),evaluatorSha256:fileSha(root,EVALUATOR_REL),runnerSha256:fileSha(root,RUNNER_REL)};
@@ -119,7 +225,8 @@ function phaseManifest({root,record,identity,authorizationSha256,now,cells:phase
     presetsSha256:record.inputs.presets.sha256,profileSha256:record.inputs.generatedProfile.sha256,
     captureHelperSha256:identity.captureHelperSha256,evaluatorSha256:identity.evaluatorSha256,runnerSha256:identity.runnerSha256,
     builds:identity.builds,identity,selectionSha256:identity.selectionSha256,stage3eResultSha256:identity.stage3eResultSha256,
-    regressionResultsSha256:identity.regressionResultsSha256,primaryWasmSha256:record.builds.production.wasm.sha256,
+    regressionResultsSha256:identity.regressionResultsSha256,productionBuildIdentitySha256:identity.productionBuildIdentitySha256,
+    primaryWasmSha256:identity.builds.production.wasmSha256,
     authorizationSha256,authorizedCellKeys:phaseCells.map(cell=>cell.key),renderBudget:phaseCells.length,createdAt:now()};
 }
 function withProductionBuild(root,record,action){
@@ -160,28 +267,39 @@ function finalize({roots,identity,regressions,now=()=>new Date().toISOString()}=
 function prepare({root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResultsPath=REGRESSION_REL}={}){
   const record=identityRecord(root),selected=readSelection(root,home,epoch),regressions=readRegressions(root,regressionResultsPath);
   assertPromotedValues(root,selected.tuple);
+  const production=deriveProductionBuildIdentity({root,record,selection:selected});
   const identity=currentIdentity({root,home,epoch,record,selection:selected,regressions,regressionPath:regressionResultsPath});
-  const exports=assertProductionExports(root,record);
-  return {record,selected,regressions,identity,exports};
+  const stageRoots=core.resolveRoots(root,STAGE,epoch,{home,commonDirectory:selected.roots.commonDirectory});
+  const paths=core.dualPaths(stageRoots,DERIVED_IDENTITY_REL);
+  if([paths.primary,paths.secondary].some(fs.existsSync)){
+    const stored=core.readDualBytes(stageRoots,DERIVED_IDENTITY_REL);
+    if(!stored.bytes.equals(core.canonicalBytes(production.derived)))throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: immutable derived production identity differs');
+  }
+  return {record,productionRecord:production.productionRecord,derivedBuildIdentity:production.derived,
+    productionBuildIdentitySha256:production.productionBuildIdentitySha256,selected,regressions,identity,exports:production.derived.productionExports};
 }
-function execute({root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,regressionResultsPath=REGRESSION_REL,render=renderDefault,now=()=>new Date().toISOString()}={}){
+function execute({root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,regressionResultsPath=REGRESSION_REL,render=renderDefault,
+  now=()=>new Date().toISOString(),githubReadback=core.readGitHubApproval}={}){
   const phaseCells=cells(),authorizationRecord=readAuthorization(root,authorization),approved=authorizationRecord?.authorization;
   if(!approved)throw new Error('AUTHORIZATION_REQUIRED: Issue #7 approval for the exact 486 Stage3 cells is required');
   const auth=core.validateAuthorization(approved,{stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:486});
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
-  return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionResultsPath,render,now,roots}));
+  return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionResultsPath,render,now,roots,githubReadback}));
 }
-function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionResultsPath,render,now,roots}){
+function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionResultsPath,render,now,roots,githubReadback=core.readGitHubApproval}){
   const prepared=prepare({root,home,epoch,regressionResultsPath});
   if(prepared.record.sourceCommit&&!isAncestor(root,prepared.record.sourceCommit))
     throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: build source commit is not an ancestor of current HEAD');
+  const verified=core.verifyAndPersistAuthorization(approved,{roots,stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:486,
+    readback:details=>githubReadback({...details,root})});
   const previous=core.readPhaseLedger(roots,PHASE);
-  const manifest=phaseManifest({root,record:prepared.record,identity:prepared.identity,authorizationSha256:auth.sha256,
+  const manifest=phaseManifest({root,record:prepared.productionRecord,identity:prepared.identity,authorizationSha256:verified.sha256,
     now:previous?.manifest.createdAt?()=>previous.manifest.createdAt:now,cells:phaseCells});
+  core.writeImmutableDual(roots,DERIVED_IDENTITY_REL,core.canonicalBytes(prepared.derivedBuildIdentity));
   core.initializePhase({roots,phase:PHASE,manifest,cells:phaseCells,renderBudget:486,now});
   core.writeImmutableDual(roots,'execution-identity.json',core.canonicalBytes(prepared.identity));
   core.writeImmutableDual(roots,'regression-results.json',prepared.regressions.bytes);
-  core.writeImmutableDual(roots,'artifacts/production-plugin.wasm',fs.readFileSync(productionWasm(root,prepared.record)));
+  core.writeImmutableDual(roots,'artifacts/production-plugin.wasm',fs.readFileSync(productionWasm(root,prepared.productionRecord)));
   let calls=0,unsafe=false;
   for(const cell of phaseCells){
     const existing=core.readCell(roots,PHASE,cell.key);
@@ -191,7 +309,7 @@ function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionR
     if(started.skipped)continue;
     calls+=1;
     let observed;
-    try{observed=render({root,record:prepared.record,identity:prepared.identity,cell,authorization:approved});}
+    try{observed=render({root,record:prepared.productionRecord,identity:prepared.identity,cell,authorization:approved});}
     catch(error){
       try{core.markAmbiguous({roots,phase:PHASE,cellKey:cell.key,reason:error.message,now});}catch{}
       throw new Error(`BLOCKED_STAGE3_AMBIGUOUS_RENDER_ACCOUNTING: ${cell.key}; started=${calls}; ${error.message}`);
@@ -215,11 +333,12 @@ function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionR
   if(auth.syntheticTest)evaluation.syntheticTest=true;
   const finalized=core.finalizePhase({roots,phase:PHASE,decision:evaluation.decision,summary:evaluation,now});
   return {decision:finalized.result.decision,phase:PHASE,calls,renderCount:finalized.result.renderCount,counts,
-    summary:evaluation,resultSha256:finalized.sha256,archiveSha256:finalized.archiveSha256,syntheticTest:auth.syntheticTest,acousticRenders:calls};
+    summary:evaluation,resultSha256:finalized.sha256,archiveSha256:finalized.archiveSha256,syntheticTest:verified.syntheticTest,acousticRenders:calls};
 }
-function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,regressionResultsPath=REGRESSION_REL,render=renderDefault,now=()=>new Date().toISOString()}={}){
+function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,regressionResultsPath=REGRESSION_REL,render=renderDefault,
+  now=()=>new Date().toISOString(),githubReadback=core.readGitHubApproval}={}){
   if(!['dry-run','execute','finalize','verify'].includes(mode))throw new Error('explicit mode required: dry-run, execute, finalize, or verify');
-  if(mode==='execute')return execute({root,home,epoch,authorization,regressionResultsPath,render,now});
+  if(mode==='execute')return execute({root,home,epoch,authorization,regressionResultsPath,render,now,githubReadback});
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
   if(mode==='verify'){
     const final=core.readFinal(roots,PHASE);
@@ -236,7 +355,7 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,re
       const regressionBytes=core.readDualBytes(roots,'regression-results.json'),regressions=JSON.parse(regressionBytes.bytes.toString('utf8'));
       if(core.sha256(regressionBytes.bytes)!==prepared.regressions.sha256)throw new Error('BLOCKED_STAGE3_REGRESSION_RESULTS: stored regression evidence changed');
       const artifact=core.readDualBytes(roots,'artifacts/production-plugin.wasm');
-      if(artifact.sha256!==prepared.record.builds.production.wasm.sha256)throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: preserved production WASM changed');
+      if(artifact.sha256!==prepared.identity.builds.production.wasmSha256)throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: preserved production WASM changed');
       const result=finalize({roots,identity,regressions,now});
       return {...result,builds:0,renders:0,writes:0};
     });
@@ -264,4 +383,5 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`${error
 
 module.exports={ROOT,STAGE,PHASE,AUTH_REL,REGRESSION_REL,REQUIRED_REGRESSIONS,CELL_SPECS,
   sha256,fileSha,identityRecord,buildDirectory,productionWasm,assertProductionExports,readSelection,assertPromotedValues,
+  isCommitAncestor,promotionDetails,validatePromotionDetails,derivedBuildSnapshot,deriveProductionBuildIdentity,DERIVED_IDENTITY_REL,PROMOTION_PATHS,
   readRegressions,currentIdentity,cells,authPath,readAuthorization,phaseManifest,renderDefault,readRows,evaluate,finalize,prepare,execute,run,parseMode,main};

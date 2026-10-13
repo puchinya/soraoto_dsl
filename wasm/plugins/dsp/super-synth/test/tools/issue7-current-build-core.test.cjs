@@ -174,9 +174,12 @@ test('writer lock rejects another worktree and only removes its own lock',t=>{
 });
 
 test('authorization is exact to Issue #7, epoch, phase, cell set, and budget',()=>{
+  const cells=['a','b'],planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}`;
+  const approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2});
   const base={issue:7,epoch:core.EPOCH,contractSha256:core.CONTRACT_SHA256,stage:'stage3e',phase:'baseline',
-    approvalCommentUrl:'https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345',approvalCommentSha256:'a'.repeat(64),
-    authorizedCellKeys:['a','b'],maxCalls:2,approvedAtEpochMs:1791849600000};
+    planCommentUrl:'https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344',planCommentSha256:hash(planBody),
+    approvalCommentUrl:'https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345',approvalCommentSha256:hash(approvalBody),
+    authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse('2026-10-13T00:00:00.000Z')};
   assert.throws(()=>core.validateAuthorization(null,{stage:'stage3e',phase:'baseline',cells:['a','b'],renderBudget:2}),/AUTHORIZATION_REQUIRED/);
   assert.equal(core.validateAuthorization(base,{stage:'stage3e',phase:'baseline',cells:['a','b'],renderBudget:2}).syntheticTest,false);
   assert.throws(()=>core.validateAuthorization({...base,maxCalls:3},{stage:'stage3e',phase:'baseline',cells:['a','b'],renderBudget:2}),/AUTHORIZATION_REQUIRED/);
@@ -184,6 +187,71 @@ test('authorization is exact to Issue #7, epoch, phase, cell set, and budget',()
   const synthetic={synthetic:true,label:'SYNTHETIC TEST',issue:7,epoch:core.EPOCH,stage:'stage3e',phase:'baseline'};
   assert.throws(()=>core.validateAuthorization(synthetic,{stage:'stage3e',phase:'baseline',cells:['a'],renderBudget:1}),/AUTHORIZATION_REQUIRED/);
   assert.equal(core.validateAuthorization(synthetic,{stage:'stage3e',phase:'baseline',cells:['a'],renderBudget:1,allowSynthetic:true}).syntheticTest,true);
+});
+
+test('GitHub approval readback attests immutable plan and approval comments to both stores before execution',t=>{
+  const phase=startPhase(t,{keys:['a','b']}),cells=['a','b'],planUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344';
+  const approvalUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345';
+  const planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}`;
+  const approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2});
+  const planTime='2026-10-12T23:00:00Z',approvalTime='2026-10-13T00:00:00Z';
+  const authorization={issue:7,epoch:core.EPOCH,contractSha256:core.CONTRACT_SHA256,stage:'stage3e',phase:'baseline',
+    planCommentUrl:planUrl,planCommentSha256:hash(planBody),approvalCommentUrl:approvalUrl,approvalCommentSha256:hash(approvalBody),
+    authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse(approvalTime)};
+  const comment=(id,url,body,created_at)=>({id:String(id),html_url:url,issue_url:'https://api.github.com/repos/puchinya/soraoto_dsl/issues/7',
+    body,created_at,updated_at:created_at,user:{login:'puchinya'}});
+  const readback=()=>({authenticatedLogin:'puchinya',comments:{
+    '12344':comment('12344',planUrl,planBody,planTime),'12345':comment('12345',approvalUrl,approvalBody,approvalTime)}});
+  const verified=core.verifyAndPersistAuthorization(authorization,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,readback,
+    now:()=> '2026-10-13T00:01:00.000Z'});
+  assert.equal(verified.syntheticTest,false);
+  assert.match(verified.sha256,/^[a-f0-9]{64}$/);
+  const relative='authorizations/stage3e-baseline.attestation.json';
+  const stored=core.readDualBytes(phase.roots,relative);
+  assert.equal(stored.sha256,verified.sha256);
+  assert.equal(fs.readFileSync(core.dualPaths(phase.roots,relative).primary,'utf8'),fs.readFileSync(core.dualPaths(phase.roots,relative).secondary,'utf8'));
+  const attestation=JSON.parse(stored.bytes.toString('utf8'));
+  assert.equal(attestation.approverLogin,'puchinya');
+  assert.equal(attestation.cellSetSha256,core.cellSetSha256(cells));
+  assert.equal(attestation.renderBudget,2);
+  const repeated=core.verifyAndPersistAuthorization(authorization,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,readback,
+    now:()=> '2026-10-13T01:00:00.000Z'});
+  assert.equal(repeated.sha256,verified.sha256);
+});
+
+test('invalid or edited GitHub approval evidence fails closed without writing an attestation',t=>{
+  const cells=['a','b'],planUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344';
+  const approvalUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345';
+  const planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}`;
+  const approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2});
+  const planTime='2026-10-12T23:00:00Z',approvalTime='2026-10-13T00:00:00Z';
+  const authorization={issue:7,epoch:core.EPOCH,contractSha256:core.CONTRACT_SHA256,stage:'stage3e',phase:'baseline',
+    planCommentUrl:planUrl,planCommentSha256:hash(planBody),approvalCommentUrl:approvalUrl,approvalCommentSha256:hash(approvalBody),
+    authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse(approvalTime)};
+  const comment=(url,body,created_at,overrides={})=>({html_url:url,issue_url:'https://api.github.com/repos/puchinya/soraoto_dsl/issues/7',
+    body,created_at,updated_at:created_at,user:{login:'puchinya'},...overrides});
+  const valid={authenticatedLogin:'puchinya',comments:{
+    '12344':comment(planUrl,planBody,planTime),'12345':comment(approvalUrl,approvalBody,approvalTime)}};
+  const cases=[
+    ['fake approval URL', {...authorization,approvalCommentUrl:'https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-99999'},valid],
+    ['wrong raw body SHA', {...authorization,approvalCommentSha256:'a'.repeat(64)},valid],
+    ['different authenticated author', authorization,{...valid,authenticatedLogin:'someone-else'}],
+    ['different comment author',authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],user:{login:'someone-else'}}}}],
+    ['edited approval comment', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],updated_at:'2026-10-13T00:02:00Z'}}}],
+    ['wrong approval wording', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],body:'approved, go ahead'}}}],
+    ['plan for a different cell set', authorization,{...valid,comments:{...valid.comments,'12344':{...valid.comments['12344'],body:'Plan cellSetSha256='+core.cellSetSha256(['a','c'])}}}],
+    ['budget mismatch', {...authorization,maxCalls:3},valid]
+  ];
+  for(const [name,auth,data] of cases){
+    const phase=startPhase(t,{keys:['a','b']});let renders=0;
+    const before=[fs.existsSync(phase.roots.primary),fs.existsSync(phase.roots.secondary)];
+    assert.throws(()=>{
+      core.verifyAndPersistAuthorization(auth,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,readback:()=>data});
+      renders+=1;
+    },/AUTHORIZATION_REQUIRED/,name);
+    assert.equal(renders,0,name);
+    assert.deepEqual([fs.existsSync(phase.roots.primary),fs.existsSync(phase.roots.secondary)],before,name);
+  }
 });
 
 test('finalization preserves failures and is byte-stable on repeated verification',t=>{

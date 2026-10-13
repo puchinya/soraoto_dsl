@@ -10,10 +10,12 @@ const stage4=require('./run-issue7-stage4-current-build.cjs');
 const ROOT=core.ROOT;
 const PHASE_FLOW=Object.freeze([
   {phase:'baseline',mode:'baseline',success:'STAGE3E_BASELINE_EQUIVALENCE_PASS'},
-  {phase:'midi51-diagnostic',mode:'screen',success:'STAGE3E_MIDI51_PASS'},
+  {phase:'midi51-diagnostic',mode:'screen',success:'STAGE3E_MIDI51_PASS',accepted:['STAGE3E_MIDI51_DIAGNOSTIC_FAIL']},
   {phase:'low-screen',mode:'screen',success:'STAGE3E_LOW_SCREEN_COMPLETE'},
+  {phase:'midi51-candidate-diagnostic',mode:'screen',success:'STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE',conditional:true},
   {phase:'low-full',mode:'full',success:'STAGE3E_LOW_FULL_PASS'},
   {phase:'mid-screen',mode:'screen',success:'STAGE3E_MID_SCREEN_COMPLETE'},
+  {phase:'midi51-final-diagnostic',mode:'screen',success:'STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE'},
   {phase:'mid-full',mode:'full',success:'STAGE3E_MID_FULL_PASS'}
 ]);
 
@@ -23,11 +25,12 @@ function readFinal(roots,phase,reader=stage3e.loadFinalMaybe){
 function stage3eProgress({root=ROOT,home=os.homedir(),epoch=core.EPOCH,readPhase=stage3e.loadFinalMaybe}={}){
   const roots=core.resolveRoots(root,'stage3e',epoch,{home}),completed={};
   for(const item of PHASE_FLOW){
+    if(item.conditional&&completed['midi51-diagnostic']==='STAGE3E_MIDI51_PASS')continue;
     const result=readFinal(roots,item.phase,readPhase);
     if(result?.decision==='BLOCKED_EVIDENCE_READBACK')return {decision:result.decision,phase:item.phase,reason:result.reason,completed};
     if(result){
       completed[item.phase]=result.decision;
-      if(result.decision!==item.success)return {decision:result.decision,phase:item.phase,completed};
+      if(result.decision!==item.success&&!(item.accepted||[]).includes(result.decision))return {decision:result.decision,phase:item.phase,completed};
       continue;
     }
     return {decision:'AUTHORIZATION_REQUIRED',stage:'stage3e',phase:item.phase,mode:item.mode,completed};

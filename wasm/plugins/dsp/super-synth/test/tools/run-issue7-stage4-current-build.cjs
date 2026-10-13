@@ -52,25 +52,31 @@ function assertStage4Exports(root,record){
 }
 function readStage3(root=ROOT,home=os.homedir(),epoch=core.EPOCH){
   const roots=core.resolveRoots(root,'stage3',epoch,{home});
-  let final,artifact,prepared;
+  let final,artifact,prepared,derived;
   try{
     final=core.readFinal(roots,'stage3');
     artifact=core.readDualBytes(roots,'artifacts/production-plugin.wasm');
     prepared=stage3.prepare({root,home,epoch});
+    derived=core.readDualJson(roots,stage3.DERIVED_IDENTITY_REL);
   }catch(error){throw new Error(`BLOCKED_STAGE4_STAGE3_REQUIRED: ${error.message}`);}
   if(final.result.decision!=='STAGE3_READY_FOR_STAGE4')throw new Error('BLOCKED_STAGE4_STAGE3_REQUIRED: Stage3 did not reach STAGE3_READY_FOR_STAGE4');
   if(final.result.summary?.syntheticTest===true||!core.same(final.result.identity,prepared.identity))
     throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: finalized Stage3 identity differs from current production inputs');
-  const expected=final.result.identity.builds?.production?.wasm?.sha256;
-  if(!expected||artifact.sha256!==expected||expected!==prepared.record.builds.production.wasm.sha256)
+  if(!core.same(derived,prepared.derivedBuildIdentity)||final.result.identity.productionBuildIdentitySha256!==prepared.productionBuildIdentitySha256)
+    throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: immutable derived production identity differs');
+  const expected=final.result.identity.builds?.production?.wasmSha256;
+  if(!expected||artifact.sha256!==expected||expected!==prepared.derivedBuildIdentity.builds.production.wasm.sha256)
     throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: preserved Stage3 production WASM does not match the current identity');
-  return {roots,final,artifact,prepared,stage3Identity:{resultSha256:final.sha256,identity:final.result.identity}};
+  return {roots,final,artifact,prepared,derived,stage3Identity:{resultSha256:final.sha256,identity:final.result.identity}};
 }
 function currentIdentity({root=ROOT,home=os.homedir(),epoch=core.EPOCH,record=identityRecord(root),stage3State}={}){
   const completed=stage3State||readStage3(root,home,epoch);
-  return {...core.hashInputs(root,record),issue:7,epoch,stage:STAGE,
+  const derived=completed.prepared.derivedBuildIdentity;
+  return {issue:7,epoch,stage:STAGE,sourceCommit:record.sourceCommit,buildIdentitySha256:derived.parentBuildIdentitySha256,
+    toolchain:record.toolchain,inputs:derived.inputs,builds:completed.prepared.identity.builds,
+    productionBuildIdentitySha256:completed.prepared.productionBuildIdentitySha256,
     stage3ResultSha256:completed.final.sha256,stage3Identity:completed.final.result.identity,
-    productionWasmSha256:record.builds.production.wasm.sha256,stage4WasmSha256:record.builds.stage4.wasm.sha256,
+    productionWasmSha256:derived.builds.production.wasm.sha256,stage4WasmSha256:derived.builds.stage4.wasm.sha256,
     captureHelperSha256:fileSha(root,CAPTURE_REL),evaluatorSha256:fileSha(root,EVALUATOR_REL),
     outputComparisonHelperSha256:fileSha(root,COMPARISON_REL),runnerSha256:fileSha(root,RUNNER_REL)};
 }
@@ -156,17 +162,21 @@ function authCheck(root,authorization){
   const validated=core.validateAuthorization(approved,{stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:1423});
   return {phaseCells,approved,validated};
 }
-function execute({root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,render=renderDefault,now=()=>new Date().toISOString()}={}){
+function execute({root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,render=renderDefault,now=()=>new Date().toISOString(),
+  githubReadback=core.readGitHubApproval}={}){
   const checked=authCheck(root,authorization),roots=core.resolveRoots(root,STAGE,epoch,{home});
-  return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>executeLocked({root,home,epoch,render,now,roots,...checked}));
+  return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>executeLocked({root,home,epoch,render,now,roots,githubReadback,...checked}));
 }
-function executeLocked({root,home,epoch,render,now,roots,phaseCells,approved,validated}={}){
+function executeLocked({root,home,epoch,render,now,roots,phaseCells,approved,validated,githubReadback=core.readGitHubApproval}={}){
   const record=identityRecord(root),stage3State=readStage3(root,home,epoch),identity=currentIdentity({root,home,epoch,record,stage3State});
+  const verified=core.verifyAndPersistAuthorization(approved,{roots,stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:1423,
+    readback:details=>githubReadback({...details,root})});
   const exports=assertStage4Exports(root,record),previous=core.readPhaseLedger(roots,PHASE);
-  const manifest=phaseManifest({root,record,identity,authorizationSha256:validated.sha256,phaseCells,
+  const manifest=phaseManifest({root,record:stage3State.prepared.productionRecord,identity,authorizationSha256:verified.sha256,phaseCells,
     now:previous?.manifest.createdAt?()=>previous.manifest.createdAt:now});
   core.initializePhase({roots,phase:PHASE,manifest,cells:phaseCells,renderBudget:1423,now});
   core.writeImmutableDual(roots,'execution-identity.json',core.canonicalBytes(identity));
+  core.writeImmutableDual(roots,'production-build-identity.json',core.canonicalBytes(stage3State.derived));
   core.writeImmutableDual(roots,'artifacts/stage3-production-plugin.wasm',stage3State.artifact.bytes);
   core.writeImmutableDual(roots,'artifacts/stage4-diagnostic-plugin.wasm',fs.readFileSync(stage4Wasm(root,record)));
   let calls=0,unsafe=false;
@@ -201,9 +211,10 @@ function executeLocked({root,home,epoch,render,now,roots,phaseCells,approved,val
   return {decision:result.result.decision,phase:PHASE,calls,renderCount:result.result.renderCount,completeCells:count,
     summary,resultSha256:result.sha256,archiveSha256:result.archiveSha256,syntheticTest:validated.syntheticTest,acousticRenders:calls,exports};
 }
-function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,render=renderDefault,now=()=>new Date().toISOString()}={}){
+function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,render=renderDefault,
+  now=()=>new Date().toISOString(),githubReadback=core.readGitHubApproval}={}){
   if(!['dry-run','execute','finalize','verify'].includes(mode))throw new Error('explicit mode required: dry-run, execute, finalize, or verify');
-  if(mode==='execute')return execute({root,home,epoch,authorization,render,now});
+  if(mode==='execute')return execute({root,home,epoch,authorization,render,now,githubReadback});
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
   if(mode==='verify'){
     const final=core.readFinal(roots,PHASE);

@@ -11,8 +11,10 @@ const ROOT=path.resolve(__dirname,'../../../../../../');
 const ISSUE=7;
 const EPOCH='current-build-v1';
 const CONTRACT_SHA256='6aa448801d983d2ba4ef5a65b02900db4e1cb1ef5c2f904d2f2a4ed5bb5583c2';
+const APPROVER_LOGIN='puchinya';
+const REPOSITORY='puchinya/soraoto_dsl';
 const STAGES=Object.freeze(['stage3e','stage3','stage4']);
-const PHASES=Object.freeze(['baseline','midi51-diagnostic','low-screen','low-full','mid-screen','mid-full','stage3','stage4']);
+const PHASES=Object.freeze(['baseline','midi51-diagnostic','low-screen','midi51-candidate-diagnostic','low-full','mid-screen','midi51-final-diagnostic','mid-full','stage3','stage4']);
 
 function sha256(bytes){return crypto.createHash('sha256').update(bytes).digest('hex');}
 function stable(value){
@@ -387,6 +389,27 @@ function readAuthorization(root=ROOT,{path:overridePath}={}){
   const bytes=fs.readFileSync(resolved);
   return {authorization:JSON.parse(bytes.toString('utf8')),bytes,sha256:sha256(bytes),path:resolved};
 }
+function commentIdFromUrl(url){
+  const match=String(url||'').match(/^https:\/\/github\.com\/puchinya\/soraoto_dsl\/issues\/7#issuecomment-(\d+)$/);
+  if(!match)throw new Error('AUTHORIZATION_REQUIRED: approval must link to an exact Issue #7 comment');
+  return match[1];
+}
+function cellSetSha256(cells){return sha256(Buffer.from([...cells].map(String).sort().join('\n'),'utf8'));}
+function expectedApprovalStatement({stage,phase,cells,renderBudget}){
+  return `APPROVED: Issue #7 ${EPOCH} ${stage}/${phase}; budget=${renderBudget}; cellSetSha256=${cellSetSha256(cells)}; contractSha256=${CONTRACT_SHA256}`;
+}
+function readGitHubApproval({root=ROOT,planCommentUrl,approvalCommentUrl}={}){
+  const runGh=args=>execFileSync('rtk',['gh',...args],{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']});
+  try{
+    const authenticatedLogin=JSON.parse(runGh(['api','user'])).login;
+    const ids=[...new Set([commentIdFromUrl(planCommentUrl),commentIdFromUrl(approvalCommentUrl)])];
+    const comments={};
+    for(const id of ids)comments[id]=JSON.parse(runGh(['api',`repos/${REPOSITORY}/issues/comments/${id}`]));
+    return {authenticatedLogin,comments};
+  }catch(error){
+    throw new Error(`AUTHORIZATION_REQUIRED: GitHub approval readback failed: ${error.message}`);
+  }
+}
 function validateAuthorization(authorization,{stage,phase,cells,renderBudget,allowSynthetic=false}={}){
   if(!authorization)throw new Error('AUTHORIZATION_REQUIRED: no Issue #7 approval record is present');
   if(authorization.synthetic===true){
@@ -395,12 +418,58 @@ function validateAuthorization(authorization,{stage,phase,cells,renderBudget,all
     return {sha256:sha256(canonicalBytes(authorization)),syntheticTest:true};
   }
   if(authorization.issue!==ISSUE||authorization.epoch!==EPOCH||authorization.contractSha256!==CONTRACT_SHA256||authorization.stage!==stage||authorization.phase!==phase)throw new Error('AUTHORIZATION_REQUIRED: approval scope does not match Issue #7 phase');
-  if(typeof authorization.approvalCommentUrl!=='string'||!/^https:\/\/github\.com\/puchinya\/soraoto_dsl\/issues\/7#issuecomment-\d+$/.test(authorization.approvalCommentUrl))throw new Error('AUTHORIZATION_REQUIRED: approval must link to a user comment on Issue #7');
+  commentIdFromUrl(authorization.approvalCommentUrl);
+  commentIdFromUrl(authorization.planCommentUrl);
+  if(!/^[a-f0-9]{64}$/.test(authorization.planCommentSha256||''))throw new Error('AUTHORIZATION_REQUIRED: plan comment SHA-256 is missing');
   if(!/^[a-f0-9]{64}$/.test(authorization.approvalCommentSha256||''))throw new Error('AUTHORIZATION_REQUIRED: approval comment SHA-256 is missing');
   if(!Array.isArray(authorization.authorizedCellKeys)||!Array.isArray(cells))throw new Error('AUTHORIZATION_REQUIRED: approved cells are missing');
   if(!same(authorization.authorizedCellKeys,[...cells].sort())||authorization.maxCalls!==renderBudget||renderBudget!==cells.length)throw new Error('AUTHORIZATION_REQUIRED: authorized coordinates or exact call budget differ');
   if(!Number.isSafeInteger(authorization.approvedAtEpochMs)||authorization.approvedAtEpochMs<=0)throw new Error('AUTHORIZATION_REQUIRED: approval timestamp is missing');
   return {sha256:sha256(canonicalBytes(authorization)),syntheticTest:false};
+}
+function verifyAndPersistAuthorization(authorization,{roots,stage,phase,cells,renderBudget,
+  readback=readGitHubApproval,now=()=>new Date().toISOString()}={}){
+  const validated=validateAuthorization(authorization,{stage,phase,cells,renderBudget,allowSynthetic:true});
+  if(validated.syntheticTest)return validated;
+  if(!roots)throw new Error('AUTHORIZATION_REQUIRED: canonical evidence roots are required before execution');
+  const planId=commentIdFromUrl(authorization.planCommentUrl),approvalId=commentIdFromUrl(authorization.approvalCommentUrl);
+  let data;
+  try{data=readback({root:ROOT,planCommentUrl:authorization.planCommentUrl,approvalCommentUrl:authorization.approvalCommentUrl});}
+  catch(error){throw new Error(`AUTHORIZATION_REQUIRED: ${error.message}`);}
+  const plan=data?.comments?.[planId],approval=data?.comments?.[approvalId],login=data?.authenticatedLogin;
+  const validComment=(comment,url)=>comment&&comment.html_url===url&&comment.issue_url===`https://api.github.com/repos/${REPOSITORY}/issues/7`
+    &&comment.updated_at===comment.created_at&&comment.user?.login===APPROVER_LOGIN&&comment.user.login===login;
+  if(login!==APPROVER_LOGIN||!validComment(plan,authorization.planCommentUrl)||!validComment(approval,authorization.approvalCommentUrl))
+    throw new Error('AUTHORIZATION_REQUIRED: GitHub approval author, issue, URL, or immutable timestamp does not match');
+  const planBody=typeof plan.body==='string'?plan.body:'',approvalBody=typeof approval.body==='string'?approval.body:'';
+  const planSha=sha256(Buffer.from(planBody,'utf8')),approvalSha=sha256(Buffer.from(approvalBody,'utf8'));
+  const expectedCellSha=cellSetSha256(cells),expectedStatement=expectedApprovalStatement({stage,phase,cells,renderBudget});
+  if(planSha!==authorization.planCommentSha256||!planBody.includes(`cellSetSha256=${expectedCellSha}`))
+    throw new Error('AUTHORIZATION_REQUIRED: immutable plan comment does not bind the exact authorized cell set');
+  if(approvalSha!==authorization.approvalCommentSha256||!approvalBody.includes(expectedStatement))
+    throw new Error('AUTHORIZATION_REQUIRED: approval comment body or SHA does not match the exact phase, budget, and cell set');
+  const createdAt=Date.parse(approval.created_at),planCreatedAt=Date.parse(plan.created_at),approvedAt=authorization.approvedAtEpochMs;
+  if(!Number.isFinite(createdAt)||!Number.isFinite(planCreatedAt)||createdAt<planCreatedAt||createdAt!==approvedAt)
+    throw new Error('AUTHORIZATION_REQUIRED: approval timestamp is absent, stale, or does not match GitHub');
+  const attestationBase={schemaVersion:1,issue:ISSUE,epoch:EPOCH,contractSha256:CONTRACT_SHA256,stage,phase,
+    approverLogin:login,authenticatedLogin:login,planCommentUrl:authorization.planCommentUrl,planCommentSha256:planSha,
+    approvalCommentUrl:authorization.approvalCommentUrl,approvalCommentSha256:approvalSha,approvalStatement:expectedStatement,
+    authorizedCellKeys:[...cells].sort(),cellSetSha256:expectedCellSha,renderBudget,approvedAtEpochMs:createdAt,
+    planCreatedAt:plan.created_at,approvalCreatedAt:approval.created_at};
+  const relative=`authorizations/${stage}-${phase}.attestation.json`,paths=dualPaths(roots,relative);
+  const any=[paths.primary,paths.secondary].some(fs.existsSync);
+  let stored,attestation,bytes;
+  if(any){
+    stored=readDualBytes(roots,relative);
+    const prior=JSON.parse(stored.bytes.toString('utf8')),{verifiedAt,...priorBase}=prior;
+    if(!same(priorBase,attestationBase)||typeof verifiedAt!=='string'||!Number.isFinite(Date.parse(verifiedAt)))
+      throw new Error('AUTHORIZATION_REQUIRED: immutable approval attestation differs from GitHub readback');
+    attestation={...attestationBase,verifiedAt};bytes=stored.bytes;
+  }else{
+    attestation={...attestationBase,verifiedAt:now()};bytes=canonicalBytes(attestation);
+    stored=writeImmutableDual(roots,relative,bytes);
+  }
+  return {sha256:stored.sha256,syntheticTest:false,attestation,attestationSha256:stored.sha256};
 }
 function lockPath(commonDirectory,epoch=EPOCH){
   if(epoch!==EPOCH)throw new Error('BLOCKED_EPOCH');
@@ -428,4 +497,5 @@ module.exports={ROOT,ISSUE,EPOCH,CONTRACT_SHA256,STAGES,PHASES,sha256,stable,can
   assertNoSymlinkComponents,makeDirChain,resolveRoots,checkedRelative,dualPaths,writeImmutableFile,writeImmutableDual,
   writeMutableFile,writeMutableDual,readDualBytes,readDualJson,parseCache,hashInputs,checkFrozenIdentity,
   phaseRelative,initializePhase,readPhaseLedger,readCell,startCell,completeCell,markAmbiguous,normalizeObserved,
-  assessSafety,finalizePhase,readFinal,readAuthorization,validateAuthorization,lockPath,withWriterLock};
+  assessSafety,finalizePhase,readFinal,readAuthorization,commentIdFromUrl,cellSetSha256,expectedApprovalStatement,
+  readGitHubApproval,validateAuthorization,verifyAndPersistAuthorization,lockPath,withWriterLock};

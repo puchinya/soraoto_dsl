@@ -52,6 +52,21 @@ test('Stage4 dry-run reports the missing Stage3 result without writes or renders
   }finally{fs.rmSync(home,{recursive:true,force:true});}
 });
 
+test('Stage4 identity consumes the immutable derived production SHA from Stage3',()=>{
+  const record=runner.identityRecord(runner.ROOT),stage3Identity={productionBuildIdentitySha256:'d'.repeat(64),builds:{production:{wasmSha256:'b'.repeat(64)}}};
+  const stage3State={final:{sha:'e'.repeat(64),result:{identity:stage3Identity}},prepared:{
+    productionBuildIdentitySha256:'d'.repeat(64),identity:{builds:{production:{wasmSha256:'b'.repeat(64)},stage4:{wasmSha256:'c'.repeat(64)}}},
+    derivedBuildIdentity:{parentBuildIdentitySha256:'a'.repeat(64),inputs:{presets:{sha256:'f'.repeat(64)}},
+      builds:{production:{wasm:{sha256:'b'.repeat(64)}},stage4:{wasm:{sha256:'c'.repeat(64)}}}}
+  }};
+  const identity=runner.currentIdentity({root:runner.ROOT,record,stage3State});
+  assert.equal(identity.productionBuildIdentitySha256,'d'.repeat(64));
+  assert.equal(identity.productionWasmSha256,'b'.repeat(64));
+  assert.equal(identity.stage4WasmSha256,'c'.repeat(64));
+  assert.equal(identity.buildIdentitySha256,'a'.repeat(64));
+  assert.deepEqual(identity.inputs,stage3State.prepared.derivedBuildIdentity.inputs);
+});
+
 test('Stage4 evaluator contract requires 1,392 adjacent comparisons',()=>{
   assert.equal(require('./stage4-full-range-evaluator.cjs').EXPECTED_ADJACENT,1392);
   assert.deepEqual(['--dry-run','--execute','--finalize','--verify'].map(arg=>runner.parseMode([arg])),['dry-run','execute','finalize','verify']);

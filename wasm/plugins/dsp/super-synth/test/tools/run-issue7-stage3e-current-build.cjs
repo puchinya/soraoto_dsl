@@ -19,9 +19,10 @@ const BASELINE_FIELDS=generation.BASELINE_METRIC_FIELDS;
 const MIDI41_FIELDS=Object.freeze(['velocityDerivative','velocityDerivativeWindowMs']);
 const MIDI51_VELOCITIES=Object.freeze([...search.OFFICIAL_VELOCITIES]);
 const PHASE_SEQUENCE=Object.freeze([
-  ['baseline','STAGE3E_BASELINE_EQUIVALENCE_PASS'],['midi51-diagnostic','STAGE3E_MIDI51_PASS'],
-  ['low-screen','STAGE3E_LOW_SCREEN_COMPLETE'],['low-full','STAGE3E_LOW_FULL_PASS'],
-  ['mid-screen','STAGE3E_MID_SCREEN_COMPLETE'],['mid-full','STAGE3E_MID_FULL_PASS']
+  ['baseline','STAGE3E_BASELINE_EQUIVALENCE_PASS'],['midi51-diagnostic','STAGE3E_MIDI51_PASS','STAGE3E_MIDI51_DIAGNOSTIC_FAIL'],
+  ['low-screen','STAGE3E_LOW_SCREEN_COMPLETE'],['midi51-candidate-diagnostic','STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE'],
+  ['low-full','STAGE3E_LOW_FULL_PASS'],['mid-screen','STAGE3E_MID_SCREEN_COMPLETE'],
+  ['midi51-final-diagnostic','STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE'],['mid-full','STAGE3E_MID_FULL_PASS']
 ]);
 const AUTH_DIR='.agent-state/issues/7/current-build-v1/authorizations';
 const EXTRA_INPUTS=Object.freeze([
@@ -75,6 +76,13 @@ function baselineCells(){
 }
 function midi51Cells(){return MIDI51_VELOCITIES.map(velocity=>({phase:'midi51-diagnostic',buildRole:'stage3e',pitch:51,velocity,velocityNormalized:velocity/127,
   includeSoundboardDiagnostics:true,response:DEFAULT_RESPONSE,key:`stage3e-51-${velocity}`}));}
+function midi51CandidateCells(candidates,phase){
+  if(!['midi51-candidate-diagnostic','midi51-final-diagnostic'].includes(phase))throw new Error(`unsupported MIDI51 candidate phase ${phase}`);
+  if(!Array.isArray(candidates)||!candidates.length||candidates.length>5)throw new Error('AUTHORIZATION_REQUIRED: MIDI51 candidate diagnostics are bounded to one through five tuples');
+  return candidates.flatMap(tuple=>MIDI51_VELOCITIES.map(velocity=>({phase,buildRole:'stage3e',pitch:51,velocity,velocityNormalized:velocity/127,
+    includeSoundboardDiagnostics:true,candidate:tuple,response:{low:tuple.low,mid:tuple.mid,bassHardness:tuple.bassHardness},
+    key:`${phase}-${candidateKey(tuple)}-51-${velocity}`})));
+}
 function authPath(root,phase){return path.join(root,AUTH_DIR,`${STAGE}-${phase}.json`);}
 function readAuth(root,phase,provided){
   if(provided!==undefined)return {authorization:provided,bytes:core.canonicalBytes(provided),sha256:core.sha256(core.canonicalBytes(provided))};
@@ -169,8 +177,9 @@ function evaluateMidi51(rows,fixture){
   }
   const span=directMetrics.dynamicSpanMetrics(actual,reference),safe=generation.safetyPass(rows),diagnosis=diagnoseMidi51(rows);
   const pass=safe&&diagnosis.diagnosed&&span.errorDb<=generation.LIMITS.dynamicSpanErrorDb;
-  const decision=!diagnosis.diagnosed?'BLOCKED_STAGE3E_MID_DIAGNOSTICS':pass?'STAGE3E_MIDI51_PASS':'BLOCKED_STAGE3E_MID_RESPONSE_FAMILY';
-  return {decision,pass,safe,diagnosticsComplete:diagnosis.diagnosed,
+  const diagnosticFail=safe&&diagnosis.diagnosed&&!pass;
+  const decision=!diagnosis.diagnosed?'BLOCKED_STAGE3E_MID_DIAGNOSTICS':pass?'STAGE3E_MIDI51_PASS':diagnosticFail?'STAGE3E_MIDI51_DIAGNOSTIC_FAIL':'BLOCKED_STAGE3E_MID_RESPONSE_FAMILY';
+  return {decision,pass,qualityPass:pass,safe,diagnosticsComplete:diagnosis.diagnosed,
     freshCurrentBuild:true,velocityCount:rows.length,span,limitDb:generation.LIMITS.dynamicSpanErrorDb,diagnosis};
 }
 function valueToken(value){return numberToken(value);}
@@ -187,6 +196,37 @@ function midScreenCells(tuple){
 function fullCells(tuple,phase){
   const cells=phase==='low-full'?search.lowFullCells():search.midFullCells();
   return cells.map(cell=>({...cell,phase,buildRole:'stage3e',candidate:tuple,response:{...tuple},key:`${phase}-${candidateKey(tuple)}-${cell.pitch}-${cellToken(cell)}`}));
+}
+function validateLowScreenTuples(candidates){
+  const expected=search.lowGridTuples();
+  if(!Array.isArray(candidates)||!core.same(candidates,expected))
+    throw new Error('AUTHORIZATION_REQUIRED: low-screen must authorize the complete ordered 126-tuple grid');
+  return expected;
+}
+function normalizeMidFullTuples(selected,ranked){
+  if(!selected||![selected.low,selected.bassHardness].every(Number.isFinite)||!Array.isArray(ranked)||!ranked.length)
+    throw new Error('BLOCKED_STAGE3E_MID_SCREEN: selected low tuple or ranked candidates are missing');
+  const allowed=new Set(search.midGridTuples(selected).map(tuple=>String(tuple.mid)));
+  const mids=ranked.map(candidate=>candidate?.mid);
+  if(mids.length>5||mids.some(mid=>!Number.isFinite(mid)||!allowed.has(String(mid)))||new Set(mids).size!==mids.length)
+    throw new Error('BLOCKED_STAGE3E_MID_SCREEN: ranked candidates are outside the fixed mid grid');
+  return mids.map(mid=>({low:selected.low,mid,bassHardness:selected.bassHardness}));
+}
+function lowScreenTopTuples(ranked){
+  if(!Array.isArray(ranked)||!ranked.length||ranked.length>5)throw new Error('BLOCKED_STAGE3E_LOW_SCREEN: top five candidates are missing or exceed the fixed bound');
+  const allowed=new Set(search.lowGridTuples().map(candidateKey));
+  const tuples=ranked.map(item=>({low:item?.low,mid:1,bassHardness:item?.bassHardness}));
+  if(tuples.some(tuple=>![tuple.low,tuple.bassHardness].every(Number.isFinite)||!allowed.has(candidateKey(tuple)))
+      ||new Set(tuples.map(candidateKey)).size!==tuples.length)throw new Error('BLOCKED_STAGE3E_LOW_SCREEN: ranked low candidates are outside the fixed grid');
+  return tuples;
+}
+function passingCandidates(summary,expected,phase){
+  if(!summary||!Array.isArray(summary.passingCandidates)||!core.same(summary.candidates?.map(item=>item.tuple),expected))
+    throw new Error(`BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_REQUIRED: ${phase} candidate results are incomplete or differ`);
+  const passing=summary.passingCandidates;
+  if(passing.some(tuple=>!expected.some(item=>core.same(item,tuple)))||new Set(passing.map(candidateKey)).size!==passing.length)
+    throw new Error(`BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_REQUIRED: ${phase} passing tuple set is invalid`);
+  return passing;
 }
 function loadFinalMaybe(roots,phase){
   const rel=core.phaseRelative(phase,'phase-result.json'),p=core.dualPaths(roots,rel);
@@ -245,20 +285,33 @@ function evaluateFull(phase,cells,rows,fixture){
   return {decision:selected?(phase==='low-full'?'STAGE3E_LOW_FULL_PASS':'STAGE3E_MID_FULL_PASS'):
       (phase==='low-full'?'BLOCKED_STAGE3E_LOW_FULL':'BLOCKED_STAGE3E_MID_FULL'),pass:Boolean(selected),candidates,selectedTuple:selected?.tuple||null};
 }
-function nextEvidencePhase(root=ROOT,home=os.homedir(),epoch=core.EPOCH){
-  const roots=core.resolveRoots(root,STAGE,epoch,{home});
-  for(const [phase,success] of PHASE_SEQUENCE){
+function evaluateCandidateDiagnostics(phase,cells,rows,fixture){
+  const byCandidate=new Map();
+  for(const cell of cells){const key=candidateKey(cell.candidate);if(!byCandidate.has(key))byCandidate.set(key,{tuple:cell.candidate,rows:[]});
+    const stored=rows.find(row=>row.cellKey===cell.key);if(stored)byCandidate.get(key).rows.push(stored.observation.observation);}
+  if(!byCandidate.size||byCandidate.size>5)throw new Error(`BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC: ${phase} must contain one through five candidates`);
+  const candidates=[...byCandidate.values()].map(entry=>({tuple:entry.tuple,...evaluateMidi51(entry.rows,fixture)}));
+  const complete=candidates.every(item=>item.safe===true&&item.diagnosticsComplete===true);
+  const passingCandidates=candidates.filter(item=>item.pass===true).map(item=>item.tuple);
+  return {decision:complete?(phase==='midi51-candidate-diagnostic'?'STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE':'STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE'):
+      `BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC`,pass:complete,phase,candidateCount:candidates.length,
+    maximumCandidates:5,calls:candidates.reduce((sum,item)=>sum+item.velocityCount,0),candidates,passingCandidates};
+}
+function nextEvidencePhase(root=ROOT,home=os.homedir(),epoch=core.EPOCH,commonDirectory){
+  const roots=core.resolveRoots(root,STAGE,epoch,{home,commonDirectory});
+  for(const [phase,success,...accepted] of PHASE_SEQUENCE){
+    if(phase==='midi51-candidate-diagnostic'&&loadFinalMaybe(roots,'midi51-diagnostic')?.decision==='STAGE3E_MIDI51_PASS')continue;
     const result=loadFinalMaybe(roots,phase);
-    if(result){if(result.decision!==success)return {phase,blocked:result.decision};continue;}
+    if(result){if(![success,...accepted].includes(result.decision))return {phase,blocked:result.decision};continue;}
     return {phase};
   }
   return {phase:null,complete:true};
 }
-function expectedPhaseForMode(root,home,mode,epoch=core.EPOCH){
-  const next=nextEvidencePhase(root,home,epoch);
+function expectedPhaseForMode(root,home,mode,epoch=core.EPOCH,commonDirectory){
+  const next=nextEvidencePhase(root,home,epoch,commonDirectory);
   if(next.blocked)return null;
   if(mode==='baseline')return next.phase==='baseline'?'baseline':null;
-  if(mode==='screen')return ['midi51-diagnostic','low-screen','mid-screen'].includes(next.phase)?next.phase:null;
+  if(mode==='screen')return ['midi51-diagnostic','low-screen','midi51-candidate-diagnostic','mid-screen','midi51-final-diagnostic'].includes(next.phase)?next.phase:null;
   if(mode==='full')return ['low-full','mid-full'].includes(next.phase)?next.phase:null;
   return null;
 }
@@ -269,17 +322,33 @@ function authorizedCells(root,phase,authorization,roots,fixture){
     return midi51Cells();
   }
   if(phase==='low-screen'){
-    phaseCompletedWith(roots,'midi51-diagnostic','STAGE3E_MIDI51_PASS');
-    const candidates=authorization?.candidateTuples;
-    if(!Array.isArray(candidates)||!candidates.length)throw new Error('AUTHORIZATION_REQUIRED: low-screen candidate tuples are missing');
-    const allowed=search.lowGridTuples();
-    for(const candidate of candidates)if(!allowed.some(item=>core.same(item,candidate)))throw new Error('AUTHORIZATION_REQUIRED: low-screen tuple is outside the fixed grid');
+    const diagnostic=loadFinalMaybe(roots,'midi51-diagnostic');
+    if(!diagnostic||!['STAGE3E_MIDI51_PASS','STAGE3E_MIDI51_DIAGNOSTIC_FAIL'].includes(diagnostic.decision)
+      ||diagnostic.summary?.safe!==true||diagnostic.summary?.diagnosticsComplete!==true)
+      throw new Error(`BLOCKED_STAGE3E_MIDI51_DIAGNOSTIC_REQUIRED: ${diagnostic?.decision||'missing or incomplete'}`);
+    const candidates=validateLowScreenTuples(authorization?.candidateTuples);
     return candidates.flatMap(lowScreenCells);
+  }
+  if(phase==='midi51-candidate-diagnostic'){
+    const diagnostic=loadFinalMaybe(roots,'midi51-diagnostic');
+    if(diagnostic?.decision!=='STAGE3E_MIDI51_DIAGNOSTIC_FAIL'||diagnostic.summary?.safe!==true||diagnostic.summary?.diagnosticsComplete!==true)
+      throw new Error('BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC: only a safe complete initial diagnostic FAIL permits the bounded candidate gate');
+    const prior=phaseCompletedWith(roots,'low-screen','STAGE3E_LOW_SCREEN_COMPLETE');
+    const expected=lowScreenTopTuples(prior.summary?.topFive),candidates=authorization?.candidateTuples;
+    if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: candidate diagnostic must cover the low-screen top five in rank order');
+    return midi51CandidateCells(expected,phase);
   }
   if(phase==='low-full'){
     const prior=phaseCompletedWith(roots,'low-screen','STAGE3E_LOW_SCREEN_COMPLETE');
-    const candidates=authorization?.candidateTuples,expected=prior.summary?.topFive?.map(item=>({low:item.low,mid:1,bassHardness:item.bassHardness}))||[];
-    if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: low-full candidates must be the ranked top five from low-screen');
+    const diagnostic=loadFinalMaybe(roots,'midi51-diagnostic');
+    let expected=lowScreenTopTuples(prior.summary?.topFive);
+    if(diagnostic?.decision==='STAGE3E_MIDI51_DIAGNOSTIC_FAIL'){
+      const candidateResult=phaseCompletedWith(roots,'midi51-candidate-diagnostic','STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE');
+      expected=passingCandidates(candidateResult.summary,expected,'midi51-candidate-diagnostic');
+      if(!expected.length)throw new Error('BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE: low-full cannot start without a formally passing MIDI51 tuple');
+    }
+    const candidates=authorization?.candidateTuples;
+    if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: low-full candidates must be exactly the ranked MIDI51-passing set');
     return candidates.flatMap(tuple=>fullCells(tuple,'low-full'));
   }
   if(phase==='mid-screen'){
@@ -289,10 +358,23 @@ function authorizedCells(root,phase,authorization,roots,fixture){
     if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: mid-screen must use the fixed mid grid for the selected low tuple');
     return candidates.flatMap(midScreenCells);
   }
+  if(phase==='midi51-final-diagnostic'){
+    const prior=phaseCompletedWith(roots,'mid-screen','STAGE3E_MID_SCREEN_COMPLETE');
+    const lowSelected=loadFinalMaybe(roots,'low-full')?.summary?.selectedTuple;
+    if(!lowSelected)throw new Error('BLOCKED_STAGE3E_LOW_FULL_REQUIRED');
+    const expected=normalizeMidFullTuples(lowSelected,prior.summary?.topFive),candidates=authorization?.candidateTuples;
+    if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: final MIDI51 diagnostic must cover the mid-screen top five in rank order');
+    return midi51CandidateCells(expected,phase);
+  }
   if(phase==='mid-full'){
     const prior=phaseCompletedWith(roots,'mid-screen','STAGE3E_MID_SCREEN_COMPLETE');
-    const candidates=authorization?.candidateTuples,expected=prior.summary?.topFive||[];
-    if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: mid-full candidates must be the ranked top five from mid-screen');
+    const lowSelected=loadFinalMaybe(roots,'low-full')?.summary?.selectedTuple;
+    if(!lowSelected)throw new Error('BLOCKED_STAGE3E_LOW_FULL_REQUIRED');
+    const ranked=normalizeMidFullTuples(lowSelected,prior.summary?.topFive);
+    const candidateResult=phaseCompletedWith(roots,'midi51-final-diagnostic','STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE');
+    const expected=passingCandidates(candidateResult.summary,ranked,'midi51-final-diagnostic'),candidates=authorization?.candidateTuples;
+    if(!expected.length)throw new Error('BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE: mid-full cannot start without a formally passing MIDI51 tuple');
+    if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: mid-full candidates must be exactly the ranked MIDI51-passing set');
     return candidates.flatMap(tuple=>fullCells(tuple,'mid-full'));
   }
   throw new Error(`BLOCKED_STAGE3E_PHASE: unsupported phase ${phase}`);
@@ -301,6 +383,7 @@ function evaluatePhase(phase,cells,roots,fixture){
   const rows=rowsForPhase(roots,phase);
   if(phase==='baseline')return compareBaseline(rows,{tolerance:1e-6});
   if(phase==='midi51-diagnostic')return evaluateMidi51(rows.map(row=>row.observation.observation),fixture);
+  if(phase==='midi51-candidate-diagnostic'||phase==='midi51-final-diagnostic')return evaluateCandidateDiagnostics(phase,cells,rows,fixture);
   if(phase==='low-screen'||phase==='mid-screen')return evaluateScreen(phase,cells,rows,fixture);
   if(phase==='low-full'||phase==='mid-full')return evaluateFull(phase,cells,rows,fixture);
   throw new Error(`unsupported Stage3E phase ${phase}`);
@@ -322,9 +405,13 @@ function createSelection(roots,identity,summary,finalResult,now){
   return {...value,sha256:stored.sha256};
 }
 function runCells(options={}){
-  const {roots,phase,cells,authorization,syntheticTest=false}=options;
-  const keys=cells.map(cell=>cell.key),auth=core.validateAuthorization(authorization,{stage:STAGE,phase,cells:keys,renderBudget:keys.length,allowSynthetic:syntheticTest});
-  return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>runCellsLocked({...options,validatedAuthorization:auth}));
+  const {root=ROOT,roots,phase,cells,authorization,syntheticTest=false,githubReadback=core.readGitHubApproval}=options;
+  const keys=cells.map(cell=>cell.key);
+  return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>{
+    const auth=core.verifyAndPersistAuthorization(authorization,{roots,stage:STAGE,phase,cells:keys,renderBudget:keys.length,
+      readback:details=>githubReadback({...details,root})});
+    return runCellsLocked({...options,validatedAuthorization:auth});
+  });
 }
 function runCellsLocked({root,roots,record,identity,phase,cells,authorization,validatedAuthorization:auth,syntheticTest=false,render=renderDefault,now=()=>new Date().toISOString()}={}){
   const existing=core.readPhaseLedger(roots,phase),phaseNow=existing?.manifest.createdAt?()=>existing.manifest.createdAt:now;
@@ -363,13 +450,14 @@ function runCellsLocked({root,roots,record,identity,phase,cells,authorization,va
   return {decision:finalized.result.decision,phase,calls,renderCount:finalized.result.renderCount,counts,summary:evaluation,
     resultSha256:finalized.sha256,archiveSha256:finalized.archiveSha256,syntheticTest:synthetic,acousticRenders:calls};
 }
-function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDefault,now=()=>new Date().toISOString(),authorization,syntheticTest=false,commonDirectory}={}){
+function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDefault,now=()=>new Date().toISOString(),authorization,
+  syntheticTest=false,commonDirectory,githubReadback=core.readGitHubApproval}={}){
   if(!['dry-run','baseline','screen','full','finalize','verify'].includes(mode))throw new Error('explicit mode required: dry-run, baseline, screen, full, finalize, or verify');
   let phase=null,authRecord=null,auth=null;
   if(mode==='baseline'||mode==='screen'||mode==='full'){
-    phase=expectedPhaseForMode(root,home,mode,epoch);
+    phase=expectedPhaseForMode(root,home,mode,epoch,commonDirectory);
     if(!phase){
-      const progress=nextEvidencePhase(root,home,epoch);
+      const progress=nextEvidencePhase(root,home,epoch,commonDirectory);
       if(progress.blocked)throw new Error(`BLOCKED_STAGE3E_PHASE: prior ${progress.phase} result is ${progress.blocked}`);
       throw new Error('AUTHORIZATION_REQUIRED: no Issue #7 approval record exists for the next Stage3E phase');
     }
@@ -379,17 +467,18 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDef
   }
   const record=identityRecord(root),identity=currentIdentity(root,record),exports=assertBuildExports(root,record),roots=core.resolveRoots(root,STAGE,epoch,{home,commonDirectory});
   const plan={baselineCells:24,midi51DiagnosticCells:16,lowScreenCellsPerCandidate:search.lowScreenCells().length,
+    midi51CandidateCellsPerCandidate:MIDI51_VELOCITIES.length,maxMidi51CandidateCount:5,
     lowFullCellsPerCandidate:search.lowFullCells().length,midScreenCellsPerCandidate:search.midScreenCells().length,
-    midFullCellsPerCandidate:search.midFullCells().length,maxGridCalls:2355};
+    midFullCellsPerCandidate:search.midFullCells().length,maxGridCalls:2555};
   if(mode==='dry-run'){
-    const progress=nextEvidencePhase(root,home,epoch);
+    const progress=nextEvidencePhase(root,home,epoch,commonDirectory);
     if(progress.blocked)return {decision:'BLOCKED_STAGE3E_PHASE',phase:progress.phase,reason:progress.blocked,builds:0,renders:0,writes:0,acousticRenders:0,plan,exports};
     return {decision:'STAGE3E_DRY_RUN_READY',phase:progress.phase,identitySha256:core.sha256(core.canonicalBytes(identity)),builds:0,renders:0,writes:0,acousticRenders:0,plan,exports};
   }
   if(mode==='verify'){
     const phases={};
     for(const phase of core.PHASES){
-      if(!['baseline','midi51-diagnostic','low-screen','low-full','mid-screen','mid-full'].includes(phase))continue;
+      if(!['baseline','midi51-diagnostic','low-screen','midi51-candidate-diagnostic','low-full','mid-screen','midi51-final-diagnostic','mid-full'].includes(phase))continue;
       const result=loadFinalMaybe(roots,phase);if(result)phases[phase]={decision:result.decision,renderCount:result.renderCount,identityMatches:core.same(result.identity,identity)};
     }
     if(Object.values(phases).some(value=>!value.identityMatches))throw new Error('BLOCKED_STAGE3E_IDENTITY: finalized evidence identity differs from current files');
@@ -420,10 +509,10 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDef
   }
   if(!phase||!auth)throw new Error(`BLOCKED_STAGE3E_MODE: unsupported mode ${mode}`);
   const cells=authorizedCells(root,phase,auth,roots,null);
-  if(phase==='low-screen'||phase==='mid-screen'||phase==='low-full'||phase==='mid-full'){
+  if(['low-screen','midi51-candidate-diagnostic','low-full','mid-screen','midi51-final-diagnostic','mid-full'].includes(phase)){
     if(!Array.isArray(auth.authorizedCellKeys)||auth.maxCalls!==cells.length)throw new Error('AUTHORIZATION_REQUIRED: exact cell set and budget are required');
   }
-  return runCells({root,roots,record,identity,phase,cells,authorization:auth,authorizationRecord:authRecord,syntheticTest,render,now});
+  return runCells({root,roots,record,identity,phase,cells,authorization:auth,authorizationRecord:authRecord,syntheticTest,render,now,githubReadback});
 }
 function parseMode(argv){if(argv.length!==1)throw new Error('select exactly one mode: --dry-run, --baseline, --screen, --full, --finalize, --verify');const map={'--dry-run':'dry-run','--baseline':'baseline','--screen':'screen','--full':'full','--finalize':'finalize','--verify':'verify'};if(!map[argv[0]])throw new Error(`unsupported mode: ${argv[0]}`);return map[argv[0]];}
 function main(argv=process.argv.slice(2)){
@@ -435,6 +524,7 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`${error
 
 module.exports={ROOT,STAGE,DEFAULT_RESPONSE,BASELINE_FIELDS,MIDI41_FIELDS,MIDI51_VELOCITIES,EXTRA_INPUTS,
   fileSha,identityRecord,currentIdentity,buildDirectory,assertBuildExports,baselineCoordinates,baselineCells,midi51Cells,
-  authPath,readAuth,phaseManifest,captureOptions,renderDefault,compareValue,compareBaseline,evaluateMidi51,diagnoseMidi51,
+  midi51CandidateCells,authPath,readAuth,phaseManifest,captureOptions,renderDefault,compareValue,compareBaseline,evaluateMidi51,diagnoseMidi51,
   lowScreenCells,midScreenCells,fullCells,loadFinalMaybe,rowsForPhase,phaseCompletedWith,screenLowerBounds,evaluateScreen,
-  evaluateFull,nextEvidencePhase,expectedPhaseForMode,authorizedCells,evaluatePhase,createSelection,runCells,runCellsLocked,run,parseMode,main};
+  validateLowScreenTuples,normalizeMidFullTuples,lowScreenTopTuples,passingCandidates,evaluateFull,evaluateCandidateDiagnostics,
+  nextEvidencePhase,expectedPhaseForMode,authorizedCells,evaluatePhase,createSelection,runCells,runCellsLocked,run,parseMode,main};
