@@ -48,6 +48,28 @@ test('master next runs one eligible phase without a per-phase approval comment',
   assert.equal(Object.hasOwn(calls.find(call=>call.mode!=='dry-run'),'authorization'),false);
 });
 
+test('master blocks low-full before execution when no MIDI51 candidate passes',()=>{
+  const calls=[],results={
+    baseline:{decision:'STAGE3E_BASELINE_EQUIVALENCE_PASS'},
+    'midi51-diagnostic':{decision:'STAGE3E_MIDI51_DIAGNOSTIC_FAIL'},
+    'low-screen':{decision:'STAGE3E_LOW_SCREEN_COMPLETE'},
+    'midi51-candidate-diagnostic':{
+      decision:'STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE',
+      summary:{candidates:[{tuple:{low:0.35,mid:1,bassHardness:0.5}}],passingCandidates:[]}
+    }
+  };
+  const runners={
+    stage3e:fakeRunner('stage3e',calls,{dry:'STAGE3E_DRY_RUN_READY'}),
+    stage3:fakeRunner('stage3',calls,{dry:'BLOCKED_STAGE3E_SELECTION_REQUIRED'}),
+    stage4:fakeRunner('stage4',calls,{dry:'BLOCKED_STAGE4_STAGE3_REQUIRED'})
+  };
+  const result=master.dispatchNext({root:master.ROOT,runners,readPhase:(_roots,phase)=>results[phase]||null});
+  assert.equal(result.decision,'BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE');
+  assert.equal(result.phase,'low-full');
+  assert.equal(result.passingCandidates,0);
+  assert.equal(calls.some(call=>call.mode!=='dry-run'),false);
+});
+
 test('master implementation never calls the legacy auto-executing orchestrator',()=>{
   const source=fs.readFileSync(path.join(__dirname,'run-issue7-current-build.cjs'),'utf8');
   assert.doesNotMatch(source,/run-stage3e-master-orchestrator\.cjs|--execute/);

@@ -31,6 +31,11 @@ function stage3eProgress({root=ROOT,home=os.homedir(),epoch=core.EPOCH,readPhase
     if(result){
       completed[item.phase]=result.decision;
       if(result.decision!==item.success&&!(item.accepted||[]).includes(result.decision))return {decision:result.decision,phase:item.phase,completed};
+      if(item.phase==='midi51-candidate-diagnostic'){
+        const passingCandidates=result.summary?.passingCandidates;
+        if(!Array.isArray(passingCandidates))return {decision:'BLOCKED_STAGE3E_MIDI51_CANDIDATE_RESULT_INVALID',phase:item.phase,completed};
+        if(passingCandidates.length===0)return {decision:'BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE',stage:'stage3e',phase:'low-full',passingCandidates:0,completed};
+      }
       continue;
     }
     return {decision:'NEXT_PHASE_READY',stage:'stage3e',phase:item.phase,mode:item.mode,completed};
