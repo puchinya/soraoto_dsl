@@ -50,26 +50,45 @@ test('master next runs one eligible phase without a per-phase approval comment',
   assert.equal(Object.hasOwn(calls.find(call=>call.mode!=='dry-run'),'authorization'),false);
 });
 
-test('master blocks low-full before execution when no MIDI51 candidate passes',()=>{
+test('master validates the fixed low-screen top five after a complete pre-mid MIDI51 quality FAIL',()=>{
   const calls=[],results={
     baseline:{decision:'STAGE3E_BASELINE_EQUIVALENCE_PASS'},
-    'midi51-diagnostic':{decision:'STAGE3E_MIDI51_DIAGNOSTIC_FAIL'},
-    'low-screen':{decision:'STAGE3E_LOW_SCREEN_COMPLETE'},
+    'midi51-diagnostic':{decision:'STAGE3E_MIDI51_DIAGNOSTIC_FAIL',summary:{safe:true,diagnosticsComplete:true,span:{errorDb:20.696187}}},
+    'low-screen':{decision:'STAGE3E_LOW_SCREEN_COMPLETE',summary:{topFive:[
+      {low:0.35,bassHardness:0},{low:0.35,bassHardness:0.25},{low:0.35,bassHardness:0.5},
+      {low:0.4,bassHardness:0},{low:0.4,bassHardness:0.25}
+    ]}},
     'midi51-candidate-diagnostic':{
       decision:'STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE',
-      summary:{candidates:[{tuple:{low:0.35,mid:1,bassHardness:0.5}}],passingCandidates:[]}
+      summary:{candidates:[
+        {tuple:{low:0.35,mid:1,bassHardness:0},safe:true,diagnosticsComplete:true,pass:false},
+        {tuple:{low:0.35,mid:1,bassHardness:0.25},safe:true,diagnosticsComplete:true,pass:false},
+        {tuple:{low:0.35,mid:1,bassHardness:0.5},safe:true,diagnosticsComplete:true,pass:false},
+        {tuple:{low:0.4,mid:1,bassHardness:0},safe:true,diagnosticsComplete:true,pass:false},
+        {tuple:{low:0.4,mid:1,bassHardness:0.25},safe:true,diagnosticsComplete:true,pass:false}
+      ],passingCandidates:[]}
     }
   };
+  const tuples=results['low-screen'].summary.topFive.map(item=>({low:item.low,mid:1,bassHardness:item.bassHardness}));
   const runners={
     stage3e:fakeRunner('stage3e',calls,{dry:'STAGE3E_DRY_RUN_READY'}),
     stage3:fakeRunner('stage3',calls,{dry:'BLOCKED_STAGE3E_SELECTION_REQUIRED'}),
     stage4:fakeRunner('stage4',calls,{dry:'BLOCKED_STAGE4_STAGE3_REQUIRED'})
   };
+  Object.assign(runners.stage3e,{
+    lowScreenTopTuples:ranked=>ranked.map(item=>({low:item.low,mid:1,bassHardness:item.bassHardness})),
+    passingCandidates:(summary,expected)=>{assert.deepEqual(summary.candidates.map(item=>item.tuple),expected);return summary.passingCandidates;},
+    fullCells:(tuple,phase)=>Array.from({length:83},(_,index)=>({phase,candidate:tuple,key:`${tuple.low}-${tuple.bassHardness}-${index}`})),
+    identityRecord:()=>({fixture:true}),currentIdentity:()=>({fixture:true}),
+    runCells:options=>{calls.push({name:'stage3e',mode:'full',phase:options.phase,
+      candidateTuples:[...new Map(options.cells.map(cell=>[JSON.stringify(cell.candidate),cell.candidate])).values()]});
+      return {decision:'STAGE3E_LOW_FULL_PASS',phase:'low-full',renderCount:0,acousticRenders:0};}
+  });
   const result=master.dispatchNext({root:master.ROOT,runners,readPhase:(_roots,phase)=>results[phase]||null});
-  assert.equal(result.decision,'BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE');
+  assert.equal(result.decision,'STAGE3E_LOW_FULL_PASS');
   assert.equal(result.phase,'low-full');
-  assert.equal(result.passingCandidates,0);
-  assert.equal(calls.some(call=>call.mode!=='dry-run'),false);
+  assert.deepEqual(calls.find(call=>call.phase==='low-full').candidateTuples,tuples);
+  assert.equal(calls.find(call=>call.phase==='low-full').candidateTuples.length,5);
 });
 
 test('master implementation never calls the legacy auto-executing orchestrator',()=>{
@@ -78,14 +97,17 @@ test('master implementation never calls the legacy auto-executing orchestrator',
   assert.doesNotMatch(source,/readGitHubApproval|verifyAndPersistAuthorization|\bgh\b/);
 });
 
-function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL'}={}){
+function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL',finalDiagnosticPass=true}={}){
   const base=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-run-all-')),root=path.join(base,'repo'),home=path.join(base,'home');
   fs.mkdirSync(root);fs.mkdirSync(home);
   const git=(args)=>execFileSync('rtk',['git',...args],{cwd:root,stdio:'pipe'});
   git(['init']);git(['config','user.name','Issue 7 run-all test']);git(['config','user.email','issue7-run-all@example.invalid']);
   fs.writeFileSync(path.join(root,'README.md'),'run-all test fixture\n');git(['add','README.md']);git(['commit','-m','test fixture']);
   t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
-  const phases={},stageFinals=new Map(),calls=[],tuple={low:0.8,mid:0.9,bassHardness:0.7};
+  const phases={},stageFinals=new Map(),calls=[],lowTuples=[
+    {low:0.35,mid:1,bassHardness:0},{low:0.35,mid:1,bassHardness:0.25},{low:0.35,mid:1,bassHardness:0.5},
+    {low:0.4,mid:1,bassHardness:0},{low:0.4,mid:1,bassHardness:0.25}
+  ],tuple=lowTuples[0];
   const resultFor={
     baseline:'STAGE3E_BASELINE_EQUIVALENCE_PASS',
     'midi51-diagnostic':initialDiagnostic,
@@ -101,15 +123,38 @@ function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL'}={}
     }
     return phases[phase]||null;
   };
-  const stage3e={run(options){
-    calls.push({stage:'stage3e',mode:options.mode,phase:options.phase||null});
-    if(options.mode==='dry-run')return {decision:'STAGE3E_DRY_RUN_READY',builds:0,renders:0,writes:0,acousticRenders:0};
-    if(options.mode==='verify')return {decision:'STAGE3E_VERIFY_OK',builds:0,renders:0,writes:0,acousticRenders:0};
-    const phase=options.phase,decision=resultFor[phase];
-    phases[phase]={decision,renderCount:0,...(phase==='midi51-candidate-diagnostic'?{summary:{passingCandidates:[tuple]}}:{}),
-      ...(phase==='mid-full'?{summary:{selectedTuple:tuple}}:{})};
-    return {decision,phase,calls:0,renderCount:0,acousticRenders:0};
-  }};
+  const stage3e={
+    lowScreenTopTuples:ranked=>ranked.map(item=>({low:item.low,mid:1,bassHardness:item.bassHardness})),
+    passingCandidates:(summary,expected)=>{
+      if(!Array.isArray(summary.candidates)||!summary.candidates.every((item,index)=>JSON.stringify(item.tuple)===JSON.stringify(expected[index])))
+        throw new Error('fixture candidate tuples differ');
+      return summary.passingCandidates;
+    },
+    fullCells:(candidate,phase)=>Array.from({length:83},(_,index)=>({phase,candidate,key:`${phase}-${candidate.low}-${candidate.bassHardness}-${index}`})),
+    identityRecord:()=>({fixture:true}),currentIdentity:()=>({fixture:true}),
+    runCells(options){
+      const candidateTuples=[...new Map(options.cells.map(cell=>[JSON.stringify(cell.candidate),cell.candidate])).values()];
+      calls.push({stage:'stage3e',mode:'full',phase:options.phase,candidateTuples});
+      phases[options.phase]={decision:'STAGE3E_LOW_FULL_PASS',summary:{selectedTuple:candidateTuples[0]},renderCount:0};
+      return {decision:'STAGE3E_LOW_FULL_PASS',phase:options.phase,renderCount:0,acousticRenders:0};
+    },
+    run(options){
+      const phase=options.phase;
+      if(options.mode==='full'&&phase==='mid-full'&&!finalDiagnosticPass)
+        return {decision:'BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE',phase,renderCount:0,acousticRenders:0};
+      calls.push({stage:'stage3e',mode:options.mode,phase:phase||null});
+      if(options.mode==='dry-run')return {decision:'STAGE3E_DRY_RUN_READY',builds:0,renders:0,writes:0,acousticRenders:0};
+      if(options.mode==='verify')return {decision:'STAGE3E_VERIFY_OK',builds:0,renders:0,writes:0,acousticRenders:0};
+      const decision=resultFor[phase],summary={};
+      if(phase==='midi51-diagnostic')Object.assign(summary,{safe:true,diagnosticsComplete:true,span:{errorDb:20.696187}});
+      if(phase==='low-screen')summary.topFive=lowTuples.map(({low,bassHardness})=>({low,bassHardness}));
+      if(phase==='midi51-candidate-diagnostic')Object.assign(summary,{candidates:lowTuples.map(candidate=>({tuple:candidate,safe:true,diagnosticsComplete:true,pass:false})),passingCandidates:[]});
+      if(phase==='midi51-final-diagnostic')Object.assign(summary,{candidates:[{tuple,safe:true,diagnosticsComplete:true,pass:finalDiagnosticPass}],passingCandidates:finalDiagnosticPass?[tuple]:[]});
+      if(phase==='mid-full')summary.selectedTuple=tuple;
+      phases[phase]={decision,renderCount:0,summary};
+      return {decision,phase,calls:0,renderCount:0,acousticRenders:0};
+    }
+  };
   const stage3={run(options){
     calls.push({stage:'stage3',mode:options.mode});
     if(options.mode==='dry-run')return {decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,writes:0,acousticRenders:0};
@@ -163,19 +208,43 @@ test('run-all follows the safe initial MIDI51 diagnostic FAIL branch and skips c
   assert.equal(passing.calls.some(call=>call.phase==='midi51-candidate-diagnostic'),false);
 });
 
-test('run-all stops at the fixed no-passing-candidate gate without starting low-full or downstream work',t=>{
+test('run-all defers a safe pre-mid MIDI51 quality FAIL and validates the fixed low-screen top five',t=>{
   const fixture=runAllFixture(t),original=fixture.options.runners.stage3e.run;
   fixture.options.runners.stage3e.run=function(options){
     if(options.phase==='midi51-candidate-diagnostic'){
       fixture.calls.push({stage:'stage3e',mode:options.mode,phase:options.phase});
-      fixture.phases[options.phase]={decision:'STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE',summary:{passingCandidates:[]},renderCount:0};
+      fixture.phases[options.phase]={decision:'STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE',summary:{
+        candidates:[
+          {tuple:{low:0.35,mid:1,bassHardness:0},safe:true,diagnosticsComplete:true,pass:false},
+          {tuple:{low:0.35,mid:1,bassHardness:0.25},safe:true,diagnosticsComplete:true,pass:false},
+          {tuple:{low:0.35,mid:1,bassHardness:0.5},safe:true,diagnosticsComplete:true,pass:false},
+          {tuple:{low:0.4,mid:1,bassHardness:0},safe:true,diagnosticsComplete:true,pass:false},
+          {tuple:{low:0.4,mid:1,bassHardness:0.25},safe:true,diagnosticsComplete:true,pass:false}
+        ],passingCandidates:[]
+      },renderCount:0};
       return {decision:'STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE',renderCount:0,acousticRenders:0};
     }
     return original.call(this,options);
   };
   const result=master.runAll(fixture.options);
+  assert.equal(result.decision,'ISSUE7_READY_FOR_REVIEW');
+  const lowFull=fixture.calls.find(call=>call.phase==='low-full'&&call.mode==='full');
+  assert.deepEqual(lowFull.candidateTuples,[
+    {low:0.35,mid:1,bassHardness:0},{low:0.35,mid:1,bassHardness:0.25},{low:0.35,mid:1,bassHardness:0.5},
+    {low:0.4,mid:1,bassHardness:0},{low:0.4,mid:1,bassHardness:0.25}
+  ]);
+  assert.equal(fixture.calls.some(call=>call.phase==='midi51-final-diagnostic'),true);
+  const roots=core.resolveRoots(fixture.root,'stage3e',core.EPOCH,{home:fixture.home});
+  assert.equal(core.readDualJournal(roots).events.some(event=>event.type==='PRE_LOW_FULL_MIDI51_GATE_DEFERRED'),true);
+});
+
+test('run-all still blocks before mid-full when the final MIDI51 diagnostic has no passing candidate',t=>{
+  const fixture=runAllFixture(t,{finalDiagnosticPass:false});
+  const result=master.runAll(fixture.options);
   assert.equal(result.decision,'BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE');
-  assert.equal(fixture.calls.some(call=>call.phase==='low-full'&&call.mode!=='dry-run'),false);
+  assert.equal(fixture.calls.some(call=>call.phase==='low-full'&&call.mode==='full'),true);
+  assert.equal(fixture.calls.some(call=>call.phase==='midi51-final-diagnostic'),true);
+  assert.equal(fixture.calls.some(call=>call.phase==='mid-full'&&call.mode==='full'),false);
   assert.equal(fixture.counters.promotion,0);
   assert.equal(fixture.calls.some(call=>call.stage==='stage3'&&call.mode==='execute'),false);
 });

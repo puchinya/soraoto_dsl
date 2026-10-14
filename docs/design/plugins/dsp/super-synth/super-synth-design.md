@@ -847,6 +847,17 @@ blocked transition or failed check. `--next` remains a one-phase compatibility
 command. Stage3E's low and mid candidates remain derived in fixed ranking order
 from the frozen grid and finalized prerequisite results.
 
+The 2026-10-15 Issue #7 gate correction preserves a safe, complete pre-low-full
+MIDI51 quality failure as diagnostic evidence. When all five MIDI51 candidate
+diagnostics fail with `mid=1`, low-full validates the same fixed top-five
+low-screen ranking; the low-band tuple cannot repair the MIDI51 mid-register
+response. If one or more pre-low-full candidates pass, low-full continues to use
+only that passing subset. After low-full selects a tuple, the existing mid-screen
+and final MIDI51 diagnostic remain mandatory; at least one safe, complete final
+MIDI51 candidate must pass before mid-full or promotion. Incomplete or unsafe
+diagnostics and low-full failure still stop the run. This correction changes no
+grid, ranking, threshold, ABI, phase budget, or cumulative render cap.
+
 The run-all event journal is append-only and dual-stored with SHA readback.
 Existing phase writer locks remain scoped to one phase and are not recursively
 acquired. External phase commands are rejected while the master lock is held;

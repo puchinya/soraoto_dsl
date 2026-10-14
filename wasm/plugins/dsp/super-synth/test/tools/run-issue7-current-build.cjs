@@ -48,7 +48,7 @@ function stage3eProgress({root=ROOT,home=os.homedir(),epoch=core.EPOCH,readPhase
       if(item.phase==='midi51-candidate-diagnostic'){
         const passingCandidates=result.summary?.passingCandidates;
         if(!Array.isArray(passingCandidates))return {decision:'BLOCKED_STAGE3E_MIDI51_CANDIDATE_RESULT_INVALID',phase:item.phase,completed};
-        if(passingCandidates.length===0)return {decision:'BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE',stage:'stage3e',phase:'low-full',passingCandidates:0,completed};
+        // The pre-low-full MIDI51 result is diagnostic; the fixed M=1 low search cannot tune it.
       }
       continue;
     }
@@ -109,7 +109,35 @@ function stage3eNextMode(progress){
   const item=PHASE_FLOW.find(phase=>progress.stage==='stage3e'&&phase.phase===progress.phase);
   return item||null;
 }
-function dispatchNext({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,stage3,stage4},readPhase=stage3e.loadFinalMaybe,runAllOwner}={}){
+function preMidSearchLowFullPlan({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,stage3,stage4},readPhase=stage3e.loadFinalMaybe}={}){
+  const roots=core.resolveRoots(root,'stage3e',epoch,{home});
+  const initial=readFinal(roots,'midi51-diagnostic',readPhase);
+  const low=readFinal(roots,'low-screen',readPhase);
+  const diagnostic=readFinal(roots,'midi51-candidate-diagnostic',readPhase);
+  if(initial?.decision!=='STAGE3E_MIDI51_DIAGNOSTIC_FAIL'||initial.summary?.safe!==true||initial.summary?.diagnosticsComplete!==true
+    ||low?.decision!=='STAGE3E_LOW_SCREEN_COMPLETE'||diagnostic?.decision!=='STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE')return null;
+  const engine=runners.stage3e;
+  const tuples=engine.lowScreenTopTuples(low.summary?.topFive);
+  const passing=engine.passingCandidates(diagnostic.summary,tuples,'midi51-candidate-diagnostic');
+  const evaluatedPassing=diagnostic.summary.candidates?.filter(candidate=>candidate.pass===true).map(candidate=>candidate.tuple);
+  if(!Array.isArray(evaluatedPassing)||!core.same(evaluatedPassing,passing))
+    throw new Error('BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC: passing tuple summary is inconsistent');
+  if(passing.length)return null;
+  if(!Array.isArray(diagnostic.summary?.candidates)||diagnostic.summary.candidates.length!==tuples.length
+    ||diagnostic.summary.candidates.some(candidate=>candidate.safe!==true||candidate.diagnosticsComplete!==true||candidate.pass!==false))
+    throw new Error('BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC: incomplete or unsafe evidence cannot defer the MIDI51 quality gate');
+  return {roots,tuples,initialErrorDb:initial.summary.span?.errorDb??null};
+}
+function runPreMidSearchLowFull({root,plan,runners,runAllOwner}){
+  const engine=runners.stage3e;
+  const cells=plan.tuples.flatMap(tuple=>engine.fullCells(tuple,'low-full'));
+  if(!cells.length||cells.length>STAGE3E_BUDGETS['low-full'])
+    throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: fixed low-full candidate set exceeds its phase cap');
+  const record=engine.identityRecord(root),identity=engine.currentIdentity(root,record);
+  return engine.runCells({root,roots:plan.roots,record,identity,phase:'low-full',cells,runAllOwner});
+}
+function dispatchNext({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,stage3,stage4},readPhase=stage3e.loadFinalMaybe,runAllOwner,
+  preLowFullPlan}={}){
   const roots=core.resolveRoots(root,'stage3e',epoch,{home});
   core.assertRunAllLockAccess(roots.commonDirectory,runAllOwner);
   const preflight=status({root,home,epoch,runners,readPhase});
@@ -119,7 +147,11 @@ function dispatchNext({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={sta
     const prerequisite=preflight.builds;
     if(prerequisite.decision!=='STAGE3E_DRY_RUN_READY')return {...prerequisite,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
     try{
-      const result=runners.stage3e.run({mode:item.mode,root,home,epoch,phase:item.phase,runAllOwner});
+      let lowFullPlan=preLowFullPlan;
+      if(item.phase==='low-full'&&lowFullPlan===undefined)lowFullPlan=preMidSearchLowFullPlan({root,home,epoch,runners,readPhase});
+      const result=item.phase==='low-full'&&lowFullPlan
+        ?runPreMidSearchLowFull({root,plan:lowFullPlan,runners,runAllOwner})
+        :runners.stage3e.run({mode:item.mode,root,home,epoch,phase:item.phase,runAllOwner});
       return {...result,stage:'stage3e',phase:item.phase,stoppedAfterStep:true,nextPhasePending:true};
     }catch(error){
       return {decision:'BLOCKED_STAGE3E_EXECUTION',stage:'stage3e',phase:item.phase,reason:error.message,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
@@ -283,7 +315,11 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,s
           const before=phaseRenderCount(root,home,epoch,roots.commonDirectory);
           if(before.total>TOTAL_RENDER_BUDGET||before.phases.find(entry=>entry.phase===item.phase)?.count>STAGE3E_BUDGETS[item.phase])
             throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: Stage3E phase budget exhausted');
-          const result=dispatchNext({root,home,epoch,runners,readPhase,runAllOwner:owner});
+          const preLowFullPlan=item.phase==='low-full'?preMidSearchLowFullPlan({root,home,epoch,runners,readPhase}):null;
+          if(preLowFullPlan)append(owner,{type:'PRE_LOW_FULL_MIDI51_GATE_DEFERRED',stage:'stage3e',phase:'low-full',
+            reason:'MID_REGISTER_SEARCH_FOLLOWS_LOW_FULL',candidateCount:preLowFullPlan.tuples.length,
+            candidates:preLowFullPlan.tuples,initialMidi51ErrorDb:preLowFullPlan.initialErrorDb});
+          const result=dispatchNext({root,home,epoch,runners,readPhase,runAllOwner:owner,preLowFullPlan});
           const after=phaseRenderCount(root,home,epoch,roots.commonDirectory),phaseSpend=after.phases.find(entry=>entry.phase===item.phase)?.count||0;
           append(owner,{type:'PHASE_FINISHED',stage:'stage3e',phase:item.phase,decision:resultDecision(result),
             acousticRenders:after.total-before.total,renderCount:phaseSpend});
@@ -376,4 +412,4 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`${error
 
 module.exports={ROOT,PHASE_FLOW,STAGE3E_BUDGETS,TOTAL_RENDER_BUDGET,RUN_ALL_JOURNAL,readFinal,stage3eProgress,lockStatus,
   runAllLockStatus,status,finalizedStage,dryRun,verify,stage3eNextMode,dispatchNext,next,phaseRenderCount,runVerificationSuite,
-  snapshotEvidence,runReadOnlyFinalGate,buildRunAllReport,runAll,run,parseMode,main};
+  preMidSearchLowFullPlan,runPreMidSearchLowFull,snapshotEvidence,runReadOnlyFinalGate,buildRunAllReport,runAll,run,parseMode,main};
