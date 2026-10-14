@@ -10,6 +10,10 @@ const core=require('./issue7-current-build-core.cjs');
 
 const IDENTITY=JSON.parse(fs.readFileSync(path.join(core.ROOT,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json'),'utf8'));
 const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
+function approvedExecutionIdentity({stage='stage3e',phase='baseline',cells=['a','b'],prHeadSha='1'.repeat(40),identity={
+  sourceCommit:'2'.repeat(40),productionWasmSha256:'3'.repeat(64),runnerSha256:'4'.repeat(64),fixtureSha256:'5'.repeat(64)}}={}){
+  return core.makeExecutionIdentity({stage,phase,cells,renderBudget:cells.length,prHeadSha,identity});
+}
 
 function workspace(t){
   const base=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-current-build-core-'));
@@ -176,12 +180,14 @@ test('writer lock rejects another worktree and only removes its own lock',t=>{
 });
 
 test('authorization is exact to Issue #7, epoch, phase, cell set, and budget',()=>{
-  const cells=['a','b'],planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}`;
-  const approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2});
+  const cells=['a','b'],identity=approvedExecutionIdentity({cells}),identitySha=core.executionIdentitySha256(identity),
+    planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}; executionIdentitySha256=${identitySha}\n${core.executionIdentityMarker(identity)}`,
+    approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2,
+      planCommentId:'12344',executionIdentitySha256:identitySha});
   const base={issue:7,epoch:core.EPOCH,contractSha256:core.CONTRACT_SHA256,stage:'stage3e',phase:'baseline',
     planCommentUrl:'https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344',planCommentSha256:hash(planBody),
     approvalCommentUrl:'https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345',approvalCommentSha256:hash(approvalBody),
-    authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse('2026-10-13T00:00:00.000Z')};
+    executionIdentitySha256:identitySha,authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse('2026-10-13T00:00:00.000Z')};
   assert.throws(()=>core.validateAuthorization(null,{stage:'stage3e',phase:'baseline',cells:['a','b'],renderBudget:2}),/AUTHORIZATION_REQUIRED/);
   assert.equal(core.validateAuthorization(base,{stage:'stage3e',phase:'baseline',cells:['a','b'],renderBudget:2}).syntheticTest,false);
   assert.throws(()=>core.validateAuthorization({...base,maxCalls:3},{stage:'stage3e',phase:'baseline',cells:['a','b'],renderBudget:2}),/AUTHORIZATION_REQUIRED/);
@@ -194,17 +200,19 @@ test('authorization is exact to Issue #7, epoch, phase, cell set, and budget',()
 test('GitHub approval readback attests immutable plan and approval comments to both stores before execution',t=>{
   const phase=startPhase(t,{keys:['a','b']}),cells=['a','b'],planUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344';
   const approvalUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345';
-  const planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}`;
-  const approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2});
+  const executionIdentity=approvedExecutionIdentity({cells}),executionIdentityDigest=core.executionIdentitySha256(executionIdentity);
+  const planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}; executionIdentitySha256=${executionIdentityDigest}\n${core.executionIdentityMarker(executionIdentity)}`;
+  const approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2,planCommentId:'12344',executionIdentitySha256:executionIdentityDigest});
   const planTime='2026-10-12T23:00:00Z',approvalTime='2026-10-13T00:00:00Z';
   const authorization={issue:7,epoch:core.EPOCH,contractSha256:core.CONTRACT_SHA256,stage:'stage3e',phase:'baseline',
     planCommentUrl:planUrl,planCommentSha256:hash(planBody),approvalCommentUrl:approvalUrl,approvalCommentSha256:hash(approvalBody),
-    authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse(approvalTime)};
+    executionIdentitySha256:executionIdentityDigest,authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse(approvalTime)};
   const comment=(id,url,body,created_at)=>({id:String(id),html_url:url,issue_url:'https://api.github.com/repos/puchinya/soraoto_dsl/issues/7',
     body,created_at,updated_at:created_at,user:{login:'puchinya'}});
   const readback=()=>({authenticatedLogin:'puchinya',comments:{
     '12344':comment('12344',planUrl,planBody,planTime),'12345':comment('12345',approvalUrl,approvalBody,approvalTime)}});
-  const verified=core.verifyAndPersistAuthorization(authorization,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,readback,
+  const verified=core.verifyAndPersistAuthorization(authorization,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,
+    executionIdentity,executionIdentityNow:()=>executionIdentity,readback,
     now:()=> '2026-10-13T00:01:00.000Z'});
   assert.equal(verified.syntheticTest,false);
   assert.match(verified.sha256,/^[a-f0-9]{64}$/);
@@ -215,25 +223,35 @@ test('GitHub approval readback attests immutable plan and approval comments to b
   const attestation=JSON.parse(stored.bytes.toString('utf8'));
   assert.equal(attestation.approverLogin,'puchinya');
   assert.equal(attestation.cellSetSha256,core.cellSetSha256(cells));
+  assert.equal(attestation.planCommentId,'12344');
+  assert.equal(attestation.executionIdentitySha256,executionIdentityDigest);
+  assert.deepEqual(attestation.executionIdentity,executionIdentity);
   assert.equal(attestation.renderBudget,2);
-  const repeated=core.verifyAndPersistAuthorization(authorization,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,readback,
+  const repeated=core.verifyAndPersistAuthorization(authorization,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,
+    executionIdentity,executionIdentityNow:()=>executionIdentity,readback,
     now:()=> '2026-10-13T01:00:00.000Z'});
   assert.equal(repeated.sha256,verified.sha256);
 });
 
 test('invalid or edited GitHub approval evidence fails closed without writing an attestation',t=>{
-  const cells=['a','b'],planUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344';
+  const cells=['a','b'],executionIdentity=approvedExecutionIdentity({cells}),executionIdentityDigest=core.executionIdentitySha256(executionIdentity),
+    planUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344';
   const approvalUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345';
-  const planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}`;
-  const approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2});
+  const planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}; executionIdentitySha256=${executionIdentityDigest}\n${core.executionIdentityMarker(executionIdentity)}`;
+  const approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2,
+    planCommentId:'12344',executionIdentitySha256:executionIdentityDigest});
   const planTime='2026-10-12T23:00:00Z',approvalTime='2026-10-13T00:00:00Z';
   const authorization={issue:7,epoch:core.EPOCH,contractSha256:core.CONTRACT_SHA256,stage:'stage3e',phase:'baseline',
     planCommentUrl:planUrl,planCommentSha256:hash(planBody),approvalCommentUrl:approvalUrl,approvalCommentSha256:hash(approvalBody),
-    authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse(approvalTime)};
+    executionIdentitySha256:executionIdentityDigest,authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse(approvalTime)};
   const comment=(url,body,created_at,overrides={})=>({html_url:url,issue_url:'https://api.github.com/repos/puchinya/soraoto_dsl/issues/7',
     body,created_at,updated_at:created_at,user:{login:'puchinya'},...overrides});
   const valid={authenticatedLogin:'puchinya',comments:{
     '12344':comment(planUrl,planBody,planTime),'12345':comment(approvalUrl,approvalBody,approvalTime)}};
+  const changedRunner=approvedExecutionIdentity({cells,identity:{...executionIdentity.identity,runnerSha256:'6'.repeat(64)}});
+  const changedWasm=approvedExecutionIdentity({cells,identity:{...executionIdentity.identity,productionWasmSha256:'7'.repeat(64)}});
+  const changedHead=approvedExecutionIdentity({cells,prHeadSha:'8'.repeat(40)});
+  const alternatePlanUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12346';
   const cases=[
     ['fake approval URL', {...authorization,approvalCommentUrl:'https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-99999'},valid],
     ['wrong raw body SHA', {...authorization,approvalCommentSha256:'a'.repeat(64)},valid],
@@ -242,17 +260,23 @@ test('invalid or edited GitHub approval evidence fails closed without writing an
     ['edited approval comment', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],updated_at:'2026-10-13T00:02:00Z'}}}],
     ['wrong approval wording', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],body:'approved, go ahead'}}}],
     ['plan for a different cell set', authorization,{...valid,comments:{...valid.comments,'12344':{...valid.comments['12344'],body:'Plan cellSetSha256='+core.cellSetSha256(['a','c'])}}}],
-    ['budget mismatch', {...authorization,maxCalls:3},valid]
+    ['budget mismatch', {...authorization,maxCalls:3},valid],
+    ['same cell set with changed runner SHA',authorization,valid,changedRunner],
+    ['same cell set with changed production WASM SHA',authorization,valid,changedWasm],
+    ['same cell set with changed plan HEAD',authorization,valid,changedHead],
+    ['alternate same-cell plan comment', {...authorization,planCommentUrl:alternatePlanUrl},
+      {...valid,comments:{...valid.comments,'12346':comment(alternatePlanUrl,planBody,planTime)}}]
   ];
-  for(const [name,auth,data] of cases){
-    const phase=startPhase(t,{keys:['a','b']});let renders=0;
-    const before=[fs.existsSync(phase.roots.primary),fs.existsSync(phase.roots.secondary)];
+  for(const [name,auth,data,currentIdentity=executionIdentity] of cases){
+    const w=workspace(t);let renders=0;
+    const before=[statInventory(w.roots.primary),statInventory(w.roots.secondary)];
     assert.throws(()=>{
-      core.verifyAndPersistAuthorization(auth,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,readback:()=>data});
+      core.verifyAndPersistAuthorization(auth,{roots:w.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,
+        executionIdentity,executionIdentityNow:()=>currentIdentity,readback:()=>data});
       renders+=1;
     },/AUTHORIZATION_REQUIRED/,name);
     assert.equal(renders,0,name);
-    assert.deepEqual([fs.existsSync(phase.roots.primary),fs.existsSync(phase.roots.secondary)],before,name);
+    assert.deepEqual([statInventory(w.roots.primary),statInventory(w.roots.secondary)],before,name);
   }
 });
 

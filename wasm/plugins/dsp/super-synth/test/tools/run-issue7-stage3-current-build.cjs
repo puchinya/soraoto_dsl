@@ -364,7 +364,11 @@ function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionR
   const prepared=prepare({root,home,epoch,regressionResultsPath,allowSyntheticTest});
   if(prepared.record.sourceCommit&&!isAncestor(root,prepared.record.sourceCommit))
     throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: build source commit is not an ancestor of current HEAD');
+  const executionIdentity=core.makeExecutionIdentity({stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:486,
+    prHeadSha:core.gitHead(root),identity:prepared.identity});
   const verified=core.verifyAndPersistAuthorization(approved,{roots,stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:486,
+    executionIdentity,executionIdentityNow:()=>core.makeExecutionIdentity({stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:486,
+      prHeadSha:core.gitHead(root),identity:currentIdentity({root,home,epoch,regressionPath:regressionResultsPath,allowSyntheticTest})}),
     readback:details=>githubReadback({...details,root})});
   const syntheticTest=verified.syntheticTest===true||auth.syntheticTest===true;
   const previous=core.readPhaseLedger(roots,PHASE);

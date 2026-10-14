@@ -441,11 +441,15 @@ function budgetPlan(){
     maximumCalls:maximumCalls-skippedOnInitialDiagnosticPass}};
 }
 function runCells(options={}){
-  const {root=ROOT,roots,phase,cells,authorization,syntheticTest=false,githubReadback=core.readGitHubApproval}=options;
+  const {root=ROOT,roots,record,identity,phase,cells,authorization,syntheticTest=false,githubReadback=core.readGitHubApproval}=options;
   validateExecutionMode(options);
   const keys=cells.map(cell=>cell.key);
+  const executionIdentity=core.makeExecutionIdentity({stage:STAGE,phase,cells:keys,renderBudget:keys.length,
+    prHeadSha:core.gitHead(root),identity});
   return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>{
     const auth=core.verifyAndPersistAuthorization(authorization,{roots,stage:STAGE,phase,cells:keys,renderBudget:keys.length,
+      executionIdentity,executionIdentityNow:()=>core.makeExecutionIdentity({stage:STAGE,phase,cells:keys,renderBudget:keys.length,
+        prHeadSha:core.gitHead(root),identity:currentIdentity(root,identityRecord(root))}),
       readback:details=>githubReadback({...details,root})});
     return runCellsLocked({...options,validatedAuthorization:auth});
   });

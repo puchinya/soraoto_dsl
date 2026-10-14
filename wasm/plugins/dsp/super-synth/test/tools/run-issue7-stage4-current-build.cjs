@@ -172,7 +172,12 @@ function executeLocked({root,home,epoch,render,now,roots,phaseCells,approved,val
   if(allowSyntheticTest!==(validated?.syntheticTest===true)||(allowSyntheticTest&&(approved?.synthetic!==true||approved?.label!=='SYNTHETIC TEST')))
     throw new Error('AUTHORIZATION_REQUIRED: synthetic Stage4 execution is available only to the explicit test adapter');
   const record=identityRecord(root),stage3State=readStage3(root,home,epoch,{allowSyntheticTest}),identity=currentIdentity({root,home,epoch,record,stage3State});
+  const executionIdentity=core.makeExecutionIdentity({stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:1423,
+    prHeadSha:core.gitHead(root),identity});
   const verified=core.verifyAndPersistAuthorization(approved,{roots,stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:1423,
+    executionIdentity,executionIdentityNow:()=>core.makeExecutionIdentity({stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:1423,
+      prHeadSha:core.gitHead(root),identity:currentIdentity({root,home,epoch,record:identityRecord(root),
+        stage3State:readStage3(root,home,epoch,{allowSyntheticTest})})}),
     readback:details=>githubReadback({...details,root})});
   const exports=assertStage4Exports(root,record),previous=core.readPhaseLedger(roots,PHASE);
   const manifest=phaseManifest({root,record:stage3State.prepared.productionRecord,identity,authorizationSha256:verified.sha256,phaseCells,
