@@ -247,6 +247,9 @@ test('run-all still blocks before mid-full when the final MIDI51 diagnostic has 
   assert.equal(fixture.calls.some(call=>call.phase==='mid-full'&&call.mode==='full'),false);
   assert.equal(fixture.counters.promotion,0);
   assert.equal(fixture.calls.some(call=>call.stage==='stage3'&&call.mode==='execute'),false);
+  const progress=master.stage3eProgress({root:fixture.root,home:fixture.home,readPhase:fixture.options.readPhase});
+  assert.equal(progress.decision,'BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE');
+  assert.equal(progress.phase,'mid-full');
 });
 
 test('run-all resume skips finalized phases and does not create a second promotion commit',t=>{

@@ -50,6 +50,12 @@ function stage3eProgress({root=ROOT,home=os.homedir(),epoch=core.EPOCH,readPhase
         if(!Array.isArray(passingCandidates))return {decision:'BLOCKED_STAGE3E_MIDI51_CANDIDATE_RESULT_INVALID',phase:item.phase,completed};
         // The pre-low-full MIDI51 result is diagnostic; the fixed M=1 low search cannot tune it.
       }
+      if(item.phase==='midi51-final-diagnostic'){
+        const passingCandidates=result.summary?.passingCandidates;
+        if(!Array.isArray(passingCandidates))return {decision:'BLOCKED_STAGE3E_MIDI51_FINAL_CANDIDATE_RESULT_INVALID',phase:item.phase,completed};
+        if(passingCandidates.length===0)return {decision:'BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE',stage:'stage3e',phase:'mid-full',
+          passingCandidates:0,completed};
+      }
       continue;
     }
     return {decision:'NEXT_PHASE_READY',stage:'stage3e',phase:item.phase,mode:item.mode,completed};
