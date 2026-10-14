@@ -4,7 +4,7 @@ const crypto=require('node:crypto');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
-const {execFileSync}=require('node:child_process');
+const {execFileSync,spawnSync}=require('node:child_process');
 const core=require('./issue7-current-build-core.cjs');
 const capture=require('./capture-supersynth-matrix.cjs');
 const evaluator=require('./run-stage3-production-recovery.cjs');
@@ -24,6 +24,18 @@ const EVALUATOR_REL='wasm/plugins/dsp/super-synth/test/tools/stage3-direct-refer
 const RUNNER_REL='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.cjs';
 const DERIVED_IDENTITY_REL='production-build-identity.json';
 const PROMOTION_PATHS=Object.freeze([PRESETS_REL,PROFILE_REL].sort());
+const PROMOTION_INTENT_REL='promotion/intent.json';
+const PROMOTION_RECEIPT_REL='promotion/receipt.json';
+const PROMOTION_BRANCH='codex/issue-7-supersynth-v9';
+const PROMOTION_SUBJECT='stage3e: promote selected velocity response';
+const REGRESSION_TESTS=Object.freeze({
+  concertGrand:'wasm/plugins/dsp/super-synth/test/concert-grand-regression.test.js',
+  pianoRealism:'wasm/plugins/dsp/super-synth/test/piano-realism-regression.test.js',
+  pianoClick:'wasm/plugins/dsp/super-synth/test/piano-click-regression.test.js',
+  pianoVoiceSteal:'wasm/plugins/dsp/super-synth/test/piano-voice-steal-regression.test.js',
+  pluginInterfaceV1:'wasm/plugins/dsp/super-synth/test/plugin-interface-v1.test.js',
+  playbackSafety:'wasm/plugins/dsp/super-synth/test/playback-safety-regression.test.js'
+});
 const FILE_BYTES_CACHE=new Map(),FILE_SHA_CACHE=new Map(),PROMOTION_CACHE=new Map(),COMMIT_BLOB_CACHE=new Map(),COMMIT_BLOB_SHA_CACHE=new WeakMap(),EXPORTS_CACHE=new Map();
 const REQUIRED_REGRESSIONS=Object.freeze([...evaluator.REQUIRED_REGRESSIONS]);
 const CELL_SPECS=Object.freeze(evaluator.CELL_SPECS.map(cell=>Object.freeze({...cell,key:evaluator.key(cell).replaceAll(':','-')})));
@@ -261,9 +273,207 @@ function readRegressions(root=ROOT,relative=REGRESSION_REL){
   const file=path.resolve(root,rel);
   if(!file.startsWith(`${path.resolve(root)}${path.sep}`))throw new Error('BLOCKED_STAGE3_REGRESSION_RESULTS: path escaped repository root');
   if(!fs.existsSync(file))throw new Error('BLOCKED_STAGE3_REGRESSION_RESULTS: six passing regression results are required');
-  const bytes=fs.readFileSync(file),results=JSON.parse(bytes.toString('utf8'));
+  const bytes=fs.readFileSync(file),document=JSON.parse(bytes.toString('utf8')),results=document.results||document;
   evaluator.validateRegressionResults(results);
-  return {file,relative:rel,bytes,sha256:sha256(bytes),results};
+  return {file,relative:rel,bytes,sha256:sha256(bytes),document,results};
+}
+
+function maybeReadDualObject(roots,relative){
+  const paths=core.dualPaths(roots,relative),exists=[fs.existsSync(paths.primary),fs.existsSync(paths.secondary)];
+  if(!exists[0]&&!exists[1])return null;
+  if(exists[0]!==exists[1])throw new Error(`BLOCKED_STAGE3_PROMOTION: ${relative} exists in only one canonical store`);
+  const stored=core.readDualBytes(roots,relative),value=JSON.parse(stored.bytes.toString('utf8'));
+  if(!stored.bytes.equals(core.canonicalBytes(value)))throw new Error(`BLOCKED_STAGE3_PROMOTION: ${relative} is not canonical`);
+  return value;
+}
+function storeDualObject(roots,relative,value){
+  const existing=maybeReadDualObject(roots,relative);
+  if(existing){if(!core.same(existing,value))throw new Error(`BLOCKED_STAGE3_PROMOTION: immutable ${relative} differs`);return core.readDualBytes(roots,relative);}
+  return core.writeImmutableDual(roots,relative,core.canonicalBytes(value));
+}
+function expectedTupleValues(tuple){
+  if(!tuple||![tuple.low,tuple.mid,tuple.bassHardness].every(Number.isFinite))throw new Error('BLOCKED_STAGE3_PROMOTION: selected tuple must contain three finite values');
+  return {velocity_launch_scale_low:tuple.low,velocity_launch_scale_mid:tuple.mid,velocity_hardness_scale_bass:tuple.bassHardness};
+}
+function assertSelectedFullPass(selection){
+  const tuple=selection?.tuple,summary=selection?.final?.result?.summary;
+  expectedTupleValues(tuple);
+  if(selection.final.result.decision!=='STAGE3E_MID_FULL_PASS'||!core.same(summary?.selectedTuple,tuple)
+      ||!summary?.candidates?.some(candidate=>candidate.pass===true&&core.same(candidate.tuple,tuple)))
+    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: selected tuple is not the passing mid-full candidate');
+  return true;
+}
+function promotionIntent(root,record,selection,parentCommit,parentTree){
+  const tuple={...selection.tuple};
+  return {schemaVersion:1,issue:7,epoch:core.EPOCH,type:'stage3e-promotion-intent',parentCommit,parentTree,
+    sourceCommit:record.sourceCommit,tuple,selectionSha256:selection.selectionSha256,stage3eResultSha256:selection.final.sha256,
+    baselinePresetsSha256:record.inputs.presets.sha256,baselineProfileSha256:record.inputs.generatedProfile.sha256,
+    createdAt:selection.selection.selectedAt};
+}
+function promotionStatus(root){
+  const status=git(root,['status','--porcelain=v2','--branch','--untracked-files=no']),lines=status.split(/\r?\n/);
+  const branch=lines.find(line=>line.startsWith('# branch.head '))?.slice('# branch.head '.length);
+  const changes=lines.filter(line=>line&&!line.startsWith('# '));
+  if(branch!==PROMOTION_BRANCH)throw new Error(`BLOCKED_STAGE3_PROMOTION: expected branch ${PROMOTION_BRANCH}, found ${branch||'unknown'}`);
+  if(changes.some(line=>{
+    const file=line.split(' ').at(-1);return !PROMOTION_PATHS.includes(file);
+  }))throw new Error('BLOCKED_STAGE3_PROMOTION: tracked changes outside the two promotion paths');
+  return {branch,changes};
+}
+function ensureSelectedFiles(root,record,tuple){
+  const beforePresets=fileSha(root,PRESETS_REL),beforeProfile=fileSha(root,PROFILE_REL),expected=expectedTupleValues(tuple);
+  const presets=JSON.parse(fs.readFileSync(path.join(root,PRESETS_REL),'utf8'));
+  const hammer=presets.concert_grand?.engine_config?.hammer;
+  if(!hammer)throw new Error('BLOCKED_STAGE3_PROMOTION: concert_grand hammer preset is missing');
+  const alreadySelected=Object.entries(expected).every(([name,value])=>hammer[name]===value);
+  if(!alreadySelected&&beforePresets!==record.inputs.presets.sha256)
+    throw new Error('BLOCKED_STAGE3_PROMOTION: interrupted preset does not match baseline or selected tuple');
+  if(!alreadySelected){
+    Object.assign(hammer,expected);
+    fs.writeFileSync(path.join(root,PRESETS_REL),JSON.stringify(presets,null,2)+'\n',{mode:0o600});
+  }
+  if(beforeProfile===record.inputs.generatedProfile.sha256)
+    execFileSync('rtk',['python3','wasm/cmake/super_synth_metadata.py'],{cwd:root,stdio:'pipe',maxBuffer:16*1024*1024});
+  assertPromotedValues(root,tuple);
+  const changes=git(root,['diff','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean).sort();
+  if(!core.same(changes,PROMOTION_PATHS))throw new Error(`BLOCKED_STAGE3_PROMOTION: generated tracked diff must be exactly the two promotion paths; found ${changes.join(',')}`);
+  return {presetsSha256:fileSha(root,PRESETS_REL),profileSha256:fileSha(root,PROFILE_REL)};
+}
+function readPromotionCommit(root,intent,record){
+  const details=promotionDetails(root),subject=git(root,['show','-s','--format=%s',details.commit]);
+  if(details.parent!==intent.parentCommit||subject!==PROMOTION_SUBJECT||!core.same(details.changedPaths,PROMOTION_PATHS)
+      ||details.sourceCommitIsAncestor!==true||details.currentHeadDescendsFromPromotion!==true)
+    throw new Error('BLOCKED_STAGE3_PROMOTION: current commit does not match the pending dedicated promotion intent');
+  for(const [relative,expected] of [[PRESETS_REL,intent.baselinePresetsSha256],[PROFILE_REL,intent.baselineProfileSha256]])
+    if(hashCommitBlob(details,relative,'parent')!==expected)throw new Error(`BLOCKED_STAGE3_PROMOTION: parent does not preserve ${relative}`);
+  const committedPresets=JSON.parse(details.readCommitFile(PRESETS_REL).toString('utf8'));
+  const expected=expectedTupleValues(intent.tuple),hammer=committedPresets.concert_grand?.engine_config?.hammer;
+  if(!hammer||Object.entries(expected).some(([name,value])=>hammer[name]!==value))throw new Error('BLOCKED_STAGE3_PROMOTION: committed preset does not match selected tuple');
+  const profile=details.readCommitFile(PROFILE_REL).toString('utf8');
+  for(const [field,value] of Object.entries({velocity_launch_scale_low:intent.tuple.low,velocity_launch_scale_mid:intent.tuple.mid,
+      velocity_hardness_scale_bass:intent.tuple.bassHardness})){
+    const match=profile.match(new RegExp(`\\.${field}\\s*=\\s*([-+0-9.eE]+)f`));
+    if(!match||Math.abs(Number(match[1])-value)>1e-6)throw new Error(`BLOCKED_STAGE3_PROMOTION: committed generated profile differs at ${field}`);
+  }
+  return details;
+}
+function ensurePromotionCommit({root,record,selection,roots,now}){
+  const current=git(root,['rev-parse','HEAD']),parentTree=git(root,['rev-parse',`${current}^{tree}`]);
+  let intent=maybeReadDualObject(roots,PROMOTION_INTENT_REL);
+  const state=promotionStatus(root);
+  if(!intent&&state.changes.length)throw new Error('BLOCKED_STAGE3_PROMOTION: tracked worktree must be clean before creating the promotion intent');
+  const existingReceipt=maybeReadDualObject(roots,PROMOTION_RECEIPT_REL);
+  if(existingReceipt&&!intent)throw new Error('BLOCKED_STAGE3_PROMOTION: receipt exists without its immutable intent');
+  let proposed;
+  if(!intent){
+    const currentSubject=git(root,['show','-s','--format=%s',current]);
+    if(currentSubject===PROMOTION_SUBJECT){
+      const candidate=promotionDetails(root),candidateIntent=promotionIntent(root,record,selection,candidate.parent,candidate.parentTree);
+      readPromotionCommit(root,candidateIntent,record);
+      intent=candidateIntent;storeDualObject(roots,PROMOTION_INTENT_REL,intent);
+    }else{
+      proposed=promotionIntent(root,record,selection,current,parentTree);
+      intent=proposed;storeDualObject(roots,PROMOTION_INTENT_REL,intent);
+    }
+  }
+  proposed=proposed||promotionIntent(root,record,selection,intent.parentCommit,intent.parentTree);
+  if(intent){
+    const {createdAt:priorCreated,...prior}=intent,{createdAt:nextCreated,...next}=proposed;
+    if(!core.same(prior,next)||typeof priorCreated!=='string')throw new Error('BLOCKED_STAGE3_PROMOTION: pending intent differs from the immutable selection');
+  }
+  let receipt=existingReceipt;
+  if(receipt){
+    if(!core.same(receipt.intent,intent))throw new Error('BLOCKED_STAGE3_PROMOTION: receipt belongs to a different intent');
+    const details=promotionDetails(root,{promotionCommit:receipt.promotionCommit,promotionParentCommit:receipt.promotionParentCommit,
+      promotionParentTree:receipt.promotionParentTree,promotionCommitTree:receipt.promotionCommitTree});
+    validatePromotionDetails(details,record.sourceCommit);
+    return {intent,receipt,details,reused:true};
+  }
+  const head=git(root,['rev-parse','HEAD']);
+  let details;
+  if(head===intent.parentCommit){
+    promotionStatus(root);
+    ensureSelectedFiles(root,record,selection.tuple);
+    execFileSync('rtk',['git','add','--',...PROMOTION_PATHS],{cwd:root,stdio:'pipe'});
+    const staged=git(root,['diff','--cached','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean).sort();
+    if(!core.same(staged,PROMOTION_PATHS))throw new Error('BLOCKED_STAGE3_PROMOTION: staged paths do not match the exact two-file set');
+    execFileSync('rtk',['git','commit','-m',PROMOTION_SUBJECT],{cwd:root,stdio:'pipe',maxBuffer:16*1024*1024});
+    promotionStatus(root);
+    details=readPromotionCommit(root,intent,record);
+  }else{
+    details=readPromotionCommit(root,intent,record);
+  }
+  receipt={schemaVersion:1,issue:7,epoch:core.EPOCH,type:'stage3e-promotion-receipt',intent,
+    promotionCommit:details.commit,promotionParentCommit:details.parent,promotionParentTree:details.parentTree,
+    promotionCommitTree:details.commitTree,selectedTuple:selection.tuple,createdAt:now()};
+  storeDualObject(roots,PROMOTION_RECEIPT_REL,receipt);
+  return {intent,receipt,details,reused:false};
+}
+function runRequiredRegressions({root=ROOT,productionRecord,production,selection,receipt,runner=spawnSync}={}){
+  const buildDir=buildDirectory(root,productionRecord),wasmSha256=production.derived.builds.production.wasm.sha256;
+  const testInputs=Object.fromEntries(Object.entries(REGRESSION_TESTS).map(([name,relative])=>[name,fileSha(root,relative)]));
+  const input={issue:7,epoch:core.EPOCH,promotionCommit:receipt.promotionCommit,selectedTuple:selection.tuple,
+    productionBuildIdentitySha256:production.productionBuildIdentitySha256,productionWasmSha256:wasmSha256,testInputs};
+  const inputDigest=sha256(core.canonicalBytes(input)),file=path.resolve(root,REGRESSION_REL);
+  if(!file.startsWith(`${path.resolve(root)}${path.sep}`))throw new Error('BLOCKED_STAGE3_REGRESSION_RESULTS: path escaped repository root');
+  if(fs.existsSync(file)){
+    const bytes=fs.readFileSync(file),document=JSON.parse(bytes.toString('utf8'));
+    if(document.inputDigest!==inputDigest||!core.same(document.input,input))throw new Error('BLOCKED_STAGE3_REGRESSION_RESULTS: existing results do not match the promoted production input digest');
+    const results=document.results||{};evaluator.validateRegressionResults(results);
+    return {file,bytes,sha256:sha256(bytes),inputDigest,results,reused:true};
+  }
+  const results={};
+  for(const [name,relative] of Object.entries(REGRESSION_TESTS)){
+    const command=`rtk node --test ${relative}`;
+    const child=runner('rtk',['node','--test',relative],{cwd:root,encoding:'buffer',maxBuffer:32*1024*1024,
+      env:{...process.env,SORAOTO_WASM_BUILD_DIR:buildDir}});
+    const stdout=child.stdout||Buffer.alloc(0),stderr=child.stderr||Buffer.alloc(0),exitCode=Number.isInteger(child.status)?child.status:1;
+    results[name]={result:exitCode===0?'PASS':'FAIL',command,exitCode,signal:child.signal||null,inputDigest,
+      outputSha256:sha256(Buffer.concat([stdout,Buffer.from('\n--stderr--\n'),stderr]))};
+  }
+  const document={schemaVersion:1,input,inputDigest,productionWasmSha256:wasmSha256,promotionCommit:receipt.promotionCommit,
+    selectedResponse:selection.tuple,results};
+  const bytes=core.canonicalBytes(document);
+  fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700});
+  try{fs.writeFileSync(file,bytes,{flag:'wx',mode:0o600});}
+  catch(error){if(error.code!=='EEXIST')throw error;throw new Error('BLOCKED_STAGE3_REGRESSION_RESULTS: result file appeared concurrently; refusing overwrite');}
+  const failed=Object.entries(results).filter(([,result])=>result.result!=='PASS').map(([name])=>name);
+  if(failed.length)return {decision:'BLOCKED_STAGE3_REGRESSION_RESULTS',failed,file,bytes,sha256:sha256(bytes),inputDigest,results,reused:false};
+  evaluator.validateRegressionResults(results);
+  return {decision:'STAGE3_REGRESSIONS_PASS',file,bytes,sha256:sha256(bytes),inputDigest,results,reused:false};
+}
+function promoteSelection({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runAllOwner,now=()=>new Date().toISOString(),
+  buildProduction,regressionRunner}={}){
+  const roots=core.resolveRoots(root,STAGE,epoch,{home});
+  core.assertRunAllLockAccess(roots.commonDirectory,runAllOwner);
+  try{
+    const record=identityRecord(root),selection=readSelection(root,home,epoch);
+    assertSelectedFullPass(selection);
+    const receiptState=ensurePromotionCommit({root,record,selection,roots,now});
+    const buildDir=buildDirectory(root,record);
+    if(buildProduction)buildProduction({root,record,buildDir});
+    else execFileSync('rtk',['cmake','--build',buildDir],{cwd:root,stdio:'pipe',maxBuffer:32*1024*1024});
+    const production=deriveProductionBuildIdentity({root,record,selection,promotion:receiptState.details});
+    const derivedStored=storeDualObject(roots,DERIVED_IDENTITY_REL,production.derived);
+    const regression=runRequiredRegressions({root,productionRecord:production.productionRecord,production,selection,
+      receipt:receiptState.receipt,runner:regressionRunner||spawnSync});
+    if(regression.decision&&regression.decision!=='STAGE3_REGRESSIONS_PASS')
+      return {decision:regression.decision,reason:`required regressions failed: ${regression.failed?.join(',')||'unknown'}`,
+        promotionCommit:receiptState.details.commit,productionWasmSha256:production.derived.builds.production.wasm.sha256,
+        regressionResultsSha256:regression.sha256};
+    if(regression.results&&Object.values(regression.results).some(result=>result.result!=='PASS'))
+      return {decision:'BLOCKED_STAGE3_REGRESSION_RESULTS',reason:'reused regression evidence is not all PASS',
+        promotionCommit:receiptState.details.commit,productionWasmSha256:production.derived.builds.production.wasm.sha256,
+        regressionResultsSha256:regression.sha256};
+    return {decision:'STAGE3_PROMOTION_READY',promotionCommit:receiptState.details.commit,
+      promotionParent:receiptState.details.parent,promotionParentTree:receiptState.details.parentTree,
+      promotionCommitTree:receiptState.details.commitTree,selectedTuple:selection.tuple,
+      originalProductionWasmSha256:record.builds.production.wasm.sha256,
+      productionWasmSha256:production.derived.builds.production.wasm.sha256,
+      productionBuildIdentitySha256:production.productionBuildIdentitySha256,derivedIdentitySha256:derivedStored.sha256,
+      regressionResultsSha256:regression.sha256,regressions:REQUIRED_REGRESSIONS.map(name=>({name,...regression.results[name]})),
+      reusedPromotion:receiptState.reused,reusedRegressions:regression.reused===true};
+  }catch(error){return {decision:error.message.split(':')[0].startsWith('BLOCKED_')?error.message.split(':')[0]:'BLOCKED_STAGE3_PROMOTION',reason:error.message};}
 }
 function currentIdentity({root=ROOT,home=os.homedir(),epoch=core.EPOCH,record=identityRecord(root),selection,regressions,regressionPath=REGRESSION_REL,production:providedProduction,allowSyntheticTest=false}={}){
   const selected=selection||readSelection(root,home,epoch,{allowSyntheticTest}),regression=regressions||readRegressions(root,regressionPath);
@@ -360,9 +570,11 @@ function prepare({root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResults
     productionBuildIdentitySha256:production.productionBuildIdentitySha256,selected,regressions,identity,exports:production.derived.productionExports};
 }
 function execute({root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResultsPath=REGRESSION_REL,render=renderDefault,
-  now=()=>new Date().toISOString(),allowSyntheticTest=false}={}){
+  now=()=>new Date().toISOString(),allowSyntheticTest=false,runAllOwner}={}){
   const phaseCells=cells();
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
+  core.assertRunAllLockAccess(roots.commonDirectory,runAllOwner);
+  if(!runAllOwner)readSelection(root,home,epoch,{allowSyntheticTest});
   return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>executeAuthorized({root,home,epoch,phaseCells,regressionResultsPath,render,now,roots,allowSyntheticTest}));
 }
 function executeAuthorized({root,home,epoch,phaseCells,regressionResultsPath,render,now,roots,allowSyntheticTest=false}){
@@ -422,10 +634,11 @@ function executeAuthorized({root,home,epoch,phaseCells,regressionResultsPath,ren
     summary:evaluation,resultSha256:finalized.sha256,archiveSha256:finalized.archiveSha256,syntheticTest,acousticRenders:calls};
 }
 function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResultsPath=REGRESSION_REL,render=renderDefault,
-  now=()=>new Date().toISOString(),allowSyntheticTest=false}={}){
+  now=()=>new Date().toISOString(),allowSyntheticTest=false,runAllOwner}={}){
   if(!['dry-run','execute','finalize','verify'].includes(mode))throw new Error('explicit mode required: dry-run, execute, finalize, or verify');
-  if(mode==='execute')return execute({root,home,epoch,regressionResultsPath,render,now,allowSyntheticTest});
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
+  if(!['dry-run','verify'].includes(mode))core.assertRunAllLockAccess(roots.commonDirectory,runAllOwner);
+  if(mode==='execute')return execute({root,home,epoch,regressionResultsPath,render,now,allowSyntheticTest,runAllOwner});
   if(mode==='verify'){
     const final=core.readFinal(roots,PHASE);
     const prepared=prepare({root,home,epoch,regressionResultsPath,allowSyntheticTest});
@@ -438,7 +651,8 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResult
       const identity=core.readDualJson(roots,'execution-identity.json');
       const prepared=prepare({root,home,epoch,regressionResultsPath,allowSyntheticTest});
       core.verifyFinalizedIdentity({root,final:core.readFinal(roots,PHASE),identity:prepared.identity,allowSyntheticTest});
-      const regressionBytes=core.readDualBytes(roots,'regression-results.json'),regressions=JSON.parse(regressionBytes.bytes.toString('utf8'));
+      const regressionBytes=core.readDualBytes(roots,'regression-results.json'),regressionDocument=JSON.parse(regressionBytes.bytes.toString('utf8')),
+        regressions=regressionDocument.results||regressionDocument;
       if(core.sha256(regressionBytes.bytes)!==prepared.regressions.sha256)throw new Error('BLOCKED_STAGE3_REGRESSION_RESULTS: stored regression evidence changed');
       const artifact=core.readDualBytes(roots,'artifacts/production-plugin.wasm');
       if(artifact.sha256!==prepared.identity.builds.production.wasmSha256)throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: preserved production WASM changed');
@@ -467,7 +681,10 @@ function main(argv=process.argv.slice(2)){
 }
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=/^BLOCKED_/.test(error.message)?2:1;}}
 
-module.exports={ROOT,STAGE,PHASE,REGRESSION_REL,REQUIRED_REGRESSIONS,CELL_SPECS,
+module.exports={ROOT,STAGE,PHASE,REGRESSION_REL,REQUIRED_REGRESSIONS,REGRESSION_TESTS,CELL_SPECS,
   sha256,fileSha,identityRecord,buildDirectory,productionWasm,assertProductionExports,readSelection,assertPromotedValues,
   isCommitAncestor,promotionDetails,validatePromotionDetails,derivedBuildSnapshot,deriveProductionBuildIdentity,DERIVED_IDENTITY_REL,PROMOTION_PATHS,
-  readRegressions,currentIdentity,cells,verifyStage3ePrerequisite,phaseManifest,renderDefault,readRows,evaluate,finalize,prepare,execute,executeAuthorized,run,parseMode,main};
+  PROMOTION_INTENT_REL,PROMOTION_RECEIPT_REL,PROMOTION_BRANCH,PROMOTION_SUBJECT,readRegressions,maybeReadDualObject,storeDualObject,
+  expectedTupleValues,assertSelectedFullPass,promotionIntent,promotionStatus,ensureSelectedFiles,readPromotionCommit,ensurePromotionCommit,
+  runRequiredRegressions,promoteSelection,currentIdentity,cells,verifyStage3ePrerequisite,phaseManifest,renderDefault,readRows,
+  evaluate,finalize,prepare,execute,executeAuthorized,run,parseMode,main};

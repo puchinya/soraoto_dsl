@@ -838,10 +838,21 @@ The execution policy was amended by the Issue #7 decision recorded in
 [comment 6168836704](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6168836704)
 on 2026-10-14. New phase runs do not require GitHub plan or approval comments,
 approval JSON, GitHub API access, or repeated per-phase operator approvals.
-The operator explicitly starts one eligible phase with `--next`; that
-invocation returns after that phase. Stage3E's low and mid candidates are
-derived in fixed ranking order from the frozen grid and finalized prerequisite
-results.
+The one-shot `--run-all` Implementation Contract published on 2026-10-14
+supersedes the manual one-phase-at-a-time constraint for this epoch. The
+foreground command owns a separate master lock and runs all eligible phases,
+promotion, the promoted Production rebuild, six real regressions, Stage3,
+Stage4, and the final verification suite in order. It stops on the first
+blocked transition or failed check. `--next` remains a one-phase compatibility
+command. Stage3E's low and mid candidates remain derived in fixed ranking order
+from the frozen grid and finalized prerequisite results.
+
+The run-all event journal is append-only and dual-stored with SHA readback.
+Existing phase writer locks remain scoped to one phase and are not recursively
+acquired. External phase commands are rejected while the master lock is held;
+only the in-process run-all owner can enter the phase runners. Completed cells
+are reused and only PENDING cells may render. A second invocation revalidates
+completed phase evidence and does not create another promotion commit.
 
 Before a phase's first marker or renderer call, its runner derives one
 deterministic `execution-plan.json` from the exact input identity, prerequisite
@@ -866,6 +877,10 @@ paired production/diagnostic baseline, the 486-cell Stage3 matrix, and the
 1,423-cell Stage4 lifecycle matrix with 1,392 adjacent comparisons. Stage3E's
 maximum remains 2,555 calls (2,475 when an initial MIDI51 pass skips the
 80-call candidate diagnostic); Stage3 remains 486 and Stage4 remains 1,423.
-No phase may transfer unused quota to another phase. This current-build path
-supersedes the older §5.1 master-orchestrator route only for the new epoch; the
-historical route and its evidence remain unchanged.
+The cumulative cap is 4,464 calls, and no phase may transfer unused quota to
+another phase. Stage4 lifecycle audio uses the exact promoted Production WASM
+preserved by Stage3; the original Stage4 diagnostic artifact and identity stay
+as historical provenance. Stage3 and Stage4 output metrics remain bounded by
+the existing `1e-6` equivalence tolerance. This current-build path supersedes
+the older §5.1 master-orchestrator route only for the new epoch; the historical
+route and its evidence remain unchanged.

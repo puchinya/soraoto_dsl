@@ -179,6 +179,34 @@ test('writer lock rejects another worktree and only removes its own lock',t=>{
   assert.equal(fs.existsSync(core.lockPath(w.common)),false);
 });
 
+test('run-all master lock is distinct, process-owned, and rejects external phase access',t=>{
+  const w=workspace(t);let seenOwner,nestedPhaseAction=false;
+  const result=core.withRunAllLock({commonDirectory:w.common,ownerId:'run-all-a'},owner=>{
+    seenOwner=owner;
+    assert.equal(core.assertRunAllLockAccess(w.common,owner),true);
+    assert.throws(()=>core.assertRunAllLockAccess(w.common,null),/BLOCKED_ISSUE7_RUN_ALL_LOCK/);
+    assert.throws(()=>core.withRunAllLock({commonDirectory:w.common,ownerId:'run-all-b'},()=>{}),/BLOCKED_ISSUE7_RUN_ALL_LOCK/);
+    core.withWriterLock({commonDirectory:w.common},()=>{nestedPhaseAction=true;});
+    assert.equal(nestedPhaseAction,true,'run-all owner may dispatch a phase without reacquiring the phase lock');
+    assert.equal(fs.existsSync(core.lockPath(w.common)),false,'master lock does not reuse a phase writer lock');
+    return 'single run';
+  });
+  assert.equal(result,'single run');assert.equal(seenOwner.pid,process.pid);
+  assert.equal(fs.existsSync(core.runAllLockPath(w.common)),false);
+});
+
+test('run-all journal appends verified canonical events to both stores and rejects divergence',t=>{
+  const w=workspace(t),first=core.appendDualJournal(w.roots,{type:'RUN_STARTED',ownerId:'one'}),
+    second=core.appendDualJournal(w.roots,{type:'PHASE_FINISHED',ownerId:'one',phase:'baseline'});
+  const journal=core.readDualJournal(w.roots);
+  assert.equal(journal.events.length,2);assert.equal(journal.events[0].sequence,1);assert.equal(journal.events[1].sequence,2);
+  assert.equal(first.events,1);assert.equal(second.events,2);
+  assert.deepEqual(fs.readFileSync(core.dualPaths(w.roots,'run-all/events.jsonl').primary),
+    fs.readFileSync(core.dualPaths(w.roots,'run-all/events.jsonl').secondary));
+  fs.appendFileSync(core.dualPaths(w.roots,'run-all/events.jsonl').secondary,'{}\n');
+  assert.throws(()=>core.readDualJournal(w.roots),/BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE|BLOCKED_ISSUE7_RUN_ALL_JOURNAL/);
+});
+
 test('authorization is exact to Issue #7, epoch, phase, cell set, and budget',()=>{
   const cells=['a','b'],identity=approvedExecutionIdentity({cells}),identitySha=core.executionIdentitySha256(identity),
     planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}; executionIdentitySha256=${identitySha}\n${core.executionIdentityMarker(identity)}`,

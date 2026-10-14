@@ -5,6 +5,7 @@ const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 const {execFileSync}=require('node:child_process');
+const {AsyncLocalStorage}=require('node:async_hooks');
 const durable=require('./durable-evidence.cjs');
 
 const ROOT=path.resolve(__dirname,'../../../../../../');
@@ -15,6 +16,8 @@ const APPROVER_LOGIN='puchinya';
 const REPOSITORY='puchinya/soraoto_dsl';
 const STAGES=Object.freeze(['stage3e','stage3','stage4']);
 const PHASES=Object.freeze(['baseline','midi51-diagnostic','low-screen','midi51-candidate-diagnostic','low-full','mid-screen','midi51-final-diagnostic','mid-full','stage3','stage4']);
+const MASTER_LOCK_OWNERS=new WeakSet();
+const RUN_ALL_CONTEXT=new AsyncLocalStorage();
 
 function sha256(bytes){return crypto.createHash('sha256').update(bytes).digest('hex');}
 function stable(value){
@@ -663,13 +666,16 @@ function lockPath(commonDirectory,epoch=EPOCH){
 }
 function withWriterLock({commonDirectory,ownerId=crypto.randomUUID(),now=()=>new Date().toISOString(),hostname=os.hostname()}={},action){
   if(typeof action!=='function')throw new Error('writer lock action is required');
+  const runAllOwner=RUN_ALL_CONTEXT.getStore();
+  assertRunAllLockAccess(commonDirectory,runAllOwner);
+  if(runAllOwner&&MASTER_LOCK_OWNERS.has(runAllOwner))return action(runAllOwner);
   const common=fs.realpathSync(commonDirectory),file=lockPath(common),owner={schemaVersion:1,issue:ISSUE,epoch:EPOCH,ownerId:String(ownerId),token:crypto.randomUUID(),pid:process.pid,hostname,createdAt:now()};
   makeDirChain(common,path.dirname(file));
   let fd;
   try{fd=fs.openSync(file,'wx',0o600);}catch(error){if(error.code==='EEXIST')throw new Error('BLOCKED_WRITER_LOCK: another worktree owns the Issue #7 current-build-v1 writer lock');throw error;}
   try{fs.writeSync(fd,canonicalBytes(owner));fs.fsyncSync(fd);}finally{fs.closeSync(fd);fd=undefined;}
   try{
-    const result=action(owner);
+    const result=RUN_ALL_CONTEXT.run(owner,()=>action(owner));
     if(result&&typeof result.then==='function')throw new Error('writer lock action must be synchronous');
     return result;
   }finally{
@@ -679,6 +685,85 @@ function withWriterLock({commonDirectory,ownerId=crypto.randomUUID(),now=()=>new
   }
 }
 
+function runAllLockPath(commonDirectory,epoch=EPOCH){
+  if(epoch!==EPOCH)throw new Error('BLOCKED_EPOCH');
+  return path.join(path.resolve(commonDirectory),'soraoto-agent-state',String(ISSUE),'locks',`${epoch}.run-all.lock`);
+}
+function assertRunAllLockAccess(commonDirectory,owner){
+  const file=runAllLockPath(commonDirectory);
+  if(!fs.existsSync(file))return true;
+  const stat=fs.lstatSync(file);
+  if(stat.isSymbolicLink()||!stat.isFile())throw new Error('BLOCKED_ISSUE7_RUN_ALL_LOCK: unsafe owner record');
+  let current;
+  try{current=JSON.parse(fs.readFileSync(file,'utf8'));}
+  catch(error){throw new Error(`BLOCKED_ISSUE7_RUN_ALL_LOCK: owner record is unreadable: ${error.message}`);}
+  if(owner&&MASTER_LOCK_OWNERS.has(owner)&&owner.token===current.token&&owner.ownerId===current.ownerId&&owner.pid===process.pid)
+    return true;
+  throw new Error('BLOCKED_ISSUE7_RUN_ALL_LOCK: another Issue #7 --run-all invocation owns the current-build-v1 master lock');
+}
+function withRunAllLock({commonDirectory,ownerId=crypto.randomUUID(),now=()=>new Date().toISOString(),hostname=os.hostname()}={},action){
+  if(typeof action!=='function')throw new Error('run-all lock action is required');
+  const common=fs.realpathSync(commonDirectory),file=runAllLockPath(common),owner=Object.freeze({schemaVersion:1,issue:ISSUE,epoch:EPOCH,
+    ownerId:String(ownerId),token:crypto.randomUUID(),pid:process.pid,hostname,createdAt:now()});
+  makeDirChain(common,path.dirname(file));
+  let fd;
+  try{fd=fs.openSync(file,'wx',0o600);}catch(error){if(error.code==='EEXIST')throw new Error('BLOCKED_ISSUE7_RUN_ALL_LOCK: another Issue #7 --run-all invocation is active');throw error;}
+  const ownerBytes=canonicalBytes(owner);
+  try{
+    const written=fs.writeSync(fd,ownerBytes);if(written!==ownerBytes.length)throw new Error('short master lock write');
+    fs.fsyncSync(fd);
+  }catch(error){
+    try{fs.closeSync(fd);fd=undefined;}catch{}
+    try{const current=JSON.parse(fs.readFileSync(file,'utf8'));if(current.token===owner.token)fs.unlinkSync(file);}catch{}
+    throw new Error(`BLOCKED_ISSUE7_RUN_ALL_LOCK: could not persist owner: ${error.message}`);
+  }finally{if(fd!==undefined){fs.closeSync(fd);fd=undefined;}}
+  if(!fs.readFileSync(file).equals(ownerBytes)){
+    try{fs.unlinkSync(file);}catch{}
+    throw new Error('BLOCKED_ISSUE7_RUN_ALL_LOCK: owner record failed readback');
+  }
+  MASTER_LOCK_OWNERS.add(owner);
+  try{
+    const result=RUN_ALL_CONTEXT.run(owner,()=>action(owner));
+    if(result&&typeof result.then==='function')throw new Error('run-all lock action must be synchronous');
+    return result;
+  }finally{
+    let current;
+    try{current=JSON.parse(fs.readFileSync(file,'utf8'));}
+    catch(error){throw new Error(`BLOCKED_ISSUE7_RUN_ALL_LOCK_OWNER: lock owner readback failed: ${error.message}`);}
+    if(current.token!==owner.token||current.ownerId!==owner.ownerId||current.pid!==process.pid)
+      throw new Error('BLOCKED_ISSUE7_RUN_ALL_LOCK_OWNER: lock owner changed; refusing to release');
+    fs.unlinkSync(file);
+  }
+}
+function readDualJournal(roots,relative='run-all/events.jsonl'){
+  const paths=dualPaths(roots,relative),exists=[fs.existsSync(paths.primary),fs.existsSync(paths.secondary)];
+  if(!exists[0]&&!exists[1])return {events:[],bytes:Buffer.alloc(0),sha256:sha256(Buffer.alloc(0))};
+  if(!exists[0]||!exists[1])throw new Error('BLOCKED_ISSUE7_RUN_ALL_JOURNAL: journal exists in only one canonical store');
+  const stored=readDualBytes(roots,relative);
+  if(stored.bytes.length&&!stored.bytes.toString('utf8').endsWith('\n'))throw new Error('BLOCKED_ISSUE7_RUN_ALL_JOURNAL: incomplete trailing record');
+  const lines=stored.bytes.toString('utf8').split('\n').filter(Boolean),events=[];
+  try{for(const line of lines)events.push(JSON.parse(line));}catch(error){throw new Error(`BLOCKED_ISSUE7_RUN_ALL_JOURNAL: invalid record: ${error.message}`);}
+  if(events.some((event,index)=>event.sequence!==index+1))throw new Error('BLOCKED_ISSUE7_RUN_ALL_JOURNAL: sequence is not append-only and contiguous');
+  return {events,bytes:stored.bytes,sha256:stored.sha256};
+}
+function appendDualJournal(roots,event,{relative='run-all/events.jsonl'}={}){
+  if(!event||typeof event!=='object'||Array.isArray(event))throw new Error('run-all journal event must be an object');
+  const paths=dualPaths(roots,relative),exists=[fs.existsSync(paths.primary),fs.existsSync(paths.secondary)];
+  if(exists[0]!==exists[1])throw new Error('BLOCKED_ISSUE7_RUN_ALL_JOURNAL: journal exists in only one canonical store');
+  if(!exists[0])writeImmutableDual(roots,relative,Buffer.alloc(0));
+  const prior=readDualJournal(roots,relative),record={...event,sequence:prior.events.length+1};
+  const line=Buffer.from(JSON.stringify(stable(record))+'\n','utf8'),expected=Buffer.concat([prior.bytes,line]);
+  try{
+    for(const file of [paths.primary,paths.secondary]){
+      const fd=fs.openSync(file,'a',0o600);
+      try{const written=fs.writeSync(fd,line);if(written!==line.length)throw new Error('short journal append');fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+    }
+  }catch(error){throw new Error(`BLOCKED_ISSUE7_RUN_ALL_JOURNAL_AMBIGUOUS: ${error.message}`);}
+  const stored=readDualBytes(roots,relative);
+  if(!stored.bytes.equals(expected))throw new Error('BLOCKED_ISSUE7_RUN_ALL_JOURNAL_AMBIGUOUS: appended bytes failed dual-store readback');
+  return {event:record,sha256:stored.sha256,events:prior.events.length+1};
+}
+
 module.exports={ROOT,ISSUE,EPOCH,CONTRACT_SHA256,STAGES,PHASES,sha256,stable,canonicalBytes,same,safePart,inside,
   assertNoSymlinkComponents,makeDirChain,resolveRoots,checkedRelative,dualPaths,writeImmutableFile,writeImmutableDual,
   writeMutableFile,writeMutableDual,readDualBytes,readDualJson,parseCache,hashInputs,checkFrozenIdentity,
@@ -686,4 +771,5 @@ module.exports={ROOT,ISSUE,EPOCH,CONTRACT_SHA256,STAGES,PHASES,sha256,stable,can
   assessSafety,finalizePhase,readFinal,readAuthorization,commentIdFromUrl,cellSetSha256,executionIdentityProjection,makeExecutionIdentity,
   EXECUTION_BUDGET_CAPS,EXECUTION_BUDGET_FIXED,EXECUTION_BUDGET_UNITS,acousticIdentityProjection,deriveExecutionPlan,verifyAndPersistExecutionPlan,verifyFinalizedIdentity,commitIsAncestor,documentationOnlyDescendant,
   executionIdentitySha256,executionIdentityMarker,readExecutionIdentityPlan,gitHead,expectedApprovalStatement,
-  readGitHubApproval,validateAuthorization,verifyAndPersistAuthorization,lockPath,withWriterLock};
+  readGitHubApproval,validateAuthorization,verifyAndPersistAuthorization,lockPath,withWriterLock,
+  runAllLockPath,assertRunAllLockAccess,withRunAllLock,readDualJournal,appendDualJournal};

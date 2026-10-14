@@ -273,7 +273,8 @@ test('Stage4 identity consumes the immutable derived production SHA from Stage3'
   assert.notEqual(productionBuildIdentitySha256,baselineSha,'promotion must have a distinct derived identity');
   assert.equal(identity.productionBuildIdentitySha256,productionBuildIdentitySha256);
   assert.equal(identity.productionWasmSha256,'b'.repeat(64));
-  assert.equal(identity.stage4WasmSha256,'c'.repeat(64));
+  assert.equal(identity.stage4WasmSha256,'b'.repeat(64));
+  assert.equal(identity.historicalStage4WasmSha256,'c'.repeat(64));
   assert.equal(identity.buildIdentitySha256,baselineSha);
   assert.deepEqual(identity.inputs,stage3State.prepared.derivedBuildIdentity.inputs);
   const executionPlan={creatorRevision:'9'.repeat(40),renderBudget:1423};
@@ -281,6 +282,8 @@ test('Stage4 identity consumes the immutable derived production SHA from Stage3'
     now:()=> '2026-10-13T00:00:00.000Z'});
   assert.equal(manifest.identity.productionBuildIdentitySha256,productionBuildIdentitySha256);
   assert.equal(manifest.productionWasmSha256,'b'.repeat(64));
+  assert.equal(manifest.stage4WasmSha256,'b'.repeat(64));
+  assert.equal(manifest.identity.historicalStage4WasmSha256,'c'.repeat(64));
   assert.equal(manifest.authorizedCellKeys.length,1423);
   assert.equal(manifest.executionPlanSha256,core.sha256(core.canonicalBytes(executionPlan)));
 });
@@ -330,7 +333,7 @@ test('synthetic Stage3 identity flows through every Stage4 cell and final evalua
     return {...cell,pitch:cell.pitch,velocity:cell.velocity,metrics:syntheticMetrics(source.metrics,runner.OUTPUT_FIELDS)};
   });
   const stage3ByCell=new Map(stage3Rows.map(row=>[`${row.pitch}:${row.velocity}`,row]));
-  const completed=new Map();let initializedManifest=null,identityChecks=0,renderCalls=0;
+  const completed=new Map(),immutableWrites=new Map();let initializedManifest=null,identityChecks=0,renderCalls=0;
   const savedCore={};
   // Exercise the complete Stage4 control/evaluation path; durable dual-store behavior is covered by core tests.
   const coreOverrides={
@@ -344,7 +347,7 @@ test('synthetic Stage3 identity flows through every Stage4 cell and final evalua
     initializePhase:({manifest,cells,renderBudget})=>{
       assert.equal(renderBudget,1423);assert.equal(cells.length,1423);initializedManifest=manifest;
     },
-    writeImmutableDual:()=>({sha256:'f'.repeat(64)}),
+    writeImmutableDual:(_roots,relative,bytes)=>{immutableWrites.set(relative,Buffer.from(bytes));return {sha256:'f'.repeat(64)};},
     readCell:(roots,phase,cellKey)=>{
       const observation=completed.get(cellKey);
       return observation?{cell:{state:'COMPLETE'},observation:{observation}}:{cell:{state:'PENDING'},observation:null};
@@ -396,6 +399,11 @@ test('synthetic Stage3 identity flows through every Stage4 cell and final evalua
     assert.equal(initializedManifest.identity.productionBuildIdentitySha256,productionBuildIdentitySha256);
     assert.notEqual(initializedManifest.identity.productionBuildIdentitySha256,baselineBuildIdentitySha256);
     assert.equal(initializedManifest.identity.stage3Identity.productionBuildIdentitySha256,productionBuildIdentitySha256);
+    assert.deepEqual(immutableWrites.get('artifacts/stage3-production-plugin.wasm'),stage3Artifact.bytes);
+    assert.deepEqual(immutableWrites.get('artifacts/stage4-production-plugin.wasm'),stage3Artifact.bytes);
+    const historicalStage4=fs.readFileSync(runner.stage4DiagnosticWasm(root,record));
+    assert.deepEqual(immutableWrites.get('artifacts/historical-stage4-diagnostic-plugin.wasm'),historicalStage4);
+    assert.notEqual(core.sha256(stage3Artifact.bytes),core.sha256(historicalStage4));
   }finally{
     stage3.prepare=originalPrepare;stage3.readRows=originalReadRows;
     for(const [name,value] of Object.entries(savedCore))core[name]=value;
@@ -455,12 +463,23 @@ test('continuous synthetic Stage3E selection, Stage3 promotion, and Stage4 accep
     assert.equal(selection.selection.phaseResultSha256,selection.final.sha256);
     assert.throws(()=>stage3.readSelection(root,home,core.EPOCH),/selection is invalid or synthetic/);
 
+    const beforeRejectedPromotion=git(root,['rev-parse','HEAD']);
+    const rejectedPromotion=stage3.promoteSelection({root,home});
+    assert.equal(rejectedPromotion.decision,'BLOCKED_STAGE3E_SELECTION_REQUIRED');
+    assert.equal(git(root,['rev-parse','HEAD']),beforeRejectedPromotion,'synthetic selection cannot create a promotion commit');
+
     commitSyntheticPromotion(root,record,selection.tuple,productionWasm);
     const stage3Cells=stage3.cells(),stage3Authorization=syntheticAuthorization('stage3','stage3',stage3Cells);
     const stage3Validated=core.validateAuthorization(stage3Authorization,{stage:'stage3',phase:'stage3',
       cells:stage3Cells.map(cell=>cell.key),renderBudget:stage3Cells.length,allowSynthetic:true});
     assert.throws(()=>stage3.executeAuthorized({approved:stage3Authorization,auth:stage3Validated}),/BLOCKED_SYNTHETIC_RENDER/);
     const stage3Roots=core.resolveRoots(root,'stage3',core.EPOCH,{home});
+    const regressionFile=path.join(root,stage3.REGRESSION_REL),priorRegressions=fs.readFileSync(regressionFile);
+    const failedRegressions=Object.fromEntries(stage3.REQUIRED_REGRESSIONS.map(name=>[name,{result:name==='pianoClick'?'FAIL':'PASS'}]));
+    fs.writeFileSync(regressionFile,JSON.stringify(failedRegressions,null,2)+'\n');
+    assert.throws(()=>stage3.prepare({root,home,allowSyntheticTest:true}),/BLOCKED_STAGE3_REGRESSION_RESULTS: pianoClick is not PASS/);
+    assert.equal(core.readPhaseLedger(stage3Roots,'stage3'),null,'failed regressions must stop before a Stage3 marker');
+    fs.writeFileSync(regressionFile,priorRegressions);
     const stage3Result=stage3.executeAuthorized({root,home,epoch:core.EPOCH,approved:stage3Authorization,auth:stage3Validated,
       allowSyntheticTest:true,phaseCells:stage3Cells,regressionResultsPath:stage3.REGRESSION_REL,roots:stage3Roots,
       now:()=> '2026-10-14T00:00:00.000Z',render:({cell})=>{
@@ -522,6 +541,11 @@ test('continuous synthetic Stage3E selection, Stage3 promotion, and Stage4 accep
     assert.equal(stage4Verified.acousticRenders,0);
     assert.equal(stage3Calls.count,stage3CallsBeforeFinalVerify);
     assert.equal(stage4Calls.count,stage4CallsBeforeVerify);
+    const acceptedStage4=core.readDualBytes(stage4Roots,'artifacts/stage4-production-plugin.wasm');
+    const stage3Production=core.readDualBytes(stage3Roots,'artifacts/production-plugin.wasm');
+    const oldStage4=core.readDualBytes(stage4Roots,'artifacts/historical-stage4-diagnostic-plugin.wasm');
+    assert.equal(acceptedStage4.sha256,stage3Production.sha256);
+    assert.notEqual(oldStage4.sha256,acceptedStage4.sha256);
   }finally{restore();}
 });
 

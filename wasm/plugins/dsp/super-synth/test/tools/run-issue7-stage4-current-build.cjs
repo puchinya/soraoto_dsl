@@ -27,13 +27,18 @@ const CELL_SPECS=Object.freeze([
 function fileSha(root,relative){return core.sha256(fs.readFileSync(path.join(root,relative)));}
 function identityRecord(root=ROOT){return JSON.parse(fs.readFileSync(path.join(root,IDENTITY_REL),'utf8'));}
 function buildDirectory(root,record){
-  const item=record.builds?.stage4;if(!item)throw new Error('BLOCKED_STAGE4_BUILD_IDENTITY: Stage4 diagnostic build is missing');
+  const item=record.builds?.production;if(!item)throw new Error('BLOCKED_STAGE4_BUILD_IDENTITY: promoted production build is missing');
   return path.resolve(root,item.buildDirectory);
 }
 function stage4Wasm(root,record){
-  const item=record.builds?.stage4;
-  if(!item?.wasm?.path)throw new Error('BLOCKED_STAGE4_BUILD_IDENTITY: Stage4 diagnostic WASM identity is missing');
+  const item=record.builds?.production;
+  if(!item?.wasm?.path)throw new Error('BLOCKED_STAGE4_BUILD_IDENTITY: promoted production WASM identity is missing');
   return path.join(buildDirectory(root,record),item.wasm.path);
+}
+function stage4DiagnosticWasm(root,record){
+  const item=record.builds?.stage4;
+  if(!item?.wasm?.path)throw new Error('BLOCKED_STAGE4_BUILD_IDENTITY: historical Stage4 diagnostic WASM identity is missing');
+  return path.join(path.resolve(root,item.buildDirectory),item.wasm.path);
 }
 function assertStage4Exports(root,record){
   const module=new WebAssembly.Module(fs.readFileSync(stage4Wasm(root,record)));
@@ -41,7 +46,7 @@ function assertStage4Exports(root,record){
   for(const name of ['soraoto_plugin_abi_version','soraoto_plugin_init','soraoto_plugin_process','soraoto_plugin_terminate',
     'soraoto_supersynth_guard_hit_count','soraoto_supersynth_active_voice_count'])
     if(!names.includes(name))throw new Error(`BLOCKED_STAGE4_BUILD_IDENTITY: Stage4 export missing ${name}`);
-  if(names.some(name=>name.includes('stage3e_')))throw new Error('BLOCKED_STAGE4_BUILD_IDENTITY: Stage4 build contains Stage3E response controls');
+  if(names.some(name=>name.includes('stage3e_')))throw new Error('BLOCKED_STAGE4_BUILD_IDENTITY: promoted production build contains Stage3E response controls');
   return names.sort();
 }
 function readStage3(root=ROOT,home=os.homedir(),epoch=core.EPOCH,{allowSyntheticTest=false}={}){
@@ -71,7 +76,8 @@ function currentIdentity({root=ROOT,home=os.homedir(),epoch=core.EPOCH,record=id
     toolchain:record.toolchain,inputs:derived.inputs,builds:completed.prepared.identity.builds,
     productionBuildIdentitySha256:completed.prepared.productionBuildIdentitySha256,
     stage3ResultSha256:completed.final.sha256,stage3Identity:completed.final.result.identity,
-    productionWasmSha256:derived.builds.production.wasm.sha256,stage4WasmSha256:derived.builds.stage4.wasm.sha256,
+    productionWasmSha256:derived.builds.production.wasm.sha256,stage4WasmSha256:derived.builds.production.wasm.sha256,
+    historicalStage4WasmSha256:derived.builds.stage4.wasm.sha256,
     captureHelperSha256:fileSha(root,CAPTURE_REL),evaluatorSha256:fileSha(root,EVALUATOR_REL),
     outputComparisonHelperSha256:fileSha(root,COMPARISON_REL),runnerSha256:fileSha(root,RUNNER_REL)};
 }
@@ -152,8 +158,9 @@ function evaluate({root,roots,identity,stage3Identity,matrix,repeats,stage3Rows,
   return summary;
 }
 function execute({root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDefault,now=()=>new Date().toISOString(),
-  allowSyntheticTest=false,legacyConformance}={}){
+  allowSyntheticTest=false,legacyConformance,runAllOwner}={}){
   const phaseCells=cells(),roots=core.resolveRoots(root,STAGE,epoch,{home});
+  core.assertRunAllLockAccess(roots.commonDirectory,runAllOwner);
   return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>executeLocked({root,home,epoch,render,now,roots,phaseCells,allowSyntheticTest,legacyConformance}));
 }
 function executeLocked({root,home,epoch,render,now,roots,phaseCells,allowSyntheticTest=false,legacyConformance}={}){
@@ -167,14 +174,20 @@ function executeLocked({root,home,epoch,render,now,roots,phaseCells,allowSynthet
       archiveSha256:prerequisite.archiveSha256,creatorRevision:prerequisite.manifest?.creatorRevision||prerequisite.manifest?.creatorCommit||
         (syntheticTest?core.gitHead(root):undefined),
       ...(prerequisite.result.executionPlanSha256?{executionPlanSha256:prerequisite.result.executionPlanSha256}:{})}]});
-  const exports=assertStage4Exports(root,record),previous=core.readPhaseLedger(roots,PHASE);
-  const manifest=phaseManifest({root,record:stage3State.prepared.productionRecord,identity,executionPlan:frozen.plan,phaseCells,
+  const productionRecord=stage3State.prepared.productionRecord;
+  const exports=assertStage4Exports(root,productionRecord),previous=core.readPhaseLedger(roots,PHASE);
+  const acceptanceWasm=fs.readFileSync(stage4Wasm(root,productionRecord));
+  if(core.sha256(acceptanceWasm)!==stage3State.artifact.sha256
+      ||core.sha256(acceptanceWasm)!==stage3State.derived.builds.production.wasm.sha256)
+    throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: Stage4 acceptance artifact is not byte-identical to promoted Stage3 Production');
+  const manifest=phaseManifest({root,record:productionRecord,identity,executionPlan:frozen.plan,phaseCells,
     now:previous?.manifest.createdAt?()=>previous.manifest.createdAt:now});
   core.initializePhase({roots,phase:PHASE,manifest,cells:phaseCells,renderBudget:1423,now});
   core.writeImmutableDual(roots,'execution-identity.json',core.canonicalBytes(identity));
   core.writeImmutableDual(roots,'production-build-identity.json',core.canonicalBytes(stage3State.derived));
   core.writeImmutableDual(roots,'artifacts/stage3-production-plugin.wasm',stage3State.artifact.bytes);
-  core.writeImmutableDual(roots,'artifacts/stage4-diagnostic-plugin.wasm',fs.readFileSync(stage4Wasm(root,record)));
+  core.writeImmutableDual(roots,'artifacts/stage4-production-plugin.wasm',acceptanceWasm);
+  core.writeImmutableDual(roots,'artifacts/historical-stage4-diagnostic-plugin.wasm',fs.readFileSync(stage4DiagnosticWasm(root,record)));
   let calls=0,unsafe=false;
   for(const cell of phaseCells){
     const existing=core.readCell(roots,PHASE,cell.key);
@@ -191,7 +204,7 @@ function executeLocked({root,home,epoch,render,now,roots,phaseCells,allowSynthet
     if(started.skipped)continue;
     calls+=1;
     let observed;
-    try{observed=render({root,record,identity,cell,syntheticTest});}
+    try{observed=render({root,record:productionRecord,identity,cell,syntheticTest});}
     catch(error){
       try{core.markAmbiguous({roots,phase:PHASE,cellKey:cell.key,reason:error.message,now});}catch{}
       throw new Error(`BLOCKED_STAGE4_AMBIGUOUS_RENDER_ACCOUNTING: ${cell.key}; started=${calls}; ${error.message}`);
@@ -215,10 +228,11 @@ function executeLocked({root,home,epoch,render,now,roots,phaseCells,allowSynthet
     summary,resultSha256:result.sha256,archiveSha256:result.archiveSha256,syntheticTest,acousticRenders:calls,exports};
 }
 function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDefault,
-  now=()=>new Date().toISOString(),allowSyntheticTest=false,legacyConformance}={}){
+  now=()=>new Date().toISOString(),allowSyntheticTest=false,legacyConformance,runAllOwner}={}){
   if(!['dry-run','execute','finalize','verify'].includes(mode))throw new Error('explicit mode required: dry-run, execute, finalize, or verify');
-  if(mode==='execute')return execute({root,home,epoch,render,now,allowSyntheticTest,legacyConformance});
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
+  if(!['dry-run','verify'].includes(mode))core.assertRunAllLockAccess(roots.commonDirectory,runAllOwner);
+  if(mode==='execute')return execute({root,home,epoch,render,now,allowSyntheticTest,legacyConformance,runAllOwner});
   if(mode==='verify'){
     const final=core.readFinal(roots,PHASE);
     const current=currentIdentity({root,home,epoch,record:identityRecord(root),allowSyntheticTest});
@@ -237,7 +251,7 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDef
   }
   try{
     const record=identityRecord(root),stage3State=readStage3(root,home,epoch,{allowSyntheticTest}),identity=currentIdentity({root,home,epoch,record,stage3State,allowSyntheticTest});
-    const exports=assertStage4Exports(root,record);
+    const exports=assertStage4Exports(root,stage3State.prepared.productionRecord);
     return {decision:'STAGE4_DRY_RUN_READY',phase:PHASE,identitySha256:core.sha256(core.canonicalBytes(identity)),
       lifecycleCells:1408,repeatCells:15,adjacentComparisons:1392,builds:0,renders:0,writes:0,acousticRenders:0,exports};
   }catch(error){
@@ -259,5 +273,5 @@ function main(argv=process.argv.slice(2)){
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=/^BLOCKED_/.test(error.message)?2:1;}}
 
 module.exports={ROOT,STAGE,PHASE,CELL_SPECS,fileSha,identityRecord,
-  buildDirectory,stage4Wasm,assertStage4Exports,readStage3,currentIdentity,cells,phaseManifest,renderDefault,readRows,
+  buildDirectory,stage4Wasm,stage4DiagnosticWasm,assertStage4Exports,readStage3,currentIdentity,cells,phaseManifest,renderDefault,readRows,
   safeLegacyConformance,OUTPUT_FIELDS,compareMetric,compareStage3Output,evaluate,execute,executeLocked,run,parseMode,main};
