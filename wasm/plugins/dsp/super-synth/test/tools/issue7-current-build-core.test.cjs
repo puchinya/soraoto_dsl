@@ -197,6 +197,17 @@ test('authorization is exact to Issue #7, epoch, phase, cell set, and budget',()
   assert.equal(core.validateAuthorization(synthetic,{stage:'stage3e',phase:'baseline',cells:['a'],renderBudget:1,allowSynthetic:true}).syntheticTest,true);
 });
 
+test('execution identity retains build hashes and excludes machine-specific build flags',()=>{
+  const machinePath=path.join(os.homedir(),'issue7-build-cache');
+  const identity=approvedExecutionIdentity({identity:{builds:{production:{cmakeCacheSha256:'a'.repeat(64),wasmSha256:'b'.repeat(64),
+    flags:{CMAKE_CACHEFILE_DIR:machinePath,SORAOTO_FORCE_SCALAR_GRAND:'OFF'}}}}});
+  const serialized=core.canonicalBytes(identity).toString('utf8');
+  assert.equal(identity.identity.builds.production.cmakeCacheSha256,'a'.repeat(64));
+  assert.equal(identity.identity.builds.production.wasmSha256,'b'.repeat(64));
+  assert.equal('flags' in identity.identity.builds.production,false);
+  assert.equal(serialized.includes(machinePath),false);
+});
+
 test('GitHub approval readback attests immutable plan and approval comments to both stores before execution',t=>{
   const phase=startPhase(t,{keys:['a','b']}),cells=['a','b'],planUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344';
   const approvalUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345';

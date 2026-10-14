@@ -401,6 +401,15 @@ function commentIdFromUrl(url){
   return match[1];
 }
 function cellSetSha256(cells){return sha256(Buffer.from([...cells].map(String).sort().join('\n'),'utf8'));}
+function executionIdentityProjection(value){
+  if(Array.isArray(value))return value.map(executionIdentityProjection);
+  if(value&&typeof value==='object'){
+    const buildArtifact=typeof value.cmakeCacheSha256==='string'&&typeof value.wasmSha256==='string';
+    return Object.fromEntries(Object.keys(value).sort().filter(key=>!(buildArtifact&&key==='flags'))
+      .map(key=>[key,executionIdentityProjection(value[key])]));
+  }
+  return value;
+}
 function makeExecutionIdentity({stage,phase,cells,renderBudget,prHeadSha,identity}={}){
   const validStagePhase=(stage==='stage3e'&&PHASES.includes(phase)&&!['stage3','stage4'].includes(phase))
     ||(stage==='stage3'&&phase==='stage3')||(stage==='stage4'&&phase==='stage4');
@@ -409,7 +418,7 @@ function makeExecutionIdentity({stage,phase,cells,renderBudget,prHeadSha,identit
     throw new Error('AUTHORIZATION_REQUIRED: complete execution identity inputs are required');
   if(!/^[a-f0-9]{40}$/.test(prHeadSha||''))throw new Error('AUTHORIZATION_REQUIRED: exact PR HEAD SHA is required');
   return stable({schemaVersion:1,issue:ISSUE,epoch:EPOCH,stage,phase,prHeadSha,contractSha256:CONTRACT_SHA256,
-    cellSetSha256:cellSetSha256(cells),renderBudget,identity});
+    cellSetSha256:cellSetSha256(cells),renderBudget,identity:executionIdentityProjection(identity)});
 }
 function executionIdentitySha256(identity){return sha256(canonicalBytes(identity));}
 function executionIdentityMarker(identity){return `<!-- issue7-execution-identity-v1:${canonicalBytes(identity).toString('base64url')} -->`;}
@@ -545,6 +554,6 @@ module.exports={ROOT,ISSUE,EPOCH,CONTRACT_SHA256,STAGES,PHASES,sha256,stable,can
   assertNoSymlinkComponents,makeDirChain,resolveRoots,checkedRelative,dualPaths,writeImmutableFile,writeImmutableDual,
   writeMutableFile,writeMutableDual,readDualBytes,readDualJson,parseCache,hashInputs,checkFrozenIdentity,
   phaseRelative,initializePhase,readPhaseLedger,readCell,startCell,completeCell,markAmbiguous,normalizeObserved,
-  assessSafety,finalizePhase,readFinal,readAuthorization,commentIdFromUrl,cellSetSha256,makeExecutionIdentity,
+  assessSafety,finalizePhase,readFinal,readAuthorization,commentIdFromUrl,cellSetSha256,executionIdentityProjection,makeExecutionIdentity,
   executionIdentitySha256,executionIdentityMarker,readExecutionIdentityPlan,gitHead,expectedApprovalStatement,
   readGitHubApproval,validateAuthorization,verifyAndPersistAuthorization,lockPath,withWriterLock};
