@@ -209,7 +209,7 @@ test('execution identity retains build hashes and excludes machine-specific buil
 });
 
 test('GitHub approval readback attests immutable plan and approval comments to both stores before execution',t=>{
-  const phase=startPhase(t,{keys:['a','b']}),cells=['a','b'],planUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344';
+  const phase=workspace(t),cells=['a','b'],planUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344';
   const approvalUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345';
   const executionIdentity=approvedExecutionIdentity({cells}),executionIdentityDigest=core.executionIdentitySha256(executionIdentity);
   const planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}; executionIdentitySha256=${executionIdentityDigest}\n${core.executionIdentityMarker(executionIdentity)}`;
@@ -222,6 +222,7 @@ test('GitHub approval readback attests immutable plan and approval comments to b
     body,created_at,updated_at:created_at,user:{login:'puchinya'}});
   const readback=()=>({authenticatedLogin:'puchinya',comments:{
     '12344':comment('12344',planUrl,planBody,planTime),'12345':comment('12345',approvalUrl,approvalBody,approvalTime)}});
+  let renders=0;
   const verified=core.verifyAndPersistAuthorization(authorization,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,
     executionIdentity,executionIdentityNow:()=>executionIdentity,readback,
     now:()=> '2026-10-13T00:01:00.000Z'});
@@ -238,6 +239,10 @@ test('GitHub approval readback attests immutable plan and approval comments to b
   assert.equal(attestation.executionIdentitySha256,executionIdentityDigest);
   assert.deepEqual(attestation.executionIdentity,executionIdentity);
   assert.equal(attestation.renderBudget,2);
+  assert.equal(renders,0);
+  const phaseManifestPaths=core.dualPaths(phase.roots,'phases/baseline/manifest.json');
+  assert.equal(fs.existsSync(phaseManifestPaths.primary),false);
+  assert.equal(fs.existsSync(phaseManifestPaths.secondary),false);
   const repeated=core.verifyAndPersistAuthorization(authorization,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,
     executionIdentity,executionIdentityNow:()=>executionIdentity,readback,
     now:()=> '2026-10-13T01:00:00.000Z'});
@@ -270,6 +275,8 @@ test('invalid or edited GitHub approval evidence fails closed without writing an
     ['different comment author',authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],user:{login:'someone-else'}}}}],
     ['edited approval comment', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],updated_at:'2026-10-13T00:02:00Z'}}}],
     ['wrong approval wording', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],body:'approved, go ahead'}}}],
+    ['quoted exact approval statement', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],body:`Please review this example: “${approvalBody}”`}}}],
+    ['approval statement with extra explanation', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],body:`${approvalBody}\nI am only quoting the requested wording.`}}}],
     ['plan for a different cell set', authorization,{...valid,comments:{...valid.comments,'12344':{...valid.comments['12344'],body:'Plan cellSetSha256='+core.cellSetSha256(['a','c'])}}}],
     ['budget mismatch', {...authorization,maxCalls:3},valid],
     ['same cell set with changed runner SHA',authorization,valid,changedRunner],

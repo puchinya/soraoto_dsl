@@ -482,6 +482,8 @@ function verifyAndPersistAuthorization(authorization,{roots,stage,phase,cells,re
   if(authorization.executionIdentitySha256!==expectedIdentitySha)
     throw new Error('AUTHORIZATION_REQUIRED: authorization does not bind the actual execution identity digest');
   const planId=commentIdFromUrl(authorization.planCommentUrl),approvalId=commentIdFromUrl(authorization.approvalCommentUrl);
+  if(planId===approvalId)
+    throw new Error('AUTHORIZATION_REQUIRED: plan and approval must be separate Issue #7 comments');
   let data;
   try{data=readback({root:ROOT,planCommentUrl:authorization.planCommentUrl,approvalCommentUrl:authorization.approvalCommentUrl});}
   catch(error){throw new Error(`AUTHORIZATION_REQUIRED: ${error.message}`);}
@@ -502,8 +504,8 @@ function verifyAndPersistAuthorization(authorization,{roots,stage,phase,cells,re
   if(planSha!==authorization.planCommentSha256||!same(planIdentity,expectedExecutionIdentity)
     ||!planBody.includes(`cellSetSha256=${expectedCellSha}`)||!planBody.includes(`executionIdentitySha256=${expectedIdentitySha}`))
     throw new Error('AUTHORIZATION_REQUIRED: immutable plan does not bind the exact execution identity and authorized cell set');
-  if(approvalSha!==authorization.approvalCommentSha256||!approvalBody.includes(expectedStatement))
-    throw new Error('AUTHORIZATION_REQUIRED: approval comment body or SHA does not match the exact plan comment, execution identity, phase, budget, and cell set');
+  if(approvalSha!==authorization.approvalCommentSha256||approvalBody.trim()!==expectedStatement)
+    throw new Error('AUTHORIZATION_REQUIRED: approval comment body or SHA does not exactly match the plan comment, execution identity, phase, budget, and cell set');
   const createdAt=Date.parse(approval.created_at),planCreatedAt=Date.parse(plan.created_at),approvedAt=authorization.approvedAtEpochMs;
   if(!Number.isFinite(createdAt)||!Number.isFinite(planCreatedAt)||createdAt<planCreatedAt||createdAt!==approvedAt)
     throw new Error('AUTHORIZATION_REQUIRED: approval timestamp is absent, stale, or does not match GitHub');

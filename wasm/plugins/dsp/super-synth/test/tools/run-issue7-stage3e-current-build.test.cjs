@@ -277,6 +277,55 @@ test('baseline rejects an untrusted GitHub author before marker creation or rend
   assert.equal(fs.existsSync(path.join(home,'.soraoto-agent-archive','repo','7','stage3e',core.EPOCH)),false);
 });
 
+test('baseline requires a separate exact approval comment before marker creation or render',t=>{
+  let record;
+  try{record=runner.identityRecord(runner.ROOT);runner.assertBuildExports(runner.ROOT,record);}
+  catch{t.skip('current-build identity/build artifacts are unavailable');return;}
+  const cells=runner.baselineCells().map(cell=>cell.key),authorizedCellKeys=[...cells].sort();
+  const identity=runner.currentIdentity(runner.ROOT,record);
+  const executionIdentity=core.makeExecutionIdentity({stage:'stage3e',phase:'baseline',cells,
+    renderBudget:cells.length,prHeadSha:core.gitHead(runner.ROOT),identity});
+  const executionIdentitySha256=core.executionIdentitySha256(executionIdentity);
+  const planId='12344',approvalId='12345';
+  const planUrl=`https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-${planId}`;
+  const approvalUrl=`https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-${approvalId}`;
+  const expectedStatement=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,
+    renderBudget:cells.length,planCommentId:planId,executionIdentitySha256});
+  const planBody=`Identity-bound plan cellSetSha256=${core.cellSetSha256(cells)}; executionIdentitySha256=${executionIdentitySha256}\n${core.executionIdentityMarker(executionIdentity)}\n\nApproval template: ${expectedStatement}`;
+  const planTime='2026-10-12T23:00:00.000Z',approvalTime='2026-10-13T00:00:00.000Z';
+  const comment=(id,url,body,created_at)=>({id,html_url:url,issue_url:'https://api.github.com/repos/puchinya/soraoto_dsl/issues/7',
+    body,created_at,updated_at:created_at,user:{login:'puchinya'}});
+  const authorization={issue:7,epoch:core.EPOCH,contractSha256:core.CONTRACT_SHA256,stage:'stage3e',phase:'baseline',
+    planCommentUrl:planUrl,planCommentSha256:core.sha256(Buffer.from(planBody,'utf8')),
+    approvalCommentUrl:approvalUrl,approvalCommentSha256:'',executionIdentitySha256,
+    authorizedCellKeys,maxCalls:cells.length,approvedAtEpochMs:Date.parse(approvalTime)};
+  const scenarios=[
+    {name:'same plan and approval comment with matching body SHA',approvalCommentUrl:planUrl,
+      approvedAtEpochMs:Date.parse(planTime),
+      approvalCommentSha256:core.sha256(Buffer.from(planBody,'utf8')),
+      comments:{[planId]:comment(planId,planUrl,planBody,planTime)}},
+    {name:'separate comment quoting the approval statement',approvalCommentUrl:approvalUrl,
+      approvalBody:`Requested format: “${expectedStatement}”`,
+      comments:{[planId]:comment(planId,planUrl,planBody,planTime),[approvalId]:comment(approvalId,approvalUrl,`Requested format: “${expectedStatement}”`,approvalTime)}}
+  ];
+  for(const scenario of scenarios){
+    const home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-comment-boundary-home-'));
+    const common=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-comment-boundary-common-'));
+    t.after(()=>{fs.rmSync(home,{recursive:true,force:true});fs.rmSync(common,{recursive:true,force:true});});
+    const auth={...authorization,approvalCommentUrl:scenario.approvalCommentUrl,
+      approvedAtEpochMs:scenario.approvedAtEpochMs??Date.parse(approvalTime),
+      approvalCommentSha256:scenario.approvalCommentSha256??core.sha256(Buffer.from(scenario.approvalBody,'utf8'))};
+    let renders=0,readbacks=0;
+    assert.throws(()=>runner.run({mode:'baseline',root:runner.ROOT,home,commonDirectory:common,authorization:auth,
+      githubReadback:()=>{readbacks+=1;return {authenticatedLogin:'puchinya',comments:scenario.comments};},
+      render:()=>{renders+=1;throw new Error('unexpected renderer call');}}),/AUTHORIZATION_REQUIRED/,scenario.name);
+    assert.equal(renders,0,scenario.name);
+    assert.equal(fs.existsSync(path.join(common,'soraoto-agent-state','7','stage3e',core.EPOCH)),false,scenario.name);
+    assert.equal(fs.existsSync(path.join(home,'.soraoto-agent-archive','repo','7','stage3e',core.EPOCH)),false,scenario.name);
+    assert.equal(readbacks,scenario.approvalCommentUrl===planUrl?0:1,scenario.name);
+  }
+});
+
 test('dry-run does not change either canonical Stage3E store',t=>{
   let record;
   try{record=runner.identityRecord(runner.ROOT);}catch{t.skip('current-build identity/build artifacts are unavailable');return;}
