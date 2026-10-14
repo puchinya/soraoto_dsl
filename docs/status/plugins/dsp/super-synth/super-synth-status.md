@@ -4,7 +4,7 @@
 
 ## Current status — 2026-10-14
 
-- **Authoritative state:** Issue [#7](https://github.com/puchinya/soraoto_dsl/issues/7) is OPEN with `phase:implementation` and `blocked`; PR [#8](https://github.com/puchinya/soraoto_dsl/pull/8) is OPEN on `codex/issue-7-supersynth-v9`. The implementation is being delivered on this existing PR.
+- **Authoritative state:** Issue [#7](https://github.com/puchinya/soraoto_dsl/issues/7) is OPEN with `phase:review` and `blocked`; PR [#8](https://github.com/puchinya/soraoto_dsl/pull/8) is OPEN on `codex/issue-7-supersynth-v9`. The implementation is delivered on this existing PR.
 - **Execution policy:** Issue comment [6168836704](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6168836704) removes per-phase GitHub plan/approval comments, approval JSON, and GitHub API readback from normal execution. An explicit `--next` runs at most one eligible phase. `--status`, `--dry-run`, and `--verify` remain read-only.
 - **Frozen phase evidence:** runners derive deterministic candidate cells from the fixed grid and finalized prerequisites, persist canonical `execution-plan.json` bytes to both evidence stores, read back both copies, and bind the plan SHA to the manifest and cell markers before rendering. Synthetic test evidence remains unusable by production prerequisites.
 - **PASS:** focused Issue #7 runner suite 56/56; ABI and physical-parameter registry tests 2/2; metadata tests 20/20; Web Player tests 40/40; Web Player production build; fresh WASM configure and build.
