@@ -231,6 +231,16 @@ function readPhaseLedger(roots,phase){
   if(![pManifest.primary,pManifest.secondary,pLedger.primary,pLedger.secondary].every(fs.existsSync))throw new Error('BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE: partial phase manifest or ledger');
   const manifest=readDualJson(roots,manifestRel),ledger=readDualJson(roots,ledgerRel);
   if(manifest.issue!==ISSUE||manifest.epoch!==EPOCH||manifest.phase!==phase||ledger.phase!==phase||ledger.manifestSha256!==sha256(canonicalBytes(manifest)))throw new Error('BLOCKED_EVIDENCE_MANIFEST_IMMUTABLE: phase identity mismatch');
+  if(manifest.executionPlanSha256){
+    if(!/^[a-f0-9]{64}$/.test(manifest.executionPlanSha256))throw new Error('BLOCKED_EXECUTION_PLAN: phase manifest has an invalid plan digest');
+    const plan=readDualBytes(roots,phaseRelative(phase,'execution-plan.json'));
+    if(plan.sha256!==manifest.executionPlanSha256)throw new Error('BLOCKED_EXECUTION_PLAN: phase manifest does not bind the immutable plan');
+    const parsed=JSON.parse(plan.bytes.toString('utf8'));
+    if(!plan.bytes.equals(canonicalBytes(parsed)))throw new Error('BLOCKED_EXECUTION_PLAN: stored plan is not canonical');
+    if(parsed.stage!==roots.stage||parsed.phase!==phase||parsed.creatorRevision!==manifest.creatorCommit
+      ||!same(parsed.cellKeys,manifest.authorizedCellKeys)||parsed.renderBudget!==manifest.renderBudget
+      ||!same(parsed.identity,manifest.identity))throw new Error('BLOCKED_EXECUTION_PLAN: plan scope differs from the immutable phase manifest');
+  }
   return {manifest,ledger};
 }
 function initializePhase({roots,phase,manifest,cells,renderBudget,now=()=>new Date().toISOString(),write=writeImmutableFile}={}){
@@ -239,7 +249,17 @@ function initializePhase({roots,phase,manifest,cells,renderBudget,now=()=>new Da
   if(new Set(keys).size!==keys.length)throw new Error('duplicate authorized cell key');
   for(const key of keys)safePart(key,'cell key');
   if(!manifest||manifest.issue!==ISSUE||manifest.epoch!==EPOCH||manifest.stage!==roots.stage||manifest.phase!==phase)throw new Error('BLOCKED_EVIDENCE_MANIFEST_IMMUTABLE: invalid phase manifest');
-  if(!/^[a-f0-9]{64}$/.test(manifest.authorizationSha256||''))throw new Error('AUTHORIZATION_REQUIRED: authorization hash is missing');
+  const hasPlan=/^[a-f0-9]{64}$/.test(manifest.executionPlanSha256||''),hasLegacyAuthorization=/^[a-f0-9]{64}$/.test(manifest.authorizationSha256||'');
+  if(!hasPlan&&!hasLegacyAuthorization)throw new Error('BLOCKED_EXECUTION_PLAN: immutable execution-plan digest is required');
+  if(hasPlan){
+    const plan=readDualBytes(roots,phaseRelative(phase,'execution-plan.json'));
+    if(plan.sha256!==manifest.executionPlanSha256)throw new Error('BLOCKED_EXECUTION_PLAN: phase manifest does not bind the persisted plan');
+    const parsed=JSON.parse(plan.bytes.toString('utf8'));
+    if(!plan.bytes.equals(canonicalBytes(parsed)))throw new Error('BLOCKED_EXECUTION_PLAN: persisted plan is not canonical');
+    if(parsed.stage!==roots.stage||parsed.phase!==phase||parsed.creatorRevision!==manifest.creatorCommit
+      ||!same(parsed.cellKeys,keys)||parsed.renderBudget!==renderBudget||!same(parsed.identity,manifest.identity))
+      throw new Error('BLOCKED_EXECUTION_PLAN: phase manifest scope differs from the persisted plan');
+  }
   if(!Number.isSafeInteger(renderBudget)||renderBudget<keys.length)throw new Error('invalid render budget');
   const relativeManifest=phaseRelative(phase,'manifest.json'),relativeLedger=phaseRelative(phase,'ledger.json');
   const existing=readPhaseLedger(roots,phase);
@@ -288,7 +308,8 @@ function startCell({roots,phase,cellKey,cell,identity,identityNow,now=()=>new Da
   if(current.cell.state!=='PENDING')throw new Error(`BLOCKED_CELL_AMBIGUOUS: ${cellKey} is ${current.cell.state}; rerender is forbidden`);
   if(typeof identityNow!=='function')throw new Error('identityNow callback is required before rendering');
   checkFrozenIdentity(identity,identityNow());
-  const marker={schemaVersion:1,issue:ISSUE,epoch:EPOCH,stage:roots.stage,phase,cellKey,cell,identitySha256:sha256(canonicalBytes(identity)),authorizationSha256:state.manifest.authorizationSha256,startedAt:now()};
+  const marker={schemaVersion:1,issue:ISSUE,epoch:EPOCH,stage:roots.stage,phase,cellKey,cell,identitySha256:sha256(canonicalBytes(identity)),
+    ...(state.manifest.executionPlanSha256?{executionPlanSha256:state.manifest.executionPlanSha256}:{authorizationSha256:state.manifest.authorizationSha256}),startedAt:now()};
   const markerRel=phaseRelative(phase,`cells/${cellKey}/render-start.json`),markerHash=writeImmutableDual(roots,markerRel,canonicalBytes(marker),{write:writeImmutable});
   try{checkFrozenIdentity(identity,identityNow());}catch(error){
     const ledger=state.ledger;ledger.cells[cellKey]={state:'AMBIGUOUS',markerSha256:markerHash.sha256,reason:'identity drift after marker',updatedAt:now()};ledger.decision='AMBIGUOUS';
@@ -368,11 +389,15 @@ function finalizePhase({roots,phase,decision,summary={},now=()=>new Date().toISO
   const computed=rows.every(row=>row.decision==='PASS')?'PASS':'FAIL';
   const finalDecision=decision||computed;
   if(computed==='FAIL'&&finalDecision==='PASS')throw new Error('BLOCKED_PHASE_DECISION: failed observations cannot finalize as PASS');
-  const result={schemaVersion:1,issue:ISSUE,epoch:EPOCH,stage:roots.stage,phase,identity:state.manifest.identity,authorizationSha256:state.manifest.authorizationSha256,renderCount:state.ledger.renderCount,decision:finalDecision,summary,rows,finalizedAt:now()};
+  const result={schemaVersion:1,issue:ISSUE,epoch:EPOCH,stage:roots.stage,phase,identity:state.manifest.identity,
+    ...(state.manifest.executionPlanSha256?{executionPlanSha256:state.manifest.executionPlanSha256}:{authorizationSha256:state.manifest.authorizationSha256}),
+    renderCount:state.ledger.renderCount,decision:finalDecision,summary,rows,finalizedAt:now()};
   const written=writeImmutableDual(roots,resultRel,canonicalBytes(result));
   const phaseRootPrimary=path.join(roots.primary,'phases',phase),phaseRootSecondary=path.join(roots.secondary,'phases',phase);
-  const metadata={creatorRevision:state.manifest.creatorCommit,executionId:state.manifest.candidateId,generation:EPOCH,runnerSha256:state.manifest.runnerSha256,helperSha256:state.manifest.captureHelperSha256,wasmSha256:state.manifest.primaryWasmSha256||state.manifest.wasmSha256,startedAt:state.manifest.createdAt,finalizedAt:result.finalizedAt,decision:finalDecision,phaseResultSha256:written.sha256,authorizationSha256:state.manifest.authorizationSha256};
-  durable.writeFinalizedManifest({primaryRoot:phaseRootPrimary,secondaryRoot:phaseRootSecondary,metadata,artifactRoles:{'phase-result.json':'phase-result','manifest.json':'phase-manifest','ledger.json':'phase-ledger'},now});
+  const metadata={creatorRevision:state.manifest.creatorCommit,executionId:state.manifest.candidateId,generation:EPOCH,runnerSha256:state.manifest.runnerSha256,helperSha256:state.manifest.captureHelperSha256,wasmSha256:state.manifest.primaryWasmSha256||state.manifest.wasmSha256,startedAt:state.manifest.createdAt,finalizedAt:result.finalizedAt,decision:finalDecision,phaseResultSha256:written.sha256,
+    ...(state.manifest.executionPlanSha256?{executionPlanSha256:state.manifest.executionPlanSha256}:{authorizationSha256:state.manifest.authorizationSha256})};
+  durable.writeFinalizedManifest({primaryRoot:phaseRootPrimary,secondaryRoot:phaseRootSecondary,metadata,artifactRoles:{'phase-result.json':'phase-result','manifest.json':'phase-manifest','ledger.json':'phase-ledger',
+    ...(state.manifest.executionPlanSha256?{'execution-plan.json':'execution-plan'}:{})},now});
   const archive=durable.createPhaseArchive({primaryRoot:phaseRootPrimary,secondaryRoot:phaseRootSecondary,phase});
   return {result,sha256:written.sha256,archiveSha256:archive.sha256};
 }
@@ -382,10 +407,21 @@ function readFinal(roots,phase){
   const manifest=durable.verifyDualCopy(path.join(primary,'evidence-manifest.json'),path.join(secondary,'evidence-manifest.json'));
   const manifestHash=manifest.sha256+'\n';
   if(fs.readFileSync(path.join(primary,'evidence-manifest.sha256'),'utf8')!==manifestHash||fs.readFileSync(path.join(secondary,'evidence-manifest.sha256'),'utf8')!==manifestHash)throw new Error('BLOCKED_EVIDENCE_MANIFEST_IMMUTABLE: manifest checksum mismatch');
-  const parsed=JSON.parse(manifest.bytes.toString('utf8'));
+  const parsed=JSON.parse(manifest.bytes.toString('utf8')),resultValue=JSON.parse(result.bytes.toString('utf8'));
   if(parsed.phaseResultSha256!==result.sha256)throw new Error('BLOCKED_EVIDENCE_MANIFEST_IMMUTABLE: phase result hash mismatch');
+  if(resultValue.executionPlanSha256&&parsed.executionPlanSha256!==resultValue.executionPlanSha256)
+    throw new Error('BLOCKED_EXECUTION_PLAN: finalized manifest and phase result disagree on the plan digest');
+  let executionPlan=null;
+  if(resultValue.executionPlanSha256){
+    const plan=readDualBytes(roots,phaseRelative(phase,'execution-plan.json'));
+    if(plan.sha256!==resultValue.executionPlanSha256)throw new Error('BLOCKED_EXECUTION_PLAN: finalized evidence plan digest mismatch');
+    const planValue=JSON.parse(plan.bytes.toString('utf8'));
+    if(!plan.bytes.equals(canonicalBytes(planValue))||planValue.stage!==roots.stage||planValue.phase!==phase
+      ||!same(planValue.identity,resultValue.identity))throw new Error('BLOCKED_EXECUTION_PLAN: finalized execution plan is malformed or out of scope');
+    executionPlan=planValue;
+  }
   const archive=durable.verifyDualCopy(path.join(primary,'archives',`${phase}.tar.gz`),path.join(secondary,'archives',`${phase}.tar.gz`));
-  return {result:JSON.parse(result.bytes.toString('utf8')),sha256:result.sha256,manifest:parsed,manifestSha256:manifest.sha256,archiveSha256:archive.sha256};
+  return {result:resultValue,sha256:result.sha256,manifest:parsed,manifestSha256:manifest.sha256,archiveSha256:archive.sha256,executionPlan};
 }
 function readAuthorization(root=ROOT,{path:overridePath}={}){
   const file=overridePath||path.join(root,'.agent-state/issues/7/current-build-v1/authorization.json');
@@ -433,6 +469,97 @@ function readExecutionIdentityPlan(planBody){
   return identity;
 }
 function gitHead(root=ROOT){return execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();}
+const EXECUTION_BUDGET_CAPS=Object.freeze({
+  'stage3e/baseline':24,'stage3e/midi51-diagnostic':16,'stage3e/low-screen':1512,
+  'stage3e/midi51-candidate-diagnostic':80,'stage3e/low-full':415,'stage3e/mid-screen':108,
+  'stage3e/midi51-final-diagnostic':80,'stage3e/mid-full':320,'stage3/stage3':486,'stage4/stage4':1423
+});
+const EXECUTION_BUDGET_FIXED=Object.freeze({'stage3e/baseline':24,'stage3e/midi51-diagnostic':16,
+  'stage3e/low-screen':1512,'stage3e/mid-screen':108,'stage3/stage3':486,'stage4/stage4':1423});
+const EXECUTION_BUDGET_UNITS=Object.freeze({'stage3e/midi51-candidate-diagnostic':16,'stage3e/low-full':83,
+  'stage3e/midi51-final-diagnostic':16,'stage3e/mid-full':64});
+function acousticIdentityProjection(value){
+  if(Array.isArray(value))return value.map(acousticIdentityProjection);
+  if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort()
+    .filter(key=>key!=='runnerSha256').map(key=>[key,acousticIdentityProjection(value[key])]));
+  return value;
+}
+function commitIsAncestor(root,ancestor){
+  if(!/^[a-f0-9]{40}$/.test(ancestor||''))return false;
+  try{execFileSync('rtk',['git','merge-base','--is-ancestor',ancestor,'HEAD'],{cwd:root,stdio:'ignore'});return true;}
+  catch{return false;}
+}
+function documentationOnlyDescendant(root,ancestor){
+  if(!commitIsAncestor(root,ancestor))return false;
+  if(gitHead(root)===ancestor)return true;
+  try{
+    const changed=execFileSync('rtk',['git','diff','--name-only',`${ancestor}..HEAD`],{cwd:root,encoding:'utf8'}).trim().split(/\r?\n/).filter(Boolean);
+    return changed.length>0&&changed.every(relative=>relative.startsWith('docs/'));
+  }catch{return false;}
+}
+function prerequisiteRecord(item){
+  if(!item||typeof item!=='object'||!item.stage||!item.phase||!/^([a-f0-9]{64})$/.test(item.resultSha256||'')
+    ||!/^([a-f0-9]{64})$/.test(item.archiveSha256||'')||!/^([a-f0-9]{40})$/.test(item.creatorRevision||'')
+    ||typeof item.decision!=='string'||(item.executionPlanSha256&&!/^[a-f0-9]{64}$/.test(item.executionPlanSha256)))
+    throw new Error('BLOCKED_EXECUTION_PLAN: prerequisite evidence is incomplete');
+  return stable({stage:item.stage,phase:item.phase,decision:item.decision,resultSha256:item.resultSha256,
+    archiveSha256:item.archiveSha256,creatorRevision:item.creatorRevision,
+    ...(item.executionPlanSha256?{executionPlanSha256:item.executionPlanSha256}:{})});
+}
+function deriveExecutionPlan({stage,phase,cells,renderBudget,identity,prerequisites=[],creatorRevision}={}){
+  const cap=EXECUTION_BUDGET_CAPS[`${stage}/${phase}`],keys=Array.isArray(cells)?cells.map(cell=>String(typeof cell==='string'?cell:cell?.key)):[];
+  const fixed=EXECUTION_BUDGET_FIXED[`${stage}/${phase}`],unit=EXECUTION_BUDGET_UNITS[`${stage}/${phase}`];
+  if(!cap||!keys.length||new Set(keys).size!==keys.length||keys.some(key=>!key||key==='undefined')
+    ||!Number.isSafeInteger(renderBudget)||renderBudget!==keys.length||renderBudget>cap
+    ||(fixed!==undefined&&renderBudget!==fixed)||(unit!==undefined&&(renderBudget<unit||renderBudget%unit!==0)))
+    throw new Error('BLOCKED_EXECUTION_PLAN: phase cells or render budget exceed the fixed Issue #7 cap');
+  if(!identity||typeof identity!=='object'||Array.isArray(identity))throw new Error('BLOCKED_EXECUTION_PLAN: frozen input identity is missing');
+  if(!/^[a-f0-9]{40}$/.test(creatorRevision||''))throw new Error('BLOCKED_EXECUTION_PLAN: pinned creator revision is missing');
+  if(!Array.isArray(prerequisites))throw new Error('BLOCKED_EXECUTION_PLAN: prerequisite list must be deterministic');
+  const frozenIdentity=stable(identity),frozenPrerequisites=prerequisites.map(prerequisiteRecord);
+  return stable({schemaVersion:1,issue:ISSUE,epoch:EPOCH,stage,phase,creatorRevision,contractSha256:CONTRACT_SHA256,
+    identity:frozenIdentity,identitySha256:sha256(canonicalBytes(frozenIdentity)),cellKeys:keys,
+    orderedCellSetSha256:sha256(canonicalBytes(keys)),cellSetSha256:cellSetSha256(keys),renderBudget,maxCalls:renderBudget,budgetCap:cap,
+    prerequisites:frozenPrerequisites});
+}
+function verifyAndPersistExecutionPlan({roots,root=ROOT,stage,phase,cells,renderBudget,identity,prerequisites=[],nowRevision=()=>gitHead(root),
+  isAncestor=commitIsAncestor,write=writeImmutableFile}={}){
+  if(!roots)throw new Error('BLOCKED_EXECUTION_PLAN: canonical dual evidence roots are required');
+  const relative=phaseRelative(phase,'execution-plan.json'),paths=dualPaths(roots,relative),any=[paths.primary,paths.secondary].some(fs.existsSync);
+  let creatorRevision=any?(JSON.parse(readDualBytes(roots,relative).bytes.toString('utf8')).creatorRevision):nowRevision();
+  if(!isAncestor(root,creatorRevision))throw new Error('BLOCKED_EXECUTION_PLAN: pinned creator revision is not an ancestor of current HEAD');
+  const plan=deriveExecutionPlan({stage,phase,cells,renderBudget,identity,prerequisites,creatorRevision}),bytes=canonicalBytes(plan);
+  const manifestPaths=dualPaths(roots,phaseRelative(phase,'manifest.json'));
+  if(!any&&[manifestPaths.primary,manifestPaths.secondary].some(fs.existsSync))
+    throw new Error('BLOCKED_EXECUTION_PLAN: phase manifest exists without its frozen plan; phase cannot be resumed');
+  let stored;
+  if(any){
+    stored=readDualBytes(roots,relative);
+    if(!stored.bytes.equals(bytes))throw new Error('BLOCKED_EXECUTION_PLAN: deterministic phase plan changed after it was frozen');
+  }else{
+    stored=writeImmutableDual(roots,relative,bytes,{write});
+    const readback=readDualBytes(roots,relative);
+    if(readback.sha256!==stored.sha256||!readback.bytes.equals(bytes))throw new Error('BLOCKED_EXECUTION_PLAN: immutable dual-store readback mismatch');
+    stored=readback;
+  }
+  if(!stored.bytes.equals(canonicalBytes(JSON.parse(stored.bytes.toString('utf8')))))
+    throw new Error('BLOCKED_EXECUTION_PLAN: stored execution plan is not canonical');
+  return {plan,bytes:stored.bytes,sha256:stored.sha256,relative};
+}
+function verifyFinalizedIdentity({root=ROOT,final,identity,allowSyntheticTest=false}={}){
+  const synthetic=final?.result?.summary?.syntheticTest===true;
+  if(synthetic&&!allowSyntheticTest)throw new Error('BLOCKED_SYNTHETIC_EVIDENCE: synthetic finalized rows cannot satisfy a production prerequisite');
+  const creatorRevision=final?.manifest?.creatorRevision||final?.manifest?.creatorCommit||final?.executionPlan?.creatorRevision;
+  if(!synthetic&&!commitIsAncestor(root,creatorRevision))
+    throw new Error('BLOCKED_EVIDENCE_CREATOR_REVISION: phase creator revision is not an ancestor of current HEAD');
+  if(final?.result?.executionPlanSha256&&final?.executionPlan){
+    if(!same(final.executionPlan.identity,identity))throw new Error('BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT: frozen runner or acoustic input identity differs from the phase plan');
+  }else if(!same(acousticIdentityProjection(final?.result?.identity),acousticIdentityProjection(identity)))
+    throw new Error('BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT: finalized acoustic input hashes differ from current inputs');
+  if(final.result.executionPlanSha256&&final.manifest.executionPlanSha256!==final.result.executionPlanSha256)
+    throw new Error('BLOCKED_EXECUTION_PLAN: finalized evidence does not bind the same plan digest');
+  return true;
+}
 function expectedApprovalStatement({stage,phase,cells,renderBudget,planCommentId,executionIdentitySha256:identitySha}={}){
   if(!/^\d+$/.test(String(planCommentId||''))||! /^[a-f0-9]{64}$/.test(identitySha||''))
     throw new Error('AUTHORIZATION_REQUIRED: exact plan comment ID and execution identity digest are required');
@@ -557,5 +684,6 @@ module.exports={ROOT,ISSUE,EPOCH,CONTRACT_SHA256,STAGES,PHASES,sha256,stable,can
   writeMutableFile,writeMutableDual,readDualBytes,readDualJson,parseCache,hashInputs,checkFrozenIdentity,
   phaseRelative,initializePhase,readPhaseLedger,readCell,startCell,completeCell,markAmbiguous,normalizeObserved,
   assessSafety,finalizePhase,readFinal,readAuthorization,commentIdFromUrl,cellSetSha256,executionIdentityProjection,makeExecutionIdentity,
+  EXECUTION_BUDGET_CAPS,EXECUTION_BUDGET_FIXED,EXECUTION_BUDGET_UNITS,acousticIdentityProjection,deriveExecutionPlan,verifyAndPersistExecutionPlan,verifyFinalizedIdentity,commitIsAncestor,documentationOnlyDescendant,
   executionIdentitySha256,executionIdentityMarker,readExecutionIdentityPlan,gitHead,expectedApprovalStatement,
   readGitHubApproval,validateAuthorization,verifyAndPersistAuthorization,lockPath,withWriterLock};

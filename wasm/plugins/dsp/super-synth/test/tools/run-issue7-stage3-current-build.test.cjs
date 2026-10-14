@@ -17,10 +17,9 @@ test('Stage3 uses exactly 480 direct cells and six sentinels with unique keys',(
   assert.ok(cells.every(cell=>cell.phase==='stage3'&&cell.buildRole==='production'));
 });
 
-test('Stage3 execute without Issue 7 authorization stops before any render',()=>{
-  let calls=0;
-  assert.throws(()=>runner.run({mode:'execute',root:os.tmpdir(),authorization:null,render:()=>{calls+=1;return {};}}),/AUTHORIZATION_REQUIRED/);
-  assert.equal(calls,0);
+test('Stage3 execution has no approval gate and blocks before rendering when Stage3E selection is absent',t=>{
+  const home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3-no-approval-home-'));t.after(()=>fs.rmSync(home,{recursive:true,force:true}));
+  assert.throws(()=>runner.run({mode:'execute',root:runner.ROOT,home}),/BLOCKED_STAGE3E_SELECTION_REQUIRED/);
 });
 
 test('Stage3 dry-run reports the missing Stage3E selection without writes or renders',t=>{
@@ -101,4 +100,5 @@ test('Stage3 runner exposes only the contract modes and no legacy authoritative 
   assert.throws(()=>runner.parseMode(['--next']),/unsupported mode/);
   const source=fs.readFileSync(path.join(__dirname,'run-issue7-stage3-current-build.cjs'),'utf8');
   assert.doesNotMatch(source,/stage3\/authoritative|run-stage3e-master-orchestrator\.cjs/);
+  assert.doesNotMatch(source,/readGitHubApproval|verifyAndPersistAuthorization|AUTHORIZATION_REQUIRED/);
 });

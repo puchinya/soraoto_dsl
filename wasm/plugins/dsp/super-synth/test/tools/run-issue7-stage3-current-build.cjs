@@ -13,7 +13,6 @@ const direct=require('./stage3-direct-reference-metrics.cjs');
 const ROOT=core.ROOT;
 const STAGE='stage3';
 const PHASE='stage3';
-const AUTH_REL='.agent-state/issues/7/current-build-v1/authorizations/stage3-execute.json';
 const REGRESSION_REL='.agent-state/issues/7/current-build-v1/stage3-regression-results.json';
 const IDENTITY_REL='docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json';
 const FIXTURE_REL='wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json';
@@ -285,21 +284,30 @@ function cells(){
   if(new Set(CELL_SPECS.map(cell=>cell.key)).size!==486)throw new Error('BLOCKED_STAGE3_CELL_SET: duplicate cell key');
   return CELL_SPECS.map(cell=>({...cell,phase:PHASE,buildRole:'production'}));
 }
-function authPath(root=ROOT){return path.join(root,AUTH_REL);}
-function readAuthorization(root,provided){
-  if(provided!==undefined)return {authorization:provided,bytes:core.canonicalBytes(provided),sha256:sha256(core.canonicalBytes(provided))};
-  return core.readAuthorization(root,{path:authPath(root)});
+function verifyStage3ePrerequisite(root,selected,{allowSyntheticTest=false}={}){
+  const final=selected?.final,creator=final?.manifest?.creatorRevision||final?.manifest?.creatorCommit||final?.executionPlan?.creatorRevision;
+  const synthetic=final?.result?.summary?.syntheticTest===true;
+  if(!(synthetic&&allowSyntheticTest)&&!core.commitIsAncestor(root,creator))
+    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: Stage3E creator revision is not an ancestor of current HEAD');
+  const frozen=final.executionPlan?.identity;
+  if(frozen){
+    for(const [relative,expected] of Object.entries(frozen.helperInputs||{}))
+      if(fileSha(root,relative)!==expected)throw new Error(`BLOCKED_STAGE3E_SELECTION_REQUIRED: Stage3E helper changed: ${relative}`);
+    const runnerSha=fileSha(root,'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.cjs');
+    if(runnerSha!==frozen.runnerSha256)throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: Stage3E runner changed after the frozen phase plan');
+  }
+  return true;
 }
-function phaseManifest({root,record,identity,authorizationSha256,now,cells:phaseCells}){
+function phaseManifest({root,record,identity,executionPlan,now,cells:phaseCells}){
   return {schemaVersion:1,issue:7,epoch:core.EPOCH,stage:STAGE,phase:PHASE,
-    creatorCommit:git(root,['rev-parse','HEAD']),candidateId:`issue7-${core.EPOCH}-stage3`,
+    creatorCommit:executionPlan.creatorRevision,candidateId:`issue7-${core.EPOCH}-stage3`,
     referenceFixtureSha256:record.inputs.referenceMetrics.sha256,sourcePluginSha256:record.inputs.pluginC.sha256,
     presetsSha256:record.inputs.presets.sha256,profileSha256:record.inputs.generatedProfile.sha256,
     captureHelperSha256:identity.captureHelperSha256,evaluatorSha256:identity.evaluatorSha256,runnerSha256:identity.runnerSha256,
     builds:identity.builds,identity,selectionSha256:identity.selectionSha256,stage3eResultSha256:identity.stage3eResultSha256,
     regressionResultsSha256:identity.regressionResultsSha256,productionBuildIdentitySha256:identity.productionBuildIdentitySha256,
     primaryWasmSha256:identity.builds.production.wasmSha256,
-    authorizationSha256,authorizedCellKeys:phaseCells.map(cell=>cell.key),renderBudget:phaseCells.length,createdAt:now()};
+    executionPlanSha256:sha256(core.canonicalBytes(executionPlan)),authorizedCellKeys:phaseCells.map(cell=>cell.key),renderBudget:phaseCells.length,createdAt:now()};
 }
 function withProductionBuild(root,record,action){
   const key='SORAOTO_WASM_BUILD_DIR',prior=process.env[key];process.env[key]=buildDirectory(root,record);
@@ -338,6 +346,7 @@ function finalize({roots,identity,regressions,now=()=>new Date().toISOString()}=
 }
 function prepare({root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResultsPath=REGRESSION_REL,allowSyntheticTest=false}={}){
   const record=identityRecord(root),selected=readSelection(root,home,epoch,{allowSyntheticTest}),regressions=readRegressions(root,regressionResultsPath);
+  verifyStage3ePrerequisite(root,selected,{allowSyntheticTest});
   assertPromotedValues(root,selected.tuple);
   const production=deriveProductionBuildIdentity({root,record,selection:selected});
   const identity=currentIdentity({root,home,epoch,record,selection:selected,regressions,regressionPath:regressionResultsPath,production});
@@ -350,29 +359,27 @@ function prepare({root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResults
   return {record,productionRecord:production.productionRecord,derivedBuildIdentity:production.derived,
     productionBuildIdentitySha256:production.productionBuildIdentitySha256,selected,regressions,identity,exports:production.derived.productionExports};
 }
-function execute({root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,regressionResultsPath=REGRESSION_REL,render=renderDefault,
-  now=()=>new Date().toISOString(),githubReadback=core.readGitHubApproval}={}){
-  const phaseCells=cells(),authorizationRecord=readAuthorization(root,authorization),approved=authorizationRecord?.authorization;
-  if(!approved)throw new Error('AUTHORIZATION_REQUIRED: Issue #7 approval for the exact 486 Stage3 cells is required');
-  const auth=core.validateAuthorization(approved,{stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:486});
+function execute({root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResultsPath=REGRESSION_REL,render=renderDefault,
+  now=()=>new Date().toISOString(),allowSyntheticTest=false}={}){
+  const phaseCells=cells();
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
-  return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionResultsPath,render,now,roots,githubReadback}));
+  return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>executeAuthorized({root,home,epoch,phaseCells,regressionResultsPath,render,now,roots,allowSyntheticTest}));
 }
-function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionResultsPath,render,now,roots,githubReadback=core.readGitHubApproval,allowSyntheticTest=false}){
-  if(allowSyntheticTest!==(auth?.syntheticTest===true)||(allowSyntheticTest&&(approved?.synthetic!==true||approved?.label!=='SYNTHETIC TEST')))
-    throw new Error('AUTHORIZATION_REQUIRED: synthetic Stage3 execution is available only to the explicit test adapter');
+function executeAuthorized({root,home,epoch,phaseCells,regressionResultsPath,render,now,roots,allowSyntheticTest=false}){
+  const syntheticTest=allowSyntheticTest===true;
+  if(syntheticTest&&render===renderDefault)throw new Error('BLOCKED_SYNTHETIC_RENDER: synthetic mode cannot invoke the production WASM renderer');
+  if(!syntheticTest&&render!==renderDefault)throw new Error('BLOCKED_SYNTHETIC_RENDER: injected renderers require explicit synthetic-test mode');
   const prepared=prepare({root,home,epoch,regressionResultsPath,allowSyntheticTest});
   if(prepared.record.sourceCommit&&!isAncestor(root,prepared.record.sourceCommit))
     throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: build source commit is not an ancestor of current HEAD');
-  const executionIdentity=core.makeExecutionIdentity({stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:486,
-    prHeadSha:core.gitHead(root),identity:prepared.identity});
-  const verified=core.verifyAndPersistAuthorization(approved,{roots,stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:486,
-    executionIdentity,executionIdentityNow:()=>core.makeExecutionIdentity({stage:STAGE,phase:PHASE,cells:phaseCells.map(cell=>cell.key),renderBudget:486,
-      prHeadSha:core.gitHead(root),identity:currentIdentity({root,home,epoch,regressionPath:regressionResultsPath,allowSyntheticTest})}),
-    readback:details=>githubReadback({...details,root})});
-  const syntheticTest=verified.syntheticTest===true||auth.syntheticTest===true;
+  const prerequisite=prepared.selected.final;
+  const frozen=core.verifyAndPersistExecutionPlan({roots,root,stage:STAGE,phase:PHASE,cells:phaseCells,renderBudget:486,identity:prepared.identity,
+    prerequisites:[{stage:'stage3e',phase:'mid-full',decision:prerequisite.result.decision,resultSha256:prerequisite.sha256,
+      archiveSha256:prerequisite.archiveSha256,creatorRevision:prerequisite.manifest?.creatorRevision||prerequisite.manifest?.creatorCommit||
+        (syntheticTest?core.gitHead(root):undefined),
+      ...(prerequisite.result.executionPlanSha256?{executionPlanSha256:prerequisite.result.executionPlanSha256}:{})}]});
   const previous=core.readPhaseLedger(roots,PHASE);
-  const manifest=phaseManifest({root,record:prepared.productionRecord,identity:prepared.identity,authorizationSha256:verified.sha256,
+  const manifest=phaseManifest({root,record:prepared.productionRecord,identity:prepared.identity,executionPlan:frozen.plan,
     now:previous?.manifest.createdAt?()=>previous.manifest.createdAt:now,cells:phaseCells});
   core.writeImmutableDual(roots,DERIVED_IDENTITY_REL,core.canonicalBytes(prepared.derivedBuildIdentity));
   core.initializePhase({roots,phase:PHASE,manifest,cells:phaseCells,renderBudget:486,now});
@@ -388,7 +395,7 @@ function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionR
     if(started.skipped)continue;
     calls+=1;
     let observed;
-    try{observed=render({root,record:prepared.productionRecord,identity:prepared.identity,cell,authorization:approved});}
+    try{observed=render({root,record:prepared.productionRecord,identity:prepared.identity,cell,syntheticTest});}
     catch(error){
       try{core.markAmbiguous({roots,phase:PHASE,cellKey:cell.key,reason:error.message,now});}catch{}
       throw new Error(`BLOCKED_STAGE3_AMBIGUOUS_RENDER_ACCOUNTING: ${cell.key}; started=${calls}; ${error.message}`);
@@ -414,15 +421,15 @@ function executeAuthorized({root,home,epoch,approved,auth,phaseCells,regressionR
   return {decision:finalized.result.decision,phase:PHASE,calls,renderCount:finalized.result.renderCount,counts,
     summary:evaluation,resultSha256:finalized.sha256,archiveSha256:finalized.archiveSha256,syntheticTest,acousticRenders:calls};
 }
-function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,regressionResultsPath=REGRESSION_REL,render=renderDefault,
-  now=()=>new Date().toISOString(),githubReadback=core.readGitHubApproval,allowSyntheticTest=false}={}){
+function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResultsPath=REGRESSION_REL,render=renderDefault,
+  now=()=>new Date().toISOString(),allowSyntheticTest=false}={}){
   if(!['dry-run','execute','finalize','verify'].includes(mode))throw new Error('explicit mode required: dry-run, execute, finalize, or verify');
-  if(mode==='execute')return execute({root,home,epoch,authorization,regressionResultsPath,render,now,githubReadback});
+  if(mode==='execute')return execute({root,home,epoch,regressionResultsPath,render,now,allowSyntheticTest});
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
   if(mode==='verify'){
     const final=core.readFinal(roots,PHASE);
     const prepared=prepare({root,home,epoch,regressionResultsPath,allowSyntheticTest});
-    core.checkFrozenIdentity(final.result.identity,prepared.identity);
+    core.verifyFinalizedIdentity({root,final,identity:prepared.identity,allowSyntheticTest});
     return {decision:final.result.decision,phase:PHASE,resultSha256:final.sha256,archiveSha256:final.archiveSha256,
       renderCount:final.result.renderCount,builds:0,renders:0,writes:0,acousticRenders:0};
   }
@@ -430,7 +437,7 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,authorization,re
     return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>{
       const identity=core.readDualJson(roots,'execution-identity.json');
       const prepared=prepare({root,home,epoch,regressionResultsPath,allowSyntheticTest});
-      core.checkFrozenIdentity(identity,prepared.identity);
+      core.verifyFinalizedIdentity({root,final:core.readFinal(roots,PHASE),identity:prepared.identity,allowSyntheticTest});
       const regressionBytes=core.readDualBytes(roots,'regression-results.json'),regressions=JSON.parse(regressionBytes.bytes.toString('utf8'));
       if(core.sha256(regressionBytes.bytes)!==prepared.regressions.sha256)throw new Error('BLOCKED_STAGE3_REGRESSION_RESULTS: stored regression evidence changed');
       const artifact=core.readDualBytes(roots,'artifacts/production-plugin.wasm');
@@ -455,12 +462,12 @@ function parseMode(argv){
 }
 function main(argv=process.argv.slice(2)){
   const result=run({mode:parseMode(argv)});process.stdout.write(JSON.stringify(result)+'\n');
-  if(/^AUTHORIZATION_REQUIRED|^BLOCKED_/.test(result.decision||''))process.exitCode=2;
+  if(/^BLOCKED_/.test(result.decision||''))process.exitCode=2;
   return result;
 }
-if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=/^AUTHORIZATION_REQUIRED/.test(error.message)?2:1;}}
+if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=/^BLOCKED_/.test(error.message)?2:1;}}
 
-module.exports={ROOT,STAGE,PHASE,AUTH_REL,REGRESSION_REL,REQUIRED_REGRESSIONS,CELL_SPECS,
+module.exports={ROOT,STAGE,PHASE,REGRESSION_REL,REQUIRED_REGRESSIONS,CELL_SPECS,
   sha256,fileSha,identityRecord,buildDirectory,productionWasm,assertProductionExports,readSelection,assertPromotedValues,
   isCommitAncestor,promotionDetails,validatePromotionDetails,derivedBuildSnapshot,deriveProductionBuildIdentity,DERIVED_IDENTITY_REL,PROMOTION_PATHS,
-  readRegressions,currentIdentity,cells,authPath,readAuthorization,phaseManifest,renderDefault,readRows,evaluate,finalize,prepare,execute,executeAuthorized,run,parseMode,main};
+  readRegressions,currentIdentity,cells,verifyStage3ePrerequisite,phaseManifest,renderDefault,readRows,evaluate,finalize,prepare,execute,executeAuthorized,run,parseMode,main};

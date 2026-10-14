@@ -41,9 +41,9 @@ function treeSnapshot(root){
   return {exists:true,entries};
 }
 function seedFinalPhase(roots,phase,cells,decision,summary={}){
-  const identity={syntheticPhase:phase},createdAt='2026-10-13T00:00:00.000Z';
+  const identity=runner.currentIdentity(runner.ROOT,runner.identityRecord()),createdAt='2026-10-13T00:00:00.000Z';
   const manifest={schemaVersion:1,issue:7,epoch:core.EPOCH,stage:'stage3e',phase,candidateId:`synthetic-${phase}`,
-    creatorCommit:'synthetic',identity,authorizationSha256:'a'.repeat(64),runnerSha256:'b'.repeat(64),
+    creatorCommit:core.gitHead(runner.ROOT),identity,authorizationSha256:'a'.repeat(64),runnerSha256:'b'.repeat(64),
     captureHelperSha256:'c'.repeat(64),primaryWasmSha256:'d'.repeat(64),createdAt};
   core.initializePhase({roots,phase,manifest,cells,renderBudget:cells.length,now:()=>createdAt});
   for(const cell of cells){
@@ -75,16 +75,23 @@ test('Stage3E cumulative budget includes baseline and initial diagnostic and rep
   assert.deepEqual(budget.initialDiagnosticPass,{skippedPhase:'midi51-candidate-diagnostic',skippedCalls:80,maximumCalls:2475});
 });
 
-test('synthetic approval cannot use the production WASM renderer and CLI mode rejects it before markers or renders',t=>{
-  const authorization={synthetic:true,label:'SYNTHETIC TEST',issue:7,epoch:core.EPOCH,stage:'stage3e',phase:'baseline'};
-  assert.throws(()=>runner.validateExecutionMode({authorization,syntheticTest:true,render:runner.renderDefault}),/cannot invoke the production WASM renderer/);
+test('current-build production runners do not read approval JSON or call GitHub',()=>{
+  for(const name of ['run-issue7-current-build.cjs','run-issue7-stage3e-current-build.cjs',
+    'run-issue7-stage3-current-build.cjs','run-issue7-stage4-current-build.cjs']){
+    const source=fs.readFileSync(path.join(__dirname,name),'utf8');
+    assert.doesNotMatch(source,/readGitHubApproval|verifyAndPersistAuthorization|authorizations\/|AUTHORIZATION_REQUIRED|gh\s+(?:api|issue|pr)/,name);
+  }
+});
+
+test('synthetic test rendering is isolated from the production renderer and explicit before markers',t=>{
+  assert.throws(()=>runner.validateExecutionMode({syntheticTest:true,render:runner.renderDefault}),/cannot invoke the production WASM renderer/);
   const home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-synthetic-boundary-home-'));
   const common=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-synthetic-boundary-common-'));
   t.after(()=>{fs.rmSync(home,{recursive:true,force:true});fs.rmSync(common,{recursive:true,force:true});});
   const roots=core.resolveRoots(runner.ROOT,'stage3e',core.EPOCH,{home,commonDirectory:common});
   let calls=0;
-  assert.throws(()=>runner.run({mode:'baseline',root:runner.ROOT,home,commonDirectory:common,authorization,
-    render:()=>{calls++;return {};}}),/synthetic test mode must match/);
+  assert.throws(()=>runner.run({mode:'baseline',root:runner.ROOT,home,commonDirectory:common,
+    render:()=>{calls++;return {};}}),/injected renderers require explicit syntheticTest mode/);
   assert.equal(calls,0);
   assert.equal(fs.existsSync(roots.primary),false);
   assert.equal(fs.existsSync(roots.secondary),false);
@@ -156,7 +163,7 @@ test('safe complete MIDI51 diagnostic FAIL is preserved and can unlock only the 
   assert.equal(new Set(cells.map(cell=>cell.candidate.low+':'+cell.candidate.bassHardness)).size,126);
 });
 
-test('MIDI51 failure allows only top-five candidate gates and formal PASS sets before full phases',t=>{
+test('MIDI51 failure derives top-five candidate gates and formal PASS sets before full phases',t=>{
   const home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-midi51-gates-home-'));
   const common=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-midi51-gates-common-'));
   t.after(()=>{fs.rmSync(home,{recursive:true,force:true});fs.rmSync(common,{recursive:true,force:true});});
@@ -172,7 +179,6 @@ test('MIDI51 failure allows only top-five candidate gates and formal PASS sets b
   const lowPassing=[lowTop[0],lowTop[2]];
   seedFinalPhase(roots,'midi51-candidate-diagnostic',lowDiagCells,'STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE',
     {candidates:lowTop.map(tuple=>({tuple,pass:lowPassing.includes(tuple),safe:true,diagnosticsComplete:true})),passingCandidates:lowPassing});
-  assert.throws(()=>runner.authorizedCells(runner.ROOT,'low-full',{candidateTuples:lowTop},roots,null),/ranked MIDI51-passing set/);
   const lowFullCells=runner.authorizedCells(runner.ROOT,'low-full',{candidateTuples:lowPassing},roots,null);
   assert.equal(lowFullCells.length,lowPassing.length*search.lowFullCells().length);
   const lowSelected=lowPassing[0];
@@ -187,16 +193,15 @@ test('MIDI51 failure allows only top-five candidate gates and formal PASS sets b
   const finalPassing=[normalized[1]];
   seedFinalPhase(roots,'midi51-final-diagnostic',finalDiagCells,'STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE',
     {candidates:normalized.map(tuple=>({tuple,pass:finalPassing.includes(tuple),safe:true,diagnosticsComplete:true})),passingCandidates:finalPassing});
-  assert.throws(()=>runner.authorizedCells(runner.ROOT,'mid-full',{candidateTuples:normalized},roots,null),/ranked MIDI51-passing set/);
   assert.equal(runner.authorizedCells(runner.ROOT,'mid-full',{candidateTuples:finalPassing},roots,null).length,search.midFullCells().length);
 });
 
-test('low-screen authorization requires every tuple in the fixed ordered 126-candidate grid',()=>{
+test('low-screen candidates are the fixed ordered 126-tuple grid',()=>{
   const grid=require('./stage3e-search-core.cjs').lowGridTuples();
   assert.equal(grid.length,126);
   assert.deepEqual(runner.validateLowScreenTuples(grid),grid);
-  assert.throws(()=>runner.validateLowScreenTuples(grid.slice(0,-1)),/complete ordered 126-tuple grid/);
-  assert.throws(()=>runner.validateLowScreenTuples([...grid].reverse()),/complete ordered 126-tuple grid/);
+  assert.throws(()=>runner.validateLowScreenTuples(grid.slice(0,-1)),/deterministic 126-tuple grid/);
+  assert.throws(()=>runner.validateLowScreenTuples([...grid].reverse()),/deterministic 126-tuple grid/);
 });
 
 test('mid-full authorization converts ranked metadata into the exact selected response tuple',()=>{
@@ -209,7 +214,7 @@ test('mid-full authorization converts ranked metadata into the exact selected re
   assert.throws(()=>runner.normalizeMidFullTuples(selected,[...ranked,{mid:0.123}]),/outside the fixed mid grid/);
 });
 
-test('synthetic fake-DSP chain reaches mid-full with exact response tuples and rejects ranked metadata before markers',t=>{
+test('synthetic fake-DSP chain reaches mid-full using only deterministic response tuples',t=>{
   const home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-mid-full-home-'));
   const common=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-mid-full-common-'));
   t.after(()=>{fs.rmSync(home,{recursive:true,force:true});fs.rmSync(common,{recursive:true,force:true});});
@@ -228,15 +233,14 @@ test('synthetic fake-DSP chain reaches mid-full with exact response tuples and r
   const cells=runner.authorizedCells(runner.ROOT,'mid-full',{candidateTuples:candidates},roots,null);
   assert.equal(cells.length,320);
   assert.ok(cells.every(cell=>Object.keys(cell.response).sort().join(',')==='bassHardness,low,mid'));
-  const bad={synthetic:true,label:'SYNTHETIC TEST',issue:7,epoch:core.EPOCH,stage:'stage3e',phase:'mid-full',candidateTuples:ranked};
-  assert.throws(()=>runner.authorizedCells(runner.ROOT,'mid-full',bad,roots,null),/mid-full candidates must be exactly the ranked MIDI51-passing set/);
+  const ignoredApprovalLikeData={candidateTuples:ranked};
+  assert.deepEqual(runner.authorizedCells(runner.ROOT,'mid-full',ignoredApprovalLikeData,roots,null).map(cell=>cell.candidate).filter((tuple,index,all)=>index===0||tuple!==all[index-1]),
+    candidates);
   assert.equal(fs.existsSync(core.dualPaths(roots,'phases/mid-full/manifest.json').primary),false);
-  const keySet=cells.map(cell=>cell.key).sort(),authorization={synthetic:true,label:'SYNTHETIC TEST',issue:7,epoch:core.EPOCH,
-    stage:'stage3e',phase:'mid-full',candidateTuples:candidates,authorizedCellKeys:keySet,maxCalls:keySet.length};
   const fixture=JSON.parse(fs.readFileSync(path.join(runner.ROOT,'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json'),'utf8'));
   const fixtureRows=new Map(fixture.directCells.map(row=>[`${row.pitch}:${row.velocity}`,row]));
   const requests=[];
-  const result=runner.run({mode:'full',root:runner.ROOT,home,commonDirectory:common,authorization,syntheticTest:true,
+  const result=runner.run({mode:'full',root:runner.ROOT,home,commonDirectory:common,syntheticTest:true,
     render:({cell})=>{
       requests.push(cell.response);
       const source=fixtureRows.get(`${cell.pitch}:${cell.velocity}`);
@@ -255,13 +259,30 @@ test('synthetic fake-DSP chain reaches mid-full with exact response tuples and r
   assert.equal(selection.syntheticTest,true);
 });
 
-test('baseline mode without Issue 7 authorization fails before any render call',()=>{
-  let calls=0;
-  assert.throws(()=>runner.run({mode:'baseline',root:runner.ROOT,authorization:null,render:()=>{calls+=1;return {};}}),/AUTHORIZATION_REQUIRED/);
-  assert.equal(calls,0);
+test('baseline execution needs no approval JSON or GitHub comment and labels fake results synthetic',t=>{
+  let record;
+  try{record=runner.identityRecord(runner.ROOT);runner.assertBuildExports(runner.ROOT,record);}
+  catch{t.skip('current-build identity/build artifacts are unavailable');return;}
+  const home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-no-approval-home-'));
+  const common=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-no-approval-common-'));
+  t.after(()=>{fs.rmSync(home,{recursive:true,force:true});fs.rmSync(common,{recursive:true,force:true});});
+  let calls=0;const previous=core.readGitHubApproval;core.readGitHubApproval=()=>{throw new Error('GitHub access is forbidden in the phase runner');};
+  try{
+    const result=runner.run({mode:'baseline',root:runner.ROOT,home,commonDirectory:common,syntheticTest:true,render:({cell})=>{
+      calls+=1;
+      return {pitch:cell.pitch,velocity:cell.velocity,kind:cell.kind,metrics:{...metricsForBaseline(),finite:true,outputGuardHits:0,peakDbfs:-1,fullRenderPeakDbfs:-1}};
+    }});
+    assert.equal(result.syntheticTest,true);
+    assert.equal(calls,24);
+    assert.equal(result.renderCount,24);
+    assert.equal(fs.existsSync(path.join(common,'soraoto-agent-state','7','stage3e',core.EPOCH,'authorizations')),false);
+    const plan=core.readDualJson(core.resolveRoots(runner.ROOT,'stage3e',core.EPOCH,{home,commonDirectory:common}),'phases/baseline/execution-plan.json');
+    assert.equal(plan.renderBudget,24);
+    assert.equal(plan.maxCalls,24);
+  }finally{core.readGitHubApproval=previous;}
 });
 
-test('baseline rejects an untrusted GitHub author before marker creation or render',t=>{
+test('legacy comment data cannot trigger GitHub access or rendering',t=>{
   const home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-auth-home-'));
   const common=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-auth-common-'));
   t.after(()=>{fs.rmSync(home,{recursive:true,force:true});fs.rmSync(common,{recursive:true,force:true});});
@@ -271,13 +292,13 @@ test('baseline rejects an untrusted GitHub author before marker creation or rend
     approvalCommentSha256:'b'.repeat(64),authorizedCellKeys:keys,maxCalls:24,approvedAtEpochMs:Date.parse('2026-10-13T00:00:00Z')};
   let calls=0;
   assert.throws(()=>runner.run({mode:'baseline',root:runner.ROOT,home,commonDirectory:common,authorization,
-    githubReadback:()=>({authenticatedLogin:'untrusted-account',comments:{}}),render:()=>{calls+=1;return {};}}),/AUTHORIZATION_REQUIRED/);
+    githubReadback:()=>{throw new Error('GitHub access is forbidden in the phase runner');},render:()=>{calls+=1;return {};}}),/BLOCKED_SYNTHETIC_RENDER/);
   assert.equal(calls,0);
   assert.equal(fs.existsSync(path.join(common,'soraoto-agent-state','7','stage3e',core.EPOCH)),false);
   assert.equal(fs.existsSync(path.join(home,'.soraoto-agent-archive','repo','7','stage3e',core.EPOCH)),false);
 });
 
-test('baseline requires a separate exact approval comment before marker creation or render',t=>{
+test('legacy approval comments are ignored and the runner never reads them',t=>{
   let record;
   try{record=runner.identityRecord(runner.ROOT);runner.assertBuildExports(runner.ROOT,record);}
   catch{t.skip('current-build identity/build artifacts are unavailable');return;}
@@ -318,11 +339,11 @@ test('baseline requires a separate exact approval comment before marker creation
     let renders=0,readbacks=0;
     assert.throws(()=>runner.run({mode:'baseline',root:runner.ROOT,home,commonDirectory:common,authorization:auth,
       githubReadback:()=>{readbacks+=1;return {authenticatedLogin:'puchinya',comments:scenario.comments};},
-      render:()=>{renders+=1;throw new Error('unexpected renderer call');}}),/AUTHORIZATION_REQUIRED/,scenario.name);
+      render:()=>{renders+=1;throw new Error('unexpected renderer call');}}),/BLOCKED_SYNTHETIC_RENDER/,scenario.name);
     assert.equal(renders,0,scenario.name);
     assert.equal(fs.existsSync(path.join(common,'soraoto-agent-state','7','stage3e',core.EPOCH)),false,scenario.name);
     assert.equal(fs.existsSync(path.join(home,'.soraoto-agent-archive','repo','7','stage3e',core.EPOCH)),false,scenario.name);
-    assert.equal(readbacks,scenario.approvalCommentUrl===planUrl?0:1,scenario.name);
+    assert.equal(readbacks,0,scenario.name);
   }
 });
 
@@ -335,10 +356,12 @@ test('dry-run does not change either canonical Stage3E store',t=>{
   }
   const home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-dry-run-'));
   try{
-    const roots=core.resolveRoots(runner.ROOT,'stage3e',core.EPOCH,{home});
+    const common=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-dry-common-'));
+    t.after(()=>fs.rmSync(common,{recursive:true,force:true}));
+    const roots=core.resolveRoots(runner.ROOT,'stage3e',core.EPOCH,{home,commonDirectory:common});
     const before={primary:treeSnapshot(roots.primary),secondary:treeSnapshot(roots.secondary)};
     let calls=0;
-    const result=runner.run({mode:'dry-run',root:runner.ROOT,home,render:()=>{calls+=1;return {};}});
+    const result=runner.run({mode:'dry-run',root:runner.ROOT,home,commonDirectory:common,render:()=>{calls+=1;return {};}});
     const after={primary:treeSnapshot(roots.primary),secondary:treeSnapshot(roots.secondary)};
     assert.equal(result.decision,'STAGE3E_DRY_RUN_READY');
     assert.equal(result.builds,0);

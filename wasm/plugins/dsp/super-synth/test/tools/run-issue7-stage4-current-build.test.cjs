@@ -231,10 +231,11 @@ test('Stage4 cell plan is exactly 1,408 lifecycle plus 15 repeat cells',()=>{
   assert.equal(capture.LIFECYCLE_CELLS.at(-1).pitch,108);
 });
 
-test('Stage4 execute without Issue 7 authorization stops before any render',()=>{
-  let calls=0;
-  assert.throws(()=>runner.run({mode:'execute',root:os.tmpdir(),authorization:null,render:()=>{calls+=1;return {};}}),/AUTHORIZATION_REQUIRED/);
-  assert.equal(calls,0);
+test('Stage4 execution has no approval gate and blocks on its missing Stage3 prerequisite',t=>{
+  const home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage4-no-approval-home-'));t.after(()=>fs.rmSync(home,{recursive:true,force:true}));
+  assert.throws(()=>runner.readStage3(runner.ROOT,home),/BLOCKED_STAGE4_STAGE3_REQUIRED/);
+  const source=fs.readFileSync(path.join(__dirname,'run-issue7-stage4-current-build.cjs'),'utf8');
+  assert.doesNotMatch(source,/readGitHubApproval|verifyAndPersistAuthorization|AUTHORIZATION_REQUIRED/);
 });
 
 test('Stage4 dry-run reports the missing Stage3 result without writes or renders',t=>{
@@ -275,11 +276,13 @@ test('Stage4 identity consumes the immutable derived production SHA from Stage3'
   assert.equal(identity.stage4WasmSha256,'c'.repeat(64));
   assert.equal(identity.buildIdentitySha256,baselineSha);
   assert.deepEqual(identity.inputs,stage3State.prepared.derivedBuildIdentity.inputs);
-  const manifest=runner.phaseManifest({root:runner.ROOT,record,identity,authorizationSha256:'9'.repeat(64),phaseCells:runner.cells(),
+  const executionPlan={creatorRevision:'9'.repeat(40),renderBudget:1423};
+  const manifest=runner.phaseManifest({root:runner.ROOT,record,identity,executionPlan,phaseCells:runner.cells(),
     now:()=> '2026-10-13T00:00:00.000Z'});
   assert.equal(manifest.identity.productionBuildIdentitySha256,productionBuildIdentitySha256);
   assert.equal(manifest.productionWasmSha256,'b'.repeat(64));
   assert.equal(manifest.authorizedCellKeys.length,1423);
+  assert.equal(manifest.executionPlanSha256,core.sha256(core.canonicalBytes(executionPlan)));
 });
 
 test('Stage4 evaluator contract requires 1,392 adjacent comparisons',()=>{
@@ -288,6 +291,7 @@ test('Stage4 evaluator contract requires 1,392 adjacent comparisons',()=>{
   assert.throws(()=>runner.parseMode(['--next']),/unsupported mode/);
   const source=fs.readFileSync(path.join(__dirname,'run-issue7-stage4-current-build.cjs'),'utf8');
   assert.doesNotMatch(source,/stage3\/authoritative|stage4\/authoritative/);
+  assert.doesNotMatch(source,/readGitHubApproval|verifyAndPersistAuthorization|AUTHORIZATION_REQUIRED/);
 });
 
 test('Stage4 compares the shared 486-cell acoustic output against Stage3 production',()=>{
@@ -333,7 +337,8 @@ test('synthetic Stage3 identity flows through every Stage4 cell and final evalua
     readFinal:()=>stage3Final,
     readDualBytes:()=>stage3Artifact,
     readDualJson:()=>derivedBuildIdentity,
-    verifyAndPersistAuthorization:approved=>({sha256:core.sha256(core.canonicalBytes(approved)),syntheticTest:true}),
+    verifyAndPersistExecutionPlan:()=>{const plan={creatorRevision:'1'.repeat(40),stage:'stage4',phase:'stage4',renderBudget:1423};
+      return {plan,sha256:core.sha256(core.canonicalBytes(plan))};},
     readPhaseLedger:()=>initializedManifest?{manifest:initializedManifest,ledger:{phase:'stage4',renderCount:completed.size,
       cells:Object.fromEntries(phaseCells.map(cell=>[cell.key,{state:completed.has(cell.key)?'COMPLETE':'PENDING'}]))}}:null,
     initializePhase:({manifest,cells,renderBudget})=>{
@@ -454,7 +459,7 @@ test('continuous synthetic Stage3E selection, Stage3 promotion, and Stage4 accep
     const stage3Cells=stage3.cells(),stage3Authorization=syntheticAuthorization('stage3','stage3',stage3Cells);
     const stage3Validated=core.validateAuthorization(stage3Authorization,{stage:'stage3',phase:'stage3',
       cells:stage3Cells.map(cell=>cell.key),renderBudget:stage3Cells.length,allowSynthetic:true});
-    assert.throws(()=>stage3.executeAuthorized({approved:stage3Authorization,auth:stage3Validated}),/explicit test adapter/);
+    assert.throws(()=>stage3.executeAuthorized({approved:stage3Authorization,auth:stage3Validated}),/BLOCKED_SYNTHETIC_RENDER/);
     const stage3Roots=core.resolveRoots(root,'stage3',core.EPOCH,{home});
     const stage3Result=stage3.executeAuthorized({root,home,epoch:core.EPOCH,approved:stage3Authorization,auth:stage3Validated,
       allowSyntheticTest:true,phaseCells:stage3Cells,regressionResultsPath:stage3.REGRESSION_REL,roots:stage3Roots,
@@ -483,7 +488,7 @@ test('continuous synthetic Stage3E selection, Stage3 promotion, and Stage4 accep
     const stage4Cells=runner.cells(),stage4Authorization=syntheticAuthorization('stage4','stage4',stage4Cells);
     const stage4Validated=core.validateAuthorization(stage4Authorization,{stage:'stage4',phase:'stage4',
       cells:stage4Cells.map(cell=>cell.key),renderBudget:stage4Cells.length,allowSynthetic:true});
-    assert.throws(()=>runner.executeLocked({approved:stage4Authorization,validated:stage4Validated}),/explicit test adapter/);
+    assert.throws(()=>runner.executeLocked({approved:stage4Authorization,validated:stage4Validated}),/BLOCKED_SYNTHETIC_RENDER/);
     const stage4Roots=core.resolveRoots(root,'stage4',core.EPOCH,{home});
     const stage4Result=runner.executeLocked({root,home,epoch:core.EPOCH,roots:stage4Roots,phaseCells:stage4Cells,
       approved:stage4Authorization,validated:stage4Validated,allowSyntheticTest:true,

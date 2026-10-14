@@ -3,7 +3,6 @@
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
-const {execFileSync}=require('node:child_process');
 const core=require('./issue7-current-build-core.cjs');
 const productionCapture=require('./capture-supersynth-matrix.cjs');
 const diagnosticCapture=require('./capture-supersynth-stage3e-matrix.cjs');
@@ -24,7 +23,6 @@ const PHASE_SEQUENCE=Object.freeze([
   ['low-full','STAGE3E_LOW_FULL_PASS'],['mid-screen','STAGE3E_MID_SCREEN_COMPLETE'],
   ['midi51-final-diagnostic','STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE'],['mid-full','STAGE3E_MID_FULL_PASS']
 ]);
-const AUTH_DIR='.agent-state/issues/7/current-build-v1/authorizations';
 const EXTRA_INPUTS=Object.freeze([
   'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-matrix.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs',
@@ -78,26 +76,20 @@ function midi51Cells(){return MIDI51_VELOCITIES.map(velocity=>({phase:'midi51-di
   includeSoundboardDiagnostics:true,response:DEFAULT_RESPONSE,key:`stage3e-51-${velocity}`}));}
 function midi51CandidateCells(candidates,phase){
   if(!['midi51-candidate-diagnostic','midi51-final-diagnostic'].includes(phase))throw new Error(`unsupported MIDI51 candidate phase ${phase}`);
-  if(!Array.isArray(candidates)||!candidates.length||candidates.length>5)throw new Error('AUTHORIZATION_REQUIRED: MIDI51 candidate diagnostics are bounded to one through five tuples');
+  if(!Array.isArray(candidates)||!candidates.length||candidates.length>5)throw new Error('BLOCKED_STAGE3E_CANDIDATES: MIDI51 diagnostics are bounded to one through five tuples');
   return candidates.flatMap(tuple=>MIDI51_VELOCITIES.map(velocity=>({phase,buildRole:'stage3e',pitch:51,velocity,velocityNormalized:velocity/127,
     includeSoundboardDiagnostics:true,candidate:tuple,response:{low:tuple.low,mid:tuple.mid,bassHardness:tuple.bassHardness},
     key:`${phase}-${candidateKey(tuple)}-51-${velocity}`})));
 }
-function authPath(root,phase){return path.join(root,AUTH_DIR,`${STAGE}-${phase}.json`);}
-function readAuth(root,phase,provided){
-  if(provided!==undefined)return {authorization:provided,bytes:core.canonicalBytes(provided),sha256:core.sha256(core.canonicalBytes(provided))};
-  return core.readAuthorization(root,{path:authPath(root,phase)});
-}
-function gitHead(root){return execFileSync('rtk',['git','rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim();}
-function phaseManifest({root,record,identity,authorizationHash,phase,cells,now}){
+function phaseManifest({record,identity,executionPlan,phase,cells,now}){
   const helpers=identity.helperInputs;
   return {schemaVersion:1,issue:7,epoch:core.EPOCH,stage:STAGE,phase,candidateId:`issue7-${core.EPOCH}-${phase}`,
-    creatorCommit:gitHead(root),sourceCommit:record.sourceCommit,referenceFixtureSha256:record.inputs.referenceMetrics.sha256,
+    creatorCommit:executionPlan.creatorRevision,sourceCommit:record.sourceCommit,referenceFixtureSha256:record.inputs.referenceMetrics.sha256,
     sourcePluginSha256:record.inputs.pluginC.sha256,presetsSha256:record.inputs.presets.sha256,profileSha256:record.inputs.generatedProfile.sha256,
     captureHelperSha256:helpers['wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs'],
     evaluatorSha256:helpers['wasm/plugins/dsp/super-synth/test/tools/stage3-direct-reference-metrics.cjs'],
     runnerSha256:identity.runnerSha256,builds:identity.builds,identity,primaryWasmSha256:record.builds.stage3e.wasm.sha256,
-    authorizationSha256:authorizationHash,authorizedCellKeys:cells.map(cell=>cell.key),renderBudget:cells.length,createdAt:now()};
+    executionPlanSha256:core.sha256(core.canonicalBytes(executionPlan)),authorizedCellKeys:cells.map(cell=>cell.key),renderBudget:cells.length,createdAt:now()};
 }
 function captureOptions(cell){
   const baselineDiagnostics=cell.phase==='baseline'&&cell.pitch===41;
@@ -200,7 +192,7 @@ function fullCells(tuple,phase){
 function validateLowScreenTuples(candidates){
   const expected=search.lowGridTuples();
   if(!Array.isArray(candidates)||!core.same(candidates,expected))
-    throw new Error('AUTHORIZATION_REQUIRED: low-screen must authorize the complete ordered 126-tuple grid');
+    throw new Error('BLOCKED_STAGE3E_LOW_SCREEN: deterministic 126-tuple grid is invalid');
   return expected;
 }
 function normalizeMidFullTuples(selected,ranked){
@@ -226,7 +218,9 @@ function passingCandidates(summary,expected,phase){
   const passing=summary.passingCandidates;
   if(passing.some(tuple=>!expected.some(item=>core.same(item,tuple)))||new Set(passing.map(candidateKey)).size!==passing.length)
     throw new Error(`BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_REQUIRED: ${phase} passing tuple set is invalid`);
-  return passing;
+  const ordered=expected.filter(tuple=>passing.some(candidate=>core.same(candidate,tuple)));
+  if(!core.same(passing,ordered))throw new Error(`BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_REQUIRED: ${phase} passing tuple rank order changed`);
+  return ordered;
 }
 function loadFinalMaybe(roots,phase){
   const rel=core.phaseRelative(phase,'phase-result.json'),p=core.dualPaths(roots,rel);
@@ -315,7 +309,7 @@ function expectedPhaseForMode(root,home,mode,epoch=core.EPOCH,commonDirectory){
   if(mode==='full')return ['low-full','mid-full'].includes(next.phase)?next.phase:null;
   return null;
 }
-function authorizedCells(root,phase,authorization,roots,fixture){
+function authorizedCells(root,phase,_authorization,roots,fixture){
   if(phase==='baseline')return baselineCells();
   if(phase==='midi51-diagnostic'){
     phaseCompletedWith(roots,'baseline','STAGE3E_BASELINE_EQUIVALENCE_PASS');
@@ -326,7 +320,7 @@ function authorizedCells(root,phase,authorization,roots,fixture){
     if(!diagnostic||!['STAGE3E_MIDI51_PASS','STAGE3E_MIDI51_DIAGNOSTIC_FAIL'].includes(diagnostic.decision)
       ||diagnostic.summary?.safe!==true||diagnostic.summary?.diagnosticsComplete!==true)
       throw new Error(`BLOCKED_STAGE3E_MIDI51_DIAGNOSTIC_REQUIRED: ${diagnostic?.decision||'missing or incomplete'}`);
-    const candidates=validateLowScreenTuples(authorization?.candidateTuples);
+    const candidates=validateLowScreenTuples(search.lowGridTuples());
     return candidates.flatMap(lowScreenCells);
   }
   if(phase==='midi51-candidate-diagnostic'){
@@ -334,8 +328,7 @@ function authorizedCells(root,phase,authorization,roots,fixture){
     if(diagnostic?.decision!=='STAGE3E_MIDI51_DIAGNOSTIC_FAIL'||diagnostic.summary?.safe!==true||diagnostic.summary?.diagnosticsComplete!==true)
       throw new Error('BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC: only a safe complete initial diagnostic FAIL permits the bounded candidate gate');
     const prior=phaseCompletedWith(roots,'low-screen','STAGE3E_LOW_SCREEN_COMPLETE');
-    const expected=lowScreenTopTuples(prior.summary?.topFive),candidates=authorization?.candidateTuples;
-    if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: candidate diagnostic must cover the low-screen top five in rank order');
+    const expected=lowScreenTopTuples(prior.summary?.topFive);
     return midi51CandidateCells(expected,phase);
   }
   if(phase==='low-full'){
@@ -347,23 +340,19 @@ function authorizedCells(root,phase,authorization,roots,fixture){
       expected=passingCandidates(candidateResult.summary,expected,'midi51-candidate-diagnostic');
       if(!expected.length)throw new Error('BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE: low-full cannot start without a formally passing MIDI51 tuple');
     }
-    const candidates=authorization?.candidateTuples;
-    if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: low-full candidates must be exactly the ranked MIDI51-passing set');
-    return candidates.flatMap(tuple=>fullCells(tuple,'low-full'));
+    return expected.flatMap(tuple=>fullCells(tuple,'low-full'));
   }
   if(phase==='mid-screen'){
     const selected=loadFinalMaybe(roots,'low-full')?.summary?.selectedTuple;
     if(!selected)throw new Error('BLOCKED_STAGE3E_LOW_FULL_REQUIRED');
-    const candidates=authorization?.candidateTuples,expected=search.midGridTuples(selected);
-    if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: mid-screen must use the fixed mid grid for the selected low tuple');
-    return candidates.flatMap(midScreenCells);
+    const expected=search.midGridTuples(selected);
+    return expected.flatMap(midScreenCells);
   }
   if(phase==='midi51-final-diagnostic'){
     const prior=phaseCompletedWith(roots,'mid-screen','STAGE3E_MID_SCREEN_COMPLETE');
     const lowSelected=loadFinalMaybe(roots,'low-full')?.summary?.selectedTuple;
     if(!lowSelected)throw new Error('BLOCKED_STAGE3E_LOW_FULL_REQUIRED');
-    const expected=normalizeMidFullTuples(lowSelected,prior.summary?.topFive),candidates=authorization?.candidateTuples;
-    if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: final MIDI51 diagnostic must cover the mid-screen top five in rank order');
+    const expected=normalizeMidFullTuples(lowSelected,prior.summary?.topFive);
     return midi51CandidateCells(expected,phase);
   }
   if(phase==='mid-full'){
@@ -372,10 +361,9 @@ function authorizedCells(root,phase,authorization,roots,fixture){
     if(!lowSelected)throw new Error('BLOCKED_STAGE3E_LOW_FULL_REQUIRED');
     const ranked=normalizeMidFullTuples(lowSelected,prior.summary?.topFive);
     const candidateResult=phaseCompletedWith(roots,'midi51-final-diagnostic','STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE');
-    const expected=passingCandidates(candidateResult.summary,ranked,'midi51-final-diagnostic'),candidates=authorization?.candidateTuples;
+    const expected=passingCandidates(candidateResult.summary,ranked,'midi51-final-diagnostic');
     if(!expected.length)throw new Error('BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE: mid-full cannot start without a formally passing MIDI51 tuple');
-    if(!Array.isArray(candidates)||!core.same(candidates,expected))throw new Error('AUTHORIZATION_REQUIRED: mid-full candidates must be exactly the ranked MIDI51-passing set');
-    return candidates.flatMap(tuple=>fullCells(tuple,'mid-full'));
+    return expected.flatMap(tuple=>fullCells(tuple,'mid-full'));
   }
   throw new Error(`BLOCKED_STAGE3E_PHASE: unsupported phase ${phase}`);
 }
@@ -388,12 +376,11 @@ function evaluatePhase(phase,cells,roots,fixture){
   if(phase==='low-full'||phase==='mid-full')return evaluateFull(phase,cells,rows,fixture);
   throw new Error(`unsupported Stage3E phase ${phase}`);
 }
-function validateExecutionMode({authorization,syntheticTest=false,render=renderDefault}={}){
-  const authorizationIsSynthetic=authorization?.synthetic===true;
-  if((syntheticTest===true)!==authorizationIsSynthetic)
-    throw new Error('AUTHORIZATION_REQUIRED: synthetic test mode must match the Issue #7 authorization marker');
-  if(authorizationIsSynthetic&&render===renderDefault)
-    throw new Error('AUTHORIZATION_REQUIRED: synthetic Stage3E authorization cannot invoke the production WASM renderer');
+function validateExecutionMode({syntheticTest=false,render=renderDefault}={}){
+  if(syntheticTest===true&&render===renderDefault)
+    throw new Error('BLOCKED_SYNTHETIC_RENDER: synthetic mode cannot invoke the production WASM renderer');
+  if(syntheticTest!==true&&render!==renderDefault)
+    throw new Error('BLOCKED_SYNTHETIC_RENDER: injected renderers require explicit syntheticTest mode');
   return true;
 }
 function createSelection(roots,identity,summary,finalizedPhase,now){
@@ -440,27 +427,33 @@ function budgetPlan(){
   return {phases,maximumCalls,initialDiagnosticPass:{skippedPhase:'midi51-candidate-diagnostic',skippedCalls:skippedOnInitialDiagnosticPass,
     maximumCalls:maximumCalls-skippedOnInitialDiagnosticPass}};
 }
-function runCells(options={}){
-  const {root=ROOT,roots,record,identity,phase,cells,authorization,syntheticTest=false,githubReadback=core.readGitHubApproval}=options;
-  validateExecutionMode(options);
-  const keys=cells.map(cell=>cell.key);
-  const executionIdentity=core.makeExecutionIdentity({stage:STAGE,phase,cells:keys,renderBudget:keys.length,
-    prHeadSha:core.gitHead(root),identity});
-  return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>{
-    const auth=core.verifyAndPersistAuthorization(authorization,{roots,stage:STAGE,phase,cells:keys,renderBudget:keys.length,
-      executionIdentity,executionIdentityNow:()=>core.makeExecutionIdentity({stage:STAGE,phase,cells:keys,renderBudget:keys.length,
-        prHeadSha:core.gitHead(root),identity:currentIdentity(root,identityRecord(root))}),
-      readback:details=>githubReadback({...details,root})});
-    return runCellsLocked({...options,validatedAuthorization:auth});
-  });
+function phasePrerequisites({root=ROOT,roots,phase,identity,allowSyntheticTest=false}={}){
+  const index=PHASE_SEQUENCE.findIndex(([name])=>name===phase);
+  if(index<0)throw new Error(`BLOCKED_EXECUTION_PLAN: unknown Stage3E phase ${phase}`);
+  const evidence=[];
+  for(const [name] of PHASE_SEQUENCE.slice(0,index)){
+    if(name==='midi51-candidate-diagnostic'&&loadFinalMaybe(roots,'midi51-diagnostic')?.decision==='STAGE3E_MIDI51_PASS')continue;
+    const result=loadFinalMaybe(roots,name);if(!result)continue;
+    const final=core.readFinal(roots,name);
+    core.verifyFinalizedIdentity({root,final,identity,allowSyntheticTest});
+    evidence.push({stage:STAGE,phase:name,decision:final.result.decision,resultSha256:final.sha256,
+      archiveSha256:final.archiveSha256,creatorRevision:final.manifest?.creatorRevision||final.manifest?.creatorCommit||
+        (allowSyntheticTest&&final.result.summary?.syntheticTest===true?core.gitHead(root):undefined),
+      ...(final.result.executionPlanSha256?{executionPlanSha256:final.result.executionPlanSha256}:{})});
+  }
+  return evidence;
 }
-function runCellsLocked({root,roots,record,identity,phase,cells,authorization,validatedAuthorization:auth,syntheticTest=false,render=renderDefault,now=()=>new Date().toISOString()}={}){
-  if((syntheticTest===true)!==(auth?.syntheticTest===true))
-    throw new Error('AUTHORIZATION_REQUIRED: synthetic test mode must match the validated Issue #7 authorization');
-  if(auth?.syntheticTest===true&&render===renderDefault)
-    throw new Error('AUTHORIZATION_REQUIRED: synthetic Stage3E authorization cannot invoke the production WASM renderer');
+function runCells(options={}){
+  const {roots,syntheticTest=false}=options;
+  validateExecutionMode(options);
+  return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>runCellsLocked(options));
+}
+function runCellsLocked({root,roots,record,identity,phase,cells,syntheticTest=false,render=renderDefault,now=()=>new Date().toISOString()}={}){
+  validateExecutionMode({syntheticTest,render});
+  const prerequisites=phasePrerequisites({root,roots,phase,identity,allowSyntheticTest:syntheticTest});
+  const frozen=core.verifyAndPersistExecutionPlan({roots,root,stage:STAGE,phase,cells,renderBudget:cells.length,identity,prerequisites});
   const existing=core.readPhaseLedger(roots,phase),phaseNow=existing?.manifest.createdAt?()=>existing.manifest.createdAt:now;
-  const manifest=phaseManifest({root,record,identity,authorizationHash:auth.sha256,phase,cells,now:phaseNow});
+  const manifest=phaseManifest({record,identity,executionPlan:frozen.plan,phase,cells,now:phaseNow});
   core.initializePhase({roots,phase,manifest,cells,renderBudget:cells.length,now});
   let calls=0,unsafe=false;
   for(const cell of cells){
@@ -470,7 +463,7 @@ function runCellsLocked({root,roots,record,identity,phase,cells,authorization,va
     if(started.skipped)continue;
     let measured;calls+=1;
     try{
-      measured=render({root,record,identity,cell,authorization,syntheticTest});
+      measured=render({root,record,identity,cell,syntheticTest});
     }catch(error){
       try{core.markAmbiguous({roots,phase,cellKey:cell.key,reason:error.message,now});}catch{}
       throw new Error(`BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: ${cell.key}: ${error.message}`);
@@ -480,7 +473,7 @@ function runCellsLocked({root,roots,record,identity,phase,cells,authorization,va
       throw new Error(`BLOCKED_STAGE3E_AMBIGUOUS_RENDER_ACCOUNTING: ${cell.key}: no observation returned`);
     }
     const observation={...measured,phase,buildRole:cell.buildRole||'stage3e',candidate:cell.candidate||null,
-      ...(auth.syntheticTest?{syntheticTest:true,label:'SYNTHETIC TEST'}:{})};
+      ...(syntheticTest?{syntheticTest:true,label:'SYNTHETIC TEST'}:{})};
     const result=core.completeCell({roots,phase,cellKey:cell.key,observation,now});
     if(result.decision==='FAIL'){unsafe=true;break;}
   }
@@ -488,27 +481,25 @@ function runCellsLocked({root,roots,record,identity,phase,cells,authorization,va
   const counts=Object.fromEntries(['PENDING','IN_PROGRESS','COMPLETE','AMBIGUOUS'].map(state=>[state,Object.values(after.cells).filter(item=>item.state===state).length]));
   if(unsafe||counts.COMPLETE!==cells.length)return {decision:unsafe?`BLOCKED_UNSAFE_OBSERVATION:${phase}`:'BLOCKED_STAGE3E_PHASE_INCOMPLETE',phase,calls,renderCount:after.renderCount,counts,acousticRenders:calls};
   const evaluation=evaluatePhase(phase,cells,roots,JSON.parse(fs.readFileSync(path.join(root,'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json'),'utf8')));
-  const synthetic=auth.syntheticTest===true;
+  const synthetic=syntheticTest===true;
   if(synthetic)evaluation.syntheticTest=true;
   const finalized=core.finalizePhase({roots,phase,decision:evaluation.decision,summary:evaluation,now});
   if(phase==='mid-full'&&evaluation.pass)createSelection(roots,identity,evaluation,finalized,now);
   return {decision:finalized.result.decision,phase,calls,renderCount:finalized.result.renderCount,counts,summary:evaluation,
     resultSha256:finalized.sha256,archiveSha256:finalized.archiveSha256,syntheticTest:synthetic,acousticRenders:calls};
 }
-function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDefault,now=()=>new Date().toISOString(),authorization,
-  syntheticTest=false,commonDirectory,githubReadback=core.readGitHubApproval}={}){
+function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDefault,now=()=>new Date().toISOString(),
+  syntheticTest=false,commonDirectory,phase:requestedPhase}={}){
   if(!['dry-run','baseline','screen','full','finalize','verify'].includes(mode))throw new Error('explicit mode required: dry-run, baseline, screen, full, finalize, or verify');
-  let phase=null,authRecord=null,auth=null;
+  let phase=null;
   if(mode==='baseline'||mode==='screen'||mode==='full'){
     phase=expectedPhaseForMode(root,home,mode,epoch,commonDirectory);
+    if(requestedPhase&&requestedPhase!==phase)throw new Error(`BLOCKED_STAGE3E_PHASE: ${requestedPhase} is not the next eligible phase`);
     if(!phase){
       const progress=nextEvidencePhase(root,home,epoch,commonDirectory);
       if(progress.blocked)throw new Error(`BLOCKED_STAGE3E_PHASE: prior ${progress.phase} result is ${progress.blocked}`);
-      throw new Error('AUTHORIZATION_REQUIRED: no Issue #7 approval record exists for the next Stage3E phase');
+      throw new Error('BLOCKED_STAGE3E_PHASE: no eligible phase is available for this mode');
     }
-    authRecord=readAuth(root,phase,authorization);
-    auth=authRecord?.authorization;
-    if(!auth)throw new Error('AUTHORIZATION_REQUIRED: no Issue #7 approval record exists for this phase');
   }
   const record=identityRecord(root),identity=currentIdentity(root,record),exports=assertBuildExports(root,record),roots=core.resolveRoots(root,STAGE,epoch,{home,commonDirectory});
   const budget=budgetPlan();
@@ -525,23 +516,25 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDef
     const phases={};
     for(const phase of core.PHASES){
       if(!['baseline','midi51-diagnostic','low-screen','midi51-candidate-diagnostic','low-full','mid-screen','midi51-final-diagnostic','mid-full'].includes(phase))continue;
-      const result=loadFinalMaybe(roots,phase);if(result)phases[phase]={decision:result.decision,renderCount:result.renderCount,identityMatches:core.same(result.identity,identity)};
+      const result=loadFinalMaybe(roots,phase);if(result){
+        const final=core.readFinal(roots,phase);core.verifyFinalizedIdentity({root,final,identity});
+        phases[phase]={decision:result.decision,renderCount:result.renderCount,identityMatches:true,executionPlanSha256:result.executionPlanSha256||null};
+      }
     }
-    if(Object.values(phases).some(value=>!value.identityMatches))throw new Error('BLOCKED_STAGE3E_IDENTITY: finalized evidence identity differs from current files');
     const selectionPath=core.dualPaths(roots,'selection.json');
     const selection=fs.existsSync(selectionPath.primary)||fs.existsSync(selectionPath.secondary)?core.readDualJson(roots,'selection.json'):null;
     return {decision:selection?'STAGE3E_SELECTED_RESPONSE':'STAGE3E_VERIFY_OK',phases,selection,builds:0,renders:0,writes:0,acousticRenders:0};
   }
   if(mode==='finalize'){
     return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>{
-      let finalizePhase=authorization?.phase;
+      let finalizePhase=requestedPhase;
       if(!finalizePhase){
         const open=PHASE_SEQUENCE.map(([name])=>name).filter(name=>!loadFinalMaybe(roots,name)&&core.readPhaseLedger(roots,name));
         if(open.length!==1)throw new Error(open.length?'BLOCKED_STAGE3E_PHASE_AMBIGUOUS: multiple unfinished phases':'BLOCKED_STAGE3E_PHASE_NOT_STARTED');
         finalizePhase=open[0];
       }
       const ledger=core.readPhaseLedger(roots,finalizePhase);if(!ledger)throw new Error('BLOCKED_STAGE3E_PHASE_NOT_STARTED');
-      if(!core.same(ledger.manifest.identity,identity))throw new Error('BLOCKED_STAGE3E_IDENTITY: phase identity differs from current inputs');
+      core.verifyFinalizedIdentity({root,final:{result:{identity:ledger.manifest.identity},manifest:{creatorRevision:ledger.manifest.creatorCommit}},identity});
       const phaseCells=ledger.manifest.authorizedCellKeys.map(key=>{
         const cell=core.readCell(roots,finalizePhase,key).marker?.cell;
         if(!cell)throw new Error(`BLOCKED_STAGE3E_PHASE_INCOMPLETE: render marker missing for ${key}`);
@@ -554,24 +547,21 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDef
       return {decision:final.result.decision,phase:finalizePhase,resultSha256:final.sha256,archiveSha256:final.archiveSha256,builds:0,renders:0,acousticRenders:0};
     });
   }
-  if(!phase||!auth)throw new Error(`BLOCKED_STAGE3E_MODE: unsupported mode ${mode}`);
-  const cells=authorizedCells(root,phase,auth,roots,null);
-  if(['low-screen','midi51-candidate-diagnostic','low-full','mid-screen','midi51-final-diagnostic','mid-full'].includes(phase)){
-    if(!Array.isArray(auth.authorizedCellKeys)||auth.maxCalls!==cells.length)throw new Error('AUTHORIZATION_REQUIRED: exact cell set and budget are required');
-  }
-  return runCells({root,roots,record,identity,phase,cells,authorization:auth,authorizationRecord:authRecord,syntheticTest,render,now,githubReadback});
+  if(!phase)throw new Error(`BLOCKED_STAGE3E_MODE: unsupported mode ${mode}`);
+  const cells=authorizedCells(root,phase,null,roots,null);
+  return runCells({root,roots,record,identity,phase,cells,syntheticTest,render,now});
 }
 function parseMode(argv){if(argv.length!==1)throw new Error('select exactly one mode: --dry-run, --baseline, --screen, --full, --finalize, --verify');const map={'--dry-run':'dry-run','--baseline':'baseline','--screen':'screen','--full':'full','--finalize':'finalize','--verify':'verify'};if(!map[argv[0]])throw new Error(`unsupported mode: ${argv[0]}`);return map[argv[0]];}
 function main(argv=process.argv.slice(2)){
   const mode=parseMode(argv),result=run({mode});process.stdout.write(JSON.stringify(result)+'\n');
-  if(/^AUTHORIZATION_REQUIRED|^BLOCKED_/.test(result.decision||''))process.exitCode=2;
+  if(/^BLOCKED_/.test(result.decision||''))process.exitCode=2;
   return result;
 }
-if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=/^AUTHORIZATION_REQUIRED/.test(error.message)?2:1;}}
+if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=/^BLOCKED_/.test(error.message)?2:1;}}
 
 module.exports={ROOT,STAGE,DEFAULT_RESPONSE,BASELINE_FIELDS,MIDI41_FIELDS,MIDI51_VELOCITIES,EXTRA_INPUTS,
   fileSha,identityRecord,currentIdentity,buildDirectory,assertBuildExports,baselineCoordinates,baselineCells,midi51Cells,
-  midi51CandidateCells,authPath,readAuth,phaseManifest,captureOptions,renderDefault,compareValue,compareBaseline,evaluateMidi51,diagnoseMidi51,
+  midi51CandidateCells,phaseManifest,captureOptions,renderDefault,compareValue,compareBaseline,evaluateMidi51,diagnoseMidi51,
   lowScreenCells,midScreenCells,fullCells,loadFinalMaybe,rowsForPhase,phaseCompletedWith,screenLowerBounds,evaluateScreen,
   validateLowScreenTuples,normalizeMidFullTuples,lowScreenTopTuples,passingCandidates,evaluateFull,evaluateCandidateDiagnostics,
-  nextEvidencePhase,expectedPhaseForMode,authorizedCells,evaluatePhase,validateExecutionMode,createSelection,budgetPlan,runCells,runCellsLocked,run,parseMode,main};
+  nextEvidencePhase,expectedPhaseForMode,authorizedCells,evaluatePhase,validateExecutionMode,createSelection,budgetPlan,phasePrerequisites,runCells,runCellsLocked,run,parseMode,main};

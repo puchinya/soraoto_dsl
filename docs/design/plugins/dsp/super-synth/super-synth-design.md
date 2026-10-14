@@ -828,26 +828,44 @@ roots remain immutable and are never interpreted as current-build evidence.
 The new epoch owns separate `current-build-v1` roots for Stage3E, Stage3, and
 Stage4 in both canonical stores. Each run freezes the source, preset, generated
 profile, fixture, evaluator, capture helper, toolchain, build outputs, and
-authorization identities before measurement. A changed acoustic input starts
-a new numbered epoch rather than modifying a started one. The three WASM roles
-are separate production, Stage3E diagnostic, and Stage4 lifecycle diagnostic
+runner hashes before measurement. A changed acoustic input starts a new
+numbered epoch rather than modifying a started one. The three WASM roles are
+separate production, Stage3E diagnostic, and Stage4 lifecycle diagnostic
 builds; their hashes may differ, while their shared source and profile lineage
 must be proven.
 
+The execution policy was amended by the Issue #7 decision recorded in
+[comment 6168836704](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6168836704)
+on 2026-10-14. New phase runs do not require GitHub plan or approval comments,
+approval JSON, GitHub API access, or repeated per-phase operator approvals.
+The operator explicitly starts one eligible phase with `--next`; that
+invocation returns after that phase. Stage3E's low and mid candidates are
+derived in fixed ranking order from the frozen grid and finalized prerequisite
+results.
+
+Before a phase's first marker or renderer call, its runner derives one
+deterministic `execution-plan.json` from the exact input identity, prerequisite
+result and archive hashes, ordered cell keys, and exact phase budget. It writes
+the canonical bytes to both evidence stores, reads both copies back, and binds
+the plan SHA-256 in the phase manifest and every cell marker. The plan pins the
+creator revision as an ancestor of the current HEAD. A later documentation-only
+descendant can verify finalized evidence when the frozen acoustic inputs still
+match. Execution does not depend on a GitHub network connection.
+
 New Issue #7 runners own current-build evidence and never call the historical
-Generation-2, Stage3, Stage4, or all-in-one execution paths. The orchestrator
-is a one-step dispatcher: status, dry-run, and verify are read-only; `--next`
-advances only one already-authorized phase and then stops. Each acoustic cell
-has an immutable start marker and dual-store outcome. An exception after the
+Generation-2, Stage3, Stage4, or all-in-one execution paths. Status, dry-run,
+and verify are read-only and make zero acoustic calls. Each acoustic cell has
+an immutable start marker and dual-store outcome. An exception after the
 marker or a failed mirror write is ambiguous and cannot trigger an automatic
 rerender. A non-finite, unsafe, or otherwise failing observation is preserved
-before the phase stops.
+before the phase stops. Synthetic test rows remain explicitly labeled and
+cannot satisfy production prerequisites.
 
 The contract fixes the existing 8 dB dynamic-span limit, the 12-coordinate
 paired production/diagnostic baseline, the 486-cell Stage3 matrix, and the
-1,423-cell Stage4 lifecycle matrix with 1,392 adjacent comparisons. Gate 1
-permits fresh builds and zero-render verification only. Acoustic work requires
-a separate Issue #7 authorization with an exact plan and render budget; the
-contract itself does not grant that authorization. This current-build path
+1,423-cell Stage4 lifecycle matrix with 1,392 adjacent comparisons. Stage3E's
+maximum remains 2,555 calls (2,475 when an initial MIDI51 pass skips the
+80-call candidate diagnostic); Stage3 remains 486 and Stage4 remains 1,423.
+No phase may transfer unused quota to another phase. This current-build path
 supersedes the older §5.1 master-orchestrator route only for the new epoch; the
 historical route and its evidence remain unchanged.

@@ -2,14 +2,23 @@
 
 > This document records current evidence. It is non-normative; the product specification and approved design define requirements and decisions.
 
-## Current status — 2026-10-13
+## Current status — 2026-10-14
 
-- **Authoritative state:** Issue [#7](https://github.com/puchinya/soraoto_dsl/issues/7) is OPEN with `phase:implementation` and `blocked`; PR [#8](https://github.com/puchinya/soraoto_dsl/pull/8) is OPEN on `codex/issue-7-supersynth-v9`. Gate 1 build inputs were fixed at source commit `506cae8dd7d4d6c2637de1b6b5fff307d74ae7fc`; GitHub remains the live authority for the PR head.
-- **Active contract:** current-build-v1, SHA-256 `6aa448801d983d2ba4ef5a65b02900db4e1cb1ef5c2f904d2f2a4ed5bb5583c2`, published on Issue #7 as [comment 6126988652](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6126988652). The R01–R16 checklist was posted before implementation in [comment 6126997463](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6126997463).
-- **Current execution gate:** Gate 0 scope/provenance remediation is complete and recorded in [`checkpoint-data-provenance-2026-10-13.md`](checkpoint-data-provenance-2026-10-13.md). Gate 1's three isolated fresh WASM builds passed; hashes, flags, exports, and toolchain are recorded in [`current-build-v1/build-identity.json`](current-build-v1/build-identity.json). The pre-existing 3.7 GB `build/wasm` cache was preserved, so Gate 1 used fresh directories under `build/issue7-current-build-v1/`. No current-build-v1 acoustic render has run. Gate 2 remains authorization-required for any acoustic execution.
-- **Historical acoustic blocker:** the last accepted historical Stage3E result remains `BLOCKED_STAGE3E_MID_RESPONSE_FAMILY`, MIDI 51 dynamic-span error `8.935437 dB` against the unchanged `8 dB` limit. This is not a current-build-v1 measurement. Stage3 and Stage4 have not been run for current-build-v1.
-- **Checkpoint data:** the path-by-path audit is recorded in [`checkpoint-data-provenance-2026-10-13.md`](checkpoint-data-provenance-2026-10-13.md). Unsupported checkpoint values are classified as `UNVERIFIED_CHECKPOINT_DATA`; they are not current acceptance evidence. Original Git blobs remain available in history, and prior metric blobs are also preserved in the ignored Issue #7 audit area.
-- **Delivery:** existing PR #8 only. The broad checkpoint is not accepted until the scope/provenance gate, current-build implementation, authorized acoustic gates, full verification, and review are complete.
+- **Authoritative state:** Issue [#7](https://github.com/puchinya/soraoto_dsl/issues/7) is OPEN with `phase:implementation` and `blocked`; PR [#8](https://github.com/puchinya/soraoto_dsl/pull/8) is OPEN on `codex/issue-7-supersynth-v9`. The implementation is being delivered on this existing PR.
+- **Execution policy:** Issue comment [6168836704](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6168836704) removes per-phase GitHub plan/approval comments, approval JSON, and GitHub API readback from normal execution. An explicit `--next` runs at most one eligible phase. `--status`, `--dry-run`, and `--verify` remain read-only.
+- **Frozen phase evidence:** runners derive deterministic candidate cells from the fixed grid and finalized prerequisites, persist canonical `execution-plan.json` bytes to both evidence stores, read back both copies, and bind the plan SHA to the manifest and cell markers before rendering. Synthetic test evidence remains unusable by production prerequisites.
+- **PASS:** focused Issue #7 runner suite 56/56; ABI and physical-parameter registry tests 2/2; metadata tests 20/20; Web Player tests 40/40; Web Player production build; fresh WASM configure and build.
+- **CTest limitation:** the fresh CTest run did not complete. `wasm.audio-quality-regression` failed with `field-wind-over-lumeria: true peak -31.90121976740496`; execution was stopped when the next test was `wasm.dsp.super-synth.supersynth-v9-production-lifecycle`. Remaining CTest cases are NOT RUN. This regression is not Stage3E/Stage3/Stage4 acceptance evidence.
+- **Acoustic acceptance:** no Stage3E, Stage3, or Stage4 acoustic acceptance phase has been run by the new runners. Their real acoustic acceptance remains NOT RUN; synthetic unit-test results are not acoustic proof. The Stage3E/Stage3/Stage4 acceptance gates, full CTest, PR review, merge, and Issue closure remain outstanding.
+- **Delivery:** no new Issue or PR was opened; continue on existing PR #8 and keep Issue #7 blocked until the remaining acceptance evidence is complete.
+
+## Historical status — 2026-10-13
+
+The following execution-gate statements describe the 2026-10-13 state and are retained for provenance; they are superseded by the 2026-10-14 execution-policy decision above.
+
+- Gate 0 scope/provenance remediation was recorded in [`checkpoint-data-provenance-2026-10-13.md`](checkpoint-data-provenance-2026-10-13.md). Gate 1's three isolated fresh WASM builds passed; hashes, flags, exports, and toolchain are recorded in [`current-build-v1/build-identity.json`](current-build-v1/build-identity.json). The pre-existing `build/wasm` cache was preserved, so Gate 1 used fresh directories under `build/issue7-current-build-v1/`.
+- The last accepted historical Stage3E result was `BLOCKED_STAGE3E_MID_RESPONSE_FAMILY`, MIDI 51 dynamic-span error `8.935437 dB` against the unchanged `8 dB` limit. It is not a current-build-v1 measurement.
+- The path-by-path checkpoint audit is recorded in [`checkpoint-data-provenance-2026-10-13.md`](checkpoint-data-provenance-2026-10-13.md). Unsupported checkpoint values are classified as `UNVERIFIED_CHECKPOINT_DATA`; they are not current acceptance evidence.
 
 ## Historical status log — 2026-09-27 snapshot
 

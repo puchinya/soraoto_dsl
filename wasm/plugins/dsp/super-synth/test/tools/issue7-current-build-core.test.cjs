@@ -298,6 +298,40 @@ test('invalid or edited GitHub approval evidence fails closed without writing an
   }
 });
 
+test('execution plans are deterministic, immutable, dual-stored, budget-bound, and pinned to an ancestor revision',t=>{
+  const w=workspace(t),revision='1'.repeat(40),cells=Array.from({length:24},(_,index)=>({key:`cell-${index}`}));
+  const options={roots:w.roots,root:w.repo,stage:'stage3e',phase:'baseline',cells,renderBudget:24,
+    identity:{sourceSha256:'a'.repeat(64),runnerSha256:'b'.repeat(64),nested:{wasmSha256:'c'.repeat(64)}},prerequisites:[],
+    nowRevision:()=>revision,isAncestor:(_root,ancestor)=>ancestor===revision};
+  const first=core.verifyAndPersistExecutionPlan(options);
+  const second=core.verifyAndPersistExecutionPlan({...options,nowRevision:()=> '2'.repeat(40)});
+  assert.equal(first.sha256,second.sha256);
+  assert.deepEqual(first.plan.cellKeys,cells.map(cell=>cell.key));
+  assert.equal(first.plan.renderBudget,24);
+  assert.equal(first.plan.maxCalls,24);
+  assert.equal(first.plan.budgetCap,24);
+  assert.equal(first.bytes.equals(fs.readFileSync(core.dualPaths(w.roots,first.relative).primary)),true);
+  assert.equal(first.bytes.equals(fs.readFileSync(core.dualPaths(w.roots,first.relative).secondary)),true);
+  const phaseManifest={...manifest(w.roots,'baseline',options.identity),creatorCommit:revision,executionPlanSha256:first.sha256};
+  core.initializePhase({roots:w.roots,phase:'baseline',manifest:phaseManifest,cells,renderBudget:24,now:()=>phaseManifest.createdAt});
+  const marker=core.startCell({roots:w.roots,phase:'baseline',cellKey:cells[0].key,cell:cells[0],identity:options.identity,
+    identityNow:()=>options.identity,now:()=>phaseManifest.createdAt});
+  assert.equal(marker.marker.executionPlanSha256,first.sha256);
+  assert.throws(()=>core.verifyAndPersistExecutionPlan({...options,identity:{sourceSha256:'f'.repeat(64)}}),/deterministic phase plan changed/);
+  assert.throws(()=>core.deriveExecutionPlan({...options,cells:cells.slice(1),renderBudget:23,creatorRevision:revision}),/fixed Issue #7 cap/);
+  assert.throws(()=>core.deriveExecutionPlan({...options,prerequisites:[{stage:'stage3e',phase:'baseline'}],creatorRevision:revision}),/prerequisite evidence is incomplete/);
+});
+
+test('execution plans reject damaged dual stores and manifests cannot start without a matching plan',t=>{
+  const w=workspace(t),revision='a'.repeat(40),cells=Array.from({length:24},(_,index)=>({key:`cell-${index}`}));
+  const plan=core.verifyAndPersistExecutionPlan({roots:w.roots,root:w.repo,stage:'stage3e',phase:'baseline',cells,renderBudget:24,
+    identity:{source:'fixed'},prerequisites:[],nowRevision:()=>revision,isAncestor:()=>true});
+  const secondary=core.dualPaths(w.roots,plan.relative).secondary;fs.writeFileSync(secondary,'damaged');
+  assert.throws(()=>core.readDualBytes(w.roots,plan.relative),/BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE/);
+  const roots=workspace(t).roots,legacy=manifest(roots,'baseline',{source:'unbound'});legacy.executionPlanSha256='f'.repeat(64);delete legacy.authorizationSha256;
+  assert.throws(()=>core.initializePhase({roots,phase:'baseline',manifest:legacy,cells,renderBudget:24}),/BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE|missing durable copy/);
+});
+
 test('finalization preserves failures and is byte-stable on repeated verification',t=>{
   const phase=startPhase(t),key='production-36-14';
   core.startCell({roots:phase.roots,phase:phase.phase,cellKey:key,cell:phase.cells[0],identity:phase.identity,identityNow:()=>phase.identity});
