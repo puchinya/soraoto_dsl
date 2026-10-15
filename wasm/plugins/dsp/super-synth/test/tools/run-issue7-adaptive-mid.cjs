@@ -224,14 +224,15 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
       creatorRevisionOverride:frozen.creatorRevision,helperHashesOverride,now});
     if(!core.same(frozen,built.manifest))
       throw new Error('BLOCKED_ADAPTIVE_MID_PARENT: immutable parent manifest no longer matches the approved build and old evidence');
+    const parentBase={...built,roots,commonDirectory:roots.commonDirectory,manifest:frozen,parentManifestSha256:existing.sha256};
     let runtimeRevision=storedRevision?{value:storedRevision.value,sha256:storedRevision.sha256}:null;
     if(storedRevision||runnerChanged){
-      const plan=ensureExecutionPlan({...built,manifest:frozen,parentManifestSha256:existing.sha256});
-      const ledgerState=ensureLedger({...built,manifest:frozen,parentManifestSha256:existing.sha256},plan);
+      const plan=ensureExecutionPlan(parentBase);
+      const ledgerState=ensureLedger(parentBase,plan);
       if(!storedRevision){
-        const candidate=createRuntimeRevisionCandidate(root,{...built,manifest:frozen,parentManifestSha256:existing.sha256},plan,ledgerState);
+        const candidate=createRuntimeRevisionCandidate(root,parentBase,plan,ledgerState);
         validateRuntimeRevisionCode(root,frozen,existing.sha256,candidate);
-        verifyRevisionProbe({...built,manifest:frozen,parentManifestSha256:existing.sha256},plan,ledgerState,candidate,{initialOnly:true});
+        verifyRevisionProbe(parentBase,plan,ledgerState,candidate,{initialOnly:true});
         const bytes=core.canonicalBytes(candidate),sha256=core.sha256(bytes);
         runtimeRevision={value:candidate,sha256};
         if(write){
@@ -243,7 +244,7 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
             initialLedgerSha256:candidate.initialLedgerSha256},now);
         }
       }else{
-        verifyRevisionProbe({...built,manifest:frozen,parentManifestSha256:existing.sha256},plan,ledgerState,storedRevision.value);
+        verifyRevisionProbe(parentBase,plan,ledgerState,storedRevision.value);
         const journal=core.readDualJournal(roots,'journal/events.jsonl');
         const accepted=journal.events.some(event=>event.type==='RUNTIME_REVISION_ACCEPTED'
           &&event.runtimeRevisionSha256===storedRevision.sha256&&event.firstProbeResultSha256===storedRevision.value.firstProbe.resultSha256);
