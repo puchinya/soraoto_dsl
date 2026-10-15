@@ -7,6 +7,7 @@ const os=require('node:os');
 const path=require('node:path');
 const runner=require('./run-issue7-stage3-current-build.cjs');
 const core=require('./issue7-current-build-core.cjs');
+const adaptiveMid=require('./run-issue7-adaptive-mid.cjs');
 
 test('Stage3 uses exactly 480 direct cells and six sentinels with unique keys',()=>{
   const cells=runner.cells();
@@ -89,6 +90,20 @@ test('derived production identity binds the selected tuple to a dedicated promot
     assert.equal(result.derived.builds.stage3e.wasm.sha256,record.builds.stage3e.wasm.sha256);
     assert.equal(result.derived.builds.stage4.wasm.sha256,record.builds.stage4.wasm.sha256);
     assert.equal(result.productionRecord.builds.production.wasm.sha256,result.derived.builds.production.wasm.sha256);
+    const adaptiveSelection={...selection,extensionSelection:true,selection:{schema:'issue7-stage3e-extension-selection/v1',
+      decision:'ADAPTIVE_MID_FULL_PASS',selectedAt:'2026-10-16T00:00:00.000Z',probeResultSha256:['1'.repeat(64)]},
+      extension:{resultSha256:'2'.repeat(64),parentManifestSha256:'3'.repeat(64),screenResultSha256:'4'.repeat(64),fullResultSha256:'b'.repeat(64),
+        parentManifest:{parents:{'low-full':{decision:'STAGE3E_LOW_FULL_PASS'},'midi51-final-diagnostic':{decision:'STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE'}}}},
+      final:{sha256:'b'.repeat(64),result:{decision:'ADAPTIVE_MID_FULL_PASS',identity:baselineIdentity,
+        summary:{selectedTuple:tuple,candidates:[{tuple,pass:true}]}}}};
+    const adaptiveDerived=runner.deriveProductionBuildIdentity({root,record,selection:adaptiveSelection,promotion});
+    assert.equal(adaptiveDerived.derived.stage3eSelectionSchema,'issue7-stage3e-extension-selection/v1');
+    assert.equal(adaptiveDerived.derived.stage3eExtensionResultSha256,'2'.repeat(64));
+    assert.equal(adaptiveDerived.derived.stage3eExtensionParentManifestSha256,'3'.repeat(64));
+    assert.deepEqual(adaptiveDerived.derived.stage3eProbeResultSha256,['1'.repeat(64)]);
+    assert.equal(adaptiveMid.assertPromotedDerivedIdentity(baselineIdentity,adaptiveSelection,adaptiveDerived.derived),true);
+    assert.throws(()=>adaptiveMid.assertPromotedDerivedIdentity(baselineIdentity,adaptiveSelection,
+      {...adaptiveDerived.derived,stage3eFullResultSha256:'9'.repeat(64)}),/does not bind this adaptive extension selection/);
     assert.throws(()=>runner.deriveProductionBuildIdentity({root,record,selection,promotion:{...promotion,changedPaths:[...runner.PROMOTION_PATHS,'README.md']}}),/BLOCKED_STAGE3_PROMOTION/);
     const damaged={...promotion,readCommitFile:relative=>relative===runner.PROMOTION_PATHS[0]?parentFiles.get(relative):fs.readFileSync(path.join(root,relative))};
     assert.throws(()=>runner.deriveProductionBuildIdentity({root,record,selection,promotion:damaged}),/BLOCKED_STAGE3_PROMOTION/);

@@ -62,6 +62,13 @@ function readStage3(root=ROOT,home=os.homedir(),epoch=core.EPOCH,{allowSynthetic
   if(final.result.summary?.syntheticTest===true&&!allowSyntheticTest)
     throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: finalized Stage3 identity differs from current production inputs');
   core.verifyFinalizedIdentity({root,final,identity:prepared.identity,allowSyntheticTest});
+  if(!['issue7-stage3e-extension-selection/v1','legacy-mid-full-selection/v1'].includes(derived.stage3eSelectionSchema))
+    throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: Stage3 derived identity has no recognized explicit Stage3E selection schema');
+  if(derived.stage3eSelectionSchema==='issue7-stage3e-extension-selection/v1'
+      &&(!derived.stage3eExtensionParentManifestSha256||!derived.stage3eExtensionResultSha256
+        ||derived.stage3eFullResultSha256!==derived.stage3eResultSha256||!Array.isArray(derived.stage3eProbeResultSha256)
+        ||!derived.stage3eProbeResultSha256.length||!derived.stage3eScreenResultSha256))
+    throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: adaptive Stage3E extension evidence is not fully linked');
   if(!core.same(derived,prepared.derivedBuildIdentity)||final.result.identity.productionBuildIdentitySha256!==prepared.productionBuildIdentitySha256)
     throw new Error('BLOCKED_STAGE4_STAGE3_IDENTITY: immutable derived production identity differs');
   const expected=final.result.identity.builds?.production?.wasmSha256;

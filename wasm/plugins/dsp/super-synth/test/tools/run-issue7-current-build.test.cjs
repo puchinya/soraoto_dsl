@@ -114,7 +114,7 @@ function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL',fin
     'low-screen':'STAGE3E_LOW_SCREEN_COMPLETE',
     'midi51-candidate-diagnostic':'STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE',
     'low-full':'STAGE3E_LOW_FULL_PASS','mid-screen':'STAGE3E_MID_SCREEN_COMPLETE',
-    'midi51-final-diagnostic':'STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE','mid-full':'STAGE3E_MID_FULL_PASS'
+    'midi51-final-diagnostic':'STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE'
   };
   const readPhase=(roots,phase)=>{
     if(phases[phase]?.decision&&phase==='mid-full'&&!phases.selectionWritten){
@@ -149,8 +149,7 @@ function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL',fin
       if(phase==='midi51-diagnostic')Object.assign(summary,{safe:true,diagnosticsComplete:true,span:{errorDb:20.696187}});
       if(phase==='low-screen')summary.topFive=lowTuples.map(({low,bassHardness})=>({low,bassHardness}));
       if(phase==='midi51-candidate-diagnostic')Object.assign(summary,{candidates:lowTuples.map(candidate=>({tuple:candidate,safe:true,diagnosticsComplete:true,pass:false})),passingCandidates:[]});
-      if(phase==='midi51-final-diagnostic')Object.assign(summary,{candidates:[{tuple,safe:true,diagnosticsComplete:true,pass:finalDiagnosticPass}],passingCandidates:finalDiagnosticPass?[tuple]:[]});
-      if(phase==='mid-full')summary.selectedTuple=tuple;
+      if(phase==='midi51-final-diagnostic')Object.assign(summary,{candidates:lowTuples.map(candidate=>({tuple:candidate,safe:true,diagnosticsComplete:true,pass:false})),passingCandidates:[]});
       phases[phase]={decision,renderCount:0,summary};
       return {decision,phase,calls:0,renderCount:0,acousticRenders:0};
     }
@@ -169,8 +168,21 @@ function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL',fin
     stageFinals.set('stage4',{result:{decision:'STAGE4_FULL_RANGE_COMPLETE',renderCount:0},sha256:'b'.repeat(64)});
     return {decision:'STAGE4_FULL_RANGE_COMPLETE',renderCount:0,acousticRenders:0};
   }};
+  let adaptiveFinal=null;
+  const adaptiveMid={
+    loadFinalMaybe(){return adaptiveFinal;},
+    loadSelection(){return adaptiveFinal?.decision==='ADAPTIVE_MID_FULL_PASS'
+      ?{selection:{schema:'issue7-stage3e-extension-selection/v1'},selectionSha256:'c'.repeat(64)}:null;},
+    run(options){
+      calls.push({stage:'stage3e',mode:options.mode==='execute'?'adaptive-execute':options.mode,phase:'adaptive-mid-01'});
+      if(options.mode==='dry-run')return {decision:'ADAPTIVE_MID_DRY_RUN_READY',builds:0,renders:0,writes:0,acousticRenders:0};
+      if(options.mode==='verify')return {decision:'ADAPTIVE_MID_VERIFY_OK',builds:0,renders:0,writes:0,acousticRenders:0};
+      adaptiveFinal={decision:finalDiagnosticPass?'ADAPTIVE_MID_FULL_PASS':'BLOCKED_NO_FEASIBLE_MID_RESPONSE',renderCount:0,summary:{}};
+      return {...adaptiveFinal,phase:'adaptive-mid-01',acousticRenders:0,builds:0,renders:0,writes:1};
+    }
+  };
   const counters={promotion:0,suite:0,report:0};
-  const options={root,home,runners:{stage3e,stage3,stage4},readPhase,
+  const options={root,home,runners:{stage3e,adaptiveMid,stage3,stage4},readPhase,
     verifyReadOnly:()=>({decision:'ISSUE7_CURRENT_BUILD_VERIFY_OK',builds:0,renders:0,writes:0,acousticRenders:0}),
     promoteSelection:()=>{counters.promotion++;return {decision:'STAGE3_PROMOTION_READY'};},
     runSuite:()=>{counters.suite++;return {decision:'ISSUE7_FULL_SUITE_PASS',results:[]};},
@@ -180,11 +192,11 @@ function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL',fin
   return {root,home,phases,stageFinals,calls,counters,options};
 }
 
-test('run-all drives every eligible stage in one call and records append-only dual-store events',t=>{
+test('run-all drives adaptive Stage3E, Stage3, and Stage4 in one call and records append-only dual-store events',t=>{
   const fixture=runAllFixture(t),result=master.runAll(fixture.options);
   assert.equal(result.decision,'ISSUE7_READY_FOR_REVIEW');
   assert.deepEqual(fixture.calls.filter(call=>call.stage==='stage3e'&&!['dry-run','verify'].includes(call.mode)).map(call=>call.phase),
-    ['baseline','midi51-diagnostic','low-screen','midi51-candidate-diagnostic','low-full','mid-screen','midi51-final-diagnostic','mid-full']);
+    ['baseline','midi51-diagnostic','low-screen','midi51-candidate-diagnostic','low-full','mid-screen','midi51-final-diagnostic','adaptive-mid-01']);
   assert.equal(fixture.calls.filter(call=>call.stage==='stage3'&&call.mode==='execute').length,1);
   assert.equal(fixture.calls.filter(call=>call.stage==='stage4'&&call.mode==='execute').length,1);
   assert.equal(fixture.counters.promotion,1);assert.equal(fixture.counters.suite,1);
@@ -238,18 +250,18 @@ test('run-all defers a safe pre-mid MIDI51 quality FAIL and validates the fixed 
   assert.equal(core.readDualJournal(roots).events.some(event=>event.type==='PRE_LOW_FULL_MIDI51_GATE_DEFERRED'),true);
 });
 
-test('run-all still blocks before mid-full when the final MIDI51 diagnostic has no passing candidate',t=>{
+test('run-all reaches adaptive MIDI51 response selection after a safe complete 0/5 diagnostic',t=>{
   const fixture=runAllFixture(t,{finalDiagnosticPass:false});
   const result=master.runAll(fixture.options);
-  assert.equal(result.decision,'BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE');
+  assert.equal(result.decision,'BLOCKED_NO_FEASIBLE_MID_RESPONSE');
   assert.equal(fixture.calls.some(call=>call.phase==='low-full'&&call.mode==='full'),true);
   assert.equal(fixture.calls.some(call=>call.phase==='midi51-final-diagnostic'),true);
   assert.equal(fixture.calls.some(call=>call.phase==='mid-full'&&call.mode==='full'),false);
   assert.equal(fixture.counters.promotion,0);
   assert.equal(fixture.calls.some(call=>call.stage==='stage3'&&call.mode==='execute'),false);
-  const progress=master.stage3eProgress({root:fixture.root,home:fixture.home,readPhase:fixture.options.readPhase});
-  assert.equal(progress.decision,'BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE');
-  assert.equal(progress.phase,'mid-full');
+  const progress=master.stage3eProgress({root:fixture.root,home:fixture.home,readPhase:fixture.options.readPhase,adaptiveRunner:fixture.options.runners.adaptiveMid});
+  assert.equal(progress.decision,'BLOCKED_NO_FEASIBLE_MID_RESPONSE');
+  assert.equal(progress.phase,'adaptive-mid-01');
 });
 
 test('run-all resume skips finalized phases and does not create a second promotion commit',t=>{
@@ -266,10 +278,12 @@ test('run-all resume skips finalized phases and does not create a second promoti
   assert.equal(fixture.calls.filter(call=>call.stage==='stage4'&&call.mode==='execute').length,stage4Before);
 });
 
-test('run-all fixed per-phase and cumulative render budgets sum to 4,464',()=>{
-  assert.equal(Object.values(master.STAGE3E_BUDGETS).reduce((sum,value)=>sum+value,0),2555);
+test('run-all fixed per-phase and cumulative render budgets sum to 4,408',()=>{
+  assert.equal(Object.values(master.STAGE3E_BUDGETS).reduce((sum,value)=>sum+value,0),2499);
   assert.equal(master.STAGE3E_BUDGETS['midi51-candidate-diagnostic'],80);
-  assert.equal(master.TOTAL_RENDER_BUDGET,2555+486+1423);
+  assert.equal(master.STAGE3E_BUDGETS['mid-full'],0);
+  assert.equal(master.STAGE3E_BUDGETS['adaptive-mid-01'],264);
+  assert.equal(master.TOTAL_RENDER_BUDGET,2499+486+1423);
 });
 
 test('status, dry-run, and verify retain evidence SHA and mtime',t=>{

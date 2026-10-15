@@ -895,3 +895,17 @@ as historical provenance. Stage3 and Stage4 output metrics remain bounded by
 the existing `1e-6` equivalence tolerance. This current-build path supersedes
 the older §5.1 master-orchestrator route only for the new epoch; the historical
 route and its evidence remain unchanged.
+
+### 9.1 Approved adaptive MIDI51 extension — 2026-10-15
+
+The approved Issue #7 amendment (comment [6194307783](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6194307783), SHA-256 `9db43cee3d7d37180b6390cb4e82a0767f042e87595f03be4a2cf67d0fda657c`) supersedes the fixed-grid terminal gate and the Stage3E/total render ceilings stated above. It changes only the bounded Stage3E response search and its evidence handoff; it does not change DSP behavior, public syntax, Plugin ABI, reference fixture, the 8 dB gate, or downstream acceptance criteria.
+
+The seven completed parent phases and their 2,235 renders remain immutable, including the final MIDI51 diagnostic with five safe, complete candidates and zero passes. The former fixed `mid-full` allocation is not run or reused. The extension writes only under `current-build-v1/adaptive-mid-01` in both canonical evidence stores and binds all seven parent result/archive SHA-256 values, the baseline build/source/input identity, creator revision, and separate extension runner/evaluator hashes.
+
+The planner starts at `mid=0.55`, uses four-decimal values, and keeps low at `0.35` and bass hardness at `0.50`. A safe, complete MIDI51 PASS requires dynamic-span error at or below 8 dB. If 0.55 passes, bisect it against the known failing 0.60 value at most twice. If 0.55 is a safe quality FAIL, probe 0.50, 0.45, 0.40, and 0.35 in order until the first PASS, then bisect the first passing/failing bracket at most twice. Unsafe, incomplete, non-finite, duplicate, or ambiguous observations stop the extension. No passing probe ends as `BLOCKED_NO_FEASIBLE_MID_RESPONSE`. At most seven unique probes are permitted, each using MIDI 51 and all 16 official velocities.
+
+The highest two passing probe candidates are screened over MIDI 48, 51, 54, and 57 at velocities 14, 61, and 124. The existing `rankMidCandidates` objective orders screen results. At most two ranked candidates receive the official 16-velocity full evaluation over those four pitches (64 cells each). The first safe full PASS is selected. Unsafe or incomplete full evidence stops; two safe quality failures end as `BLOCKED_ADAPTIVE_MID_FULL`.
+
+The sidecar owns an immutable parent manifest and execution plan, a dual-store ledger, an immutable start marker and observation for every cell, an append-only journal, and a lock separate from the run-all master lock. A started cell without a complete observation is ambiguous and is never rerendered automatically. `issue7-stage3e-extension-selection/v1` explicitly links the old low-full PASS and old final MIDI51 0/5 FAIL to the new probe, screen, and full result hashes. Stage3 promotion and derived production identity preserve those exact links; Stage4 accepts the resulting explicit selection schema through the Stage3 identity.
+
+Budgets are 112 probe calls, 24 screen calls, and 128 full calls (264 extension maximum). Stage3E is capped at 2,499 total calls (2,235 parent plus 264 extension), Stage3 at 486, Stage4 at 1,423, and the authorized total at 4,408. The global 4,464-call ceiling leaves 56 calls unusable. No unused or historical `mid-full` quota is transferred.

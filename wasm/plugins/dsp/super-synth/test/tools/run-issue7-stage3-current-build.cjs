@@ -6,6 +6,7 @@ const os=require('node:os');
 const path=require('node:path');
 const {execFileSync,spawnSync}=require('node:child_process');
 const core=require('./issue7-current-build-core.cjs');
+const adaptiveMid=require('./run-issue7-adaptive-mid.cjs');
 const capture=require('./capture-supersynth-matrix.cjs');
 const evaluator=require('./run-stage3-production-recovery.cjs');
 const direct=require('./stage3-direct-reference-metrics.cjs');
@@ -179,8 +180,14 @@ function hashCommitBlob(promotion,relative,side){
   digests.set(key,digest);return digest;
 }
 function deriveProductionBuildIdentity({root=ROOT,record=identityRecord(root),selection,promotion:providedPromotion}={}){
-  if(!selection||selection.final?.result?.decision!=='STAGE3E_MID_FULL_PASS')
-    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: a passing Stage3E mid-full result is required for promotion');
+  const adaptive=selection?.extensionSelection===true;
+  const acceptedDecision=adaptive?'ADAPTIVE_MID_FULL_PASS':'STAGE3E_MID_FULL_PASS';
+  if(!selection||selection.final?.result?.decision!==acceptedDecision)
+    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: a passing Stage3E full result under a recognized selection schema is required for promotion');
+  if(adaptive&&(selection.selection?.schema!=='issue7-stage3e-extension-selection/v1'||selection.selection.decision!=='ADAPTIVE_MID_FULL_PASS'
+      ||selection.extension?.parentManifest?.parents?.['midi51-final-diagnostic']?.decision!=='STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE'
+      ||selection.extension?.parentManifest?.parents?.['low-full']?.decision!=='STAGE3E_LOW_FULL_PASS'))
+    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: adaptive extension schema is not bound to the approved parent results');
   const selectionIdentity=selection.final.result.identity,identityBytes=repoFile(root,IDENTITY_REL),identitySha256=sha256(identityBytes);
   if(!core.same(JSON.parse(identityBytes.toString('utf8')),record))throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: supplied original build record differs from the immutable tracked bytes');
   if(selectionIdentity?.buildIdentitySha256!==identitySha256||selectionIdentity?.sourceCommit!==record.sourceCommit)
@@ -208,8 +215,14 @@ function deriveProductionBuildIdentity({root=ROOT,record=identityRecord(root),se
   const derived={schemaVersion:1,issue:7,epoch:core.EPOCH,stage:'stage3-production',promotionCommit:promotion.commit,
     promotionParentCommit:promotion.parent,promotionParentTree:promotion.parentTree,promotionCommitTree:promotion.commitTree,
     parentBuildIdentitySha256:identitySha256,parentSourceCommit:record.sourceCommit,toolchainFileSha256:snapshot.toolchainFileSha256,
+    stage3eSelectionSchema:adaptive?'issue7-stage3e-extension-selection/v1':'legacy-mid-full-selection/v1',
     stage3eSelectionSha256:selection.selectionSha256,stage3eResultSha256:selection.final.sha256,
     stage3eIdentitySha256:sha256(core.canonicalBytes(selectionIdentity)),selectedResponse:tuple,
+    ...(adaptive?{stage3eExtensionResultSha256:selection.extension.resultSha256,
+      stage3eExtensionParentManifestSha256:selection.extension.parentManifestSha256,
+      stage3eProbeResultSha256:selection.selection.probeResultSha256,
+      stage3eScreenResultSha256:selection.extension.screenResultSha256,
+      stage3eFullResultSha256:selection.extension.fullResultSha256}:{}),
     inputs:snapshot.inputs,builds:snapshot.builds,metadataOutputs:snapshot.metadataOutputs,productionExports:exports};
   return {derived,productionRecord,productionBuildIdentitySha256:sha256(core.canonicalBytes(derived))};
 }
@@ -237,6 +250,13 @@ function assertProductionExports(root,record){
 function readSelection(root=ROOT,home=os.homedir(),epoch=core.EPOCH,{allowSyntheticTest=false}={}){
   const roots=core.resolveRoots(root,'stage3e',epoch,{home});
   let stored,final;
+  const extension=adaptiveMid.loadSelection(root,home,epoch);
+  if(extension){
+    if(extension.selection.decision!=='ADAPTIVE_MID_FULL_PASS'||extension.selection.schema!=='issue7-stage3e-extension-selection/v1'
+        ||(extension.selection.syntheticTest===true&&!allowSyntheticTest))
+      throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: adaptive extension selection is invalid or synthetic');
+    return extension;
+  }
   try{
     stored=core.readDualBytes(roots,'selection.json');
     final=core.readFinal(roots,'mid-full');
@@ -298,15 +318,20 @@ function expectedTupleValues(tuple){
 function assertSelectedFullPass(selection){
   const tuple=selection?.tuple,summary=selection?.final?.result?.summary;
   expectedTupleValues(tuple);
-  if(selection.final.result.decision!=='STAGE3E_MID_FULL_PASS'||!core.same(summary?.selectedTuple,tuple)
+  const decision=selection.extensionSelection===true?'ADAPTIVE_MID_FULL_PASS':'STAGE3E_MID_FULL_PASS';
+  if(selection.final.result.decision!==decision||!core.same(summary?.selectedTuple,tuple)
       ||!summary?.candidates?.some(candidate=>candidate.pass===true&&core.same(candidate.tuple,tuple)))
-    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: selected tuple is not the passing mid-full candidate');
+    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: selected tuple is not the passing full candidate for its explicit selection schema');
   return true;
 }
 function promotionIntent(root,record,selection,parentCommit,parentTree){
   const tuple={...selection.tuple};
   return {schemaVersion:1,issue:7,epoch:core.EPOCH,type:'stage3e-promotion-intent',parentCommit,parentTree,
     sourceCommit:record.sourceCommit,tuple,selectionSha256:selection.selectionSha256,stage3eResultSha256:selection.final.sha256,
+    ...(selection.extensionSelection===true?{selectionSchema:selection.selection.schema,
+      extensionResultSha256:selection.extension.resultSha256,parentManifestSha256:selection.extension.parentManifestSha256,
+      probeResultSha256:selection.selection.probeResultSha256,screenResultSha256:selection.extension.screenResultSha256,
+      fullResultSha256:selection.extension.fullResultSha256}:{}),
     baselinePresetsSha256:record.inputs.presets.sha256,baselineProfileSha256:record.inputs.generatedProfile.sha256,
     createdAt:selection.selection.selectedAt};
 }
@@ -483,8 +508,12 @@ function currentIdentity({root=ROOT,home=os.homedir(),epoch=core.EPOCH,record=id
   return {issue:7,epoch,stage:STAGE,sourceCommit:record.sourceCommit,buildIdentitySha256:production.derived.parentBuildIdentitySha256,
     toolchain:record.toolchain,inputs:production.derived.inputs,builds,
     productionBuildIdentitySha256:production.productionBuildIdentitySha256,
+    stage3eSelectionSchema:selected.selection?.schema||'legacy-mid-full-selection/v1',
     selectionSha256:selected.selectionSha256,
     selectedResponse:selected.tuple,stage3eResultSha256:selected.final.sha256,
+    ...(selected.extensionSelection?{stage3eExtensionParentManifestSha256:selected.extension.parentManifestSha256,
+      stage3eExtensionResultSha256:selected.extension.resultSha256,stage3eProbeResultSha256:selected.selection.probeResultSha256,
+      stage3eScreenResultSha256:selected.extension.screenResultSha256,stage3eFullResultSha256:selected.extension.fullResultSha256}:{}),
     regressionResultsSha256:regression.sha256,regressions:evaluator.validateRegressionResults(regression.results),
     captureHelperSha256:fileSha(root,CAPTURE_REL),evaluatorSha256:fileSha(root,EVALUATOR_REL),runnerSha256:fileSha(root,RUNNER_REL)};
 }
@@ -497,6 +526,13 @@ function cells(){
 function verifyStage3ePrerequisite(root,selected,{allowSyntheticTest=false}={}){
   const final=selected?.final,creator=final?.manifest?.creatorRevision||final?.manifest?.creatorCommit||final?.executionPlan?.creatorRevision;
   const synthetic=final?.result?.summary?.syntheticTest===true;
+  if(selected?.extensionSelection===true){
+    if(selected.selection?.schema!=='issue7-stage3e-extension-selection/v1'||selected.selection?.decision!=='ADAPTIVE_MID_FULL_PASS'
+        ||selected.extension?.parentManifestSha256!==selected.selection.parent?.manifestSha256
+        ||selected.extension?.fullResultSha256!==selected.selection.fullResultSha256
+        ||selected.extension?.screenResultSha256!==selected.selection.screenResultSha256)
+      throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: adaptive extension result binding differs');
+  }
   if(!(synthetic&&allowSyntheticTest)&&!core.commitIsAncestor(root,creator))
     throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: Stage3E creator revision is not an ancestor of current HEAD');
   const frozen=final.executionPlan?.identity;
@@ -586,9 +622,13 @@ function executeAuthorized({root,home,epoch,phaseCells,regressionResultsPath,ren
     throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: build source commit is not an ancestor of current HEAD');
   const prerequisite=prepared.selected.final;
   const frozen=core.verifyAndPersistExecutionPlan({roots,root,stage:STAGE,phase:PHASE,cells:phaseCells,renderBudget:486,identity:prepared.identity,
-    prerequisites:[{stage:'stage3e',phase:'mid-full',decision:prerequisite.result.decision,resultSha256:prerequisite.sha256,
+    prerequisites:[{stage:'stage3e',phase:prepared.selected.extensionSelection?'adaptive-mid-01':'mid-full',decision:prerequisite.result.decision,resultSha256:prerequisite.sha256,
       archiveSha256:prerequisite.archiveSha256,creatorRevision:prerequisite.manifest?.creatorRevision||prerequisite.manifest?.creatorCommit||
         (syntheticTest?core.gitHead(root):undefined),
+      ...(prepared.selected.extensionSelection?{selectionSchema:prepared.selected.selection.schema,
+        selectionSha256:prepared.selected.selectionSha256,parentManifestSha256:prepared.selected.extension.parentManifestSha256,
+        extensionResultSha256:prepared.selected.extension.resultSha256,screenResultSha256:prepared.selected.extension.screenResultSha256,
+        fullResultSha256:prepared.selected.extension.fullResultSha256}:{}),
       ...(prerequisite.result.executionPlanSha256?{executionPlanSha256:prerequisite.result.executionPlanSha256}:{})}]});
   const previous=core.readPhaseLedger(roots,PHASE);
   const manifest=phaseManifest({root,record:prepared.productionRecord,identity:prepared.identity,executionPlan:frozen.plan,

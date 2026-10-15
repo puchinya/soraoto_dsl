@@ -7,11 +7,12 @@ const crypto=require('node:crypto');
 const {spawnSync}=require('node:child_process');
 const core=require('./issue7-current-build-core.cjs');
 const stage3e=require('./run-issue7-stage3e-current-build.cjs');
+const adaptiveMid=require('./run-issue7-adaptive-mid.cjs');
 const stage3=require('./run-issue7-stage3-current-build.cjs');
 const stage4=require('./run-issue7-stage4-current-build.cjs');
 
 const ROOT=core.ROOT;
-const PHASE_FLOW=Object.freeze([
+const HISTORICAL_PHASE_FLOW=Object.freeze([
   {phase:'baseline',mode:'baseline',success:'STAGE3E_BASELINE_EQUIVALENCE_PASS'},
   {phase:'midi51-diagnostic',mode:'screen',success:'STAGE3E_MIDI51_PASS',accepted:['STAGE3E_MIDI51_DIAGNOSTIC_FAIL']},
   {phase:'low-screen',mode:'screen',success:'STAGE3E_LOW_SCREEN_COMPLETE'},
@@ -21,24 +22,39 @@ const PHASE_FLOW=Object.freeze([
   {phase:'midi51-final-diagnostic',mode:'screen',success:'STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE'},
   {phase:'mid-full',mode:'full',success:'STAGE3E_MID_FULL_PASS'}
 ]);
+const PHASE_FLOW=Object.freeze([
+  ...HISTORICAL_PHASE_FLOW.slice(0,-1),
+  {phase:'adaptive-mid-01',mode:'adaptive',success:'ADAPTIVE_MID_FULL_PASS'}
+]);
 const STAGE3E_BUDGETS=Object.freeze({baseline:24,'midi51-diagnostic':16,'low-screen':1512,'midi51-candidate-diagnostic':80,
-  'low-full':415,'mid-screen':108,'midi51-final-diagnostic':80,'mid-full':320});
-const TOTAL_RENDER_BUDGET=4464;
+  'low-full':415,'mid-screen':108,'midi51-final-diagnostic':80,'mid-full':0,'adaptive-mid-01':264});
+const TOTAL_RENDER_BUDGET=4408;
 const RUN_ALL_JOURNAL='run-all/events.jsonl';
 const FOCUSED_TESTS=Object.freeze([
   'wasm/plugins/dsp/super-synth/test/tools/issue7-current-build-core.test.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/run-issue7-current-build.test.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.test.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.test.cjs',
-  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage4-current-build.test.cjs'
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage4-current-build.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.test.cjs'
 ]);
 
 function readFinal(roots,phase,reader=stage3e.loadFinalMaybe){
   try{return reader(roots,phase);}catch(error){return {decision:'BLOCKED_EVIDENCE_READBACK',reason:error.message};}
 }
-function stage3eProgress({root=ROOT,home=os.homedir(),epoch=core.EPOCH,readPhase=stage3e.loadFinalMaybe}={}){
+function stage3eProgress({root=ROOT,home=os.homedir(),epoch=core.EPOCH,readPhase=stage3e.loadFinalMaybe,adaptiveRunner=adaptiveMid}={}){
   const roots=core.resolveRoots(root,'stage3e',epoch,{home}),completed={};
   for(const item of PHASE_FLOW){
+    if(item.phase==='adaptive-mid-01'){
+      let result;try{result=adaptiveRunner.loadFinalMaybe(root,home,epoch);}catch(error){return {decision:'BLOCKED_EVIDENCE_READBACK',phase:item.phase,reason:error.message,completed};}
+      if(!result)return {decision:'NEXT_PHASE_READY',stage:'stage3e',phase:item.phase,mode:item.mode,completed};
+      completed[item.phase]=result.decision;
+      if(result.decision!=='ADAPTIVE_MID_FULL_PASS')return {decision:result.decision,stage:'stage3e',phase:item.phase,reason:result.reason||null,completed};
+      let selection;try{selection=adaptiveRunner.loadSelection(root,home,epoch);}catch(error){return {decision:'BLOCKED_STAGE3E_SELECTION_REQUIRED',stage:'stage3e',phase:item.phase,reason:error.message,completed};}
+      if(!selection)return {decision:'BLOCKED_STAGE3E_SELECTION_REQUIRED',stage:'stage3e',phase:item.phase,completed};
+      return {decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:item.phase,selectionSchema:selection.selection.schema,
+        selectionSha256:selection.selectionSha256,completed};
+    }
     if(item.conditional&&completed['midi51-diagnostic']==='STAGE3E_MIDI51_PASS')continue;
     const result=readFinal(roots,item.phase,readPhase);
     if(result?.decision==='BLOCKED_EVIDENCE_READBACK')return {decision:result.decision,phase:item.phase,reason:result.reason,completed};
@@ -53,8 +69,9 @@ function stage3eProgress({root=ROOT,home=os.homedir(),epoch=core.EPOCH,readPhase
       if(item.phase==='midi51-final-diagnostic'){
         const passingCandidates=result.summary?.passingCandidates;
         if(!Array.isArray(passingCandidates))return {decision:'BLOCKED_STAGE3E_MIDI51_FINAL_CANDIDATE_RESULT_INVALID',phase:item.phase,completed};
-        if(passingCandidates.length===0)return {decision:'BLOCKED_STAGE3E_MIDI51_NO_PASSING_CANDIDATE',stage:'stage3e',phase:'mid-full',
-          passingCandidates:0,completed};
+        if(result.summary.candidates?.length!==5||result.summary.candidates.some(candidate=>candidate.safe!==true
+          ||candidate.diagnosticsComplete!==true||candidate.pass!==false))
+          return {decision:'BLOCKED_STAGE3E_MIDI51_FINAL_CANDIDATE_RESULT_INVALID',phase:item.phase,completed};
       }
       continue;
     }
@@ -71,18 +88,25 @@ function lockStatus(root=ROOT,epoch=core.EPOCH){
   try{return {locked:true,owner:JSON.parse(fs.readFileSync(file,'utf8'))};}
   catch(error){return {locked:true,ownerReadable:false,reason:error.message};}
 }
-function status({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,stage3,stage4},readPhase=stage3e.loadFinalMaybe}={}){
-  const progress=stage3eProgress({root,home,epoch,readPhase});
+function status({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe}={}){
+  const progress=stage3eProgress({root,home,epoch,readPhase,adaptiveRunner:runners.adaptiveMid||adaptiveMid});
   let builds;
-  try{builds=runners.stage3e.run({mode:'dry-run',root,home,epoch});}
+  if(progress.phase==='adaptive-mid-01'||progress.decision==='STAGE3E_SELECTED_RESPONSE')
+    builds={decision:'ADAPTIVE_MID_EXTENSION_READY',phase:'adaptive-mid-01',builds:0,renders:0,writes:0,acousticRenders:0};
+  else try{builds=runners.stage3e.run({mode:'dry-run',root,home,epoch});}
   catch(error){builds={decision:'BLOCKED_STAGE3E_PREFLIGHT',reason:error.message,builds:0,renders:0,writes:0,acousticRenders:0};}
   let stage3Status,stage4Status;
   try{stage3Status=runners.stage3.run({mode:'dry-run',root,home,epoch});}
   catch(error){stage3Status={decision:'BLOCKED_STAGE3_PREFLIGHT',reason:error.message,builds:0,renders:0,writes:0,acousticRenders:0};}
   try{stage4Status=runners.stage4.run({mode:'dry-run',root,home,epoch});}
   catch(error){stage4Status={decision:'BLOCKED_STAGE4_PREFLIGHT',reason:error.message,builds:0,renders:0,writes:0,acousticRenders:0};}
+  let adaptiveStatus={decision:'ADAPTIVE_MID_NOT_CURRENT',builds:0,renders:0,writes:0,acousticRenders:0};
+  if(progress.phase==='adaptive-mid-01'||progress.decision==='STAGE3E_SELECTED_RESPONSE'){
+    try{adaptiveStatus=(runners.adaptiveMid||adaptiveMid).run({mode:'dry-run',root,home,epoch});}
+    catch(error){adaptiveStatus={decision:'BLOCKED_ADAPTIVE_MID_PREFLIGHT',reason:error.message,builds:0,renders:0,writes:0,acousticRenders:0};}
+  }
   const roots=core.resolveRoots(root,'stage3e',epoch,{home});
-  return {decision:'ISSUE7_CURRENT_BUILD_STATUS',issue:7,epoch,stage3e:progress,builds,stage3:stage3Status,stage4:stage4Status,
+  return {decision:'ISSUE7_CURRENT_BUILD_STATUS',issue:7,epoch,stage3e:progress,builds,adaptiveMid:adaptiveStatus,stage3:stage3Status,stage4:stage4Status,
     lock:lockStatus(root,epoch),runAllLock:runAllLockStatus(roots.commonDirectory,epoch),buildsStarted:0,renders:0,writes:0,acousticRenders:0};
 }
 function runAllLockStatus(commonDirectory,epoch=core.EPOCH){
@@ -100,11 +124,14 @@ function dryRun(options={}){
   const result=status(options);
   return {...result,decision:'ISSUE7_CURRENT_BUILD_DRY_RUN',dryRun:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
 }
-function verify({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,stage3,stage4}}={}){
+function verify({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4}}={}){
   const roots3=core.resolveRoots(root,'stage3',epoch,{home}),roots4=core.resolveRoots(root,'stage4',epoch,{home});
   const stage3Final=finalizedStage({root,home,epoch,stage:'stage3',phase:'stage3'});
   const stage4Final=finalizedStage({root,home,epoch,stage:'stage4',phase:'stage4'});
-  const evidence={stage3e:runners.stage3e.run({mode:'verify',root,home,epoch}),stage3:null,stage4:null};
+  const progress=stage3eProgress({root,home,epoch,adaptiveRunner:runners.adaptiveMid||adaptiveMid});
+  const evidence={stage3e:runners.stage3e.run({mode:'verify',root,home,epoch}),adaptiveMid:null,stage3:null,stage4:null};
+  if(progress.phase==='adaptive-mid-01'||progress.decision==='STAGE3E_SELECTED_RESPONSE')
+    evidence.adaptiveMid=(runners.adaptiveMid||adaptiveMid).run({mode:'verify',root,home,epoch});
   if(stage3Final)evidence.stage3=stage3Final.decision==='BLOCKED_EVIDENCE_READBACK'?stage3Final:runners.stage3.run({mode:'verify',root,home,epoch});
   if(stage4Final)evidence.stage4=stage4Final.decision==='BLOCKED_EVIDENCE_READBACK'?stage4Final:runners.stage4.run({mode:'verify',root,home,epoch});
   const blocked=Object.values(evidence).some(value=>value&&/^BLOCKED_/.test(value.decision||''));
@@ -115,7 +142,7 @@ function stage3eNextMode(progress){
   const item=PHASE_FLOW.find(phase=>progress.stage==='stage3e'&&phase.phase===progress.phase);
   return item||null;
 }
-function preMidSearchLowFullPlan({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,stage3,stage4},readPhase=stage3e.loadFinalMaybe}={}){
+function preMidSearchLowFullPlan({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe}={}){
   const roots=core.resolveRoots(root,'stage3e',epoch,{home});
   const initial=readFinal(roots,'midi51-diagnostic',readPhase);
   const low=readFinal(roots,'low-screen',readPhase);
@@ -142,7 +169,7 @@ function runPreMidSearchLowFull({root,plan,runners,runAllOwner}){
   const record=engine.identityRecord(root),identity=engine.currentIdentity(root,record);
   return engine.runCells({root,roots:plan.roots,record,identity,phase:'low-full',cells,runAllOwner});
 }
-function dispatchNext({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,stage3,stage4},readPhase=stage3e.loadFinalMaybe,runAllOwner,
+function dispatchNext({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe,runAllOwner,
   preLowFullPlan}={}){
   const roots=core.resolveRoots(root,'stage3e',epoch,{home});
   core.assertRunAllLockAccess(roots.commonDirectory,runAllOwner);
@@ -150,14 +177,17 @@ function dispatchNext({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={sta
   const progress=preflight.stage3e;
   if(progress.decision==='NEXT_PHASE_READY'&&progress.stage==='stage3e'){
     const item=stage3eNextMode(progress);
-    const prerequisite=preflight.builds;
-    if(prerequisite.decision!=='STAGE3E_DRY_RUN_READY')return {...prerequisite,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+    const isAdaptive=item?.mode==='adaptive',adaptiveRunner=runners.adaptiveMid||adaptiveMid;
+    const prerequisite=isAdaptive?preflight.adaptiveMid:preflight.builds;
+    const ready=isAdaptive?'ADAPTIVE_MID_DRY_RUN_READY':'STAGE3E_DRY_RUN_READY';
+    if(prerequisite?.decision!==ready)return {...prerequisite,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
     try{
       let lowFullPlan=preLowFullPlan;
       if(item.phase==='low-full'&&lowFullPlan===undefined)lowFullPlan=preMidSearchLowFullPlan({root,home,epoch,runners,readPhase});
       const result=item.phase==='low-full'&&lowFullPlan
         ?runPreMidSearchLowFull({root,plan:lowFullPlan,runners,runAllOwner})
-        :runners.stage3e.run({mode:item.mode,root,home,epoch,phase:item.phase,runAllOwner});
+        :isAdaptive?adaptiveRunner.run({mode:'execute',root,home,epoch,runAllOwner})
+          :runners.stage3e.run({mode:item.mode,root,home,epoch,phase:item.phase,runAllOwner});
       return {...result,stage:'stage3e',phase:item.phase,stoppedAfterStep:true,nextPhasePending:true};
     }catch(error){
       return {decision:'BLOCKED_STAGE3E_EXECUTION',stage:'stage3e',phase:item.phase,reason:error.message,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
@@ -189,8 +219,21 @@ function next(options={}){return dispatchNext(options);}
 function phaseRenderCount(root,home,epoch,commonDirectory){
   let total=0;const phases=[];
   for(const phase of Object.keys(STAGE3E_BUDGETS)){
-    const roots=core.resolveRoots(root,'stage3e',epoch,{home,commonDirectory}),state=core.readPhaseLedger(roots,phase);
-    const count=state?.ledger?.renderCount||0;
+    const roots=core.resolveRoots(root,'stage3e',epoch,{home,commonDirectory});let count=0;
+    if(phase==='adaptive-mid-01'){
+      const adaptiveRoots=adaptiveMid.sidecarRoots(root,home,epoch,commonDirectory),state=adaptiveMid.readLedger(adaptiveRoots);
+      count=state?.ledger?.renderCount||0;
+      if(state){
+        const observed=Object.values(state.ledger.cells||{}).filter(cell=>['IN_PROGRESS','COMPLETE','AMBIGUOUS'].includes(cell.state)).length;
+        const byKind={probe:0,screen:0,full:0};
+        for(const cell of Object.values(state.ledger.cells||{}))if(['IN_PROGRESS','COMPLETE','AMBIGUOUS'].includes(cell.state))byKind[cell.kind]=(byKind[cell.kind]||0)+1;
+        if(observed!==count||Object.keys(byKind).some(kind=>!['probe','screen','full'].includes(kind))
+          ||byKind.probe>112||byKind.screen>24||byKind.full>128)
+          throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: adaptive sidecar ledger disagrees with its per-kind caps');
+      }
+    }else{
+      const state=core.readPhaseLedger(roots,phase);count=state?.ledger?.renderCount||0;
+    }
     if(count>STAGE3E_BUDGETS[phase])throw new Error(`BLOCKED_ISSUE7_RENDER_BUDGET: ${phase} recorded ${count} beyond ${STAGE3E_BUDGETS[phase]}`);
     total+=count;phases.push({stage:'stage3e',phase,count,limit:STAGE3E_BUDGETS[phase]});
   }
@@ -266,17 +309,20 @@ function runReadOnlyFinalGate({root,home,epoch,runners,readPhase,commonDirectory
 }
 function buildRunAllReport({root,home,epoch,roots,spend,runAcousticRenders,fullSuite,readOnlyGate,now}){
   const promotion=stage3.promotionDetails(root),originalRecord=stage3.identityRecord(root),stage3State=stage4.readStage3(root,home,epoch);
-  const phaseResults=PHASE_FLOW.map(item=>{
+  const phaseResults=HISTORICAL_PHASE_FLOW.map(item=>{
     const final=readFinal(roots,item.phase);
     return {stage:'stage3e',phase:item.phase,decision:final?.decision||null,renderCount:final?.renderCount??null,
       resultSha256:final?.sha256||null,archiveSha256:final?.archiveSha256||null};
   });
+  const adaptive=adaptiveMid.loadFinalMaybe(root,home,epoch),adaptiveLedger=adaptiveMid.readLedger(adaptiveMid.sidecarRoots(root,home,epoch));
+  phaseResults.push({stage:'stage3e',phase:'adaptive-mid-01',decision:adaptive?.decision||null,
+    renderCount:adaptiveLedger?.ledger?.renderCount||0,resultSha256:adaptive?.sha256||null,archiveSha256:null});
   for(const [stage,phase] of [['stage3','stage3'],['stage4','stage4']]){
     const final=finalizedStage({root,home,epoch,stage,phase});
     phaseResults.push({stage,phase,decision:final?.result?.decision||null,renderCount:final?.result?.renderCount??null,
       resultSha256:final?.sha256||null,archiveSha256:final?.archiveSha256||null});
   }
-  const selection=core.readDualJson(roots,'selection.json'),regression=stage3.readRegressions(root);
+  const selection=stage3.readSelection(root,home,epoch).selection,regression=stage3.readRegressions(root);
   return {schemaVersion:1,issue:7,epoch,decision:'ISSUE7_READY_FOR_REVIEW',head:core.gitHead(root),phases:phaseResults,
     selectedResponse:selection,promotion:{commit:promotion.commit,parent:promotion.parent,parentTree:promotion.parentTree,
       commitTree:promotion.commitTree,changedPaths:promotion.changedPaths},
@@ -288,7 +334,7 @@ function buildRunAllReport({root,home,epoch,roots,spend,runAcousticRenders,fullS
     acousticRenders:runAcousticRenders,cumulativeRenderCount:spend.total,renderBudget:TOTAL_RENDER_BUDGET,fullSuite,readOnlyGate,
     externalBackup:'NOT AVAILABLE',platformsNotRun:['Windows','Linux'],completedAt:now()};
 }
-function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,stage3,stage4},readPhase=stage3e.loadFinalMaybe,
+function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe,
   now=()=>new Date().toISOString(),commonDirectory,promoteSelection=stage3.promoteSelection,runSuite=runVerificationSuite,
   verifyReadOnly=verify,statusReadOnly=status,dryRunReadOnly=dryRun,getStageFinal=finalizedStage,
   runFinalGate=runReadOnlyFinalGate,buildReport=buildRunAllReport}={}){
@@ -313,7 +359,7 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,s
       let steps=0;
       while(steps<PHASE_FLOW.length+4){
         steps+=1;
-        const current=stage3eProgress({root,home,epoch,readPhase});
+        const current=stage3eProgress({root,home,epoch,readPhase,adaptiveRunner:runners.adaptiveMid||adaptiveMid});
         if(current.decision.startsWith('BLOCKED_'))throw new Error(`${current.decision}: ${current.reason||current.phase||'phase gate failed'}`);
         if(current.decision==='NEXT_PHASE_READY'&&current.stage==='stage3e'){
           const item=stage3eNextMode(current);
