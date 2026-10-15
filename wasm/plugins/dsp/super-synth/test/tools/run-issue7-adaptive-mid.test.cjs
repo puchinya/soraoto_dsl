@@ -2,8 +2,13 @@
 
 const test=require('node:test');
 const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
 const adaptive=require('./issue7-adaptive-mid-core.cjs');
+const core=require('./issue7-current-build-core.cjs');
 const adaptiveRunner=require('./run-issue7-adaptive-mid.cjs');
+const evaluator=require('./issue7-adaptive-mid-evaluator.cjs');
 const master=require('./run-issue7-current-build.cjs');
 
 function result(mid,spanErrorDb,kind){return {mid,spanErrorDb,safe:true,diagnosticsComplete:true,kind};}
@@ -104,4 +109,86 @@ test('master schedules the adaptive sidecar and reserves no calls for the histor
   assert.equal(master.TOTAL_RENDER_BUDGET,4408);
   assert.equal(adaptiveRunner.EXTENSION,'adaptive-mid-01');
   assert.equal(adaptiveRunner.PARENT_RENDER_COUNT,2235);
+});
+
+test('step results expose their payload and resume reconciles only SHA-verified completed probe evidence',t=>{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-adaptive-ledger-recovery-'));
+  t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
+  const root=path.join(temp,'repo'),home=path.join(temp,'home'),commonDirectory=path.join(root,'.git','soraoto-agent-state','7');
+  fs.mkdirSync(commonDirectory,{recursive:true});fs.mkdirSync(home,{recursive:true});
+  const roots=adaptiveRunner.sidecarRoots(root,home,core.EPOCH,commonDirectory),plan={sha256:'c'.repeat(64)};
+  const parent={roots,parentManifestSha256:'a'.repeat(64),identitySha256:'b'.repeat(64)};
+  const cells=adaptive.probeCells(0.55),records={},cellObservationSha256=[];
+  for(const cell of cells){
+    const marker={schemaVersion:1,extension:adaptiveRunner.EXTENSION,key:cell.key,kind:'probe',cell,
+      identitySha256:parent.identitySha256,executionPlanSha256:plan.sha256,startedAt:'2026-10-16T00:00:00.000Z'};
+    const markerStored=core.writeImmutableDual(roots,`cells/${cell.key}.started.json`,core.canonicalBytes(marker));
+    const observation={schemaVersion:1,extension:adaptiveRunner.EXTENSION,key:cell.key,cell,
+      observation:{pitch:cell.pitch,velocity:cell.velocity,metrics:{peakDbfs:-20}}};
+    const observationStored=core.writeImmutableDual(roots,`cells/${cell.key}.observation.json`,core.canonicalBytes(observation));
+    records[cell.key]={key:cell.key,kind:'probe',state:'COMPLETE',markerSha256:markerStored.sha256,observationSha256:observationStored.sha256};
+    cellObservationSha256.push(observationStored.sha256);
+  }
+  const probe={schemaVersion:1,ordinal:1,mid:0.55,kind:'grid',safe:true,diagnosticsComplete:true,spanErrorDb:7.9,
+    outcome:'PASS',decision:'STAGE3E_MIDI51_PASS',parentManifestSha256:parent.parentManifestSha256,
+    executionPlanSha256:plan.sha256,cellKeys:cells.map(cell=>cell.key),cellObservationSha256};
+  const resultStored=core.writeImmutableDual(roots,'probe-results/01.json',core.canonicalBytes(probe));
+  const ledger={renderCount:cells.length,cells:records,probes:[{resultSha256:resultStored.sha256}]};
+  const saved=adaptiveRunner.persistStepResult(roots,'steps/payload.json',{decision:'STEP_COMPLETE'},ledger,()=> '2026-10-16T00:00:00.000Z');
+  assert.deepEqual(saved.value,{decision:'STEP_COMPLETE'});
+  const history=adaptiveRunner.loadProbeHistory(parent,ledger,plan,()=> '2026-10-16T00:00:00.000Z');
+  assert.deepEqual(history,[{...probe,resultSha256:resultStored.sha256}]);
+  assert.deepEqual(ledger.probes,history);
+  assert.equal(ledger.renderCount,16);
+  const events=core.readDualBytes(roots,'journal/events.jsonl').bytes.toString('utf8').trim().split(/\r?\n/).map(JSON.parse);
+  assert.ok(events.some(event=>event.type==='PROBE_LEDGER_RECONCILED'&&event.probeResultSha256[0]===resultStored.sha256));
+  const tampered={...ledger,probes:[{resultSha256:'d'.repeat(64)}]};
+  assert.throws(()=>adaptiveRunner.loadProbeHistory(parent,tampered,plan),/probe ledger differs/);
+  assert.deepEqual(tampered.probes,[{resultSha256:'d'.repeat(64)}]);
+});
+
+test('runtime revision accepts only the intact first 16-cell 0.55 PASS state',t=>{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-adaptive-runtime-revision-'));
+  t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
+  const root=path.join(temp,'repo'),home=path.join(temp,'home'),commonDirectory=path.join(root,'.git');
+  fs.mkdirSync(commonDirectory,{recursive:true});fs.mkdirSync(home,{recursive:true});
+  const fixturePath=path.join(root,'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json');
+  fs.mkdirSync(path.dirname(fixturePath),{recursive:true});
+  const cells=adaptive.probeCells(0.55),fixture={directCells:cells.map(cell=>({pitch:cell.pitch,velocity:cell.velocity,
+    metrics:{envelopeDbfs:[-40,-30,-20,-20-cell.velocity/20]}}))};
+  fs.writeFileSync(fixturePath,JSON.stringify(fixture));
+  const roots=adaptiveRunner.sidecarRoots(root,home,core.EPOCH,commonDirectory),plan={sha256:'c'.repeat(64),plan:{runnerSha256:'e'.repeat(64)}};
+  const parent={root,home,commonDirectory,roots,manifest:{epoch:core.EPOCH,helperHashes:{
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.cjs':'e'.repeat(64)}},
+    parentManifestSha256:'a'.repeat(64),identitySha256:'b'.repeat(64)};
+  const records={},observations=[],cellObservationSha256=[];
+  for(const cell of cells){
+    const marker={schemaVersion:1,extension:adaptiveRunner.EXTENSION,key:cell.key,kind:'probe',cell,
+      identitySha256:parent.identitySha256,executionPlanSha256:plan.sha256,startedAt:'2026-10-16T00:00:00.000Z'};
+    const markerStored=core.writeImmutableDual(roots,`cells/${cell.key}.started.json`,core.canonicalBytes(marker));
+    const observation={pitch:cell.pitch,velocity:cell.velocity,metrics:{finite:true,peakDbfs:-20,fullRenderPeakDbfs:-20,outputGuardHits:0,
+      envelopeDbfs:[-40,-30,-20,-20-cell.velocity/20],stage2mHammer:{effectiveHardness:1,initialHammerVelocity:1,
+        contactDurationSamples:1,peakForce:1,maxCompression:1,postContactTransverseEnergy:1},
+      soundboardDiagnostics:{},stage3eVelocityResponse:{}}};
+    const observationStored=core.writeImmutableDual(roots,`cells/${cell.key}.observation.json`,core.canonicalBytes({
+      schemaVersion:1,extension:adaptiveRunner.EXTENSION,key:cell.key,cell,observation}));
+    records[cell.key]={key:cell.key,kind:'probe',state:'COMPLETE',markerSha256:markerStored.sha256,
+      observationSha256:observationStored.sha256};
+    observations.push(observation);cellObservationSha256.push(observationStored.sha256);
+  }
+  const summary=evaluator.evaluateProbe(observations,fixture);
+  assert.equal(summary.adaptiveOutcome,'PASS');
+  const result={schemaVersion:1,issue:7,epoch:core.EPOCH,extension:adaptiveRunner.EXTENSION,ordinal:1,mid:0.55,kind:'grid',
+    safe:summary.safe,diagnosticsComplete:summary.diagnosticsComplete,spanErrorDb:summary.span.errorDb,outcome:summary.adaptiveOutcome,
+    decision:summary.decision,summary,parentManifestSha256:parent.parentManifestSha256,executionPlanSha256:plan.sha256,
+    cellKeys:cells.map(cell=>cell.key),cellObservationSha256};
+  const saved=core.writeImmutableDual(roots,'probe-results/01.json',core.canonicalBytes(result));
+  const ledger={schemaVersion:1,schema:'issue7-stage3e-adaptive-mid-ledger/v1',parentManifestSha256:parent.parentManifestSha256,
+    executionPlanSha256:plan.sha256,renderCount:16,cells:records,probes:[{resultSha256:saved.sha256}],screen:null,full:[],decision:null};
+  const ledgerState={ledger,sha256:core.sha256(core.canonicalBytes(ledger))};
+  const revision={initialLedgerSha256:ledgerState.sha256,firstProbe:{ordinal:1,resultSha256:saved.sha256,mid:0.55,outcome:'PASS',
+    decision:summary.decision,spanErrorDb:summary.span.errorDb,safe:true,diagnosticsComplete:true,renderCount:16}};
+  assert.equal(adaptiveRunner.verifyRevisionProbe(parent,plan,ledgerState,revision,{initialOnly:true}).sha256,saved.sha256);
+  assert.throws(()=>adaptiveRunner.verifyRevisionProbe(parent,plan,{...ledgerState,ledger:{...ledger,renderCount:17}},revision,
+    {initialOnly:true}),/BLOCKED_ADAPTIVE_MID_LEDGER/);
 });
