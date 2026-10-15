@@ -192,3 +192,34 @@ test('runtime revision accepts only the intact first 16-cell 0.55 PASS state',t=
   assert.throws(()=>adaptiveRunner.verifyRevisionProbe(parent,plan,{...ledgerState,ledger:{...ledger,renderCount:17}},revision,
     {initialOnly:true}),/BLOCKED_ADAPTIVE_MID_LEDGER/);
 });
+
+test('runtime revision 2 binds the exact completed 72-cell checkpoint and immutable screen result',()=>{
+  const previousRevision={sha256:'a'.repeat(64),value:{codeRevision:'b'.repeat(40),newRunnerSha256:'c'.repeat(64)}};
+  const cells={};
+  for(let index=0;index<72;index++){
+    const kind=index<48?'probe':'screen',key=kind+'-'+String(index).padStart(2,'0');
+    cells[key]={key,kind,state:'COMPLETE',markerSha256:'d'.repeat(64),observationSha256:'e'.repeat(64)};
+  }
+  const ledger={renderCount:72,cells,probes:['f','1','2'].map(value=>({resultSha256:value.repeat(64)})),full:[],decision:null};
+  const screen={sha256:'9'.repeat(64),value:{runtimeRevisionSha256:previousRevision.sha256,
+    runnerSha256:previousRevision.value.newRunnerSha256,selectedCandidates:[{mid:0.55},{mid:0.5625}]}};
+  const counts=adaptive.countCalls(ledger),revision={revisionNumber:2,
+    approvalSha256:'1c45f66a9c83e651ceab2b4e593f1c43c938fcc0827b5015f73981950e207574',
+    previousRuntimeRevisionSha256:previousRevision.sha256,previousCodeRevision:previousRevision.value.codeRevision,
+    previousRunnerSha256:previousRevision.value.newRunnerSha256,priorLedgerSnapshot:ledger,
+    priorLedgerSha256:core.sha256(core.canonicalBytes(ledger)),priorCounts:counts,
+    probeResultSha256:ledger.probes.map(item=>item.resultSha256),screenResultSha256:screen.sha256};
+  assert.equal(adaptiveRunner.validateRuntimeRevision2Snapshot(revision,previousRevision,screen,screen.sha256),true);
+  assert.throws(()=>adaptiveRunner.validateRuntimeRevision2Snapshot({...revision,
+    priorCounts:{...counts,total:71}},previousRevision,screen,screen.sha256),/exact approved 72-cell screen checkpoint/);
+  const changedScreen={...screen,sha256:'8'.repeat(64)};
+  assert.throws(()=>adaptiveRunner.validateRuntimeRevision2Snapshot(revision,previousRevision,
+    changedScreen,changedScreen.sha256),/exact approved 72-cell screen checkpoint/);
+});
+
+test('screen-to-full handoff reads candidates from the immutable step-result wrapper',()=>{
+  const selectedCandidates=[{low:0.35,mid:0.55,bassHardness:0.5},{low:0.35,mid:0.5625,bassHardness:0.5}];
+  assert.deepEqual(adaptiveRunner.fullCandidatesFromScreen({value:{selectedCandidates}}),selectedCandidates);
+  assert.throws(()=>adaptiveRunner.fullCandidatesFromScreen({selectedCandidates}),
+    /immutable screen result has no selected candidates/);
+});
