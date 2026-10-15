@@ -195,7 +195,7 @@ function verifyRevisionProbe(parent,plan,ledgerState,revision,{initialOnly=false
     ||revision.firstProbe.mid!==probe.mid||revision.firstProbe.outcome!==probe.outcome||revision.firstProbe.decision!==probe.decision
     ||revision.firstProbe.spanErrorDb!==probe.spanErrorDb||revision.firstProbe.safe!==true||revision.firstProbe.diagnosticsComplete!==true)
     throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: pre-revision probe is not the recorded safe 0.55 PASS');
-  verifyProbeCells(parent,plan,ledger,probe);
+  verifyProbeCells(parent,plan,ledger,probe,{legacyFirst:true});
   const observations=cells.map(cell=>loadObservation(parent.roots,cell,ledger.cells[cell.key]));
   const evaluated=evaluator.evaluateProbe(observations,fixture(parent.root));
   if(!core.same(probe.summary,evaluated)||evaluated.safe!==true||evaluated.diagnosticsComplete!==true

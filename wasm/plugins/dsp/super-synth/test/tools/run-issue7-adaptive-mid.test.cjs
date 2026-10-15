@@ -189,6 +189,9 @@ test('runtime revision accepts only the intact first 16-cell 0.55 PASS state',t=
   const revision={initialLedgerSha256:ledgerState.sha256,firstProbe:{ordinal:1,resultSha256:saved.sha256,mid:0.55,outcome:'PASS',
     decision:summary.decision,spanErrorDb:summary.span.errorDb,safe:true,diagnosticsComplete:true,renderCount:16}};
   assert.equal(adaptiveRunner.verifyRevisionProbe(parent,plan,ledgerState,revision,{initialOnly:true}).sha256,saved.sha256);
+  const revisionBinding={value:revision,sha256:'f'.repeat(64)};
+  assert.equal(adaptiveRunner.verifyRevisionProbe({...parent,runtimeRevision:revisionBinding,runtimeRevisions:[revisionBinding]},
+    plan,ledgerState,revision,{initialOnly:true}).sha256,saved.sha256);
   assert.throws(()=>adaptiveRunner.verifyRevisionProbe(parent,plan,{...ledgerState,ledger:{...ledger,renderCount:17}},revision,
     {initialOnly:true}),/BLOCKED_ADAPTIVE_MID_LEDGER/);
 });
