@@ -5,6 +5,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
+const {execFileSync}=require('node:child_process');
 const adaptive=require('./issue7-adaptive-mid-core.cjs');
 const core=require('./issue7-current-build-core.cjs');
 const adaptiveRunner=require('./run-issue7-adaptive-mid.cjs');
@@ -324,6 +325,40 @@ test('runtime revision 2 binds the exact completed 72-cell checkpoint and immuta
   const changedScreen={...screen,sha256:'8'.repeat(64)};
   assert.throws(()=>adaptiveRunner.validateRuntimeRevision2Snapshot(revision,previousRevision,
     changedScreen,changedScreen.sha256),/exact approved 72-cell screen checkpoint/);
+});
+
+test('runtime revision 2 remains verifiable from its immutable commit while a separately approved revision 3 is pending',t=>{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-adaptive-runtime-revision-chain-'));
+  t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
+  const root=path.join(temp,'repo');fs.mkdirSync(root);
+  const git=args=>execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim();
+  git(['init']);git(['config','user.name','Issue 7 revision test']);git(['config','user.email','issue7-revision@example.invalid']);
+  const runnerRel='wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.cjs';
+  const testRel='wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.test.cjs';
+  const write=(relative,value)=>{const file=path.join(root,relative);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,value);};
+  write(runnerRel,'revision 1 runner\n');write(testRel,'revision 1 test\n');
+  git(['add',runnerRel,testRel]);git(['commit','-m','revision 1']);
+  const revision1Head=git(['rev-parse','HEAD']),revision1RunnerSha=core.sha256(fs.readFileSync(path.join(root,runnerRel)));
+  const previousRevision={sha256:'a'.repeat(64),value:{codeRevision:revision1Head,newRunnerSha256:revision1RunnerSha}};
+  const frozen={epoch:core.EPOCH,creatorRevision:revision1Head},parentManifestSha256='b'.repeat(64);
+  write(runnerRel,'revision 2 runner\n');write(testRel,'revision 2 test\n');
+  git(['add',runnerRel,testRel]);git(['commit','-m','revision 2']);
+  const revision2Head=git(['rev-parse','HEAD']),revision2RunnerSha=core.sha256(fs.readFileSync(path.join(root,runnerRel))),
+    revision2TestSha=core.sha256(fs.readFileSync(path.join(root,testRel)));
+  const revision2Diff=execFileSync('rtk',['proxy','git','diff','--binary','--no-ext-diff',`${revision1Head}..${revision2Head}`,'--',runnerRel,testRel],
+    {cwd:root});
+  const revision2={schemaVersion:1,schema:'issue7-stage3e-adaptive-runtime-revision/v1',revisionNumber:2,issue:7,
+    extension:adaptiveRunner.EXTENSION,epoch:core.EPOCH,parentManifestSha256,previousCreatorRevision:revision1Head,
+    previousCodeRevision:revision1Head,previousRuntimeRevisionSha256:previousRevision.sha256,
+    previousRunnerSha256:revision1RunnerSha,approvalSha256:'1c45f66a9c83e651ceab2b4e593f1c43c938fcc0827b5015f73981950e207574',
+    codeRevision:revision2Head,newRunnerSha256:revision2RunnerSha,newTestSha256:revision2TestSha,
+    changedPaths:[runnerRel,testRel].sort(),diffSha256:core.sha256(revision2Diff)};
+  write(runnerRel,'revision 3 runner\n');write(testRel,'revision 3 test\n');
+  git(['add',runnerRel,testRel]);git(['commit','-m','revision 3']);
+  assert.throws(()=>adaptiveRunner.validateRuntimeRevision2Code(root,frozen,parentManifestSha256,previousRevision,revision2),
+    /revision 2 committed bytes differ/);
+  assert.equal(adaptiveRunner.validateRuntimeRevision2Code(root,frozen,parentManifestSha256,previousRevision,revision2,
+    {requireCurrentSource:false}),true);
 });
 
 test('screen-to-full handoff reads candidates from the immutable step-result wrapper',()=>{

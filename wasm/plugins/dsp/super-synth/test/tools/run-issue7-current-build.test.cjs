@@ -209,6 +209,47 @@ test('run-all drives adaptive Stage3E, Stage3, and Stage4 in one call and record
     fs.readFileSync(core.dualPaths(roots,master.RUN_ALL_JOURNAL).secondary));
 });
 
+test('run-all records only the exact pending runtime revision 3 blocker before repeating read-only gates',t=>{
+  const fixture=runAllFixture(t),adaptive=fixture.options.runners.adaptiveMid;
+  let statusCalls=0,recordCalls=0;
+  adaptive.recordRuntimeRevision3=options=>{
+    recordCalls++;
+    assert.ok(options.runAllOwner);
+    return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_03_RECORDED',runtimeRevisionSha256:'c'.repeat(64),
+      renderCount:2371,builds:0,renders:0,writes:2,acousticRenders:0};
+  };
+  fixture.options.statusReadOnly=()=>{
+    statusCalls++;
+    const pending=statusCalls===1;
+    return {decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
+      builds:{builds:0,renders:0,writes:0},stage3:{builds:0,renders:0,writes:0},stage4:{builds:0,renders:0,writes:0},
+      stage3e:{decision:pending?'BLOCKED_STAGE3E_SELECTION_REQUIRED':'NEXT_PHASE_READY',stage:'stage3e',phase:'baseline'},
+      adaptiveMid:pending?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
+        reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 3'}
+        :{decision:'ADAPTIVE_MID_VERIFY_OK'}};
+  };
+  const result=master.runAll(fixture.options);
+  assert.equal(result.decision,'ISSUE7_READY_FOR_REVIEW');
+  assert.equal(statusCalls,2);assert.equal(recordCalls,1);
+  const roots=core.resolveRoots(fixture.root,'stage3e',core.EPOCH,{home:fixture.home});
+  assert.ok(core.readDualJournal(roots,master.RUN_ALL_JOURNAL).events.some(event=>event.type==='RUNTIME_REVISION_03_RECORDED'
+    &&event.runtimeRevisionSha256==='c'.repeat(64)&&event.acousticRenders===0));
+});
+
+test('run-all does not invoke runtime revision recovery for any other adaptive blocker',t=>{
+  const fixture=runAllFixture(t),adaptive=fixture.options.runners.adaptiveMid;
+  let recordCalls=0;
+  adaptive.recordRuntimeRevision3=()=>{recordCalls++;return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_03_RECORDED'};};
+  fixture.options.statusReadOnly=()=>({decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
+    builds:{builds:0,renders:0,writes:0},stage3:{builds:0,renders:0,writes:0},stage4:{builds:0,renders:0,writes:0},
+    stage3e:{decision:'BLOCKED_STAGE3E_SELECTION_REQUIRED',reason:'selection evidence is invalid'},
+    adaptiveMid:{decision:'BLOCKED_ADAPTIVE_MID_SELECTION',reason:'selection evidence is invalid'}});
+  const result=master.runAll(fixture.options);
+  assert.equal(result.decision,'BLOCKED_STAGE3E_SELECTION_REQUIRED');
+  assert.equal(recordCalls,0);
+  assert.equal(fixture.calls.some(call=>call.mode==='execute'||call.mode==='adaptive-execute'),false);
+});
+
 test('run-all follows the safe initial MIDI51 diagnostic FAIL branch and skips candidate diagnostics after initial PASS',t=>{
   const failing=runAllFixture(t,{initialDiagnostic:'STAGE3E_MIDI51_DIAGNOSTIC_FAIL'});
   const result=master.runAll(failing.options);

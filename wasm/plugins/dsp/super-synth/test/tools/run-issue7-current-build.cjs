@@ -345,12 +345,29 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
     try{
       spend=phaseRenderCount(root,home,epoch,roots.commonDirectory);startRenderCount=spend.total;
       append(owner,{type:'RUN_STARTED',head:core.gitHead(root)});
-      const preflight=statusReadOnly({root,home,epoch,runners,readPhase});
-      if(preflight.lock?.locked)throw new Error('BLOCKED_WRITER_LOCK: an Issue #7 phase writer is active');
-      if(preflight.buildsStarted!==0||preflight.builds?.builds!==0||preflight.builds?.renders!==0||preflight.builds?.writes!==0
-        ||preflight.stage3?.builds!==0||preflight.stage3?.renders!==0||preflight.stage3?.writes!==0
-        ||preflight.stage4?.builds!==0||preflight.stage4?.renders!==0||preflight.stage4?.writes!==0)
-        throw new Error('BLOCKED_ISSUE7_ZERO_RENDER_PREFLIGHT: status detected a build, render, or write');
+      const assertReadOnlyStatus=observed=>{
+        if(observed.lock?.locked)throw new Error('BLOCKED_WRITER_LOCK: an Issue #7 phase writer is active');
+        if(observed.buildsStarted!==0||observed.builds?.builds!==0||observed.builds?.renders!==0||observed.builds?.writes!==0
+          ||observed.stage3?.builds!==0||observed.stage3?.renders!==0||observed.stage3?.writes!==0
+          ||observed.stage4?.builds!==0||observed.stage4?.renders!==0||observed.stage4?.writes!==0)
+          throw new Error('BLOCKED_ISSUE7_ZERO_RENDER_PREFLIGHT: status detected a build, render, or write');
+      };
+      let preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+      assertReadOnlyStatus(preflight);
+      const expectedRuntimeRevision3Block='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 3';
+      if(preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&preflight.adaptiveMid.reason===expectedRuntimeRevision3Block){
+        const record=runners.adaptiveMid?.recordRuntimeRevision3;
+        if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: approved revision 3 recorder is unavailable');
+        const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+        if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_03_RECORDED'||recorded.builds!==0
+          ||recorded.renders!==0||recorded.acousticRenders!==0)
+          throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'}: ${recorded.reason||'revision 3 zero-render recording failed'}`);
+        append(owner,{type:'RUNTIME_REVISION_03_RECORDED',runtimeRevisionSha256:recorded.runtimeRevisionSha256,
+          renderCount:recorded.renderCount,acousticRenders:0});
+        preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+        assertReadOnlyStatus(preflight);
+      }
       const verified=verifyReadOnly({root,home,epoch,runners});
       if(verified.decision.startsWith('BLOCKED_'))throw new Error(`BLOCKED_ISSUE7_PREFLIGHT_VERIFY: ${verified.decision}`);
       const progress=preflight.stage3e;
