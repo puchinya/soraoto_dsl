@@ -41,18 +41,15 @@ function promoteProfile(root,record,tuple){
   Object.assign(presets.concert_grand.engine_config.hammer,{velocity_launch_scale_low:tuple.low,
     velocity_launch_scale_mid:tuple.mid,velocity_hardness_scale_bass:tuple.bassHardness});
   fs.writeFileSync(presetsPath,JSON.stringify(presets,null,2)+'\n');
-  const profilePath=path.join(root,record.inputs.generatedProfile.path);let profile=fs.readFileSync(profilePath,'utf8');
-  for(const [field,value] of Object.entries({velocity_launch_scale_low:tuple.low,velocity_launch_scale_mid:tuple.mid,
-    velocity_hardness_scale_bass:tuple.bassHardness})){
-    const pattern=new RegExp(`(\\.${field}\\s*=\\s*)([-+0-9.eE]+)f`);
-    if(!pattern.test(profile))throw new Error(`synthetic profile field missing: ${field}`);
-    profile=profile.replace(pattern,`$1${value}f`);
-  }
-  fs.writeFileSync(profilePath,profile);
+  execFileSync('rtk',['python3','wasm/cmake/super_synth_metadata.py'],{cwd:root,stdio:'pipe',maxBuffer:16*1024*1024});
 }
 function createPromotedStage3Fixture(root,sourceRoot){
   const record=structuredClone(stage3.identityRecord(sourceRoot));
   for(const entry of Object.values(record.inputs))copyFile(sourceRoot,root,entry.path);
+  for(const relative of stage3.PROMOTION_PATHS.filter(file=>file.endsWith('super-synth_descriptor.cbor')||file.endsWith('super-synth_descriptor.h')))
+    copyFile(sourceRoot,root,relative);
+  copyFile(sourceRoot,root,'wasm/cmake/super_synth_metadata.py');
+  copyFile(sourceRoot,root,'wasm/plugins/dsp/super-synth/interface.soraoto');
   copyFile(sourceRoot,root,record.toolchain.toolchainFile);
   for(const build of Object.values(record.builds))for(const relative of ['CMakeCache.txt',build.wasm.path,
     'generated/super-synth_descriptor.cbor','generated/super-synth_descriptor.h'])copyFile(sourceRoot,root,`${build.buildDirectory}/${relative}`);
@@ -63,16 +60,18 @@ function createPromotedStage3Fixture(root,sourceRoot){
     'wasm/plugins/dsp/super-synth/test/tools/stage4-full-range-evaluator.cjs',
     'wasm/plugins/dsp/super-synth/test/tools/stage3e-generation2-core.cjs',
     'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage4-current-build.cjs'])copyFile(sourceRoot,root,relative);
-  fs.writeFileSync(path.join(root,'.gitignore'),'build/\n');
+  fs.writeFileSync(path.join(root,'.gitignore'),'build/\nwasm/shared/generated/super-synth_interface.soraoto\n');
   git(root,['init']);git(root,['config','user.name','Issue 7 synthetic integration']);git(root,['config','user.email','issue7-test@example.invalid']);
-  git(root,['add','.']);git(root,['commit','-m','synthetic Issue 7 source']);
+  git(root,['add','.']);
+  git(root,['add','-f',...stage3.PROMOTION_PATHS.filter(file=>file.endsWith('super-synth_descriptor.cbor')||file.endsWith('super-synth_descriptor.h'))]);
+  git(root,['commit','-m','synthetic Issue 7 source']);
   record.sourceCommit=git(root,['rev-parse','HEAD']);
   const identityPath=path.join(root,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json');
   fs.mkdirSync(path.dirname(identityPath),{recursive:true});fs.writeFileSync(identityPath,JSON.stringify(record,null,2)+'\n');
   appendCustomSection(path.join(root,record.builds.production.buildDirectory,record.builds.production.wasm.path));
   git(root,['add',identityPath]);git(root,['commit','-m','synthetic Issue 7 build identity']);
   const tuple={low:0.9,mid:0.95,bassHardness:0.5};promoteProfile(root,record,tuple);
-  git(root,['add',...stage3.PROMOTION_PATHS]);git(root,['commit','-m','synthetic selected tuple promotion']);
+  git(root,['add','-f',...stage3.PROMOTION_PATHS]);git(root,['commit','-m','synthetic selected tuple promotion']);
   const identityBytes=fs.readFileSync(identityPath),baselineIdentity={sourceCommit:record.sourceCommit,buildIdentitySha256:core.sha256(identityBytes),
     inputs:Object.fromEntries(Object.entries(record.inputs).map(([key,value])=>[key,{path:value.path,sha256:value.sha256}])),
     builds:Object.fromEntries(Object.entries(record.builds).map(([role,build])=>[role,{cmakeCacheSha256:build.cmakeCacheSha256,wasmSha256:build.wasm.sha256}]))};
@@ -85,6 +84,10 @@ function createPromotedStage3Fixture(root,sourceRoot){
 function createIssue7E2EBase(root,sourceRoot){
   const record=structuredClone(stage3.identityRecord(sourceRoot));
   for(const entry of Object.values(record.inputs))copyFile(sourceRoot,root,entry.path);
+  for(const relative of stage3.PROMOTION_PATHS.filter(file=>file.endsWith('super-synth_descriptor.cbor')||file.endsWith('super-synth_descriptor.h')))
+    copyFile(sourceRoot,root,relative);
+  copyFile(sourceRoot,root,'wasm/cmake/super_synth_metadata.py');
+  copyFile(sourceRoot,root,'wasm/plugins/dsp/super-synth/interface.soraoto');
   copyFile(sourceRoot,root,record.toolchain.toolchainFile);
   for(const build of Object.values(record.builds))for(const relative of ['CMakeCache.txt',build.wasm.path,
     'generated/super-synth_descriptor.cbor','generated/super-synth_descriptor.h'])copyFile(sourceRoot,root,`${build.buildDirectory}/${relative}`);
@@ -96,12 +99,13 @@ function createIssue7E2EBase(root,sourceRoot){
     'wasm/plugins/dsp/super-synth/test/tools/stage4-full-range-evaluator.cjs',
     'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage4-current-build.cjs'];
   for(const relative of new Set(toolFiles))copyFile(sourceRoot,root,relative);
-  fs.writeFileSync(path.join(root,'.gitignore'),'build/\n');
+  fs.writeFileSync(path.join(root,'.gitignore'),'build/\nwasm/shared/generated/super-synth_interface.soraoto\n');
   const regressions={};for(const name of stage3.REQUIRED_REGRESSIONS)regressions[name]={result:'PASS'};
   const regressionPath=path.join(root,stage3.REGRESSION_REL);fs.mkdirSync(path.dirname(regressionPath),{recursive:true});
   fs.writeFileSync(regressionPath,JSON.stringify(regressions,null,2)+'\n');
   git(root,['init']);git(root,['config','user.name','Issue 7 synthetic integration']);git(root,['config','user.email','issue7-test@example.invalid']);
-  git(root,['add','.']);git(root,['commit','-m','synthetic Issue 7 source and fixture']);
+  git(root,['add','.']);
+  git(root,['commit','-m','synthetic Issue 7 source and fixture']);
   record.sourceCommit=git(root,['rev-parse','HEAD']);
   const identityPath=path.join(root,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json');
   const productionWasm=path.join(root,record.builds.production.buildDirectory,record.builds.production.wasm.path);
@@ -112,7 +116,9 @@ function createIssue7E2EBase(root,sourceRoot){
   return {record,identityPath,regressionPath,productionWasm};
 }
 function commitSyntheticPromotion(root,record,tuple,productionWasm){
-  promoteProfile(root,record,tuple);git(root,['add',...stage3.PROMOTION_PATHS]);git(root,['commit','-m','synthetic selected tuple promotion']);
+  promoteProfile(root,record,tuple);git(root,['add','-f',...stage3.PROMOTION_PATHS]);git(root,['commit','-m','synthetic selected tuple promotion']);
+  assert.deepEqual(git(root,['diff-tree','--no-commit-id','--name-only','-r','HEAD']).split(/\r?\n/).filter(Boolean).sort(),
+    stage3.PROMOTION_PATHS,`synthetic promotion uses the exact four-file allowlist for tuple ${JSON.stringify(tuple)}`);
   appendCustomSection(productionWasm);
   assert.equal(git(root,['status','--porcelain']),'','synthetic promotion and ignored production rebuild must leave a clean worktree');
 }
@@ -213,6 +219,8 @@ function syntheticIssue7Metrics(source,cell,{stage3eDiagnostic=false,stage4=fals
       contactDurationSamples:100,peakForce:1,maxCompression:.1,postContactTransverseEnergy:.01};
     metrics.soundboardDiagnostics={frames:1,signals:Object.fromEntries(Array.from({length:20},(_,index)=>[`signal${index}`,0]))};
     metrics.stage3eVelocityResponse={launchVelocity:normalized,hardnessAmount:.5};
+    if(cell.phase==='mid-screen'&&cell.candidate?.mid===1&&cell.velocity===14)
+      metrics.envelopeDbfs[3]+=0.01;
   }
   if(stage4)Object.assign(metrics,{finiteThroughout:true,finiteRelease:true,postReleaseFinite:true,
     pitchMeasurement:{measurement_valid:true,pitch_error_cents:0},lifecycle:{postReleaseFinite:true,guardHits:0,noteOffProcessed:true,
@@ -502,6 +510,13 @@ test('continuous synthetic Stage3E selection, Stage3 promotion, and Stage4 accep
     assert.equal(stage3Verified.decision,'STAGE3_READY_FOR_STAGE4');
     assert.equal(stage3Verified.acousticRenders,0);
     assert.equal(stage3Calls.count,stage3CallsBeforeVerify);
+    const descriptorPath=stage3.PROMOTION_PATHS.find(file=>file.endsWith('super-synth_descriptor.cbor'));
+    const descriptorFile=path.join(root,descriptorPath),descriptorBytes=fs.readFileSync(descriptorFile);
+    fs.writeFileSync(descriptorFile,Buffer.concat([descriptorBytes,Buffer.from([0]) ]));
+    assert.throws(()=>runner.readStage3(root,home,core.EPOCH,{allowSyntheticTest:true}),/BLOCKED_STAGE4_STAGE3_REQUIRED/);
+    fs.writeFileSync(descriptorFile,descriptorBytes);
+    const stage3Readback=runner.readStage3(root,home,core.EPOCH,{allowSyntheticTest:true});
+    assert.equal(stage3Readback.prepared.derivedBuildIdentity.metadataOutputs.production.descriptorCbor.sha256,core.sha256(descriptorBytes));
 
     const stage3Rows=stage3.readRows(stage3Roots,stage3Cells),stage3ByCell=new Map(stage3Rows.map(row=>[`${row.pitch}:${row.velocity}`,row]));
     const stage4Cells=runner.cells(),stage4Authorization=syntheticAuthorization('stage4','stage4',stage4Cells);

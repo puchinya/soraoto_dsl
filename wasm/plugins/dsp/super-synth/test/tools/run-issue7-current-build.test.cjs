@@ -296,6 +296,24 @@ test('status, dry-run, and verify retain evidence SHA and mtime',t=>{
   assert.equal(result.decision,'ISSUE7_READ_ONLY_FINAL_GATE_PASS');
 });
 
+test('master --verify propagates blocked Stage3E selection progress even if adaptive runner reports OK',t=>{
+  const fixture=runAllFixture(t),runners=fixture.options.runners,adaptive=runners.adaptiveMid;
+  const phases=Object.fromEntries(master.PHASE_FLOW.slice(0,-1).map(item=>[item.phase,{decision:item.success}]));
+  phases['midi51-diagnostic']={decision:'STAGE3E_MIDI51_DIAGNOSTIC_FAIL'};
+  phases['midi51-candidate-diagnostic']={decision:'STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE',summary:{passingCandidates:[]}};
+  phases['midi51-final-diagnostic']={decision:'STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE',summary:{passingCandidates:[],
+    candidates:Array.from({length:5},()=>({safe:true,diagnosticsComplete:true,pass:false}))}};
+  runners.adaptiveMid={...adaptive,
+    loadFinalMaybe:()=>({decision:'ADAPTIVE_MID_FULL_PASS'}),
+    loadSelection:()=>{throw new Error('selection full-result SHA mismatch');},
+    run:()=>({decision:'ADAPTIVE_MID_VERIFY_OK',builds:0,renders:0,writes:0,acousticRenders:0})};
+  const result=master.verify({root:fixture.root,home:fixture.home,runners,readPhase:(_roots,phase)=>phases[phase]||null});
+  assert.equal(result.progress.decision,'BLOCKED_STAGE3E_SELECTION_REQUIRED');
+  assert.equal(result.evidence.adaptiveMid.decision,'ADAPTIVE_MID_VERIFY_OK');
+  assert.equal(result.decision,'BLOCKED_ISSUE7_CURRENT_BUILD_VERIFY');
+  assert.equal(result.renders,0);assert.equal(result.writes,0);
+});
+
 test('full-suite CTest failure is BLOCKED and cannot reach the final diff check',()=>{
   const commands=[],result=master.runVerificationSuite({root:master.ROOT,spawn:(_bin,args)=>{
     commands.push(args[0]);return {status:args[0]==='ctest'?1:0,signal:null,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)};

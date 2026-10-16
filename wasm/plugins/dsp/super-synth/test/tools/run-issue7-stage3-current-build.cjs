@@ -20,11 +20,13 @@ const FIXTURE_REL='wasm/plugins/dsp/super-synth/test/reference/salamander-grand-
 const SOURCE_REL='wasm/plugins/dsp/super-synth/src/plugin.c';
 const PRESETS_REL='wasm/plugins/dsp/super-synth/presets.json';
 const PROFILE_REL='wasm/shared/generated/super-synth_grand_profiles.h';
+const GENERATED_DESCRIPTOR_CBO_REL='wasm/shared/generated/super-synth_descriptor.cbor';
+const GENERATED_DESCRIPTOR_HEADER_REL='wasm/shared/generated/super-synth_descriptor.h';
 const CAPTURE_REL='wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-matrix.cjs';
 const EVALUATOR_REL='wasm/plugins/dsp/super-synth/test/tools/stage3-direct-reference-metrics.cjs';
 const RUNNER_REL='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.cjs';
 const DERIVED_IDENTITY_REL='production-build-identity.json';
-const PROMOTION_PATHS=Object.freeze([PRESETS_REL,PROFILE_REL].sort());
+const PROMOTION_PATHS=Object.freeze([PRESETS_REL,PROFILE_REL,GENERATED_DESCRIPTOR_CBO_REL,GENERATED_DESCRIPTOR_HEADER_REL].sort());
 const PROMOTION_INTENT_REL='promotion/intent.json';
 const PROMOTION_RECEIPT_REL='promotion/receipt.json';
 const PROMOTION_BRANCH='codex/issue-7-supersynth-v9';
@@ -104,7 +106,8 @@ function promotionDetails(root,frozen){
   const parentTree=git(root,['rev-parse',`${parent}^{tree}`]),commitTree=git(root,['rev-parse',`${commit}^{tree}`]);
   const readBlob=(revision,relative)=>{
     const key=`${canonicalRoot}:${revision}:${relative}`;
-    if(!COMMIT_BLOB_CACHE.has(key))COMMIT_BLOB_CACHE.set(key,execFileSync('rtk',['git','show',`${revision}:${relative}`],{cwd:root,maxBuffer:16*1024*1024}));
+    // rtk git show decodes opaque CBOR bytes as UTF-8, which corrupts promotion identity hashes.
+    if(!COMMIT_BLOB_CACHE.has(key))COMMIT_BLOB_CACHE.set(key,execFileSync('git',['show',`${revision}:${relative}`],{cwd:root,maxBuffer:16*1024*1024}));
     return COMMIT_BLOB_CACHE.get(key);
   };
   const details={commit,parent,parentTree,commitTree,changedPaths,currentHead:head,currentHeadDescendsFromPromotion:isCommitAncestor(root,commit,head),
@@ -120,11 +123,15 @@ function validatePromotionDetails(details,sourceCommit){
   if(!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.parentTree||'')||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.commitTree||''))
     throw new Error('BLOCKED_STAGE3_PROMOTION: promotion parent and commit tree identities are required');
   if(!core.same(details.changedPaths,PROMOTION_PATHS))
-    throw new Error('BLOCKED_STAGE3_PROMOTION: dedicated promotion commit must change exactly presets.json and the generated profile');
+    throw new Error('BLOCKED_STAGE3_PROMOTION: dedicated promotion commit must change exactly the four approved promotion paths');
   if(details.sourceCommitIsAncestor!==true)throw new Error('BLOCKED_STAGE3_PROMOTION: original build source commit is not an ancestor of the promotion parent');
   if(details.currentHeadDescendsFromPromotion!==true)throw new Error('BLOCKED_STAGE3_PROMOTION: current HEAD must descend from the dedicated promotion commit');
   if(typeof details.readParentFile!=='function'||typeof details.readCommitFile!=='function')
     throw new Error('BLOCKED_STAGE3_PROMOTION: immutable parent and commit file readback is required');
+  for(const relative of PROMOTION_PATHS){
+    const before=Buffer.from(details.readParentFile(relative)),after=Buffer.from(details.readCommitFile(relative));
+    if(sha256(before)===sha256(after))throw new Error(`BLOCKED_STAGE3_PROMOTION: promotion path is unchanged in the commit: ${relative}`);
+  }
   return true;
 }
 function derivedBuildSnapshot(root,record,baselineIdentity,promotion){
@@ -146,6 +153,11 @@ function derivedBuildSnapshot(root,record,baselineIdentity,promotion){
       throw new Error(`BLOCKED_STAGE3_PROMOTION: committed ${entry.path} differs from the working tree`);
     inputs[key]={path:entry.path,sha256:actual};
   }
+  for(const relative of [GENERATED_DESCRIPTOR_CBO_REL,GENERATED_DESCRIPTOR_HEADER_REL]){
+    const digest=repoSha(root,relative),parentDigest=hashCommitBlob(promotion,relative,'parent'),commitDigest=hashCommitBlob(promotion,relative,'commit');
+    if(parentDigest===commitDigest)throw new Error(`BLOCKED_STAGE3_PROMOTION: generated metadata is unchanged in the promotion commit: ${relative}`);
+    if(commitDigest!==digest)throw new Error(`BLOCKED_STAGE3_PROMOTION: committed generated metadata differs from the working tree: ${relative}`);
+  }
   const builds={},metadataOutputs={};
   for(const [role,build] of Object.entries(record.builds||{})){
     const base=baselineIdentity.builds?.[role];
@@ -162,7 +174,8 @@ function derivedBuildSnapshot(root,record,baselineIdentity,promotion){
     const descriptors={};
     for(const [name,relative] of Object.entries({descriptorCbor:`${build.buildDirectory}/generated/super-synth_descriptor.cbor`,descriptorHeader:`${build.buildDirectory}/generated/super-synth_descriptor.h`})){
       const bytes=repoFile(root,relative),digest=repoSha(root,relative),expected=record.metadataOutputs[`${name}Sha256`];
-      if(role!=='production'&&digest!==expected)throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: immutable ${role} ${name} changed`);
+      if(role!=='production'&&digest!==expected)
+        throw new Error(`BLOCKED_STAGE3_BUILD_IDENTITY: immutable ${role} ${name} changed`);
       descriptors[name]={path:relative,bytes:bytes.length,sha256:digest};
     }
     builds[role]={buildDirectory:build.buildDirectory,target:build.target,cmakeCacheSha256:cacheSha,flags:build.flags,
@@ -338,15 +351,22 @@ function promotionIntent(root,record,selection,parentCommit,parentTree){
 function promotionStatus(root){
   const status=git(root,['status','--porcelain=v2','--branch','--untracked-files=no']),lines=status.split(/\r?\n/);
   const branch=lines.find(line=>line.startsWith('# branch.head '))?.slice('# branch.head '.length);
-  const changes=lines.filter(line=>line&&!line.startsWith('# '));
+  const changes=lines.filter(line=>line&&!line.startsWith('# ')),entries=changes.map(line=>{
+    if(!line.startsWith('1 '))throw new Error('BLOCKED_STAGE3_PROMOTION: unresolved or renamed Git index state is not allowed');
+    const fields=line.split(' '),xy=fields[1],file=fields.slice(8).join(' ');
+    if(!xy||!file)throw new Error('BLOCKED_STAGE3_PROMOTION: Git status entry is invalid');
+    return {xy,file};
+  });
   if(branch!==PROMOTION_BRANCH)throw new Error(`BLOCKED_STAGE3_PROMOTION: expected branch ${PROMOTION_BRANCH}, found ${branch||'unknown'}`);
-  if(changes.some(line=>{
-    const file=line.split(' ').at(-1);return !PROMOTION_PATHS.includes(file);
-  }))throw new Error('BLOCKED_STAGE3_PROMOTION: tracked changes outside the two promotion paths');
-  return {branch,changes};
+  if(entries.some(entry=>!PROMOTION_PATHS.includes(entry.file)))throw new Error('BLOCKED_STAGE3_PROMOTION: tracked changes outside the four promotion paths');
+  const stagedChanges=entries.filter(entry=>entry.xy[0]!=='.').map(entry=>entry.file).sort();
+  const unstagedChanges=entries.filter(entry=>entry.xy[1]!=='.').map(entry=>entry.file).sort();
+  if(stagedChanges.length&&!core.same(stagedChanges,PROMOTION_PATHS))
+    throw new Error('BLOCKED_STAGE3_PROMOTION: partial promotion staging is not allowed; stage all four paths atomically');
+  return {branch,changes,stagedChanges,unstagedChanges};
 }
 function ensureSelectedFiles(root,record,tuple){
-  const beforePresets=fileSha(root,PRESETS_REL),beforeProfile=fileSha(root,PROFILE_REL),expected=expectedTupleValues(tuple);
+  const beforePresets=fileSha(root,PRESETS_REL),expected=expectedTupleValues(tuple);
   const presets=JSON.parse(fs.readFileSync(path.join(root,PRESETS_REL),'utf8'));
   const hammer=presets.concert_grand?.engine_config?.hammer;
   if(!hammer)throw new Error('BLOCKED_STAGE3_PROMOTION: concert_grand hammer preset is missing');
@@ -357,12 +377,15 @@ function ensureSelectedFiles(root,record,tuple){
     Object.assign(hammer,expected);
     fs.writeFileSync(path.join(root,PRESETS_REL),JSON.stringify(presets,null,2)+'\n',{mode:0o600});
   }
-  if(beforeProfile===record.inputs.generatedProfile.sha256)
-    execFileSync('rtk',['python3','wasm/cmake/super_synth_metadata.py'],{cwd:root,stdio:'pipe',maxBuffer:16*1024*1024});
+  execFileSync('rtk',['python3','wasm/cmake/super_synth_metadata.py'],{cwd:root,stdio:'pipe',maxBuffer:16*1024*1024});
   assertPromotedValues(root,tuple);
-  const changes=git(root,['diff','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean).sort();
-  if(!core.same(changes,PROMOTION_PATHS))throw new Error(`BLOCKED_STAGE3_PROMOTION: generated tracked diff must be exactly the two promotion paths; found ${changes.join(',')}`);
-  return {presetsSha256:fileSha(root,PRESETS_REL),profileSha256:fileSha(root,PROFILE_REL)};
+  const changes=[...new Set([
+    ...git(root,['diff','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean),
+    ...git(root,['diff','--cached','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean)
+  ])].sort();
+  if(!core.same(changes,PROMOTION_PATHS))throw new Error(`BLOCKED_STAGE3_PROMOTION: generated tracked diff must be exactly the four promotion paths; found ${changes.join(',')}`);
+  return {presetsSha256:fileSha(root,PRESETS_REL),profileSha256:fileSha(root,PROFILE_REL),
+    descriptorCborSha256:fileSha(root,GENERATED_DESCRIPTOR_CBO_REL),descriptorHeaderSha256:fileSha(root,GENERATED_DESCRIPTOR_HEADER_REL)};
 }
 function readPromotionCommit(root,intent,record){
   const details=promotionDetails(root),subject=git(root,['show','-s','--format=%s',details.commit]);
@@ -421,7 +444,7 @@ function ensurePromotionCommit({root,record,selection,roots,now}){
     ensureSelectedFiles(root,record,selection.tuple);
     execFileSync('rtk',['git','add','--',...PROMOTION_PATHS],{cwd:root,stdio:'pipe'});
     const staged=git(root,['diff','--cached','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean).sort();
-    if(!core.same(staged,PROMOTION_PATHS))throw new Error('BLOCKED_STAGE3_PROMOTION: staged paths do not match the exact two-file set');
+    if(!core.same(staged,PROMOTION_PATHS))throw new Error('BLOCKED_STAGE3_PROMOTION: staged paths do not match the exact four-file set');
     execFileSync('rtk',['git','commit','-m',PROMOTION_SUBJECT],{cwd:root,stdio:'pipe',maxBuffer:16*1024*1024});
     promotionStatus(root);
     details=readPromotionCommit(root,intent,record);

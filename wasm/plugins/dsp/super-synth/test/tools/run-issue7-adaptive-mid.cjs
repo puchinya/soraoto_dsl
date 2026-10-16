@@ -17,8 +17,19 @@ const RUNNER_REL='wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mi
 const TEST_REL='wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.test.cjs';
 const RUNTIME_REVISION_REL='runtime-revision.json';
 const RUNTIME_REVISION_02_REL='runtime-revision-02.json';
+const RUNTIME_REVISION_03_REL='runtime-revision-03.json';
 const RUNTIME_REVISION_02_APPROVAL_SHA256='1c45f66a9c83e651ceab2b4e593f1c43c938fcc0827b5015f73981950e207574';
+const RUNTIME_REVISION_03_APPROVAL_SHA256='ac8b3a410e426edb09889dfccaffef23628415cc4acbd72f4be7544abc85dce6';
 const RUNTIME_REVISION_PATHS=Object.freeze([RUNNER_REL,TEST_REL].sort());
+const REVIEW_REMEDIATION_PATHS=Object.freeze([
+  RUNNER_REL,TEST_REL,
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-current-build.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-current-build.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage4-current-build.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage4-current-build.test.cjs'
+].sort());
 const PLANNER_REL='wasm/plugins/dsp/super-synth/test/tools/issue7-adaptive-mid-core.cjs';
 const EVALUATOR_REL='wasm/plugins/dsp/super-synth/test/tools/issue7-adaptive-mid-evaluator.cjs';
 const PARENT_EVALUATOR_REL='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.cjs';
@@ -143,6 +154,7 @@ function directoryNames(roots,relative){
 function runtimeRevisions(parent){
   return parent.runtimeRevisions||(parent.runtimeRevision?[parent.runtimeRevision]:[]);
 }
+function hasRuntimeRevision(parent,sha256){return runtimeRevisions(parent).some(item=>item.sha256===sha256);}
 function isLegacyFirstProbe(parent,resultSha256){
   return runtimeRevisions(parent).some(item=>item.value.firstProbe?.resultSha256===resultSha256);
 }
@@ -330,6 +342,101 @@ function createRuntimeRevision2Candidate(root,parent,plan,ledgerState,previousRe
   verifyRuntimeRevision2Checkpoint(parent,plan,ledgerState,revision,previousRevision,{requireCurrentCheckpoint:true});
   return revision;
 }
+function validateRuntimeRevision3Code(root,frozen,parentManifestSha256,previousRevision,revision){
+  const changedPaths=gitPaths(root,previousRevision.value.codeRevision,revision.codeRevision);
+  const approved=changedPaths.length>0&&changedPaths.every(relative=>REVIEW_REMEDIATION_PATHS.includes(relative))
+    &&changedPaths.includes(RUNNER_REL)&&changedPaths.includes(TEST_REL);
+  if(revision.schema!=='issue7-stage3e-adaptive-runtime-revision/v1'||revision.schemaVersion!==1||revision.issue!==7
+    ||revision.revisionNumber!==3||revision.extension!==EXTENSION||revision.epoch!==frozen.epoch
+    ||revision.parentManifestSha256!==parentManifestSha256||revision.previousCreatorRevision!==frozen.creatorRevision
+    ||revision.previousCodeRevision!==previousRevision?.value.codeRevision
+    ||revision.previousRuntimeRevisionSha256!==previousRevision?.sha256
+    ||revision.previousRunnerSha256!==previousRevision?.value.newRunnerSha256
+    ||revision.approvalSha256!==RUNTIME_REVISION_03_APPROVAL_SHA256
+    ||!/^([a-f0-9]{40})$/.test(revision.codeRevision||'')
+    ||!/^([a-f0-9]{64})$/.test(revision.newRunnerSha256||'')||!/^([a-f0-9]{64})$/.test(revision.newTestSha256||'')
+    ||!/^([a-f0-9]{64})$/.test(revision.diffSha256||'')||!core.commitIsAncestor(root,revision.codeRevision)||!approved
+    ||!core.same(revision.changedPaths,changedPaths)||!revision.changedFileSha256||!core.same(Object.keys(revision.changedFileSha256).sort(),changedPaths))
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 3 identity, approved path set, or Issue amendment binding is invalid');
+  if(!trackedWorktreeIsClean(root))throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: tracked worktree is dirty');
+  for(const relative of changedPaths){
+    const committed=gitBytes(root,['show',`${revision.codeRevision}:${relative}`]),current=gitBytes(root,['show',`HEAD:${relative}`]);
+    const digest=core.sha256(committed);
+    if(digest!==revision.changedFileSha256[relative]||core.sha256(current)!==digest||fileSha(root,relative)!==digest)
+      throw new Error(`BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 3 committed or working bytes differ: ${relative}`);
+  }
+  if(fileSha(root,RUNNER_REL)!==revision.newRunnerSha256||fileSha(root,TEST_REL)!==revision.newTestSha256)
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 3 adaptive runner or focused test SHA differs');
+  const diff=gitBytes(root,['diff','--binary','--no-ext-diff',`${revision.previousCodeRevision}..${revision.codeRevision}`,'--',...changedPaths]);
+  if(core.sha256(diff)!==revision.diffSha256)
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 3 exact source diff SHA-256 differs');
+  return true;
+}
+function validateRuntimeRevision3Snapshot(revision,previousRevision,ledgerState,selection,results){
+  const ledger=revision.priorLedgerSnapshot,counts=ledger&&planner.countCalls(ledger);
+  const expectedCounts={probes:48,screen:24,full:64,total:136};
+  const probeHashes=(ledger?.probes||[]).map(item=>item.resultSha256);
+  if(revision.revisionNumber!==3||revision.previousRuntimeRevisionSha256!==previousRevision?.sha256
+    ||!ledger||revision.priorLedgerSha256!==core.sha256(core.canonicalBytes(ledger))
+    ||ledger.renderCount!==136||!core.same(counts,expectedCounts)||!core.same(revision.priorCounts,expectedCounts)
+    ||Object.values(ledger.cells||{}).length!==136||Object.values(ledger.cells||{}).some(cell=>cell.state!=='COMPLETE')
+    ||!core.same(revision.probeResultSha256,probeHashes)||probeHashes.length<1||probeHashes.length>planner.MAX_PROBES
+    ||!selection||selection.selectionSha256!==revision.selectionSha256
+    ||selection.selection.runtimeRevisionSha256!==previousRevision.sha256
+    ||selection.selection.extensionResultSha256!==revision.extensionResultSha256
+    ||selection.selection.fullResultSha256!==revision.fullResultSha256
+    ||selection.selection.screenResultSha256!==revision.screenResultSha256
+    ||!results?.extension||results.extension.sha256!==revision.extensionResultSha256
+    ||!results.full||results.full.sha256!==revision.fullResultSha256
+    ||!results.screen||results.screen.sha256!==revision.screenResultSha256
+    ||!results.extension.value||results.extension.value.decision!=='ADAPTIVE_MID_FULL_PASS')
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 3 does not bind the exact complete 136-cell selected checkpoint');
+  return true;
+}
+function verifyRuntimeRevision3Checkpoint(parent,plan,ledgerState,revision,previousRevision,{requireCurrentCheckpoint=false}={}){
+  const selection=loadSelection(parent.root,parent.home,parent.manifest.epoch,
+    {commonDirectory:parent.commonDirectory,parentOverride:parent});
+  const results={extension:readStepResult(parent.roots,extensionResultPath()),full:readStepResult(parent.roots,fullResultPath()),
+    screen:readStepResult(parent.roots,screenResultPath())};
+  validateRuntimeRevision3Snapshot(revision,previousRevision,{ledger:revision.priorLedgerSnapshot,sha256:revision.priorLedgerSha256},selection,results);
+  const live=ledgerState?.ledger;
+  if(!live||ledgerState.sha256!==revision.priorLedgerSha256||!core.same(live,revision.priorLedgerSnapshot)
+    ||!core.same(revision.probeResultSha256,live.probes?.map(item=>item.resultSha256)))
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: completed adaptive checkpoint changed after revision 3');
+  if(requireCurrentCheckpoint&&(!selection||!results.extension||!results.full||!results.screen))
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 3 requires intact full-pass selection evidence');
+  return true;
+}
+function createRuntimeRevision3Candidate(root,parent,plan,ledgerState,previousRevision){
+  const codeRevision=core.gitHead(root),counts=planner.countCalls(ledgerState.ledger);
+  if(!trackedWorktreeIsClean(root))throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: tracked worktree must be committed before resume');
+  const changedPaths=gitPaths(root,previousRevision.value.codeRevision,codeRevision);
+  if(!changedPaths.length||changedPaths.some(relative=>!REVIEW_REMEDIATION_PATHS.includes(relative))
+    ||!changedPaths.includes(RUNNER_REL)||!changedPaths.includes(TEST_REL))
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 3 changed paths exceed the Issue-approved review remediation set');
+  const selection=loadSelection(root,parent.home,parent.manifest.epoch,{commonDirectory:parent.commonDirectory,parentOverride:parent});
+  const results={extension:readStepResult(parent.roots,extensionResultPath()),full:readStepResult(parent.roots,fullResultPath()),
+    screen:readStepResult(parent.roots,screenResultPath())};
+  if(!selection||!results.extension||!results.full||!results.screen)
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: selected full checkpoint is incomplete');
+  const changedFileSha256=Object.fromEntries(changedPaths.map(relative=>[relative,fileSha(root,relative)]));
+  const revision={schemaVersion:1,schema:'issue7-stage3e-adaptive-runtime-revision/v1',issue:7,revisionNumber:3,
+    epoch:parent.manifest.epoch,extension:EXTENSION,parentManifestSha256:parent.parentManifestSha256,
+    previousCreatorRevision:parent.manifest.creatorRevision,previousCodeRevision:previousRevision.value.codeRevision,
+    previousRuntimeRevisionSha256:previousRevision.sha256,codeRevision,
+    previousRunnerSha256:previousRevision.value.newRunnerSha256,newRunnerSha256:fileSha(root,RUNNER_REL),
+    newTestSha256:fileSha(root,TEST_REL),changedPaths,changedFileSha256,approvalSha256:RUNTIME_REVISION_03_APPROVAL_SHA256,
+    priorLedgerSha256:ledgerState.sha256,priorLedgerSnapshot:ledgerState.ledger,priorCounts:counts,
+    probeResultSha256:(ledgerState.ledger.probes||[]).map(item=>item.resultSha256),
+    screenResultSha256:results.screen.sha256,fullResultSha256:results.full.sha256,
+    extensionResultSha256:results.extension.sha256,selectionSha256:selection.selectionSha256};
+  const diff=gitBytes(root,['diff','--binary','--no-ext-diff',`${previousRevision.value.codeRevision}..${codeRevision}`,'--',...changedPaths]);
+  revision.diffSha256=core.sha256(diff);
+  validateRuntimeRevision3Code(root,parent.manifest,parent.parentManifestSha256,previousRevision,revision);
+  validateRuntimeRevision3Snapshot(revision,previousRevision,ledgerState,selection,results);
+  verifyRuntimeRevision3Checkpoint(parent,plan,ledgerState,revision,previousRevision,{requireCurrentCheckpoint:true});
+  return revision;
+}
 function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,commonDirectory,write=false,
   allowPendingRuntimeRevision=false,now=()=>new Date().toISOString()}={}){
   const roots=sidecarRoots(root,home,epoch,commonDirectory),existing=readOptional(roots,'parent-manifest.json');
@@ -337,13 +444,15 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
     const frozen=existing.value,record=stage3e.identityRecord(root);
     if(core.sha256(core.canonicalBytes(record))!==frozen.recordSha256)throw new Error('BLOCKED_ADAPTIVE_MID_PARENT: base build identity record changed');
     if(!core.commitIsAncestor(root,frozen.creatorRevision))throw new Error('BLOCKED_ADAPTIVE_MID_PARENT: extension creator revision is not an ancestor of current HEAD');
-    const storedRevision=readOptional(roots,RUNTIME_REVISION_REL),storedRevision2=readOptional(roots,RUNTIME_REVISION_02_REL);
-    const expectedRevisionFiles=storedRevision2?[RUNTIME_REVISION_REL,RUNTIME_REVISION_02_REL]
-      :(storedRevision?[RUNTIME_REVISION_REL]:[]);
+    const storedRevision=readOptional(roots,RUNTIME_REVISION_REL),storedRevision2=readOptional(roots,RUNTIME_REVISION_02_REL),
+      storedRevision3=readOptional(roots,RUNTIME_REVISION_03_REL);
+    const expectedRevisionFiles=[...(storedRevision?[RUNTIME_REVISION_REL]:[]),
+      ...(storedRevision2?[RUNTIME_REVISION_02_REL]:[]),...(storedRevision3?[RUNTIME_REVISION_03_REL]:[])];
     assertRuntimeRevisionFiles(roots,expectedRevisionFiles);
     if(storedRevision2&&!storedRevision)throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 2 has no revision 1 parent');
+    if(storedRevision3&&(!storedRevision2||!storedRevision))throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 3 has no revision 2 parent');
     const runnerChanged=fileSha(root,RUNNER_REL)!==frozen.helperHashes?.[RUNNER_REL];
-    const helperHashesOverride=storedRevision||storedRevision2||runnerChanged?{[RUNNER_REL]:frozen.helperHashes?.[RUNNER_REL]}:undefined;
+    const helperHashesOverride=storedRevision||storedRevision2||storedRevision3||runnerChanged?{[RUNNER_REL]:frozen.helperHashes?.[RUNNER_REL]}:undefined;
     const built=buildParentManifest({root,home,epoch,commonDirectory,identityOverride:frozen.identity,
       creatorRevisionOverride:frozen.creatorRevision,helperHashesOverride,now});
     if(!core.same(frozen,built.manifest))
@@ -401,6 +510,40 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
               throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 2 acceptance journal entry is missing');
           }
           runtimeRevision=revision2;runtimeRevisions=[revision1,revision2];
+          const revision2Test=gitBytes(root,['show',revision2.value.codeRevision+':'+TEST_REL]);
+          const sourceMatchesRevision2=fileSha(root,RUNNER_REL)===revision2.value.newRunnerSha256
+            &&fileSha(root,TEST_REL)===core.sha256(revision2Test);
+          if(storedRevision3){
+            validateRuntimeRevision3Code(root,frozen,existing.sha256,revision2,storedRevision3.value);
+            const revision3={value:storedRevision3.value,sha256:storedRevision3.sha256};
+            verifyRuntimeRevision3Checkpoint(revision2Parent,plan,ledgerState,revision3.value,revision2);
+            const revision3Accepted=journal.events.some(event=>event.type==='RUNTIME_REVISION_ACCEPTED'
+              &&event.revisionNumber===3&&event.runtimeRevisionSha256===revision3.sha256
+              &&event.previousRuntimeRevisionSha256===revision2.sha256
+              &&event.priorLedgerSha256===revision3.value.priorLedgerSha256);
+            if(!revision3Accepted){
+              if(write)appendEvent(roots,{type:'RUNTIME_REVISION_ACCEPTED',revisionNumber:3,
+                runtimeRevisionSha256:revision3.sha256,previousRuntimeRevisionSha256:revision2.sha256,
+                codeRevision:revision3.value.codeRevision,priorLedgerSha256:revision3.value.priorLedgerSha256,
+                selectionSha256:revision3.value.selectionSha256,recoveredJournalEntry:true},now);
+              else if(!allowPendingRuntimeRevision)
+                throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 3 acceptance journal entry is missing');
+            }
+            runtimeRevision=revision3;runtimeRevisions=[revision1,revision2,revision3];
+          }else if(!sourceMatchesRevision2){
+            const candidate=createRuntimeRevision3Candidate(root,revision2Parent,plan,ledgerState,revision2);
+            const bytes=core.canonicalBytes(candidate),sha256=core.sha256(bytes),revision3={value:candidate,sha256};
+            verifyRuntimeRevision3Checkpoint(revision2Parent,plan,ledgerState,candidate,revision2,{requireCurrentCheckpoint:true});
+            if(write){
+              const saved=writeImmutableObject(roots,RUNTIME_REVISION_03_REL,candidate);
+              if(saved.sha256!==sha256)throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 3 immutable readback SHA differs');
+              appendEvent(roots,{type:'RUNTIME_REVISION_ACCEPTED',revisionNumber:3,runtimeRevisionSha256:sha256,
+                previousRuntimeRevisionSha256:revision2.sha256,codeRevision:candidate.codeRevision,
+                priorLedgerSha256:candidate.priorLedgerSha256,selectionSha256:candidate.selectionSha256},now);
+            }else if(!allowPendingRuntimeRevision)
+              throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 3');
+            runtimeRevision=revision3;runtimeRevisions=[revision1,revision2,revision3];
+          }
         }else if(!sourceMatchesRevision1){
           const candidate=createRuntimeRevision2Candidate(root,parentBase,plan,ledgerState,revision1);
           const bytes=core.canonicalBytes(candidate),sha256=core.sha256(bytes),revision2={value:candidate,sha256};
@@ -565,9 +708,39 @@ function markAmbiguous(roots,ledger,cell,reason,now){
   ledger.cells[cell.key]={...(ledger.cells[cell.key]||{}),key:cell.key,kind:cell.kind,state:'AMBIGUOUS',reason:String(reason),updatedAt:now()};
   writeLedger(roots,ledger);appendEvent(roots,{type:'CELL_AMBIGUOUS',key:cell.key,kind:cell.kind,reason:String(reason)},now);
 }
+function prospectiveLedger(ledger,cells){
+  const projected={...ledger,cells:{...(ledger.cells||{})},renderCount:ledger.renderCount||0};
+  for(const cell of cells){
+    const current=projected.cells[cell.key];
+    if(current?.state==='COMPLETE')continue;
+    if(current?.state==='IN_PROGRESS'||current?.state==='AMBIGUOUS')
+      throw new Error(`BLOCKED_ADAPTIVE_MID_AMBIGUOUS: prior render started for ${cell.key}; refusing to repeat it`);
+    projected.cells[cell.key]={key:cell.key,kind:cell.kind,state:'IN_PROGRESS'};
+    projected.renderCount+=1;
+  }
+  return projected;
+}
+function assertProspectiveCellBudget({root,home,epoch,commonDirectory,ledger,cells}={}){
+  const projected=prospectiveLedger(ledger,cells),counts=planner.countCalls(projected);
+  const downstream=getDownstreamCounts(root,home,epoch,commonDirectory);
+  return planner.assertBudget({extension:counts,stage3Count:downstream.stage3,stage4Count:downstream.stage4});
+}
 function runCells({root,home,epoch,commonDirectory,parent,plan,ledger,cells,now,render=stage3e.renderDefault}={}){
   const keys=cells.map(cell=>cell.key);
   if(new Set(keys).size!==keys.length)throw new Error('BLOCKED_ADAPTIVE_MID_PLAN: duplicate cell key in step');
+  for(const cell of cells){
+    const current=ledger.cells[cell.key];
+    if(current?.state==='COMPLETE')continue;
+    if(current?.state==='IN_PROGRESS'||current?.state==='AMBIGUOUS')
+      throw new Error(`BLOCKED_ADAPTIVE_MID_AMBIGUOUS: prior render started for ${cell.key}; refusing to repeat it`);
+    if(readOptional(parent.roots,cellRelative(cell.key,'started'))){
+      markAmbiguous(parent.roots,ledger,cell,'start marker exists without a completed ledger row',now);
+      throw new Error(`BLOCKED_ADAPTIVE_MID_AMBIGUOUS: start marker exists for ${cell.key}; refusing to repeat it`);
+    }
+    const currentIdentity=stage3e.currentIdentity(root,parent.record);
+    if(!core.same(currentIdentity,parent.identity))throw new Error('BLOCKED_ADAPTIVE_MID_IDENTITY: frozen Stage3E build identity changed during extension');
+  }
+  assertProspectiveCellBudget({root,home,epoch,commonDirectory,ledger,cells});
   const step={schemaVersion:1,schema:'issue7-stage3e-adaptive-mid-step-plan/v1',issue:7,epoch,extension:EXTENSION,
     parentManifestSha256:parent.parentManifestSha256,executionPlanSha256:plan.sha256,ordinal:ledger.stepsCount||0,
     cells:cells.map(cell=>({key:cell.key,kind:cell.kind,pitch:cell.pitch,velocity:cell.velocity,candidate:cell.candidate,response:cell.response}))};
@@ -585,12 +758,12 @@ function runCells({root,home,epoch,commonDirectory,parent,plan,ledger,cells,now,
     }
     const currentIdentity=stage3e.currentIdentity(root,parent.record);
     if(!core.same(currentIdentity,parent.identity))throw new Error('BLOCKED_ADAPTIVE_MID_IDENTITY: frozen Stage3E build identity changed during extension');
+    assertProspectiveCellBudget({root,home,epoch,commonDirectory,ledger,cells:[cell]});
     const started={schemaVersion:1,extension:EXTENSION,key:cell.key,kind:cell.kind,cell,identitySha256:parent.identitySha256,
       executionPlanSha256:plan.sha256,...runtimeBinding(parent),startedAt:now()};
     const marker=writeImmutableObject(parent.roots,cellRelative(cell.key,'started'),started);
     ledger.cells[cell.key]={key:cell.key,kind:cell.kind,state:'IN_PROGRESS',markerSha256:marker.sha256,startedAt:started.startedAt};
     ledger.renderCount+=1;
-    const counts=planner.countCalls(ledger);planner.assertBudget({extension:counts,stage3Count:0,stage4Count:0});
     writeLedger(parent.roots,ledger);appendEvent(parent.roots,{type:'CELL_STARTED',key:cell.key,kind:cell.kind,markerSha256:marker.sha256},now);
     let observation;
     try{observation=render({root,record:parent.record,identity:parent.identity,cell});}
@@ -858,19 +1031,24 @@ function preflight(options={}){
   readVerifiedProbeHistory(parent,state.ledger,plan);
   return {parent,plan,state,counts,budget,downstream,runtimeRevision:parent.runtimeRevision||null};
 }
-function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,commonDirectory,runAllOwner,now=()=>new Date().toISOString()}={}){
+function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,commonDirectory,runAllOwner,
+  readOnlyPreflight=preflight,now=()=>new Date().toISOString()}={}){
   if(!['dry-run','verify','execute'].includes(mode))throw new Error('explicit mode required: dry-run, verify, or execute');
   const options={root,home,epoch,commonDirectory,now};
   try{
-    const prepared=preflight({...options,allowPendingRuntimeRevision:mode==='execute'}),{parent,plan,state,counts,budget}=prepared;
+    const prepared=mode==='verify'?readOnlyPreflight(options)
+      :preflight({...options,allowPendingRuntimeRevision:mode==='execute'}),{parent,plan,state,counts,budget}=prepared;
     const lock=lockStatus(root,home,epoch,commonDirectory);
     if(lock.locked)return {decision:'BLOCKED_ADAPTIVE_MID_LOCK',phase:EXTENSION,lock,builds:0,renders:0,writes:0,acousticRenders:0};
     if(mode==='dry-run')return {decision:'ADAPTIVE_MID_DRY_RUN_READY',phase:EXTENSION,counts,budget,identitySha256:parent.identitySha256,
       parentManifestSha256:parent.parentManifestSha256,executionPlanSha256:plan.sha256,runtimeRevisionSha256:parent.runtimeRevision?.sha256||null,
       builds:0,renders:0,writes:0,acousticRenders:0};
-    if(mode==='verify')return {decision:'ADAPTIVE_MID_VERIFY_OK',phase:EXTENSION,started:Boolean(readLedger(parent.roots)),counts,
-      parentManifestSha256:parent.parentManifestSha256,executionPlanSha256:plan.sha256,runtimeRevisionSha256:parent.runtimeRevision?.sha256||null,
-      builds:0,renders:0,writes:0,acousticRenders:0};
+    if(mode==='verify'){
+      const checked=verify({...options,prepared});
+      return {...checked,phase:EXTENSION,started:Boolean(readLedger(parent.roots)),counts,budget,
+        executionPlanSha256:plan.sha256,runtimeRevisionSha256:parent.runtimeRevision?.sha256||null,
+        builds:0,renders:0,writes:0,acousticRenders:0};
+    }
     if(!runAllOwner)throw new Error('BLOCKED_ADAPTIVE_MID_RUN_ALL_REQUIRED: acoustic execution is permitted only inside the approved --run-all master lock');
     core.assertRunAllLockAccess(parent.commonDirectory,runAllOwner);
     return withAdaptiveLock(parent,()=>{
@@ -943,9 +1121,9 @@ function loadSelection(root=ROOT,home=os.homedir(),epoch=core.EPOCH,{commonDirec
     ||selection.extensionResultSha256!==result.sha256||selection.fullResultSha256!==full.sha256||selection.screenResultSha256!==screen.sha256
     ||result.value.parentManifestSha256!==parent.parentManifestSha256||result.value.executionPlanSha256!==plan.sha256
     ||result.value.fullResultSha256!==full.sha256||result.value.screenResultSha256!==screen.sha256
-    ||selection.runtimeRevisionSha256!==(parent.runtimeRevision?.sha256||null)
-    ||result.value.runtimeRevisionSha256!==(parent.runtimeRevision?.sha256||null)
-    ||full.value.runtimeRevisionSha256!==(parent.runtimeRevision?.sha256||null)
+    ||!hasRuntimeRevision(parent,selection.runtimeRevisionSha256)
+    ||!hasRuntimeRevision(parent,result.value.runtimeRevisionSha256)
+    ||!hasRuntimeRevision(parent,full.value.runtimeRevisionSha256)
     ||!matchesRuntimeBinding(parent,screen.value)
     ||!core.same(result.value.probeResultSha256,selection.probeResultSha256)
     ||result.value.creatorRevision!==parent.manifest.creatorRevision
@@ -971,8 +1149,9 @@ function loadSelection(root=ROOT,home=os.homedir(),epoch=core.EPOCH,{commonDirec
       result:result.value,resultSha256:result.sha256,screen:screen.value,screenResultSha256:screen.sha256,full:full.value,fullResultSha256:full.sha256,
       plan:plan.plan,executionPlanSha256:plan.sha256}};
 }
-function verify({root=ROOT,home=os.homedir(),epoch=core.EPOCH,commonDirectory}={}){
-  const prepared=preflight({root,home,epoch,commonDirectory}),selection=loadSelection(root,home,epoch,{commonDirectory});
+function verify({root=ROOT,home=os.homedir(),epoch=core.EPOCH,commonDirectory,prepared:preparedOverride}={}){
+  const prepared=preparedOverride||preflight({root,home,epoch,commonDirectory});
+  const selection=loadSelection(root,home,epoch,{commonDirectory,parentOverride:prepared.parent});
   const ledger=prepared.state.ledger;
   for(const cell of Object.values(ledger.cells||{})){
     if(cell.state==='IN_PROGRESS'||cell.state==='AMBIGUOUS')throw new Error(`BLOCKED_ADAPTIVE_MID_AMBIGUOUS: ${cell.key} has a started render without a verified completion`);
@@ -995,4 +1174,5 @@ function verify({root=ROOT,home=os.homedir(),epoch=core.EPOCH,commonDirectory}={
 
 module.exports={ROOT,EXTENSION,PARENT_PHASES,PARENT_RENDER_COUNT,baseRoots,sidecarRoots,buildParentManifest,verifyParentManifest,assertPromotedDerivedIdentity,
   makeExecutionPlan,ensureExecutionPlan,readLedger,validateLedger,preflight,lockStatus,persistStepResult,loadProbeHistory,verifyRevisionProbe,
-  validateRuntimeRevision2Snapshot,fullCandidatesFromScreen,loadFinalMaybe,loadSelection,verify,run};
+  validateRuntimeRevision2Snapshot,validateRuntimeRevision3Snapshot,validateRuntimeRevision3Code,fullCandidatesFromScreen,
+  assertProspectiveCellBudget,runCells,loadFinalMaybe,loadSelection,verify,run};

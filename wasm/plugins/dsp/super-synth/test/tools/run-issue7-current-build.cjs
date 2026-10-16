@@ -124,18 +124,19 @@ function dryRun(options={}){
   const result=status(options);
   return {...result,decision:'ISSUE7_CURRENT_BUILD_DRY_RUN',dryRun:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
 }
-function verify({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4}}={}){
+function verify({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe}={}){
   const roots3=core.resolveRoots(root,'stage3',epoch,{home}),roots4=core.resolveRoots(root,'stage4',epoch,{home});
   const stage3Final=finalizedStage({root,home,epoch,stage:'stage3',phase:'stage3'});
   const stage4Final=finalizedStage({root,home,epoch,stage:'stage4',phase:'stage4'});
-  const progress=stage3eProgress({root,home,epoch,adaptiveRunner:runners.adaptiveMid||adaptiveMid});
+  const progress=stage3eProgress({root,home,epoch,readPhase,adaptiveRunner:runners.adaptiveMid||adaptiveMid});
   const evidence={stage3e:runners.stage3e.run({mode:'verify',root,home,epoch}),adaptiveMid:null,stage3:null,stage4:null};
   if(progress.phase==='adaptive-mid-01'||progress.decision==='STAGE3E_SELECTED_RESPONSE')
     evidence.adaptiveMid=(runners.adaptiveMid||adaptiveMid).run({mode:'verify',root,home,epoch});
   if(stage3Final)evidence.stage3=stage3Final.decision==='BLOCKED_EVIDENCE_READBACK'?stage3Final:runners.stage3.run({mode:'verify',root,home,epoch});
   if(stage4Final)evidence.stage4=stage4Final.decision==='BLOCKED_EVIDENCE_READBACK'?stage4Final:runners.stage4.run({mode:'verify',root,home,epoch});
-  const blocked=Object.values(evidence).some(value=>value&&/^BLOCKED_/.test(value.decision||''));
-  return {decision:blocked?'BLOCKED_ISSUE7_CURRENT_BUILD_VERIFY':'ISSUE7_CURRENT_BUILD_VERIFY_OK',evidence,
+  const blocked=/^BLOCKED_/.test(progress.decision||'')
+    ||Object.values(evidence).some(value=>value&&/^BLOCKED_/.test(value.decision||''));
+  return {decision:blocked?'BLOCKED_ISSUE7_CURRENT_BUILD_VERIFY':'ISSUE7_CURRENT_BUILD_VERIFY_OK',progress,evidence,
     roots:{stage3:roots3.primary,stage4:roots4.primary},builds:0,renders:0,writes:0,acousticRenders:0};
 }
 function stage3eNextMode(progress){

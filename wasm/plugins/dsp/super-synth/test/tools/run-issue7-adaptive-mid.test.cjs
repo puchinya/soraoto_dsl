@@ -8,10 +8,62 @@ const path=require('node:path');
 const adaptive=require('./issue7-adaptive-mid-core.cjs');
 const core=require('./issue7-current-build-core.cjs');
 const adaptiveRunner=require('./run-issue7-adaptive-mid.cjs');
+const stage3eRunner=require('./run-issue7-stage3e-current-build.cjs');
 const evaluator=require('./issue7-adaptive-mid-evaluator.cjs');
 const master=require('./run-issue7-current-build.cjs');
 
 function result(mid,spanErrorDb,kind){return {mid,spanErrorDb,safe:true,diagnosticsComplete:true,kind};}
+
+function selectedEvidenceFixture(t){
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-adaptive-verify-fixture-'));
+  t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
+  const home=path.join(temp,'home'),commonDirectory=path.join(temp,'common');
+  fs.mkdirSync(home,{recursive:true});fs.mkdirSync(commonDirectory,{recursive:true});
+  const root=adaptiveRunner.ROOT,roots=adaptiveRunner.sidecarRoots(root,home,core.EPOCH,commonDirectory);
+  const rev1={sha256:'a'.repeat(64),value:{codeRevision:'1'.repeat(40),newRunnerSha256:'b'.repeat(64)}};
+  const rev2={sha256:'c'.repeat(64),value:{codeRevision:'2'.repeat(40),newRunnerSha256:'d'.repeat(64)}};
+  const parent={root,home,commonDirectory,roots,parentManifestSha256:'e'.repeat(64),identity:{fixture:true},
+    identitySha256:'f'.repeat(64),runtimeRevision:rev2,runtimeRevisions:[rev1,rev2],
+    manifest:{epoch:core.EPOCH,creatorRevision:'2'.repeat(40),helperHashes:{
+      'wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.cjs':rev2.value.newRunnerSha256,
+      'wasm/plugins/dsp/super-synth/test/tools/issue7-adaptive-mid-core.cjs':'3'.repeat(64),
+      'wasm/plugins/dsp/super-synth/test/tools/issue7-adaptive-mid-evaluator.cjs':'4'.repeat(64)},
+      parents:{'low-full':{resultSha256:'5'.repeat(64)},'midi51-final-diagnostic':{resultSha256:'6'.repeat(64)}}}};
+  const plan=adaptiveRunner.ensureExecutionPlan(parent),tuple={low:0.35,mid:0.55,bassHardness:0.5};
+  const store=(relative,value)=>core.writeImmutableDual(roots,relative,core.canonicalBytes(value));
+  const probe=store('probe-results/01.json',{ordinal:1,runtimeRevisionSha256:rev2.sha256,runnerSha256:rev2.value.newRunnerSha256});
+  const screen=store('screen-result.json',{runtimeRevisionSha256:rev2.sha256,runnerSha256:rev2.value.newRunnerSha256,selectedCandidates:[tuple]});
+  const full=store('full-result.json',{decision:'ADAPTIVE_MID_FULL_PASS',runtimeRevisionSha256:rev2.sha256,runnerSha256:rev2.value.newRunnerSha256,
+    selectedTuple:tuple,candidates:[{tuple,pass:true}]});
+  const extension=store('extension-result.json',{decision:'ADAPTIVE_MID_FULL_PASS',parentManifestSha256:parent.parentManifestSha256,
+    executionPlanSha256:plan.sha256,fullResultSha256:full.sha256,screenResultSha256:screen.sha256,
+    runtimeRevisionSha256:rev2.sha256,probeResultSha256:[probe.sha256],creatorRevision:parent.manifest.creatorRevision});
+  const selection={schemaVersion:1,schema:'issue7-stage3e-extension-selection/v1',decision:'ADAPTIVE_MID_FULL_PASS',
+    runtimeRevisionSha256:rev2.sha256,selectedResponse:tuple,identitySha256:parent.identitySha256,executionPlanSha256:plan.sha256,
+    extensionResultSha256:extension.sha256,fullResultSha256:full.sha256,screenResultSha256:screen.sha256,probeResultSha256:[probe.sha256],
+    parent:{manifestSha256:parent.parentManifestSha256,lowFullResultSha256:'5'.repeat(64),
+      finalMidi51ResultSha256:'6'.repeat(64),finalMidi51Outcome:'FAIL',finalMidi51PassingCandidates:0}};
+  const savedSelection=store('selection.json',selection);
+  const prepared={parent,plan,state:{ledger:{renderCount:136,cells:{}}},counts:{probes:48,screen:24,full:64,total:136},budget:{total:2037}};
+  return {root,home,commonDirectory,roots,parent,prepared,selection,savedSelection,extension,full,screen,probe};
+}
+
+function snapshotEvidence(roots){
+  const out=[];
+  for(const base of [roots.primary,roots.secondary]){
+    if(!fs.existsSync(base))continue;
+    const visit=directory=>{
+      for(const name of fs.readdirSync(directory).sort()){
+        const file=path.join(directory,name),stat=fs.lstatSync(file);
+        if(stat.isDirectory())visit(file);
+        else out.push({file:path.relative(base,file),bytes:fs.readFileSync(file).length,
+          sha256:core.sha256(fs.readFileSync(file)),mtimeMs:stat.mtimeMs});
+      }
+    };
+    visit(base);
+  }
+  return out;
+}
 
 test('adaptive planner starts at 0.55 and bisects toward the largest passing mid at fixed four decimals',()=>{
   assert.deepEqual(adaptive.nextProbe([]),{done:false,mid:0.55,kind:'grid',ordinal:1});
@@ -101,6 +153,29 @@ test('started and ambiguous cells consume the extension budget and cannot disapp
     c:{kind:'full',state:'AMBIGUOUS'},d:{kind:'full',state:'PENDING'}}}),{probes:1,screen:1,full:1,total:3});
 });
 
+test('budget exhaustion is checked before step plan, CELL_STARTED marker, ledger, or DSP write',t=>{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-adaptive-budget-preflight-'));
+  t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
+  const home=path.join(temp,'home'),commonDirectory=path.join(temp,'common');
+  fs.mkdirSync(home,{recursive:true});fs.mkdirSync(commonDirectory,{recursive:true});
+  const roots=adaptiveRunner.sidecarRoots(adaptiveRunner.ROOT,home,core.EPOCH,commonDirectory);
+  const record=stage3eRunner.identityRecord(adaptiveRunner.ROOT),identity=stage3eRunner.currentIdentity(adaptiveRunner.ROOT,record);
+  const parent={root:adaptiveRunner.ROOT,home,commonDirectory,roots,record,identity,
+    identitySha256:core.sha256(core.canonicalBytes(identity)),parentManifestSha256:'a'.repeat(64),
+    manifest:{epoch:core.EPOCH,helperHashes:{["wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.cjs"]:'b'.repeat(64)}}};
+  const plan={sha256:'c'.repeat(64)},ledger={renderCount:0,cells:{},probes:[],screen:null,full:[],decision:null};
+  const before=structuredClone(ledger),cell=adaptive.probeCells(0.55)[0],originalAssertBudget=adaptive.assertBudget;
+  let budgetInput=null,renderCalls=0;
+  adaptive.assertBudget=input=>{budgetInput=input;throw new Error('BLOCKED_ADAPTIVE_MID_BUDGET: injected cap exhaustion');};
+  t.after(()=>{adaptive.assertBudget=originalAssertBudget;});
+  assert.throws(()=>adaptiveRunner.runCells({root:parent.root,home,epoch:core.EPOCH,commonDirectory,parent,plan,ledger,cells:[cell],
+    now:()=> '2026-10-17T00:00:00.000Z',render:()=>{renderCalls+=1;return {};}}),/BLOCKED_ADAPTIVE_MID_BUDGET/);
+  assert.deepEqual(budgetInput.extension,{probes:1,screen:0,full:0,total:1});
+  assert.equal(budgetInput.stage3Count,0);assert.equal(budgetInput.stage4Count,0);
+  assert.equal(renderCalls,0);assert.deepEqual(ledger,before);
+  assert.deepEqual([roots.primary,roots.secondary].map(directory=>fs.existsSync(directory)),[false,false]);
+});
+
 test('master schedules the adaptive sidecar and reserves no calls for the historical mid-full tranche',()=>{
   assert.equal(master.PHASE_FLOW.at(-1).phase,'adaptive-mid-01');
   assert.equal(master.PHASE_FLOW.some(item=>item.phase==='mid-full'),false);
@@ -109,6 +184,37 @@ test('master schedules the adaptive sidecar and reserves no calls for the histor
   assert.equal(master.TOTAL_RENDER_BUDGET,4408);
   assert.equal(adaptiveRunner.EXTENSION,'adaptive-mid-01');
   assert.equal(adaptiveRunner.PARENT_RENDER_COUNT,2235);
+});
+
+test('adaptive --verify validates a valid full-pass selection read-only',t=>{
+  const fixture=selectedEvidenceFixture(t),result=adaptiveRunner.run({mode:'verify',root:fixture.root,home:fixture.home,
+    commonDirectory:fixture.commonDirectory,readOnlyPreflight:()=>fixture.prepared});
+  assert.equal(result.decision,'ADAPTIVE_MID_VERIFY_OK');
+  assert.equal(result.selectedResponse.mid,0.55);
+  assert.equal(result.renders,0);assert.equal(result.writes,0);
+});
+
+test('adaptive --verify blocks matching dual-store selection bytes with a mismatched full-result SHA and writes nothing',t=>{
+  const fixture=selectedEvidenceFixture(t),corrupt={...fixture.selection,fullResultSha256:'9'.repeat(64)};
+  const bytes=core.canonicalBytes(corrupt);
+  for(const file of [path.join(fixture.roots.primary,'selection.json'),path.join(fixture.roots.secondary,'selection.json')])
+    fs.writeFileSync(file,bytes);
+  const before=snapshotEvidence(fixture.roots),result=adaptiveRunner.run({mode:'verify',root:fixture.root,home:fixture.home,
+    commonDirectory:fixture.commonDirectory,readOnlyPreflight:()=>fixture.prepared});
+  const after=snapshotEvidence(fixture.roots);
+  assert.equal(result.decision,'BLOCKED_ADAPTIVE_MID_SELECTION');
+  assert.deepEqual(after,before);
+  assert.equal(result.renders,0);assert.equal(result.writes,0);
+});
+
+test('adaptive --verify blocks a missing selection while a PASS terminal result remains and writes nothing',t=>{
+  const fixture=selectedEvidenceFixture(t);
+  for(const file of [path.join(fixture.roots.primary,'selection.json'),path.join(fixture.roots.secondary,'selection.json')])fs.rmSync(file);
+  const before=snapshotEvidence(fixture.roots),result=adaptiveRunner.run({mode:'verify',root:fixture.root,home:fixture.home,
+    commonDirectory:fixture.commonDirectory,readOnlyPreflight:()=>fixture.prepared});
+  assert.equal(result.decision,'BLOCKED_ADAPTIVE_MID_SELECTION');
+  assert.deepEqual(snapshotEvidence(fixture.roots),before);
+  assert.equal(result.renders,0);assert.equal(result.writes,0);
 });
 
 test('step results expose their payload and resume reconciles only SHA-verified completed probe evidence',t=>{
