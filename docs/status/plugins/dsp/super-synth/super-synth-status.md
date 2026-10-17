@@ -2,7 +2,15 @@
 
 > This document records current evidence. It is non-normative; the product specification and approved design define requirements and decisions.
 
-## Current status — 2026-10-15
+## R10 implementation checkpoint — 2026-10-17
+
+- **Contract and scope:** the current Issue #7 amendment authorizes the revision-5 private treble hammer-hardness profile and one resumed `--run-all` through the acceptance gate. R10 preserves the historical 2,857-call record and permits 12 T=1 equivalence calls, a 200-cell screen, then only the authorized Stage3/Stage4 phases after their gates pass.
+- **Implementation:** `concert_grand` profile revision 5 adds `hammer.velocity_hardness_scale_treble`, default `1`; the independent smoothstep affects hardness only and preserves the revision-4 calculation at T=1. Production WASM omits the two diagnostic scale exports; a separate diagnostic build exposes them only with guard diagnostics enabled.
+- **Verification at this checkpoint:** metadata tests 23/23 PASS; treble-hardness runner tests 17/17 PASS; R10 production and diagnostic WASM builds PASS. These checks do not establish acoustic acceptance.
+- **Acoustic campaign:** NOT RUN at this checkpoint. Runtime revision R10 must be recorded against the committed and pushed implementation before the approved run. The later equivalence, screen, Stage3, Stage4, and final repository/Web Player results are recorded in the append-only Issue #7 progress updates and dual-store evidence.
+- **Delivery:** PR #8 remains open; Issue #7 remains `phase:implementation` + `blocked` until all acoustic and final acceptance gates pass. No merge is authorized.
+
+## Historical status — 2026-10-15 snapshot
 
 - **Authoritative state:** Issue [#7](https://github.com/puchinya/soraoto_dsl/issues/7) is OPEN with `phase:implementation`, `blocked`, and `needs-user-decision`; PR [#8](https://github.com/puchinya/soraoto_dsl/pull/8) is OPEN on `codex/issue-7-supersynth-v9`. The Stage3E acoustic inputs remain bound to source HEAD `758c612f341975778a9b5d26fa7414ae9dacbda8`; the workflow correction ran from PR HEAD `5fbd714`.
 - **Execution policy:** the approved [one-shot `--run-all` contract](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6170886664) keeps the no-per-phase-approval decision and replaces only the manual one-phase-at-a-time operation. The user-directed 2026-10-15 [Issue #7 body correction](https://github.com/puchinya/soraoto_dsl/issues/7) lets the fixed low-screen top five reach low-full when the pre-mid MIDI51 diagnostics are safe and complete but none pass. The final MIDI51 diagnostic after mid-screen remains mandatory. The 8 dB limit and all phase/cumulative render caps are unchanged.

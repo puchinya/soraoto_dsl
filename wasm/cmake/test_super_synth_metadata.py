@@ -23,8 +23,8 @@ PRESETS = json.loads((WASM_ROOT / "plugins/dsp/super-synth/presets.json").read_t
 class GrandProfileSchemaTests(unittest.TestCase):
     def test_complete_factory_profile_is_valid(self):
         self.assertEqual(len(metadata.validate_grand_profiles(PRESETS)), 1)
-        self.assertEqual(metadata.GRAND_PROFILE_REVISION, 4)
-        self.assertEqual(PRESETS["concert_grand"]["engine_config"]["revision"], 4)
+        self.assertEqual(metadata.GRAND_PROFILE_REVISION, 5)
+        self.assertEqual(PRESETS["concert_grand"]["engine_config"]["revision"], 5)
 
     def test_time_normalized_string_loss_schema_is_revision_three(self):
         config = PRESETS["concert_grand"]["engine_config"]["string"]
@@ -34,11 +34,31 @@ class GrandProfileSchemaTests(unittest.TestCase):
         self.assertNotIn("reference_loss_velocity_scale", config)
 
     def test_revision_mismatch_is_rejected(self):
-        for revision in (2, 3, 5):
+        for revision in (2, 3, 4, 6):
             presets = copy.deepcopy(PRESETS)
             presets["concert_grand"]["engine_config"]["revision"] = revision
-            with self.subTest(revision=revision), self.assertRaisesRegex(ValueError, "engine_config.revision must be 4"):
+            with self.subTest(revision=revision), self.assertRaisesRegex(ValueError, "engine_config.revision must be 5"):
                 metadata.validate_grand_profiles(presets)
+
+    def test_treble_hardness_scale_accepts_approved_bounds(self):
+        for value in (0.5, 1.0, 2.0):
+            presets = copy.deepcopy(PRESETS)
+            presets["concert_grand"]["engine_config"]["hammer"]["velocity_hardness_scale_treble"] = value
+            with self.subTest(value=value):
+                metadata.validate_grand_profiles(presets)
+
+    def test_treble_hardness_scale_rejects_outside_and_non_finite_values(self):
+        for value in (0.499999, 2.000001, math.nan, math.inf):
+            presets = copy.deepcopy(PRESETS)
+            presets["concert_grand"]["engine_config"]["hammer"]["velocity_hardness_scale_treble"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "velocity_hardness_scale_treble"):
+                metadata.validate_grand_profiles(presets)
+
+    def test_treble_hardness_scale_is_required(self):
+        presets = copy.deepcopy(PRESETS)
+        del presets["concert_grand"]["engine_config"]["hammer"]["velocity_hardness_scale_treble"]
+        with self.assertRaisesRegex(ValueError, "missing fields: velocity_hardness_scale_treble"):
+            metadata.validate_grand_profiles(presets)
 
     def test_stage3e_response_fields_accept_approved_bounds(self):
         for low, mid, bass in ((0.35, 0.35, 0.0), (1.0, 1.0, 2.0)):
@@ -143,9 +163,10 @@ class GrandProfileSchemaTests(unittest.TestCase):
         self.assertEqual(first.encode("utf-8"), second.encode("utf-8"))
         self.assertIn("#define SORAOTO_GRAND_PROFILE_COUNT 2", first)
         self.assertIn(".force_scale = 123.0f", first)
-        self.assertIn(".velocity_launch_scale_low = 1.0f", first)
-        self.assertIn(".velocity_launch_scale_mid = 1.0f", first)
-        self.assertIn(".velocity_hardness_scale_bass = 1.0f", first)
+        self.assertIn(".velocity_launch_scale_low = 0.34999999999999998f", first)
+        self.assertIn(".velocity_launch_scale_mid = 0.55000000000000004f", first)
+        self.assertIn(".velocity_hardness_scale_bass = 0.5f", first)
+        self.assertIn(".velocity_hardness_scale_treble = 1.0f", first)
 
     def test_descriptor_does_not_expose_internal_config_or_plugin_state(self):
         _, model = metadata.parse_interface(WASM_ROOT / "plugins/dsp/super-synth/interface.soraoto")

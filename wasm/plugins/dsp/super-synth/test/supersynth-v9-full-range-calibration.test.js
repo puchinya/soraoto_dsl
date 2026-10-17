@@ -163,6 +163,9 @@ function writeReports(dir, reports) {
 }
 
 function main() {
+  const engineConfig=preset.engine_config,trebleHardnessScale=Number(engineConfig?.hammer?.velocity_hardness_scale_treble);
+  check(engineConfig?.revision===5,'full-range calibration requires grand profile revision 5');
+  check(Number.isFinite(trebleHardnessScale)&&trebleHardnessScale>=.5&&trebleHardnessScale<=2,'full-range calibration treble hardness profile value is outside [0.5,2]');
   const loaded = loadRenderedMatrix();
   const rendered = loaded.document;
   const matrix = rendered.matrix;
@@ -322,7 +325,8 @@ function main() {
     reference: 'Salamander Grand Piano V3; derived numeric metrics only',
     render: {pluginVersion: rendered.render.pluginVersion, preset: rendered.render.preset, sampleRate: rendered.render.sampleRate,
       durationMs: rendered.render.durationMs, velocityRepresentatives: rendered.render.velocityRepresentatives,
-      pianoHammerHardness: preset.piano_hammer_hardness, pianoHammerNoise: preset.piano_hammer_noise},
+      pianoHammerHardness: preset.piano_hammer_hardness, pianoHammerNoise: preset.piano_hammer_noise,profileRevision:engineConfig.revision,
+      velocityHardnessScaleTreble:trebleHardnessScale},
     coverage: {directReferenceCells: fixture.directCells.length, renderCells: cells.length,
       pitches: PITCHES.length, velocityLayers: VELOCITIES.length, adjacentComparisons: adjacent.length,
       interpolatedPitches: PITCHES.length - CENTERS.length},

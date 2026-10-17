@@ -99,7 +99,7 @@ proxy identified from derived Salamander metrics; the microphone recordings are 
 bridge-force/bridge-velocity measurements and must not be described as the piano's measured
 mechanical admittance.
 
-Each `concert_grand` factory preset is a complete standalone `grand_piano_v1` revision-4 instrument
+Each `concert_grand` factory preset is a complete standalone `grand_piano_v1` revision-5 instrument
 definition in `engine_config`. No piano-profile inheritance, partial configuration, missing-field C
 fallback, runtime JSON parsing, or realtime allocation is used. Construction and calibration values
 remain internal; existing public piano controls are high-level modifiers over the selected profile.
@@ -130,6 +130,17 @@ uses `v_launch`; felt hardness uses the original `v` and `amount_eff` both at no
 during active contact. The final output gain continues to use original note velocity. At `L=M=H=1`
 the revision-3 path is taken exactly. These are private profile values, not public parameters, DSL
 fields, or Plugin ABI state.
+
+Revision 5 adds the required private `hammer.velocity_hardness_scale_treble` value `T` in `[0.5,2]`,
+defaulting to `1`. From the clamped normalized key `key=clamp((pitch-21)/87,0,1)`, compute
+`t=clamp((key-tenor_to_treble_start)/(tenor_to_treble_end-tenor_to_treble_start),0,1)` and the
+independent smoothstep `g_t=t*t*(3-2*t)`. Preserve the existing linear `grand_zone_weights` used for
+bridge and soundboard mixing. First compute the revision-4 effective hardness amount
+`legacy_amount=clamp(velocity_hardness_amount*(1+g_bass*(bass_scale-1)),0,1)`, then
+`effective_amount = legacy_amount` when `T==1`, otherwise
+`clamp(legacy_amount*(1+g_t*(T-1)),0,1)`. At `T==1`, retain the revision-4 arithmetic and early-return
+path exactly. Apply this amount through the existing felt mapping at note-on, retarget, and active
+hammer contact. `T` is private preset data, not a public parameter, DSL field, or Plugin ABI change.
 
 Revision 3 retains the velocity-independent passive string termination loss introduced in revision 2. Velocity
 affects hammer excitation/hardness and the existing final velocity gain, while passive boundary decay

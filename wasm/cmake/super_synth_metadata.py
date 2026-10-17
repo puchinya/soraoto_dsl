@@ -12,7 +12,7 @@ ABI=0x00010000
 PRESETS=json.loads((PLUGIN/'presets.json').read_text(encoding='utf-8'))
 
 GRAND_PROFILE_KIND='grand_piano_v1'
-GRAND_PROFILE_REVISION=4
+GRAND_PROFILE_REVISION=5
 GRAND_SB_MODE_COUNT=24
 GRAND_PROFILE_HEADER=SHARED/'generated'/'super-synth_grand_profiles.h'
 
@@ -40,6 +40,7 @@ _GRAND_PROFILE_SCHEMA={
     'velocity_hardness_amount':'number',
     'velocity_launch_scale_low':'number','velocity_launch_scale_mid':'number',
     'velocity_hardness_scale_bass':'number',
+    'velocity_hardness_scale_treble':'number',
     'compression_scale':'number','compression_max_normalized':'number','stiffness_soft':'number',
     'stiffness_hard':'number','felt_exponent_soft':'number','felt_exponent_hard':'number',
     'contact_loss_soft':'number','contact_loss_hard':'number','contact_loss_min':'number',
@@ -138,6 +139,7 @@ def validate_grand_profile(name,config):
     if not (0.35<=h['velocity_launch_scale_low']<=1.0):raise ValueError(f'{name}: hammer.velocity_launch_scale_low must be in [0.35,1]')
     if not (0.35<=h['velocity_launch_scale_mid']<=1.0):raise ValueError(f'{name}: hammer.velocity_launch_scale_mid must be in [0.35,1]')
     if not (0.0<=h['velocity_hardness_scale_bass']<=2.0):raise ValueError(f'{name}: hammer.velocity_hardness_scale_bass must be in [0,2]')
+    if not (0.5<=h['velocity_hardness_scale_treble']<=2.0):raise ValueError(f'{name}: hammer.velocity_hardness_scale_treble must be in [0.5,2]')
     if min(h['mass_soft'],h['mass_hard'])<=0 or h['stiffness_soft']<=0 or h['stiffness_hard']<=0:raise ValueError(f'{name}: hammer mass and stiffness must be positive')
     if not (2.0<=h['felt_exponent_soft']<=h['felt_exponent_hard']<=4.0):raise ValueError(f'{name}: felt exponents must be ordered within [2,4]')
     if h['contact_loss_min']<0 or h['contact_loss_max']<h['contact_loss_min'] or h['contact_loss_soft']<0 or h['contact_loss_hard']<0:raise ValueError(f'{name}: invalid hammer contact-loss range')

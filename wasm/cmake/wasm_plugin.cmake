@@ -63,6 +63,9 @@ function(soraoto_add_wasm_plugin group plugin)
     option(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS
       "Build test-only Stage3E register-local velocity response controls for SuperSynth"
       OFF)
+    option(SORAOTO_SUPERSYNTH_TREBLE_HARDNESS_DIAGNOSTICS
+      "Build test-only treble hammer-hardness scale controls for SuperSynth"
+      OFF)
     target_compile_options(${target} PRIVATE -msimd128 -fvectorize -fslp-vectorize)
     if(SORAOTO_SUPERSYNTH_SIMD_DIAGNOSTICS)
       target_compile_options(${target} PRIVATE
@@ -113,6 +116,16 @@ function(soraoto_add_wasm_plugin group plugin)
         target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS=1)
       endif()
     endif()
+    if(SORAOTO_SUPERSYNTH_TREBLE_HARDNESS_DIAGNOSTICS)
+      if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+        message(FATAL_ERROR "Treble-hardness diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON")
+      endif()
+      if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS OR SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS OR
+         SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS OR SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS)
+        message(FATAL_ERROR "Treble-hardness diagnostics are mutually exclusive with Stage3B/C/D/E diagnostics")
+      endif()
+      target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_TREBLE_HARDNESS_DIAGNOSTICS=1)
+    endif()
   elseif(plugin STREQUAL "reverb")
     target_compile_options(${target} PRIVATE -O2)
   endif()
@@ -161,6 +174,11 @@ function(soraoto_add_wasm_plugin group plugin)
           "-Wl,--export=soraoto_supersynth_stage3e_get_mid"
           "-Wl,--export=soraoto_supersynth_stage3e_get_bass_hardness")
       endif()
+    endif()
+    if(SORAOTO_SUPERSYNTH_TREBLE_HARDNESS_DIAGNOSTICS)
+      list(APPEND link_options
+        "-Wl,--export=soraoto_supersynth_treble_hardness_set_scale"
+        "-Wl,--export=soraoto_supersynth_treble_hardness_get_scale")
     endif()
   endif()
   target_link_options(${target} PRIVATE ${link_options})

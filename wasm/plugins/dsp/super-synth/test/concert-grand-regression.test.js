@@ -1,4 +1,5 @@
 const path=require('path');
+const fs=require('fs');
 const {PluginHarness,ext}=require('../../../../test/helpers/plugin-harness.cjs');
 const {estimatePianoPitch}=require('./tools/piano-pitch-estimator.cjs');
 const {toneMag}=require('./tools/salamander-metrics.cjs');
@@ -42,6 +43,9 @@ process.exit(0);
 function balance(x,s,e){const l=rms(x.L,s,e),r=rms(x.R,s,e);return (r-l)/Math.max(1e-12,r+l)}
 const probe=new PluginHarness(R,FILE);const d=probe.descriptor,preset=ext(d).presets.concert_grand;const engine=d.parameters.find(x=>x.path==='engine_model');probe.close();
 check(preset&&preset.engine_model==='concert_grand','concert_grand factory preset missing');
+const profile=JSON.parse(fs.readFileSync(path.join(R,'wasm/plugins/dsp/super-synth/presets.json'),'utf8')).concert_grand.engine_config;
+check(profile.revision===5,'concert_grand profile must use revision 5');
+check(Number.isFinite(profile.hammer.velocity_hardness_scale_treble)&&profile.hammer.velocity_hardness_scale_treble>=.5&&profile.hammer.velocity_hardness_scale_treble<=2,'treble hammer-hardness scale is outside revision-5 bounds');
 check(engine&&engine.enum_values.includes('concert_grand'),'engine_model enum missing concert_grand');
 for(const k of ['osc_a_level','osc_b_level','sub_level','noise_level'])check(Number(preset[k]||0)===0,`concert grand synth leakage: ${k}`);
 check(Number(preset.piano_soundboard_mix)>=.5,'concert grand must use shared soundboard strongly');

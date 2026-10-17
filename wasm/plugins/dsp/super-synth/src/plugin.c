@@ -50,6 +50,7 @@ typedef struct {
   float initial_velocity_hardness_base,initial_velocity_hardness_scale;
   float velocity_hardness_amount;
   float velocity_launch_scale_low,velocity_launch_scale_mid,velocity_hardness_scale_bass;
+  float velocity_hardness_scale_treble;
   float compression_scale,compression_max_normalized;
   float stiffness_soft,stiffness_hard,felt_exponent_soft,felt_exponent_hard;
   float contact_loss_soft,contact_loss_hard,contact_loss_min,contact_loss_max;
@@ -324,6 +325,9 @@ enum {
   GRAND_DIAG_ABLATE_DRY_LONGITUDINAL=8u
 };
 static unsigned int g_grand_diag_ablation_mask=0u;
+#if defined(SORAOTO_SUPERSYNTH_TREBLE_HARDNESS_DIAGNOSTICS)
+static float g_treble_hardness_diagnostic_scale=1.0f;
+#endif
 void soraoto_supersynth_diagnostic_set_ablation_mask(unsigned int mask){
   g_grand_diag_ablation_mask=mask&15u;
 }
@@ -807,6 +811,15 @@ unsigned int soraoto_supersynth_stage3c_get_variant_mask(void){return g_stage3c_
 #endif
 #endif
 
+#if defined(SORAOTO_SUPERSYNTH_TREBLE_HARDNESS_DIAGNOSTICS)
+int soraoto_supersynth_treble_hardness_set_scale(float scale){
+  if(scale!=scale||scale<0.5f||scale>2.0f)return -1;
+  if(scale!=g_treble_hardness_diagnostic_scale){g_treble_hardness_diagnostic_scale=scale;dsp_reset();}
+  return 0;
+}
+float soraoto_supersynth_treble_hardness_get_scale(void){return g_treble_hardness_diagnostic_scale;}
+#endif
+
 void dsp_set_parameter(int id,float value,int sample_offset){
   (void)sample_offset;
   if(id<0||id>=PARAM_COUNT)return;
@@ -1284,17 +1297,27 @@ static inline float grand_register_gate(float pitch,float start,float plateau_st
 }
 static inline void grand_stage3e_velocity_response(const GrandHammerConfig* h,float pitch,float velocity,float* launch_velocity,float* hardness_amount){
   float low=h->velocity_launch_scale_low,mid=h->velocity_launch_scale_mid,bass=h->velocity_hardness_scale_bass;
+  float treble=h->velocity_hardness_scale_treble;
 #if defined(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS)
   low=g_stage3e_velocity_launch_scale_low;mid=g_stage3e_velocity_launch_scale_mid;bass=g_stage3e_velocity_hardness_scale_bass;
 #endif
-  if(low==1.0f&&mid==1.0f&&bass==1.0f){*launch_velocity=clampf(velocity,0.0f,1.0f);*hardness_amount=h->velocity_hardness_amount;return;}
+#if defined(SORAOTO_SUPERSYNTH_TREBLE_HARDNESS_DIAGNOSTICS)
+  treble=g_treble_hardness_diagnostic_scale;
+#endif
+  if(low==1.0f&&mid==1.0f&&bass==1.0f&&treble==1.0f){*launch_velocity=clampf(velocity,0.0f,1.0f);*hardness_amount=h->velocity_hardness_amount;return;}
   const float v=clampf(velocity,0.0f,1.0f),pivot=61.0f/127.0f;
   const float g_low=grand_register_gate(pitch,33.0f,36.0f,39.0f,42.0f);
   const float g_mid=grand_register_gate(pitch,48.0f,51.0f,54.0f,57.0f);
   const float g_bass=grand_register_gate(pitch,36.0f,39.0f,42.0f,45.0f);
   const float launch_scale=1.0f-g_low*(1.0f-low)-g_mid*(1.0f-mid);
   *launch_velocity=clampf(pivot+launch_scale*(v-pivot),0.0f,1.0f);
-  *hardness_amount=clampf(h->velocity_hardness_amount*(1.0f+g_bass*(bass-1.0f)),0.0f,1.0f);
+  const float legacy_amount=clampf(h->velocity_hardness_amount*(1.0f+g_bass*(bass-1.0f)),0.0f,1.0f);
+  if(treble==1.0f){*hardness_amount=legacy_amount;return;}
+  const GrandZoneConfig* zones=&g_grand_config.zones;
+  const float key=clampf((pitch-21.0f)/87.0f,0.0f,1.0f);
+  const float t=clampf((key-zones->tenor_to_treble_start)/(zones->tenor_to_treble_end-zones->tenor_to_treble_start),0.0f,1.0f);
+  const float g_t=grand_velocity_smoothstep(t);
+  *hardness_amount=clampf(legacy_amount*(1.0f+g_t*(treble-1.0f)),0.0f,1.0f);
 }
 
 static void init_voice(Voice* q,int note_id,float pitch,float velocity){

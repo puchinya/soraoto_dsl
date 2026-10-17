@@ -78,7 +78,7 @@ JavaScript.
 
 `presets.json` is the sole authored source for every sound-affecting grand-piano coefficient and
 table. Each factory preset whose `engine_model` is `concert_grand` has a complete independent
-`grand_piano_v1` revision-3 `engine_config`; it cannot inherit from another preset or rely on C
+`grand_piano_v1` revision-5 `engine_config`; it cannot inherit from another preset or rely on C
 defaults for missing fields. The generator rejects missing, unknown, malformed, non-finite,
 wrong-length, and out-of-range fields, then emits immutable profiles plus stable preset-ID mapping
 and default-profile identity. DSP reads one statically allocated `g_grand_config`; the generated
@@ -211,6 +211,16 @@ bass gate multiplies the existing velocity-hardness amount before the establishe
 Note-on, retarget and active contact use the same pitch-local mapping. The final output gain and
 hammer-noise scaling keep using original velocity/base hardness. The `(1,1,1)` tuple takes the
 legacy revision-3 path exactly.
+
+#### Revision-5 treble hammer-hardness scale
+
+Revision 5 adds private `hammer.velocity_hardness_scale_treble` `T` in `[0.5,2]`, default `1`.
+Its independent smoothstep gate derives from `tenor_to_treble_start/end` and normalized pitch; it
+does not alter the linear `grand_zone_weights` used by string, bridge, or board mixing. The gate
+multiplies the revision-4 effective hardness amount only when `T!=1`. The exact formula and
+compatibility rules are normative in the SuperSynth specification. Keep the legacy revision-4
+arithmetic and fast path exactly at `T=1`; use the same resulting amount for note-on, retarget, and
+active hammer contact. The field remains preset-owned and internal.
 
 Stage3E is evaluator-only. It first checks baseline equivalence, screens the exact low-band `(L,H)`
 grid with `M=1`, full-validates at most the five highest-ranked candidates, then searches the fixed
