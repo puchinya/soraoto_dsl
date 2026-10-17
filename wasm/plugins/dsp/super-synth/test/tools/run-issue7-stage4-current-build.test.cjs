@@ -28,9 +28,47 @@ function syntheticMetrics(referenceMetrics,fields){
   return {...defaults,...referenceMetrics,...lifecycleSafety()};
 }
 function git(root,args){return execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim();}
+function gitBytes(root,args){return execFileSync('rtk',['git',...args],{cwd:root,maxBuffer:16*1024*1024});}
 function copyFile(sourceRoot,targetRoot,relative){
   const source=path.join(sourceRoot,relative),target=path.join(targetRoot,relative);
   fs.mkdirSync(path.dirname(target),{recursive:true});fs.copyFileSync(source,target);
+}
+function syntheticBaselineBytes(sourceRoot,record,relative,expectedSha256){
+  const candidates=[];
+  try{candidates.push(gitBytes(sourceRoot,['show',`${record.sourceCommit}:${relative}`]));}catch{}
+  try{candidates.push(fs.readFileSync(path.join(sourceRoot,relative)));}catch{}
+  for(const build of Object.values(record.builds||{})){
+    for(const artifact of [`${build.buildDirectory}/generated/${path.basename(relative)}`,
+      `${build.buildDirectory}/${build.wasm.path}`]){
+      try{candidates.push(fs.readFileSync(path.join(sourceRoot,artifact)));}catch{}
+    }
+  }
+  const bytes=candidates.find(candidate=>!expectedSha256||core.sha256(candidate)===expectedSha256);
+  if(!bytes)throw new Error(`synthetic fixture cannot recover immutable baseline bytes for ${relative}`);
+  return bytes;
+}
+function copySyntheticBaselineFile(sourceRoot,targetRoot,record,relative,expectedSha256){
+  const target=path.join(targetRoot,relative);fs.mkdirSync(path.dirname(target),{recursive:true});
+  fs.writeFileSync(target,syntheticBaselineBytes(sourceRoot,record,relative,expectedSha256));
+}
+function copySyntheticBaseline(root,sourceRoot,record){
+  for(const entry of Object.values(record.inputs))copySyntheticBaselineFile(sourceRoot,root,record,entry.path,entry.sha256);
+  copySyntheticBaselineFile(sourceRoot,root,record,record.toolchain.toolchainFile,record.toolchain.toolchainFileSha256);
+  const descriptorHashes={
+    'super-synth_descriptor.cbor':record.metadataOutputs.descriptorCborSha256,
+    'super-synth_descriptor.h':record.metadataOutputs.descriptorHeaderSha256};
+  for(const relative of stage3.PROMOTION_PATHS){
+    const expected=relative.endsWith('super-synth_descriptor.cbor')?descriptorHashes['super-synth_descriptor.cbor']:
+      relative.endsWith('super-synth_descriptor.h')?descriptorHashes['super-synth_descriptor.h']:
+      Object.values(record.inputs).find(entry=>entry.path===relative)?.sha256;
+    copySyntheticBaselineFile(sourceRoot,root,record,relative,expected);
+  }
+  for(const build of Object.values(record.builds)){
+    copySyntheticBaselineFile(sourceRoot,root,record,`${build.buildDirectory}/CMakeCache.txt`,build.cmakeCacheSha256);
+    copySyntheticBaselineFile(sourceRoot,root,record,`${build.buildDirectory}/${build.wasm.path}`,build.wasm.sha256);
+    for(const [name,sha256] of Object.entries(descriptorHashes))
+      copySyntheticBaselineFile(sourceRoot,root,record,`${build.buildDirectory}/generated/${name}`,sha256);
+  }
 }
 function appendCustomSection(file){
   const name=Buffer.from('issue7-stage4-test'),payload=Buffer.concat([Buffer.from([name.length]),name,Buffer.from([1])]);
@@ -40,19 +78,19 @@ function promoteProfile(root,record,tuple){
   const presetsPath=path.join(root,record.inputs.presets.path),presets=JSON.parse(fs.readFileSync(presetsPath,'utf8'));
   Object.assign(presets.concert_grand.engine_config.hammer,{velocity_launch_scale_low:tuple.low,
     velocity_launch_scale_mid:tuple.mid,velocity_hardness_scale_bass:tuple.bassHardness});
+  const description=String(presets.concert_grand.description||'');
+  presets.concert_grand.description=`${description}${description?' ':''}[synthetic Issue 7 promotion ${tuple.low}/${tuple.mid}/${tuple.bassHardness}]`;
   fs.writeFileSync(presetsPath,JSON.stringify(presets,null,2)+'\n');
   execFileSync('rtk',['python3','wasm/cmake/super_synth_metadata.py'],{cwd:root,stdio:'pipe',maxBuffer:16*1024*1024});
+  for(const relative of stage3.PROMOTION_PATHS.filter(file=>file.endsWith('super-synth_descriptor.cbor')||file.endsWith('super-synth_descriptor.h'))){
+    const target=path.join(root,record.builds.production.buildDirectory,'generated',path.basename(relative));
+    fs.mkdirSync(path.dirname(target),{recursive:true});fs.copyFileSync(path.join(root,relative),target);
+  }
 }
 function createPromotedStage3Fixture(root,sourceRoot){
   const record=structuredClone(stage3.identityRecord(sourceRoot));
-  for(const entry of Object.values(record.inputs))copyFile(sourceRoot,root,entry.path);
-  for(const relative of stage3.PROMOTION_PATHS.filter(file=>file.endsWith('super-synth_descriptor.cbor')||file.endsWith('super-synth_descriptor.h')))
-    copyFile(sourceRoot,root,relative);
-  copyFile(sourceRoot,root,'wasm/cmake/super_synth_metadata.py');
-  copyFile(sourceRoot,root,'wasm/plugins/dsp/super-synth/interface.soraoto');
-  copyFile(sourceRoot,root,record.toolchain.toolchainFile);
-  for(const build of Object.values(record.builds))for(const relative of ['CMakeCache.txt',build.wasm.path,
-    'generated/super-synth_descriptor.cbor','generated/super-synth_descriptor.h'])copyFile(sourceRoot,root,`${build.buildDirectory}/${relative}`);
+  copySyntheticBaseline(root,sourceRoot,record);
+  copySyntheticBaselineFile(sourceRoot,root,record,'wasm/plugins/dsp/super-synth/interface.soraoto');
   for(const relative of ['wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-matrix.cjs',
     'wasm/plugins/dsp/super-synth/test/tools/stage3-direct-reference-metrics.cjs',
     'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.cjs',
@@ -68,10 +106,13 @@ function createPromotedStage3Fixture(root,sourceRoot){
   record.sourceCommit=git(root,['rev-parse','HEAD']);
   const identityPath=path.join(root,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json');
   fs.mkdirSync(path.dirname(identityPath),{recursive:true});fs.writeFileSync(identityPath,JSON.stringify(record,null,2)+'\n');
-  appendCustomSection(path.join(root,record.builds.production.buildDirectory,record.builds.production.wasm.path));
+  const productionWasm=path.join(root,record.builds.production.buildDirectory,record.builds.production.wasm.path);
   git(root,['add',identityPath]);git(root,['commit','-m','synthetic Issue 7 build identity']);
   const tuple={low:0.9,mid:0.95,bassHardness:0.5};promoteProfile(root,record,tuple);
   git(root,['add','-f',...stage3.PROMOTION_PATHS]);git(root,['commit','-m','synthetic selected tuple promotion']);
+  assert.deepEqual(git(root,['diff-tree','--no-commit-id','--name-only','-r','HEAD']).split(/\r?\n/).filter(Boolean).sort(),
+    stage3.PROMOTION_PATHS,'synthetic promoted fixture commits all four generated promotion paths');
+  appendCustomSection(productionWasm);
   const identityBytes=fs.readFileSync(identityPath),baselineIdentity={sourceCommit:record.sourceCommit,buildIdentitySha256:core.sha256(identityBytes),
     inputs:Object.fromEntries(Object.entries(record.inputs).map(([key,value])=>[key,{path:value.path,sha256:value.sha256}])),
     builds:Object.fromEntries(Object.entries(record.builds).map(([role,build])=>[role,{cmakeCacheSha256:build.cmakeCacheSha256,wasmSha256:build.wasm.sha256}]))};
@@ -83,14 +124,8 @@ function createPromotedStage3Fixture(root,sourceRoot){
 }
 function createIssue7E2EBase(root,sourceRoot){
   const record=structuredClone(stage3.identityRecord(sourceRoot));
-  for(const entry of Object.values(record.inputs))copyFile(sourceRoot,root,entry.path);
-  for(const relative of stage3.PROMOTION_PATHS.filter(file=>file.endsWith('super-synth_descriptor.cbor')||file.endsWith('super-synth_descriptor.h')))
-    copyFile(sourceRoot,root,relative);
-  copyFile(sourceRoot,root,'wasm/cmake/super_synth_metadata.py');
-  copyFile(sourceRoot,root,'wasm/plugins/dsp/super-synth/interface.soraoto');
-  copyFile(sourceRoot,root,record.toolchain.toolchainFile);
-  for(const build of Object.values(record.builds))for(const relative of ['CMakeCache.txt',build.wasm.path,
-    'generated/super-synth_descriptor.cbor','generated/super-synth_descriptor.h'])copyFile(sourceRoot,root,`${build.buildDirectory}/${relative}`);
+  copySyntheticBaseline(root,sourceRoot,record);
+  copySyntheticBaselineFile(sourceRoot,root,record,'wasm/plugins/dsp/super-synth/interface.soraoto');
   const toolFiles=[...stage3e.EXTRA_INPUTS,'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.cjs',
     'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-matrix.cjs',
     'wasm/plugins/dsp/super-synth/test/tools/run-stage3-production-recovery.cjs',
@@ -109,9 +144,8 @@ function createIssue7E2EBase(root,sourceRoot){
   record.sourceCommit=git(root,['rev-parse','HEAD']);
   const identityPath=path.join(root,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json');
   const productionWasm=path.join(root,record.builds.production.buildDirectory,record.builds.production.wasm.path);
-  appendCustomSection(productionWasm);record.builds.production.wasm.sha256=core.sha256(fs.readFileSync(productionWasm));
-  record.builds.production.wasm.bytes=fs.statSync(productionWasm).size;
   fs.mkdirSync(path.dirname(identityPath),{recursive:true});fs.writeFileSync(identityPath,JSON.stringify(record,null,2)+'\n');
+  core.hashInputs(root,record);
   git(root,['add',identityPath]);git(root,['commit','-m','synthetic immutable build identity']);
   return {record,identityPath,regressionPath,productionWasm};
 }
@@ -587,7 +621,7 @@ test('continuous synthetic negative path blocks Stage3E search and downstream st
     assert.equal(result.syntheticTest,true);
     assert.equal(calls,24);
     assert.equal(core.readCell(roots,'baseline',cells[1].key).observation.observation.syntheticTest,true);
-    assert.throws(()=>stage3e.run({mode:'screen',root,home,commonDirectory:roots.commonDirectory,render:()=>{calls++;return {};}}),
+    assert.throws(()=>stage3e.run({mode:'screen',root,home,commonDirectory:roots.commonDirectory,syntheticTest:true,render:()=>{calls++;return {};}}),
       /BLOCKED_STAGE3E_PHASE: prior baseline result is BLOCKED_STAGE3E_BASELINE_NON_EQUIVALENT/);
     assert.equal(calls,24,'blocked search must stop before another render marker or callback');
     assert.throws(()=>stage3.prepare({root,home}),/BLOCKED_STAGE3E_SELECTION_REQUIRED/);

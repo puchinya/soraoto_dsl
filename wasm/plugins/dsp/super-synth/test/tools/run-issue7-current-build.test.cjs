@@ -19,6 +19,24 @@ test('master exposes read-only status, dry-run, verify, and one-step next modes'
   assert.equal(core.PHASES.includes('midi51-diagnostic'),true);
 });
 
+test('master dry-run propagates blocked nested Stage3 or Stage4 status at top level',()=>{
+  const calls=[],runners={
+    stage3e:fakeRunner('stage3e',calls,{dry:'STAGE3E_DRY_RUN_READY'}),
+    stage3:fakeRunner('stage3',calls,{dry:'BLOCKED_STAGE3E_SELECTION_REQUIRED'}),
+    stage4:fakeRunner('stage4',calls,{dry:'BLOCKED_STAGE4_STAGE3_REQUIRED'})
+  };
+  const blocked=master.dryRun({root:master.ROOT,runners,readPhase:()=>null});
+  assert.equal(blocked.decision,'BLOCKED_ISSUE7_CURRENT_BUILD_DRY_RUN');
+  assert.equal(blocked.stage3.decision,'BLOCKED_STAGE3E_SELECTION_REQUIRED');
+  assert.equal(blocked.stage4.decision,'BLOCKED_STAGE4_STAGE3_REQUIRED');
+  assert.equal(blocked.buildsStarted,0);assert.equal(blocked.renders,0);assert.equal(blocked.writes,0);
+  Object.assign(runners.stage3,{run(options){calls.push({name:'stage3',...options});return {decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,writes:0};}});
+  Object.assign(runners.stage4,{run(options){calls.push({name:'stage4',...options});return {decision:'STAGE4_DRY_RUN_READY',builds:0,renders:0,writes:0};}});
+  const ready=master.dryRun({root:master.ROOT,runners,readPhase:()=>null});
+  assert.equal(ready.decision,'ISSUE7_CURRENT_BUILD_DRY_RUN');
+  assert.equal(ready.buildsStarted,0);assert.equal(ready.renders,0);assert.equal(ready.writes,0);
+});
+
 test('master next dispatches one eligible phase and stops even when it succeeds',()=>{
   const calls=[],runners={
     stage3e:fakeRunner('stage3e',calls,{dry:'STAGE3E_DRY_RUN_READY',execute:'STAGE3E_BASELINE_EQUIVALENCE_PASS'}),

@@ -122,7 +122,10 @@ function finalizedStage({root=ROOT,home=os.homedir(),epoch=core.EPOCH,stage,phas
 }
 function dryRun(options={}){
   const result=status(options);
-  return {...result,decision:'ISSUE7_CURRENT_BUILD_DRY_RUN',dryRun:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+  const nested=[result.stage3e?.decision,result.adaptiveMid?.decision,result.stage3?.decision,result.stage4?.decision];
+  const blocked=nested.some(decision=>typeof decision==='string'&&decision.startsWith('BLOCKED_'));
+  return {...result,decision:blocked?'BLOCKED_ISSUE7_CURRENT_BUILD_DRY_RUN':'ISSUE7_CURRENT_BUILD_DRY_RUN',
+    dryRun:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
 }
 function verify({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe}={}){
   const roots3=core.resolveRoots(root,'stage3',epoch,{home}),roots4=core.resolveRoots(root,'stage4',epoch,{home});
@@ -454,6 +457,37 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
         }else throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'}: ${recorded.reason||'revision 6 was not accepted'}`);
         preflight=statusReadOnly({root,home,epoch,runners,readPhase});
         assertReadOnlyStatus(preflight);
+      }
+      const expectedRuntimeRevision7Blocks=new Set([
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 7',
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 acceptance journal entry is missing or mismatched'
+      ]);
+      const revision7Pending=preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&expectedRuntimeRevision7Blocks.has(preflight.adaptiveMid.reason);
+      if(revision7Pending||preflight.adaptiveMid?.runtimeRevisionNumber===7){
+        const record=runners.adaptiveMid?.recordRuntimeRevision7;
+        if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: approved revision 7 recorder is unavailable');
+        const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+        const cumulative=readRenderCount(root,home,epoch,roots.commonDirectory);
+        if(cumulative.total!==2371||cumulative.phases.find(item=>item.stage==='stage3')?.count!==0
+          ||cumulative.phases.find(item=>item.stage==='stage4')?.count!==0)
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: completed 2,371-cell checkpoint or zero downstream counts differ');
+        const previousRuntimeRevisionSha256=recorded.previousRuntimeRevisionSha256;
+        if(!/^[a-f0-9]{64}$/.test(previousRuntimeRevisionSha256||''))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 recorder did not return the verified R6 SHA');
+        if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_07_RECORDED'||recorded.builds!==0
+          ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
+          ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||''))
+          throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'}: ${recorded.reason||'revision 7 zero-render recording failed'}`);
+        ensureRunAllRuntimeRevisionEvent({roots,owner,append,event:{type:'RUNTIME_REVISION_07_RECORDED',
+          runtimeRevisionSha256:recorded.runtimeRevisionSha256,previousRuntimeRevisionSha256,
+          renderCount:2371,acousticRenders:0}});
+        preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+        assertReadOnlyStatus(preflight);
+        const gate=runFinalGate({root,home,epoch,runners,readPhase,commonDirectory:roots.commonDirectory,
+          statusReadOnly,dryRunReadOnly,verifyReadOnly});
+        if(gate.decision!=='ISSUE7_READ_ONLY_FINAL_GATE_PASS')
+          throw new Error(`BLOCKED_ISSUE7_R7_READ_ONLY_GATE: ${gate.decision||'read-only verification failed'}`);
       }
       const verified=verifyReadOnly({root,home,epoch,runners});
       if(verified.decision.startsWith('BLOCKED_'))throw new Error(`BLOCKED_ISSUE7_PREFLIGHT_VERIFY: ${verified.decision}`);

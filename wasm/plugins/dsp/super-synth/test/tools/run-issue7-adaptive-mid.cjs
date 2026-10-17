@@ -21,13 +21,17 @@ const RUNTIME_REVISION_03_REL='runtime-revision-03.json';
 const RUNTIME_REVISION_04_REL='runtime-revision-04.json';
 const RUNTIME_REVISION_05_REL='runtime-revision-05.json';
 const RUNTIME_REVISION_06_REL='runtime-revision-06.json';
+const RUNTIME_REVISION_07_REL='runtime-revision-07.json';
 const RUNTIME_REVISION_02_APPROVAL_SHA256='1c45f66a9c83e651ceab2b4e593f1c43c938fcc0827b5015f73981950e207574';
 const RUNTIME_REVISION_03_APPROVAL_SHA256='ac8b3a410e426edb09889dfccaffef23628415cc4acbd72f4be7544abc85dce6';
 const RUNTIME_REVISION_04_APPROVAL_SHA256='bac32ce1d961991e2a3e2e0c2739f364d5a22d7bbd7f69a5e8d6771edb198721';
 const RUNTIME_REVISION_05_APPROVAL_SHA256='16de429405fa5034ac3e5be3eff1a87c5a8a6d762a936a44e9e03d7af492697c';
 const RUNTIME_REVISION_06_APPROVAL_SHA256='a587ea2dac585ea00b4fbd6727bfb8f2e6e5c7bb4178e195917dc7f7af6dfa80';
+const RUNTIME_REVISION_07_APPROVAL_SHA256='6145f696a0a7aab091cc8eda759f7fcda3a6b940c56fa4c4efd51593dd2bf671';
+const RUNTIME_REVISION_06_SHA256='8fe81a2c17a322ba323ab7660fd6e965c18067d4a1ad9f3bad54da490fe7590b';
 const RUNTIME_REVISION_05_PROMOTION_COMMIT='7a8a5f66661ceb981a7eecba56a95923d709e60c';
 const RUNTIME_REVISION_05_CODE_REVISION='7f041e5bb54cd7fbde09406f3c55cdfa03edd3ea';
+const RUNTIME_REVISION_06_CODE_REVISION='2dccc0e7e8417c1a70233a5738d79ec7d003d0d8';
 const RUNTIME_REVISION_PATHS=Object.freeze([RUNNER_REL,TEST_REL].sort());
 const REVIEW_REMEDIATION_PATHS=Object.freeze([
   RUNNER_REL,TEST_REL,
@@ -60,6 +64,14 @@ const RUNTIME_REVISION_06_PATHS=Object.freeze([
   'wasm/plugins/dsp/super-synth/test/tools/run-issue7-current-build.test.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.test.cjs'
+].sort());
+const RUNTIME_REVISION_07_PATHS=Object.freeze([
+  RUNNER_REL,TEST_REL,
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-current-build.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-current-build.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage4-current-build.test.cjs'
 ].sort());
 const REVISION_04_PROMOTION_PATHS=Object.freeze([
   'wasm/plugins/dsp/super-synth/presets.json',
@@ -236,6 +248,14 @@ function runtimeRevision5AcceptedEvent(events,revision,sha256){
 }
 function runtimeRevision6AcceptedEvent(events,revision,sha256){
   const accepted=events.filter(event=>event.type==='RUNTIME_REVISION_ACCEPTED'&&event.revisionNumber===6);
+  if(accepted.length!==1)return false;
+  const event=accepted[0];
+  return event.runtimeRevisionSha256===sha256&&event.previousRuntimeRevisionSha256===revision?.previousRuntimeRevisionSha256
+    &&event.codeRevision===revision?.codeRevision&&event.priorLedgerSha256===revision?.priorLedgerSha256
+    &&event.selectionSha256===revision?.selectionSha256&&core.same(event.changedPaths,revision?.changedPaths);
+}
+function runtimeRevision7AcceptedEvent(events,revision,sha256){
+  const accepted=events.filter(event=>event.type==='RUNTIME_REVISION_ACCEPTED'&&event.revisionNumber===7);
   if(accepted.length!==1)return false;
   const event=accepted[0];
   return event.runtimeRevisionSha256===sha256&&event.previousRuntimeRevisionSha256===revision?.previousRuntimeRevisionSha256
@@ -721,7 +741,7 @@ function createRuntimeRevision5Candidate(root,parent,plan,ledgerState,previousRe
   validateRuntimeRevision5Snapshot(revision,previousRevision,selection,results,ledgerState,plan);
   return revision;
 }
-function validateRuntimeRevision6Code(root,frozen,parentManifestSha256,previousRevision,revision){
+function validateRuntimeRevision6Code(root,frozen,parentManifestSha256,previousRevision,revision,{requireCurrentSource=true}={}){
   const changedPaths=gitPaths(root,previousRevision?.value?.codeRevision,revision?.codeRevision);
   const validSha=value=>/^([a-f0-9]{64})$/.test(value||'');
   const validCommit=value=>/^([a-f0-9]{40})$/.test(value||'');
@@ -737,7 +757,7 @@ function validateRuntimeRevision6Code(root,frozen,parentManifestSha256,previousR
     ||revision.approvalSha256!==RUNTIME_REVISION_06_APPROVAL_SHA256
     ||revision.promotionCommit!==RUNTIME_REVISION_05_PROMOTION_COMMIT
     ||promotionKeys.some(key=>revision[key]!==previousRevision?.value?.[key])
-    ||!validCommit(revision.codeRevision)||revision.codeRevision!==core.gitHead(root)
+    ||!validCommit(revision.codeRevision)||!core.commitIsAncestor(root,revision.codeRevision,core.gitHead(root))
     ||!core.commitIsAncestor(root,RUNTIME_REVISION_05_PROMOTION_COMMIT,revision.codeRevision)
     ||!validSha(revision.previousRuntimeRevisionSha256)||!validSha(revision.previousRunnerSha256)
     ||!validSha(revision.newRunnerSha256)||!validSha(revision.newTestSha256)||!validSha(revision.diffSha256)
@@ -747,7 +767,7 @@ function validateRuntimeRevision6Code(root,frozen,parentManifestSha256,previousR
   if(!trackedWorktreeIsClean(root))throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: tracked worktree is dirty');
   for(const relative of RUNTIME_REVISION_06_PATHS){
     const committed=gitBytes(root,['show',`${revision.codeRevision}:${relative}`]),digest=core.sha256(committed);
-    if(digest!==revision.changedFileSha256[relative]||fileSha(root,relative)!==digest)
+    if(digest!==revision.changedFileSha256[relative]||(requireCurrentSource&&fileSha(root,relative)!==digest))
       throw new Error(`BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 6 committed or working bytes differ: ${relative}`);
   }
   if(revision.newRunnerSha256!==revision.changedFileSha256[RUNNER_REL]
@@ -783,6 +803,73 @@ function createRuntimeRevision6Candidate(root,parent,previousRevision){
   revision.diffSha256=core.sha256(diff);
   validateRuntimeRevision6Code(root,parent.manifest,parent.parentManifestSha256,previousRevision,revision);
   validateRuntimeRevision6Snapshot(revision,previousRevision);
+  return revision;
+}
+function validateRuntimeRevision7Code(root,frozen,parentManifestSha256,previousRevision,revision){
+  const changedPaths=gitPaths(root,previousRevision?.value?.codeRevision,revision?.codeRevision);
+  const validSha=value=>/^([a-f0-9]{64})$/.test(value||'');
+  const validCommit=value=>/^([a-f0-9]{40})$/.test(value||'');
+  if(revision?.schema!=='issue7-stage3e-adaptive-runtime-revision/v1'||revision.schemaVersion!==1||revision.issue!==7
+    ||revision.revisionNumber!==7||revision.extension!==EXTENSION||revision.epoch!==frozen.epoch
+    ||revision.parentManifestSha256!==parentManifestSha256||revision.previousCreatorRevision!==frozen.creatorRevision
+    ||revision.previousCodeRevision!==previousRevision?.value?.codeRevision
+    ||previousRevision?.sha256!==RUNTIME_REVISION_06_SHA256
+    ||revision.previousRuntimeRevisionSha256!==previousRevision?.sha256
+    ||revision.previousRunnerSha256!==previousRevision?.value?.newRunnerSha256
+    ||revision.approvalSha256!==RUNTIME_REVISION_07_APPROVAL_SHA256
+    ||revision.promotionCommit!==previousRevision?.value?.promotionCommit
+    ||revision.promotionReceiptSha256!==previousRevision?.value?.promotionReceiptSha256
+    ||!validCommit(revision.codeRevision)||revision.codeRevision!==core.gitHead(root)
+    ||!core.commitIsAncestor(root,revision.promotionCommit,revision.codeRevision)
+    ||!validSha(revision.previousRuntimeRevisionSha256)||!validSha(revision.previousRunnerSha256)
+    ||!validSha(revision.newRunnerSha256)||!validSha(revision.newTestSha256)||!validSha(revision.diffSha256)
+    ||!core.same(changedPaths,RUNTIME_REVISION_07_PATHS)||!core.same(revision.changedPaths,RUNTIME_REVISION_07_PATHS)
+    ||!revision.changedFileSha256||!core.same(Object.keys(revision.changedFileSha256).sort(),RUNTIME_REVISION_07_PATHS))
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 identity or exact seven-file path set is invalid');
+  const commitLine=gitBytes(root,['rev-list','--parents','-n','1',revision.codeRevision]).toString('utf8').trim().split(/\s+/);
+  if(commitLine.length!==2||commitLine[1]!==previousRevision.value.codeRevision)
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 must be a single-parent child of revision 6');
+  if(!trackedWorktreeIsClean(root))throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: tracked worktree is dirty');
+  for(const relative of RUNTIME_REVISION_07_PATHS){
+    const committed=gitBytes(root,['show',`${revision.codeRevision}:${relative}`]),digest=core.sha256(committed);
+    if(digest!==revision.changedFileSha256[relative]||fileSha(root,relative)!==digest)
+      throw new Error(`BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 committed or working bytes differ: ${relative}`);
+  }
+  if(revision.newRunnerSha256!==revision.changedFileSha256[RUNNER_REL]
+    ||revision.newTestSha256!==revision.changedFileSha256[TEST_REL])
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 adaptive runner or focused test SHA differs');
+  const diff=gitBytes(root,['diff','--binary','--no-ext-diff',`${previousRevision.value.codeRevision}..${revision.codeRevision}`,
+    '--',...RUNTIME_REVISION_07_PATHS]);
+  if(core.sha256(diff)!==revision.diffSha256)
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 exact source diff SHA-256 differs');
+  return true;
+}
+function validateRuntimeRevision7Snapshot(revision,previousRevision){
+  const snapshotKeys=['priorLedgerSha256','priorLedgerSnapshot','priorCounts','probeResultSha256','screenResultSha256',
+    'fullResultSha256','terminalResultSha256','extensionResultSha256','selectionSha256','executionPlanSha256'];
+  if(revision?.revisionNumber!==7||revision.previousRuntimeRevisionSha256!==previousRevision?.sha256
+    ||revision.previousCodeRevision!==previousRevision?.value?.codeRevision
+    ||snapshotKeys.some(key=>!core.same(revision[key],previousRevision?.value?.[key])))
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 does not preserve the exact R6 136-cell checkpoint');
+  return true;
+}
+function createRuntimeRevision7Candidate(root,parent,previousRevision){
+  const codeRevision=core.gitHead(root);
+  if(!trackedWorktreeIsClean(root))throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 code must be committed before recording');
+  if(previousRevision?.value?.revisionNumber!==6)
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 requires the accepted revision 6 parent');
+  const changedPaths=gitPaths(root,previousRevision.value.codeRevision,codeRevision);
+  if(!core.same(changedPaths,RUNTIME_REVISION_07_PATHS))
+    throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 must change exactly the seven Issue-approved files');
+  const changedFileSha256=Object.fromEntries(changedPaths.map(relative=>[relative,fileSha(root,relative)]));
+  const revision={...previousRevision.value,revisionNumber:7,previousCodeRevision:previousRevision.value.codeRevision,
+    previousRuntimeRevisionSha256:previousRevision.sha256,codeRevision,
+    previousRunnerSha256:previousRevision.value.newRunnerSha256,newRunnerSha256:fileSha(root,RUNNER_REL),
+    newTestSha256:fileSha(root,TEST_REL),changedPaths,changedFileSha256,approvalSha256:RUNTIME_REVISION_07_APPROVAL_SHA256};
+  const diff=gitBytes(root,['diff','--binary','--no-ext-diff',`${previousRevision.value.codeRevision}..${codeRevision}`,'--',...changedPaths]);
+  revision.diffSha256=core.sha256(diff);
+  validateRuntimeRevision7Code(root,parent.manifest,parent.parentManifestSha256,previousRevision,revision);
+  validateRuntimeRevision7Snapshot(revision,previousRevision);
   return revision;
 }
 function createRuntimeRevision3Candidate(root,parent,plan,ledgerState,previousRevision){
@@ -824,22 +911,24 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
     if(!core.commitIsAncestor(root,frozen.creatorRevision))throw new Error('BLOCKED_ADAPTIVE_MID_PARENT: extension creator revision is not an ancestor of current HEAD');
     const storedRevision=readOptional(roots,RUNTIME_REVISION_REL),storedRevision2=readOptional(roots,RUNTIME_REVISION_02_REL),
       storedRevision3=readOptional(roots,RUNTIME_REVISION_03_REL),storedRevision4=readOptional(roots,RUNTIME_REVISION_04_REL),
-      storedRevision5=readOptional(roots,RUNTIME_REVISION_05_REL),storedRevision6=readOptional(roots,RUNTIME_REVISION_06_REL);
+      storedRevision5=readOptional(roots,RUNTIME_REVISION_05_REL),storedRevision6=readOptional(roots,RUNTIME_REVISION_06_REL),
+      storedRevision7=readOptional(roots,RUNTIME_REVISION_07_REL);
     const runtimeRevision6CodeDrift=hasExactRuntimeRevision6Code(root,
       storedRevision5&&{value:storedRevision5.value},storedRevision6);
     const expectedRevisionFiles=[...(storedRevision?[RUNTIME_REVISION_REL]:[]),
       ...(storedRevision2?[RUNTIME_REVISION_02_REL]:[]),...(storedRevision3?[RUNTIME_REVISION_03_REL]:[]),
       ...(storedRevision4?[RUNTIME_REVISION_04_REL]:[]),...(storedRevision5?[RUNTIME_REVISION_05_REL]:[]),
-      ...(storedRevision6?[RUNTIME_REVISION_06_REL]:[])];
+      ...(storedRevision6?[RUNTIME_REVISION_06_REL]:[]),...(storedRevision7?[RUNTIME_REVISION_07_REL]:[])];
     assertRuntimeRevisionFiles(roots,expectedRevisionFiles);
     if(storedRevision2&&!storedRevision)throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 2 has no revision 1 parent');
     if(storedRevision3&&(!storedRevision2||!storedRevision))throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 3 has no revision 2 parent');
     if(storedRevision4&&!storedRevision3)throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 4 has no revision 3 parent');
     if(storedRevision5&&!storedRevision4)throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 5 has no revision 4 parent');
     if(storedRevision6&&!storedRevision5)throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 6 has no revision 5 parent');
+    if(storedRevision7&&!storedRevision6)throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 has no revision 6 parent');
     const runnerChanged=fileSha(root,RUNNER_REL)!==frozen.helperHashes?.[RUNNER_REL];
     const helperHashesOverride=parentManifestHelperHashOverrides(root,frozen,{runtimeRevisionExists:Boolean(
-      storedRevision||storedRevision2||storedRevision3||storedRevision4||storedRevision5||storedRevision6||runnerChanged),
+      storedRevision||storedRevision2||storedRevision3||storedRevision4||storedRevision5||storedRevision6||storedRevision7||runnerChanged),
       revision5:storedRevision5,revision6:storedRevision6});
     const built=buildParentManifest({root,home,epoch,commonDirectory,identityOverride:frozen.identity,
       creatorRevisionOverride:frozen.creatorRevision,helperHashesOverride,now});
@@ -947,7 +1036,8 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
               const events6=journal.events.filter(event=>event.type==='RUNTIME_REVISION_ACCEPTED'&&event.revisionNumber===6);
               if(storedRevision6){
                 const revision6={value:storedRevision6.value,sha256:storedRevision6.sha256};
-                validateRuntimeRevision6Code(root,frozen,existing.sha256,revision5,revision6.value);
+                validateRuntimeRevision6Code(root,frozen,existing.sha256,revision5,revision6.value,
+                  {requireCurrentSource:!storedRevision7&&core.gitHead(root)===revision6.value.codeRevision});
                 validateRuntimeRevision6Snapshot(revision6.value,revision5);
                 if(events6.length>1||(events6.length===1&&!runtimeRevision6AcceptedEvent(journal.events,revision6.value,revision6.sha256))
                   ||(!events6.length&&!allowPendingRuntimeRevision))
@@ -962,6 +1052,26 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
                 runtimeRevision=revision6;runtimeRevisions=[...runtimeRevisions,revision6];
               }else if(events6.length)
                 throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 6 acceptance event exists without its immutable dual-store record');
+              const revision6Current=runtimeRevision;
+              if(storedRevision7){
+                const revision7={value:storedRevision7.value,sha256:storedRevision7.sha256};
+                validateRuntimeRevision7Code(root,frozen,existing.sha256,revision6Current,revision7.value);
+                validateRuntimeRevision7Snapshot(revision7.value,revision6Current);
+                const events7=journal.events.filter(event=>event.type==='RUNTIME_REVISION_ACCEPTED'&&event.revisionNumber===7);
+                if(events7.length>1||(events7.length===1&&!runtimeRevision7AcceptedEvent(journal.events,revision7.value,revision7.sha256))
+                  ||(!events7.length&&!allowPendingRuntimeRevision))
+                  throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 acceptance journal entry is missing or mismatched');
+                runtimeRevision=revision7;runtimeRevisions=[...runtimeRevisions,revision7];
+              }else if(core.gitHead(root)!==revision6Current.value.codeRevision){
+                if(!allowPendingRuntimeRevision)
+                  throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 7');
+                if(journal.events.some(event=>event.type==='RUNTIME_REVISION_ACCEPTED'&&event.revisionNumber===7))
+                  throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 acceptance event exists without its immutable dual-store record');
+                const candidate=createRuntimeRevision7Candidate(root,revision4Parent,revision6Current);
+                const bytes=core.canonicalBytes(candidate),sha256=core.sha256(bytes),revision7={value:candidate,sha256};
+                runtimeRevision=revision7;runtimeRevisions=[...runtimeRevisions,revision7];
+              }else if(journal.events.some(event=>event.type==='RUNTIME_REVISION_ACCEPTED'&&event.revisionNumber===7))
+                throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 acceptance event exists without its immutable dual-store record');
             }else if(postPromotionHead){
               if(!allowPendingRuntimeRevision)
                 throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 5');
@@ -1640,6 +1750,7 @@ function recordRuntimeRevision4({root=ROOT,home=os.homedir(),epoch=core.EPOCH,co
 }
 function runtimeRevision5EvidenceSnapshot(root,home,epoch,commonDirectory,parentRoots){
   const ignored=new Set([...Object.values(core.dualPaths(parentRoots,RUNTIME_REVISION_05_REL)),
+    ...Object.values(core.dualPaths(parentRoots,RUNTIME_REVISION_07_REL)),
     ...Object.values(core.dualPaths(parentRoots,'journal/events.jsonl'))].map(file=>path.resolve(file))),snapshot={};
   for(const stage of core.STAGES){
     const roots=core.resolveRoots(root,stage,epoch,{home,commonDirectory});
@@ -1811,6 +1922,88 @@ function recordRuntimeRevision6({root=ROOT,home=os.homedir(),epoch=core.EPOCH,co
   }catch(error){const decision=/^BLOCKED_[A-Z0-9_]+/.exec(error.message)?.[0]||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION';
     return {decision,phase:EXTENSION,reason:error.message,builds:0,renders:0,writes:0,acousticRenders:0};}
 }
+function recordRuntimeRevision7({root=ROOT,home=os.homedir(),epoch=core.EPOCH,commonDirectory,runAllOwner,
+  now=()=>new Date().toISOString()}={}){
+  const options={root,home,epoch,commonDirectory,now};
+  try{
+    const roots=baseRoots(root,home,epoch,commonDirectory);
+    if(!runAllOwner)throw new Error('BLOCKED_ADAPTIVE_MID_RUN_ALL_REQUIRED: runtime revision recording requires the approved --run-all master lock');
+    core.assertRunAllLockAccess(roots.commonDirectory,runAllOwner);
+    const prepared=preflight({...options,allowPendingRuntimeRevision:true}),{parent}=prepared;
+    const revisions=parent.runtimeRevisions||[],revision7=parent.runtimeRevision;
+    if(revision7?.value?.revisionNumber!==7||revisions.length!==7){
+      const revision6=revisions[5];
+      if(revision6?.value?.revisionNumber===6&&revisions.length===6&&core.gitHead(root)===revision6.value.codeRevision)
+        return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_07_NOT_REQUIRED',phase:EXTENSION,
+          runtimeRevisionSha256:null,previousRuntimeRevisionSha256:revision6.sha256,renderCount:prepared.counts.total,
+          builds:0,renders:0,writes:0,acousticRenders:0};
+      throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: no exact pending runtime revision 7 checkpoint exists');
+    }
+    const previous=revisions[5],revision7Sha256=revision7.sha256;
+    if(!previous||previous.value.revisionNumber!==6||revision7.value.previousRuntimeRevisionSha256!==previous.sha256
+      ||prepared.counts.total!==136||prepared.downstream.stage3!==0||prepared.downstream.stage4!==0)
+      throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 is not chained to the unchanged R6 checkpoint');
+    const stored7=readOptional(parent.roots,RUNTIME_REVISION_07_REL),journal=core.readDualJournal(parent.roots,'journal/events.jsonl');
+    const events7=journal.events.filter(event=>event.type==='RUNTIME_REVISION_ACCEPTED'&&event.revisionNumber===7);
+    const accepted7=runtimeRevision7AcceptedEvent(journal.events,revision7.value,revision7Sha256);
+    if(stored7&&stored7.sha256!==revision7Sha256)
+      throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: existing revision 7 record differs from the current candidate');
+    if(!stored7&&events7.length)
+      throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 acceptance event exists without its immutable dual-store record');
+    if(events7.length>1||(events7.length===1&&!accepted7))
+      throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 acceptance event conflicts or is duplicated');
+    if(stored7&&accepted7)
+      return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_07_RECORDED',phase:EXTENSION,
+        runtimeRevisionSha256:revision7Sha256,previousRuntimeRevisionSha256:previous.sha256,renderCount:prepared.counts.total,
+        builds:0,renders:0,writes:0,acousticRenders:0,reused:true};
+    const lock=lockStatus(root,home,epoch,commonDirectory);
+    if(lock.locked)throw new Error('BLOCKED_ADAPTIVE_MID_LOCK: another adaptive extension writer is active');
+    const preserved=runtimeRevision5EvidenceSnapshot(root,home,epoch,commonDirectory,parent.roots);
+    return withAdaptiveLock(parent,()=>{
+      core.assertRunAllLockAccess(parent.commonDirectory,runAllOwner);
+      const persisted=verifyParentManifest({...options,allowPendingRuntimeRevision:true});
+      if(persisted.runtimeRevision?.sha256!==revision7Sha256||persisted.runtimeRevision?.value?.revisionNumber!==7
+        ||persisted.runtimeRevisions?.[5]?.sha256!==previous.sha256)
+        throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 candidate changed while acquiring the adaptive lock');
+      const existing=readOptional(persisted.roots,RUNTIME_REVISION_07_REL);
+      if(existing&&existing.sha256!==revision7Sha256)
+        throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: immutable revision 7 record appeared with different bytes');
+      const currentJournal=core.readDualJournal(persisted.roots,'journal/events.jsonl');
+      const currentEvents=currentJournal.events.filter(event=>event.type==='RUNTIME_REVISION_ACCEPTED'&&event.revisionNumber===7);
+      if(currentEvents.length>1||(currentEvents.length===1&&!runtimeRevision7AcceptedEvent(currentJournal.events,revision7.value,revision7Sha256))
+        ||(!existing&&currentEvents.length))
+        throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 journal conflicts with its immutable record');
+      let writes=0;
+      if(!existing){
+        const saved=writeImmutableObject(persisted.roots,RUNTIME_REVISION_07_REL,revision7.value);
+        if(saved.sha256!==revision7Sha256)throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 immutable dual-store readback differs');
+        writes+=2;
+      }
+      if(!currentEvents.length){
+        appendEvent(persisted.roots,{type:'RUNTIME_REVISION_ACCEPTED',revisionNumber:7,runtimeRevisionSha256:revision7Sha256,
+          previousRuntimeRevisionSha256:previous.sha256,codeRevision:revision7.value.codeRevision,
+          priorLedgerSha256:revision7.value.priorLedgerSha256,selectionSha256:revision7.value.selectionSha256,
+          changedPaths:revision7.value.changedPaths},now);
+        writes+=1;
+      }
+      const acceptedBytes=readOptional(persisted.roots,RUNTIME_REVISION_07_REL),afterJournal=core.readDualJournal(persisted.roots,'journal/events.jsonl');
+      if(!acceptedBytes||acceptedBytes.sha256!==revision7Sha256
+        ||!runtimeRevision7AcceptedEvent(afterJournal.events,revision7.value,revision7Sha256))
+        throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 dual-store record or journal readback differs');
+      if(!core.same(preserved,runtimeRevision5EvidenceSnapshot(root,home,epoch,commonDirectory,persisted.roots)))
+        throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: historical evidence SHA, size, or mtime changed while recording revision 7');
+      const confirmed=preflight(options);
+      if(confirmed.runtimeRevision?.sha256!==revision7Sha256||confirmed.runtimeRevision?.value?.revisionNumber!==7
+        ||runtimeRevisionCount(confirmed)!==7||confirmed.counts.total!==136
+        ||confirmed.downstream.stage3!==0||confirmed.downstream.stage4!==0)
+        throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: read-only confirmation changed revision 7 or the completed checkpoint');
+      return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_07_RECORDED',phase:EXTENSION,
+        runtimeRevisionSha256:revision7Sha256,previousRuntimeRevisionSha256:previous.sha256,
+        renderCount:confirmed.counts.total,builds:0,renders:0,writes,acousticRenders:0};
+    },now);
+  }catch(error){const decision=/^BLOCKED_[A-Z0-9_]+/.exec(error.message)?.[0]||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION';
+    return {decision,phase:EXTENSION,reason:error.message,builds:0,renders:0,writes:0,acousticRenders:0};}
+}
 function executeAdaptive(prepared,now){
   const {parent,plan}=prepared;let ledger=ensureLedger(parent,plan,{write:true}).ledger;const startCount=planner.countCalls(ledger).total;
   appendEvent(parent.roots,{type:'EXTENSION_RUN_STARTED',creatorRevision:parent.manifest.creatorRevision,renderCount:startCount,
@@ -1928,11 +2121,14 @@ module.exports={ROOT,EXTENSION,PARENT_PHASES,PARENT_RENDER_COUNT,baseRoots,sidec
   makeExecutionPlan,ensureExecutionPlan,readLedger,validateLedger,preflight,lockStatus,persistStepResult,loadProbeHistory,verifyRevisionProbe,
   validateRuntimeRevision2Code,validateRuntimeRevision2Snapshot,validateRuntimeRevision3Snapshot,validateRuntimeRevision3Code,
   validateRuntimeRevision4Code,validateRuntimeRevision4Snapshot,verifyRuntimeRevision4Checkpoint,createRuntimeRevision4Candidate,
-  runtimeRevision1AcceptedEvent,runtimeRevision4AcceptedEvent,runtimeRevision5AcceptedEvent,runtimeRevision6AcceptedEvent,
+  runtimeRevision1AcceptedEvent,runtimeRevision4AcceptedEvent,runtimeRevision5AcceptedEvent,runtimeRevision6AcceptedEvent,runtimeRevision7AcceptedEvent,
   validateRuntimeRevision5Code,validateRuntimeRevision5Snapshot,verifyRuntimeRevision5Checkpoint,createRuntimeRevision5Candidate,
-  validateRuntimeRevision6Code,validateRuntimeRevision6Snapshot,createRuntimeRevision6Candidate,runtimeRevisionCount,
+  validateRuntimeRevision6Code,validateRuntimeRevision6Snapshot,createRuntimeRevision6Candidate,
+  validateRuntimeRevision7Code,validateRuntimeRevision7Snapshot,createRuntimeRevision7Candidate,runtimeRevisionCount,
   runtimeRevision5PromotionBinding,RUNTIME_REVISION_04_REL,RUNTIME_REVISION_04_APPROVAL_SHA256,RUNTIME_REVISION_04_PATHS,
   RUNTIME_REVISION_05_REL,RUNTIME_REVISION_05_APPROVAL_SHA256,RUNTIME_REVISION_05_PROMOTION_COMMIT,RUNTIME_REVISION_05_CODE_REVISION,RUNTIME_REVISION_05_PATHS,
+  RUNTIME_REVISION_06_CODE_REVISION,RUNTIME_REVISION_06_SHA256,
   RUNTIME_REVISION_06_REL,RUNTIME_REVISION_06_APPROVAL_SHA256,RUNTIME_REVISION_06_PATHS,
+  RUNTIME_REVISION_07_REL,RUNTIME_REVISION_07_APPROVAL_SHA256,RUNTIME_REVISION_07_PATHS,
   fullCandidatesFromScreen,assertProspectiveCellBudget,runCells,loadFinalMaybe,loadSelection,verify,
-  recordRuntimeRevision3,recordRuntimeRevision4,recordRuntimeRevision5,recordRuntimeRevision6,run};
+  recordRuntimeRevision3,recordRuntimeRevision4,recordRuntimeRevision5,recordRuntimeRevision6,recordRuntimeRevision7,run};

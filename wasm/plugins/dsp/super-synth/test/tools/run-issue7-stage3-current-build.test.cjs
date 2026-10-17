@@ -100,6 +100,60 @@ test('Stage3 dry-run reports the missing Stage3E selection without writes or ren
   assert.equal(result.acousticRenders,0);assert.equal(calls,0);assert.deepEqual(after,before);
 });
 
+test('Stage3 dry-run accepts adaptive selection only with verified R6 and R7 runner identities',t=>{
+  const {root,home}=isolatedRepo(t),stage3ePath='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.cjs',
+    stage3Path='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.cjs';
+  for(const relative of [stage3ePath,stage3Path]){
+    const target=path.join(root,relative);fs.mkdirSync(path.dirname(target),{recursive:true});
+    fs.copyFileSync(path.join(runner.ROOT,relative),target);
+  }
+  const parentSha='a'.repeat(64),r6Sha='6'.repeat(64),r7Sha='7'.repeat(64);
+  const stage3eRunnerSha=runner.fileSha(root,stage3ePath),stage3RunnerSha=runner.fileSha(root,stage3Path);
+  const selected={extensionSelection:true,selection:{schema:'issue7-stage3e-extension-selection/v1',
+    decision:'ADAPTIVE_MID_FULL_PASS',parent:{manifestSha256:parentSha},extensionResultSha256:'b'.repeat(64),
+    fullResultSha256:'c'.repeat(64),screenResultSha256:'d'.repeat(64),executionPlanSha256:'e'.repeat(64),
+    probeResultSha256:['f'.repeat(64)]},selectionSha256:'1'.repeat(64),
+    extension:{parentManifestSha256:parentSha,result:{decision:'ADAPTIVE_MID_FULL_PASS',fullResultSha256:'c'.repeat(64),
+      screenResultSha256:'d'.repeat(64),probeResultSha256:['f'.repeat(64)]},resultSha256:'b'.repeat(64),
+      fullResultSha256:'c'.repeat(64),screenResultSha256:'d'.repeat(64),executionPlanSha256:'e'.repeat(64)},
+    final:{sha256:'c'.repeat(64),manifest:{creatorRevision:'1'.repeat(40)},result:{decision:'ADAPTIVE_MID_FULL_PASS',
+      summary:{syntheticTest:true}},executionPlan:{creatorRevision:'1'.repeat(40),identity:{runnerSha256:'0'.repeat(64),helperInputs:{}}}}};
+  const original=adaptiveMid.verifyParentManifest;
+  let lineage={parentManifestSha256:parentSha,runtimeRevisions:[
+    ...Array.from({length:5},(_,index)=>({sha256:String(index+1).repeat(64),value:{revisionNumber:index+1}})),
+    {sha256:r6Sha,value:{revisionNumber:6,changedFileSha256:{[stage3ePath]:stage3eRunnerSha}}},
+    {sha256:r7Sha,value:{revisionNumber:7,previousRuntimeRevisionSha256:r6Sha,changedFileSha256:{[stage3Path]:stage3RunnerSha}}}
+  ]};
+  adaptiveMid.verifyParentManifest=()=>lineage;
+  try{
+    const ready=runner.run({mode:'dry-run',root,home,prepareForDryRun:()=>{
+      runner.verifyStage3ePrerequisite(root,selected,{allowSyntheticTest:true,home});
+      return {identity:{syntheticTest:true},exports:[]};
+    }});
+    assert.equal(ready.decision,'STAGE3_DRY_RUN_READY');
+    assert.equal(ready.builds,0);assert.equal(ready.renders,0);assert.equal(ready.writes,0);assert.equal(ready.acousticRenders,0);
+    const before=[core.resolveRoots(root,'stage3e',core.EPOCH,{home}),core.resolveRoots(root,'stage3',core.EPOCH,{home})]
+      .flatMap(roots=>[roots.primary,roots.secondary]).map(fs.existsSync);
+    for(const broken of [
+      {...lineage,runtimeRevisions:lineage.runtimeRevisions.slice(0,6)},
+      {...lineage,runtimeRevisions:lineage.runtimeRevisions.map((revision,index)=>index===5
+        ?{...revision,value:{...revision.value,changedFileSha256:{[stage3ePath]:'9'.repeat(64)}}}:revision)},
+      {...lineage,runtimeRevisions:lineage.runtimeRevisions.map((revision,index)=>index===6
+        ?{...revision,value:{...revision.value,changedFileSha256:{[stage3Path]:'9'.repeat(64)}}}:revision)}
+    ]){
+      lineage=broken;
+      const blocked=runner.run({mode:'dry-run',root,home,prepareForDryRun:()=>{
+        runner.verifyStage3ePrerequisite(root,selected,{allowSyntheticTest:true,home});return {identity:{},exports:[]};
+      }});
+      assert.equal(blocked.decision,'BLOCKED_STAGE3E_SELECTION_REQUIRED');
+      assert.equal(blocked.builds,0);assert.equal(blocked.renders,0);assert.equal(blocked.writes,0);assert.equal(blocked.acousticRenders,0);
+    }
+    const after=[core.resolveRoots(root,'stage3e',core.EPOCH,{home}),core.resolveRoots(root,'stage3',core.EPOCH,{home})]
+      .flatMap(roots=>[roots.primary,roots.secondary]).map(fs.existsSync);
+    assert.deepEqual(after,before);
+  }finally{adaptiveMid.verifyParentManifest=original;}
+});
+
 test('Stage3 selection reader accepts a controlled adaptive PASS fixture without writing evidence',t=>{
   const {root,home}=isolatedRepo(t),roots=core.resolveRoots(root,'stage3e',core.EPOCH,{home});
   const fixture={selection:{schema:'issue7-stage3e-extension-selection/v1',decision:'ADAPTIVE_MID_FULL_PASS'},

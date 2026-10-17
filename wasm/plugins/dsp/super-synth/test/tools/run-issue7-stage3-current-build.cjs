@@ -25,6 +25,7 @@ const GENERATED_DESCRIPTOR_HEADER_REL='wasm/shared/generated/super-synth_descrip
 const CAPTURE_REL='wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-matrix.cjs';
 const EVALUATOR_REL='wasm/plugins/dsp/super-synth/test/tools/stage3-direct-reference-metrics.cjs';
 const RUNNER_REL='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.cjs';
+const STAGE3E_RUNNER_REL='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.cjs';
 const DERIVED_IDENTITY_REL='production-build-identity.json';
 const PROMOTION_PATHS=Object.freeze([PRESETS_REL,PROFILE_REL,GENERATED_DESCRIPTOR_CBO_REL,GENERATED_DESCRIPTOR_HEADER_REL].sort());
 const PROMOTION_INTENT_REL='promotion/intent.json';
@@ -638,7 +639,24 @@ function cells(){
   if(new Set(CELL_SPECS.map(cell=>cell.key)).size!==486)throw new Error('BLOCKED_STAGE3_CELL_SET: duplicate cell key');
   return CELL_SPECS.map(cell=>({...cell,phase:PHASE,buildRole:'production'}));
 }
-function verifyStage3ePrerequisite(root,selected,{allowSyntheticTest=false}={}){
+function verifyAcceptedAdaptiveRunnerLineage(root,home,selected){
+  let parent;
+  try{parent=adaptiveMid.verifyParentManifest({root,home,epoch:core.EPOCH,commonDirectory:selected.roots?.commonDirectory});}
+  catch(error){throw new Error(`BLOCKED_STAGE3E_SELECTION_REQUIRED: accepted R6/R7 lineage verification failed: ${error.message}`);}
+  const revisions=parent.runtimeRevisions||[],revision6=revisions[5],revision7=revisions[6];
+  if(revisions.length!==7||revision6?.value?.revisionNumber!==6||revision7?.value?.revisionNumber!==7
+    ||revision7.value.previousRuntimeRevisionSha256!==revision6.sha256
+    ||selected.extension?.parentManifestSha256!==parent.parentManifestSha256)
+    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: accepted R6/R7 lineage is missing or mismatched');
+  const stage3eRunnerSha=fileSha(root,STAGE3E_RUNNER_REL),stage3RunnerSha=fileSha(root,RUNNER_REL);
+  if(revision6.value.changedFileSha256?.[STAGE3E_RUNNER_REL]!==stage3eRunnerSha)
+    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: live Stage3E runner does not match accepted R6 file SHA');
+  if(revision7.value.changedFileSha256?.[RUNNER_REL]!==stage3RunnerSha)
+    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: live Stage3 runner does not match accepted R7 file SHA');
+  return {parentManifestSha256:parent.parentManifestSha256,runtimeRevision6Sha256:revision6.sha256,
+    runtimeRevision7Sha256:revision7.sha256,stage3eRunnerSha256:stage3eRunnerSha,stage3RunnerSha256:stage3RunnerSha};
+}
+function verifyStage3ePrerequisite(root,selected,{allowSyntheticTest=false,home=os.homedir()}={}){
   const final=selected?.final,creator=final?.manifest?.creatorRevision||final?.manifest?.creatorCommit||final?.executionPlan?.creatorRevision;
   const synthetic=final?.result?.summary?.syntheticTest===true;
   if(selected?.extensionSelection===true){
@@ -664,8 +682,12 @@ function verifyStage3ePrerequisite(root,selected,{allowSyntheticTest=false}={}){
   if(frozen){
     for(const [relative,expected] of Object.entries(frozen.helperInputs||{}))
       if(fileSha(root,relative)!==expected)throw new Error(`BLOCKED_STAGE3E_SELECTION_REQUIRED: Stage3E helper changed: ${relative}`);
-    const runnerSha=fileSha(root,'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.cjs');
-    if(runnerSha!==frozen.runnerSha256)throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: Stage3E runner changed after the frozen phase plan');
+    const runnerSha=fileSha(root,STAGE3E_RUNNER_REL);
+    if(runnerSha!==frozen.runnerSha256){
+      if(selected.extensionSelection!==true)
+        throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: Stage3E runner changed after the frozen phase plan');
+      verifyAcceptedAdaptiveRunnerLineage(root,home,selected);
+    }
   }
   return true;
 }
@@ -730,7 +752,7 @@ function finalize({roots,identity,regressions,now=()=>new Date().toISOString()}=
 }
 function prepare({root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResultsPath=REGRESSION_REL,allowSyntheticTest=false}={}){
   const record=identityRecord(root),selected=readSelection(root,home,epoch,{allowSyntheticTest}),regressions=readRegressions(root,regressionResultsPath);
-  verifyStage3ePrerequisite(root,selected,{allowSyntheticTest});
+  verifyStage3ePrerequisite(root,selected,{allowSyntheticTest,home});
   assertPromotedValues(root,selected.tuple);
   const production=deriveProductionBuildIdentity({root,record,selection:selected});
   const identity=currentIdentity({root,home,epoch,record,selection:selected,regressions,regressionPath:regressionResultsPath,production});
@@ -805,7 +827,7 @@ function executeAuthorized({root,home,epoch,phaseCells,regressionResultsPath,ren
     summary:evaluation,resultSha256:finalized.sha256,archiveSha256:finalized.archiveSha256,syntheticTest,acousticRenders:calls};
 }
 function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResultsPath=REGRESSION_REL,render=renderDefault,
-  now=()=>new Date().toISOString(),allowSyntheticTest=false,runAllOwner}={}){
+  now=()=>new Date().toISOString(),allowSyntheticTest=false,runAllOwner,prepareForDryRun=prepare}={}){
   if(!['dry-run','execute','finalize','verify'].includes(mode))throw new Error('explicit mode required: dry-run, execute, finalize, or verify');
   const roots=core.resolveRoots(root,STAGE,epoch,{home});
   if(!['dry-run','verify'].includes(mode))core.assertRunAllLockAccess(roots.commonDirectory,runAllOwner);
@@ -832,7 +854,7 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,regressionResult
     });
   }
   try{
-    const prepared=prepare({root,home,epoch,regressionResultsPath});
+    const prepared=prepareForDryRun({root,home,epoch,regressionResultsPath});
     return {decision:'STAGE3_DRY_RUN_READY',phase:PHASE,identitySha256:sha256(core.canonicalBytes(prepared.identity)),
       cellCount:CELL_SPECS.length,directCells:480,sentinelCells:6,builds:0,renders:0,writes:0,acousticRenders:0,exports:prepared.exports};
   }catch(error){
@@ -858,5 +880,6 @@ module.exports={ROOT,STAGE,PHASE,REGRESSION_REL,REQUIRED_REGRESSIONS,REGRESSION_
   PROMOTION_INTENT_REL,PROMOTION_INTENT_02_REL,PROMOTION_RECEIPT_REL,PROMOTION_BRANCH,PROMOTION_SUBJECT,
   readRegressions,maybeReadDualObject,storeDualObject,promotionIntentNames,validatePromotionIntentSelection,verifiedRuntimeRevision4,
   expectedTupleValues,assertSelectedFullPass,promotionIntent,promotionStatus,ensureSelectedFiles,readPromotionCommit,ensurePromotionCommit,
-  runRequiredRegressions,promoteSelection,currentIdentity,cells,verifyStage3ePrerequisite,stage3ExecutionPrerequisite,phaseManifest,renderDefault,readRows,
+  runRequiredRegressions,promoteSelection,currentIdentity,cells,verifyAcceptedAdaptiveRunnerLineage,verifyStage3ePrerequisite,
+  stage3ExecutionPrerequisite,phaseManifest,renderDefault,readRows,
   evaluate,finalize,prepare,execute,executeAuthorized,run,parseMode,main};
