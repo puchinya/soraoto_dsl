@@ -196,6 +196,11 @@ function runtimeRevision4AcceptedEvent(events,revision,sha256){
     &&event.codeRevision===revision?.codeRevision&&event.priorLedgerSha256===revision?.priorLedgerSha256
     &&event.selectionSha256===revision?.selectionSha256&&core.same(event.changedPaths,revision?.changedPaths);
 }
+function runtimeRevision1AcceptedEvent(events,revision){
+  const accepted=events.filter(event=>event.type==='RUNTIME_REVISION_ACCEPTED'
+    &&event.runtimeRevisionSha256===revision?.sha256);
+  return accepted.length===1&&accepted[0].firstProbeResultSha256===revision?.value?.firstProbe?.resultSha256;
+}
 function validateRuntimeRevision2Snapshot(revision,previousRevision,screen,screenSha256){
   const ledger=revision.priorLedgerSnapshot,counts=ledger&&planner.countCalls(ledger),cells=Object.values(ledger?.cells||{});
   const expectedCounts={probes:48,screen:24,full:0,total:72};
@@ -608,8 +613,7 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
         const revision1Parent={...parentBase,runtimeRevision:revision1,runtimeRevisions:[revision1]};
         verifyRevisionProbe(revision1Parent,plan,ledgerState,revision1.value);
         const journal=core.readDualJournal(roots,'journal/events.jsonl');
-        const accepted=journal.events.some(event=>event.type==='RUNTIME_REVISION_ACCEPTED'
-          &&event.runtimeRevisionSha256===revision1.sha256&&event.firstProbeResultSha256===revision1.value.firstProbe.resultSha256);
+        const accepted=runtimeRevision1AcceptedEvent(journal.events,revision1);
         if(!accepted&&write)appendEvent(roots,{type:'RUNTIME_REVISION_ACCEPTED',runtimeRevisionSha256:revision1.sha256,
           previousRunnerSha256:revision1.value.previousRunnerSha256,newRunnerSha256:revision1.value.newRunnerSha256,
           codeRevision:revision1.value.codeRevision,firstProbeResultSha256:revision1.value.firstProbe.resultSha256,
@@ -1271,7 +1275,8 @@ function recordRuntimeRevision4({root=ROOT,home=os.homedir(),epoch=core.EPOCH,co
     const accepted=(number,sha256,previousSha256)=>journal.events.some(event=>event.type==='RUNTIME_REVISION_ACCEPTED'
       &&event.revisionNumber===number&&event.runtimeRevisionSha256===sha256
       &&(previousSha256===undefined||event.previousRuntimeRevisionSha256===previousSha256));
-    if(!accepted(1,parent.runtimeRevisions[0]?.sha256)||!accepted(2,parent.runtimeRevisions[1]?.sha256,parent.runtimeRevisions[0]?.sha256)
+    if(!runtimeRevision1AcceptedEvent(journal.events,parent.runtimeRevisions[0])
+      ||!accepted(2,parent.runtimeRevisions[1]?.sha256,parent.runtimeRevisions[0]?.sha256)
       ||!accepted(3,previousRevision.sha256,parent.runtimeRevisions[1]?.sha256))
       throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: prior runtime revision acceptance events are incomplete');
     const revision4Events=journal.events.filter(event=>event.type==='RUNTIME_REVISION_ACCEPTED'&&event.revisionNumber===4);
@@ -1433,5 +1438,5 @@ module.exports={ROOT,EXTENSION,PARENT_PHASES,PARENT_RENDER_COUNT,baseRoots,sidec
   makeExecutionPlan,ensureExecutionPlan,readLedger,validateLedger,preflight,lockStatus,persistStepResult,loadProbeHistory,verifyRevisionProbe,
   validateRuntimeRevision2Code,validateRuntimeRevision2Snapshot,validateRuntimeRevision3Snapshot,validateRuntimeRevision3Code,
   validateRuntimeRevision4Code,validateRuntimeRevision4Snapshot,verifyRuntimeRevision4Checkpoint,createRuntimeRevision4Candidate,
-  runtimeRevision4AcceptedEvent,RUNTIME_REVISION_04_REL,RUNTIME_REVISION_04_APPROVAL_SHA256,RUNTIME_REVISION_04_PATHS,
+  runtimeRevision1AcceptedEvent,runtimeRevision4AcceptedEvent,RUNTIME_REVISION_04_REL,RUNTIME_REVISION_04_APPROVAL_SHA256,RUNTIME_REVISION_04_PATHS,
   fullCandidatesFromScreen,assertProspectiveCellBudget,runCells,loadFinalMaybe,loadSelection,verify,recordRuntimeRevision3,recordRuntimeRevision4,run};

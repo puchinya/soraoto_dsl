@@ -442,6 +442,14 @@ test('revision 3 stays bound to its recorded commit while revision 4 binds the e
     /HEAD after revision 4 is not its exact single-parent four-path promotion/);
 });
 
+test('runtime revision 1 acceptance validates its original journal schema without a revision number',()=>{
+  const revision={sha256:'a'.repeat(64),value:{firstProbe:{resultSha256:'b'.repeat(64)}}};
+  const event={type:'RUNTIME_REVISION_ACCEPTED',runtimeRevisionSha256:revision.sha256,firstProbeResultSha256:revision.value.firstProbe.resultSha256};
+  assert.equal(adaptiveRunner.runtimeRevision1AcceptedEvent([event],revision),true);
+  assert.equal(adaptiveRunner.runtimeRevision1AcceptedEvent([{...event,firstProbeResultSha256:'c'.repeat(64)}],revision),false);
+  assert.equal(adaptiveRunner.runtimeRevision1AcceptedEvent([event,event],revision),false);
+});
+
 test('runtime revision 4 snapshot and acceptance event fail closed on drift, missing journal, or duplicates',()=>{
   const cells={};
   for(let index=0;index<136;index++){
