@@ -125,7 +125,7 @@ function validatePromotionDetails(details,sourceCommit){
   if(!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.parentTree||'')||!/^([a-f0-9]{40}|[a-f0-9]{64})$/.test(details.commitTree||''))
     throw new Error('BLOCKED_STAGE3_PROMOTION: promotion parent and commit tree identities are required');
   if(!core.same(details.changedPaths,PROMOTION_PATHS))
-    throw new Error('BLOCKED_STAGE3_PROMOTION: dedicated promotion commit must change exactly the four approved promotion paths');
+    throw new Error(`BLOCKED_STAGE3_PROMOTION: dedicated promotion commit must change exactly the four approved promotion paths (got ${JSON.stringify(details.changedPaths)})`);
   if(details.sourceCommitIsAncestor!==true)throw new Error('BLOCKED_STAGE3_PROMOTION: original build source commit is not an ancestor of the promotion parent');
   if(details.currentHeadDescendsFromPromotion!==true)throw new Error('BLOCKED_STAGE3_PROMOTION: current HEAD must descend from the dedicated promotion commit');
   if(typeof details.readParentFile!=='function'||typeof details.readCommitFile!=='function')
@@ -349,10 +349,13 @@ function validatePromotionIntentSelection(root,record,selection,intent,{supersed
 }
 function verifiedRuntimeRevision4({root,home,commonDirectory}){
   const verified=adaptiveMid.verifyParentManifest({root,home,epoch:core.EPOCH,commonDirectory});
-  if(verified.runtimeRevisions?.length!==4||verified.runtimeRevision?.value?.revisionNumber!==4
-    ||verified.runtimeRevision.sha256!==verified.runtimeRevisions[3].sha256)
+  const revision4=verified.runtimeRevisions?.[3],revision5=verified.runtimeRevisions?.[4];
+  if(![4,5].includes(verified.runtimeRevisions?.length)||revision4?.value?.revisionNumber!==4
+    ||(verified.runtimeRevisions.length===4&&(verified.runtimeRevision?.value?.revisionNumber!==4||verified.runtimeRevision.sha256!==revision4.sha256))
+    ||(verified.runtimeRevisions.length===5&&(revision5?.value?.revisionNumber!==5
+      ||verified.runtimeRevision?.value?.revisionNumber!==5||verified.runtimeRevision.sha256!==revision5.sha256)))
     throw new Error('BLOCKED_STAGE3_PROMOTION: accepted runtime revision 4 is required before successor intent');
-  return verified.runtimeRevision;
+  return revision5?{...revision4,acceptedRuntimeRevision5:revision5}:revision4;
 }
 function expectedTupleValues(tuple){
   if(!tuple||![tuple.low,tuple.mid,tuple.bassHardness].every(Number.isFinite))throw new Error('BLOCKED_STAGE3_PROMOTION: selected tuple must contain three finite values');
@@ -417,10 +420,13 @@ function ensureSelectedFiles(root,record,tuple){
   return {presetsSha256:fileSha(root,PRESETS_REL),profileSha256:fileSha(root,PROFILE_REL),
     descriptorCborSha256:fileSha(root,GENERATED_DESCRIPTOR_CBO_REL),descriptorHeaderSha256:fileSha(root,GENERATED_DESCRIPTOR_HEADER_REL)};
 }
-function readPromotionCommit(root,intent,record){
-  const details=promotionDetails(root),subject=git(root,['show','-s','--format=%s',details.commit]);
+function readPromotionCommit(root,intent,record,frozenPromotion){
+  const details=promotionDetails(root,frozenPromotion),subject=git(root,['show','-s','--format=%s',details.commit]);
+  if(frozenPromotion&&(!core.same(frozenPromotion.intent,intent)
+      ||frozenPromotion.promotionCommit!==details.commit||frozenPromotion.promotionParentCommit!==intent.parentCommit))
+    throw new Error('BLOCKED_STAGE3_PROMOTION: frozen promotion receipt belongs to a different intent or parent');
   if(details.parent!==intent.parentCommit||details.parentTree!==intent.parentTree
-      ||(intent.supersedesIntentSha256&&details.commit!==git(root,['rev-parse','HEAD']))
+      ||(intent.supersedesIntentSha256&&!frozenPromotion&&details.commit!==git(root,['rev-parse','HEAD']))
       ||subject!==PROMOTION_SUBJECT||!core.same(details.changedPaths,PROMOTION_PATHS)
       ||details.sourceCommitIsAncestor!==true||details.currentHeadDescendsFromPromotion!==true)
     throw new Error('BLOCKED_STAGE3_PROMOTION: current commit does not match the pending dedicated promotion intent');
@@ -513,7 +519,14 @@ function ensurePromotionCommit({root,record,selection,roots,now,prepareSelectedF
     const details=promotionDetails(root,{promotionCommit:receipt.promotionCommit,promotionParentCommit:receipt.promotionParentCommit,
       promotionParentTree:receipt.promotionParentTree,promotionCommitTree:receipt.promotionCommitTree});
     validatePromotionDetails(details,record.sourceCommit);
-    if(intent.supersedesIntentSha256)readPromotionCommit(root,intent,record);
+    if(current!==receipt.promotionCommit){
+      const revision4=verifyRevision4({root,home:roots.home,commonDirectory:roots.commonDirectory});
+      const revision5=revision4?.acceptedRuntimeRevision5;
+      if(revision5?.value?.revisionNumber!==5||revision5.value.promotionCommit!==receipt.promotionCommit
+        ||revision5.value.codeRevision!==current||!isCommitAncestor(root,receipt.promotionCommit,current))
+        throw new Error('BLOCKED_STAGE3_PROMOTION: later HEAD is not the accepted runtime revision 5 descendant of the frozen promotion');
+    }
+    if(intent.supersedesIntentSha256)readPromotionCommit(root,intent,record,receipt);
     return {intent,receipt,details,reused:true};
   }
   const head=git(root,['rev-parse','HEAD']);
@@ -631,8 +644,18 @@ function verifyStage3ePrerequisite(root,selected,{allowSyntheticTest=false}={}){
   if(selected?.extensionSelection===true){
     if(selected.selection?.schema!=='issue7-stage3e-extension-selection/v1'||selected.selection?.decision!=='ADAPTIVE_MID_FULL_PASS'
         ||selected.extension?.parentManifestSha256!==selected.selection.parent?.manifestSha256
+        ||selected.extension?.result?.decision!=='ADAPTIVE_MID_FULL_PASS'
+        ||!/^([a-f0-9]{64})$/.test(selected.extension?.resultSha256||'')
+        ||selected.extension?.resultSha256!==selected.selection.extensionResultSha256
         ||selected.extension?.fullResultSha256!==selected.selection.fullResultSha256
-        ||selected.extension?.screenResultSha256!==selected.selection.screenResultSha256)
+        ||selected.extension?.screenResultSha256!==selected.selection.screenResultSha256
+        ||selected.extension?.executionPlanSha256!==selected.selection.executionPlanSha256
+        ||!Array.isArray(selected.selection.probeResultSha256)
+        ||selected.selection.probeResultSha256.length<1||selected.selection.probeResultSha256.length>7
+        ||selected.extension?.result?.fullResultSha256!==selected.extension.fullResultSha256
+        ||selected.extension?.result?.screenResultSha256!==selected.extension.screenResultSha256
+        ||!core.same(selected.extension?.result?.probeResultSha256,selected.selection.probeResultSha256)
+        ||selected.final?.sha256!==selected.extension.fullResultSha256)
       throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: adaptive extension result binding differs');
   }
   if(!(synthetic&&allowSyntheticTest)&&!core.commitIsAncestor(root,creator))
@@ -645,6 +668,19 @@ function verifyStage3ePrerequisite(root,selected,{allowSyntheticTest=false}={}){
     if(runnerSha!==frozen.runnerSha256)throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: Stage3E runner changed after the frozen phase plan');
   }
   return true;
+}
+function stage3ExecutionPrerequisite(selected,{root=ROOT,syntheticTest=false}={}){
+  const final=selected?.final;
+  if(selected?.extensionSelection===true)return {stage:'stage3e',phase:'adaptive-mid-01',decision:final?.result?.decision,
+    resultSha256:selected.extension?.resultSha256,creatorRevision:selected.extension?.parentManifest?.creatorRevision,
+    selectionSchema:selected.selection?.schema,selectionSha256:selected.selectionSha256,
+    parentManifestSha256:selected.extension?.parentManifestSha256,executionPlanSha256:selected.extension?.executionPlanSha256,
+    probeResultSha256:selected.selection?.probeResultSha256,screenResultSha256:selected.extension?.screenResultSha256,
+    fullResultSha256:selected.extension?.fullResultSha256};
+  return {stage:'stage3e',phase:'mid-full',decision:final?.result?.decision,resultSha256:final?.sha256,
+    archiveSha256:final?.archiveSha256,creatorRevision:final?.manifest?.creatorRevision||final?.manifest?.creatorCommit||
+      (syntheticTest?core.gitHead(root):undefined),
+    ...(final?.result?.executionPlanSha256?{executionPlanSha256:final.result.executionPlanSha256}:{})};
 }
 function phaseManifest({root,record,identity,executionPlan,now,cells:phaseCells}){
   return {schemaVersion:1,issue:7,epoch:core.EPOCH,stage:STAGE,phase:PHASE,
@@ -722,16 +758,9 @@ function executeAuthorized({root,home,epoch,phaseCells,regressionResultsPath,ren
   const prepared=prepare({root,home,epoch,regressionResultsPath,allowSyntheticTest});
   if(prepared.record.sourceCommit&&!isAncestor(root,prepared.record.sourceCommit))
     throw new Error('BLOCKED_STAGE3_BUILD_IDENTITY: build source commit is not an ancestor of current HEAD');
-  const prerequisite=prepared.selected.final;
+  const prerequisiteEvidence=stage3ExecutionPrerequisite(prepared.selected,{root,syntheticTest});
   const frozen=core.verifyAndPersistExecutionPlan({roots,root,stage:STAGE,phase:PHASE,cells:phaseCells,renderBudget:486,identity:prepared.identity,
-    prerequisites:[{stage:'stage3e',phase:prepared.selected.extensionSelection?'adaptive-mid-01':'mid-full',decision:prerequisite.result.decision,resultSha256:prerequisite.sha256,
-      archiveSha256:prerequisite.archiveSha256,creatorRevision:prerequisite.manifest?.creatorRevision||prerequisite.manifest?.creatorCommit||
-        (syntheticTest?core.gitHead(root):undefined),
-      ...(prepared.selected.extensionSelection?{selectionSchema:prepared.selected.selection.schema,
-        selectionSha256:prepared.selected.selectionSha256,parentManifestSha256:prepared.selected.extension.parentManifestSha256,
-        extensionResultSha256:prepared.selected.extension.resultSha256,screenResultSha256:prepared.selected.extension.screenResultSha256,
-        fullResultSha256:prepared.selected.extension.fullResultSha256}:{}),
-      ...(prerequisite.result.executionPlanSha256?{executionPlanSha256:prerequisite.result.executionPlanSha256}:{})}]});
+    prerequisites:[prerequisiteEvidence]});
   const previous=core.readPhaseLedger(roots,PHASE);
   const manifest=phaseManifest({root,record:prepared.productionRecord,identity:prepared.identity,executionPlan:frozen.plan,
     now:previous?.manifest.createdAt?()=>previous.manifest.createdAt:now,cells:phaseCells});
@@ -829,5 +858,5 @@ module.exports={ROOT,STAGE,PHASE,REGRESSION_REL,REQUIRED_REGRESSIONS,REGRESSION_
   PROMOTION_INTENT_REL,PROMOTION_INTENT_02_REL,PROMOTION_RECEIPT_REL,PROMOTION_BRANCH,PROMOTION_SUBJECT,
   readRegressions,maybeReadDualObject,storeDualObject,promotionIntentNames,validatePromotionIntentSelection,verifiedRuntimeRevision4,
   expectedTupleValues,assertSelectedFullPass,promotionIntent,promotionStatus,ensureSelectedFiles,readPromotionCommit,ensurePromotionCommit,
-  runRequiredRegressions,promoteSelection,currentIdentity,cells,verifyStage3ePrerequisite,phaseManifest,renderDefault,readRows,
+  runRequiredRegressions,promoteSelection,currentIdentity,cells,verifyStage3ePrerequisite,stage3ExecutionPrerequisite,phaseManifest,renderDefault,readRows,
   evaluate,finalize,prepare,execute,executeAuthorized,run,parseMode,main};

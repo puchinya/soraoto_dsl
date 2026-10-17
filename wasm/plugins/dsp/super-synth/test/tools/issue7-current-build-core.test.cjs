@@ -6,6 +6,7 @@ const crypto=require('node:crypto');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
+const {execFileSync}=require('node:child_process');
 const core=require('./issue7-current-build-core.cjs');
 
 const IDENTITY=JSON.parse(fs.readFileSync(path.join(core.ROOT,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json'),'utf8'));
@@ -46,7 +47,24 @@ function copyIdentityWorkspace(target){
     files.push(`${build.buildDirectory}/CMakeCache.txt`,`${build.buildDirectory}/${build.wasm.path}`,
       `${build.buildDirectory}/generated/super-synth_descriptor.cbor`,`${build.buildDirectory}/generated/super-synth_descriptor.h`);
   }
-  for(const relative of files){const dest=path.join(target,relative);fs.mkdirSync(path.dirname(dest),{recursive:true});fs.copyFileSync(path.join(core.ROOT,relative),dest);}
+  for(const relative of files){
+    const dest=path.join(target,relative);fs.mkdirSync(path.dirname(dest),{recursive:true});
+    const input=Object.values(IDENTITY.inputs).some(entry=>entry.path===relative);
+    const bytes=input?execFileSync('rtk',['proxy','git','show',`${IDENTITY.sourceCommit}:${relative}`],{cwd:core.ROOT,maxBuffer:16*1024*1024}):fs.readFileSync(path.join(core.ROOT,relative));
+    fs.writeFileSync(dest,bytes);
+  }
+  const fixture=structuredClone(IDENTITY);
+  fixture.toolchain.toolchainFileSha256=hash(fs.readFileSync(path.join(target,fixture.toolchain.toolchainFile)));
+  for(const entry of Object.values(fixture.inputs))entry.sha256=hash(fs.readFileSync(path.join(target,entry.path)));
+  for(const build of Object.values(fixture.builds)){
+    build.cmakeCacheSha256=hash(fs.readFileSync(path.join(target,`${build.buildDirectory}/CMakeCache.txt`)));
+    build.wasm.sha256=hash(fs.readFileSync(path.join(target,`${build.buildDirectory}/${build.wasm.path}`)));
+  }
+  const productionBuild=fixture.builds.production.buildDirectory;
+  fixture.metadataOutputs.descriptorCborSha256=hash(fs.readFileSync(path.join(target,`${productionBuild}/generated/super-synth_descriptor.cbor`)));
+  fixture.metadataOutputs.descriptorHeaderSha256=hash(fs.readFileSync(path.join(target,`${productionBuild}/generated/super-synth_descriptor.h`)));
+  fs.writeFileSync(path.join(target,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json'),`${JSON.stringify(fixture,null,2)}\n`);
+  return fixture;
 }
 
 test('root resolver accepts only the current Issue #7 stage roots and rejects symlink escapes',t=>{
@@ -61,14 +79,16 @@ test('root resolver accepts only the current Issue #7 stage roots and rejects sy
   assert.throws(()=>core.resolveRoots(w.repo,'stage3e',core.EPOCH,{home:w.home,commonDirectory:w.common}),/BLOCKED_EVIDENCE_SYMLINK/);
 });
 
-test('Gate 1 identity hashes every declared source, cache, WASM, and generated metadata output',()=>{
-  const current=core.hashInputs(core.ROOT,IDENTITY);
+test('Gate 1 identity hashes every declared source, cache, WASM, and generated metadata output',t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-identity-baseline-'));
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const fixture=copyIdentityWorkspace(dir);
+  const current=core.hashInputs(dir,fixture);
   assert.equal(current.issue,7);assert.equal(current.epoch,'current-build-v1');
   assert.equal(Object.keys(current.inputs).length,16);
   assert.deepEqual(Object.keys(current.builds).sort(),['production','stage3e','stage4']);
-  assert.equal(current.builds.production.wasmSha256,IDENTITY.builds.production.wasm.sha256);
+  assert.equal(current.builds.production.wasmSha256,fixture.builds.production.wasm.sha256);
   assert.equal(current.builds.stage3e.flags.SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS,'ON');
-  assert.equal(current.builds.stage4.cmakeCacheSha256,IDENTITY.builds.stage4.cmakeCacheSha256);
+  assert.equal(current.builds.stage4.cmakeCacheSha256,fixture.builds.stage4.cmakeCacheSha256);
 });
 
 test('frozen identity rejects a one-byte change in each acoustic-critical input',t=>{
@@ -84,17 +104,17 @@ test('frozen identity rejects a one-byte change in each acoustic-critical input'
   for(const relative of targets){
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-identity-drift-'));
     t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
-    copyIdentityWorkspace(dir);
+    const fixture=copyIdentityWorkspace(dir);
     const file=path.join(dir,relative),bytes=fs.readFileSync(file);
     const changed=Buffer.from(bytes);changed[0]^=1;fs.writeFileSync(file,changed);
-    assert.throws(()=>core.hashInputs(dir,IDENTITY),/BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT/,relative);
+    assert.throws(()=>core.hashInputs(dir,fixture),/BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT/,relative);
   }
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-identity-record-drift-'));
-  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));copyIdentityWorkspace(dir);
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const fixture=copyIdentityWorkspace(dir);
   const report=path.join(dir,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json');
-  const expected=core.hashInputs(dir,IDENTITY);
+  const expected=core.hashInputs(dir,fixture);
   fs.appendFileSync(report,' ');
-  const actual=core.hashInputs(dir,IDENTITY);
+  const actual=core.hashInputs(dir,fixture);
   assert.throws(()=>core.checkFrozenIdentity(expected,actual),/BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT/);
 });
 
@@ -348,6 +368,26 @@ test('execution plans are deterministic, immutable, dual-stored, budget-bound, a
   assert.throws(()=>core.verifyAndPersistExecutionPlan({...options,identity:{sourceSha256:'f'.repeat(64)}}),/deterministic phase plan changed/);
   assert.throws(()=>core.deriveExecutionPlan({...options,cells:cells.slice(1),renderBudget:23,creatorRevision:revision}),/fixed Issue #7 cap/);
   assert.throws(()=>core.deriveExecutionPlan({...options,prerequisites:[{stage:'stage3e',phase:'baseline'}],creatorRevision:revision}),/prerequisite evidence is incomplete/);
+});
+
+test('Stage3 accepts only the typed adaptive terminal result without an archive while ordinary prerequisites require archives',()=>{
+  const revision='1'.repeat(40),hashes=Array.from({length:3},(_,index)=>String(index+1).repeat(64));
+  const adaptive={stage:'stage3e',phase:'adaptive-mid-01',decision:'ADAPTIVE_MID_FULL_PASS',resultSha256:hashes[0],
+    creatorRevision:revision,selectionSchema:'issue7-stage3e-extension-selection/v1',selectionSha256:hashes[1],
+    parentManifestSha256:hashes[2],executionPlanSha256:'4'.repeat(64),probeResultSha256:['5'.repeat(64)],
+    screenResultSha256:'6'.repeat(64),fullResultSha256:'7'.repeat(64)};
+  const options={stage:'stage3',phase:'stage3',cells:Array.from({length:486},(_,index)=>({key:`s3-${index}`})),renderBudget:486,
+    identity:{productionWasmSha256:'8'.repeat(64)},prerequisites:[adaptive],creatorRevision:revision};
+  const plan=core.deriveExecutionPlan(options);
+  assert.equal(plan.prerequisites[0].resultSha256,hashes[0]);
+  assert.equal(plan.prerequisites[0].fullResultSha256,'7'.repeat(64));
+  assert.equal(Object.hasOwn(plan.prerequisites[0],'archiveSha256'),false);
+  assert.throws(()=>core.deriveExecutionPlan({...options,stage:'stage3e',phase:'baseline',cells:Array.from({length:24},(_,index)=>({key:`base-${index}`})),
+    renderBudget:24}),/adaptive Stage3 prerequisite provenance/);
+  assert.throws(()=>core.deriveExecutionPlan({...options,prerequisites:[{...adaptive,decision:'STAGE3E_MID_FULL_PASS'}]}),/adaptive Stage3 prerequisite provenance/);
+  assert.throws(()=>core.deriveExecutionPlan({...options,prerequisites:[{...adaptive,archiveSha256:'9'.repeat(64)}]}),/adaptive Stage3 prerequisite provenance/);
+  assert.throws(()=>core.deriveExecutionPlan({...options,prerequisites:[{stage:'stage3e',phase:'mid-full',decision:'STAGE3E_MID_FULL_PASS',
+    resultSha256:hashes[0],creatorRevision:revision}]}),/prerequisite evidence is incomplete/);
 });
 
 test('execution plans reject damaged dual stores and manifests cannot start without a matching plan',t=>{

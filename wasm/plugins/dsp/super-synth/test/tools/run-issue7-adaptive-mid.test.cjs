@@ -15,6 +15,40 @@ const master=require('./run-issue7-current-build.cjs');
 
 function result(mid,spanErrorDb,kind){return {mid,spanErrorDb,safe:true,diagnosticsComplete:true,kind};}
 
+function identityWorkspace(target){
+  const source=stage3eRunner.identityRecord(adaptiveRunner.ROOT),reportPath='docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json';
+  fs.mkdirSync(target,{recursive:true});
+  const files=[...Object.values(source.inputs).map(entry=>entry.path),source.toolchain.toolchainFile,reportPath,
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-matrix.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/capture-supersynth-stage3e-matrix.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/stage3e-search-core.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/stage3e-generation2-core.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/stage3-direct-reference-metrics.cjs'];
+  for(const build of Object.values(source.builds))files.push(`${build.buildDirectory}/CMakeCache.txt`,
+    `${build.buildDirectory}/${build.wasm.path}`,`${build.buildDirectory}/generated/super-synth_descriptor.cbor`,
+    `${build.buildDirectory}/generated/super-synth_descriptor.h`);
+  for(const relative of files){
+    const destination=path.join(target,relative);fs.mkdirSync(path.dirname(destination),{recursive:true});
+    const isInput=Object.values(source.inputs).some(entry=>entry.path===relative);
+    const bytes=isInput?execFileSync('rtk',['proxy','git','show',`${source.sourceCommit}:${relative}`],
+      {cwd:adaptiveRunner.ROOT,maxBuffer:16*1024*1024}):fs.readFileSync(path.join(adaptiveRunner.ROOT,relative));
+    fs.writeFileSync(destination,bytes);
+  }
+  const record=structuredClone(source);
+  record.toolchain.toolchainFileSha256=core.sha256(fs.readFileSync(path.join(target,record.toolchain.toolchainFile)));
+  for(const entry of Object.values(record.inputs))entry.sha256=core.sha256(fs.readFileSync(path.join(target,entry.path)));
+  for(const build of Object.values(record.builds)){
+    build.cmakeCacheSha256=core.sha256(fs.readFileSync(path.join(target,`${build.buildDirectory}/CMakeCache.txt`)));
+    build.wasm.sha256=core.sha256(fs.readFileSync(path.join(target,`${build.buildDirectory}/${build.wasm.path}`)));
+  }
+  const production=record.builds.production.buildDirectory;
+  record.metadataOutputs.descriptorCborSha256=core.sha256(fs.readFileSync(path.join(target,`${production}/generated/super-synth_descriptor.cbor`)));
+  record.metadataOutputs.descriptorHeaderSha256=core.sha256(fs.readFileSync(path.join(target,`${production}/generated/super-synth_descriptor.h`)));
+  fs.writeFileSync(path.join(target,reportPath),`${JSON.stringify(record,null,2)}\n`);
+  return {record,identity:stage3eRunner.currentIdentity(target,record)};
+}
+
 function selectedEvidenceFixture(t){
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-adaptive-verify-fixture-'));
   t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
@@ -159,9 +193,10 @@ test('budget exhaustion is checked before step plan, CELL_STARTED marker, ledger
   t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
   const home=path.join(temp,'home'),commonDirectory=path.join(temp,'common');
   fs.mkdirSync(home,{recursive:true});fs.mkdirSync(commonDirectory,{recursive:true});
-  const roots=adaptiveRunner.sidecarRoots(adaptiveRunner.ROOT,home,core.EPOCH,commonDirectory);
-  const record=stage3eRunner.identityRecord(adaptiveRunner.ROOT),identity=stage3eRunner.currentIdentity(adaptiveRunner.ROOT,record);
-  const parent={root:adaptiveRunner.ROOT,home,commonDirectory,roots,record,identity,
+  const root=path.join(temp,'repo'),fixture=identityWorkspace(root);
+  const roots=adaptiveRunner.sidecarRoots(root,home,core.EPOCH,commonDirectory);
+  const {record,identity}=fixture;
+  const parent={root,home,commonDirectory,roots,record,identity,
     identitySha256:core.sha256(core.canonicalBytes(identity)),parentManifestSha256:'a'.repeat(64),
     manifest:{epoch:core.EPOCH,helperHashes:{["wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.cjs"]:'b'.repeat(64)}}};
   const plan={sha256:'c'.repeat(64)},ledger={renderCount:0,cells:{},probes:[],screen:null,full:[],decision:null};
@@ -481,4 +516,87 @@ test('runtime revision 4 snapshot and acceptance event fail closed on drift, mis
   assert.equal(adaptiveRunner.runtimeRevision4AcceptedEvent([],eventRecord,event.runtimeRevisionSha256),false);
   assert.equal(adaptiveRunner.runtimeRevision4AcceptedEvent([event,event],eventRecord,event.runtimeRevisionSha256),false);
   assert.equal(adaptiveRunner.runtimeRevision4AcceptedEvent([{...event,previousRuntimeRevisionSha256:'0'.repeat(64)}],eventRecord,event.runtimeRevisionSha256),false);
+});
+
+test('runtime revision 5 binds the unchanged 136-cell lineage and accepts exactly one matching event',()=>{
+  const cells={};
+  for(let index=0;index<136;index++){
+    const kind=index<48?'probe':index<72?'screen':'full',key=`${kind}-${String(index).padStart(3,'0')}`;
+    cells[key]={key,kind,state:'COMPLETE',markerSha256:'1'.repeat(64),observationSha256:'2'.repeat(64)};
+  }
+  const executionPlanSha256='8'.repeat(64),ledger={renderCount:136,executionPlanSha256,cells,
+    probes:Array.from({length:3},(_,index)=>({resultSha256:String(index+3).repeat(64)}))};
+  const priorLedgerSha256=core.sha256(core.canonicalBytes(ledger)),counts={probes:48,screen:24,full:64,total:136};
+  const previous={sha256:'a'.repeat(64),value:{revisionNumber:4,priorLedgerSnapshot:ledger,priorLedgerSha256,priorCounts:counts,
+    probeResultSha256:ledger.probes.map(item=>item.resultSha256),screenResultSha256:'b'.repeat(64),
+    fullResultSha256:'c'.repeat(64),extensionResultSha256:'d'.repeat(64),selectionSha256:'e'.repeat(64)}};
+  const selection={selectionSha256:previous.value.selectionSha256,selection:{probeResultSha256:previous.value.probeResultSha256},
+    extension:{executionPlanSha256}};
+  const results={screen:{sha256:previous.value.screenResultSha256},full:{sha256:previous.value.fullResultSha256},
+    extension:{sha256:previous.value.extensionResultSha256,value:{decision:'ADAPTIVE_MID_FULL_PASS'}}};
+  const revision={revisionNumber:5,previousRuntimeRevisionSha256:previous.sha256,priorLedgerSnapshot:ledger,priorLedgerSha256,
+    priorCounts:counts,probeResultSha256:previous.value.probeResultSha256,screenResultSha256:previous.value.screenResultSha256,
+    fullResultSha256:previous.value.fullResultSha256,terminalResultSha256:previous.value.extensionResultSha256,
+    extensionResultSha256:previous.value.extensionResultSha256,selectionSha256:previous.value.selectionSha256,executionPlanSha256};
+  const ledgerState={ledger,sha256:priorLedgerSha256},plan={sha256:executionPlanSha256};
+  assert.equal(adaptiveRunner.validateRuntimeRevision5Snapshot(revision,previous,selection,results,ledgerState,plan),true);
+  assert.throws(()=>adaptiveRunner.validateRuntimeRevision5Snapshot({...revision,terminalResultSha256:'f'.repeat(64)},
+    previous,selection,results,ledgerState,plan),/revision 5 does not preserve the exact selected 136-cell checkpoint/);
+  const event={type:'RUNTIME_REVISION_ACCEPTED',revisionNumber:5,runtimeRevisionSha256:'9'.repeat(64),
+    previousRuntimeRevisionSha256:previous.sha256,codeRevision:'7'.repeat(40),promotionCommit:'6'.repeat(40),
+    promotionReceiptSha256:'5'.repeat(64),priorLedgerSha256,selectionSha256:selection.selectionSha256,
+    changedPaths:adaptiveRunner.RUNTIME_REVISION_05_PATHS};
+  const record={...revision,previousRuntimeRevisionSha256:previous.sha256,codeRevision:event.codeRevision,
+    promotionCommit:event.promotionCommit,promotionReceiptSha256:event.promotionReceiptSha256,
+    priorLedgerSha256,selectionSha256:selection.selectionSha256,changedPaths:adaptiveRunner.RUNTIME_REVISION_05_PATHS};
+  assert.equal(adaptiveRunner.runtimeRevision5AcceptedEvent([event],record,event.runtimeRevisionSha256),true);
+  assert.equal(adaptiveRunner.runtimeRevision5AcceptedEvent([],record,event.runtimeRevisionSha256),false);
+  assert.equal(adaptiveRunner.runtimeRevision5AcceptedEvent([event,event],record,event.runtimeRevisionSha256),false);
+  assert.equal(adaptiveRunner.runtimeRevision5AcceptedEvent([{...event,promotionReceiptSha256:'0'.repeat(64)}],record,event.runtimeRevisionSha256),false);
+});
+
+test('runtime revision 5 source validator accepts only the eight paths after the fixed promotion commit',t=>{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-runtime-revision-05-code-'));
+  t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
+  const root=path.join(temp,'repo');fs.mkdirSync(root,{recursive:true});
+  execFileSync('rtk',['git','init','-b','issue7-r5-test',root],{stdio:'ignore'});
+  const git=args=>execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim();
+  git(['config','user.name','Issue 7 runtime revision 5 test']);git(['config','user.email','issue7-r5@example.invalid']);
+  git(['remote','add','upstream',adaptiveRunner.ROOT]);
+  git(['fetch','--quiet','--no-tags','upstream',adaptiveRunner.RUNTIME_REVISION_05_PROMOTION_COMMIT]);
+  git(['checkout','-b','issue7-r5-test-code',adaptiveRunner.RUNTIME_REVISION_05_PROMOTION_COMMIT]);
+  const previousCodeRevision=git(['rev-parse',`${adaptiveRunner.RUNTIME_REVISION_05_PROMOTION_COMMIT}^`]);
+  for(const relative of adaptiveRunner.RUNTIME_REVISION_05_PATHS){
+    const target=path.join(root,relative);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,`runtime revision 5 ${relative}\n`);
+  }
+  git(['add','--',...adaptiveRunner.RUNTIME_REVISION_05_PATHS]);git(['commit','-m','Issue 7 runtime revision 5 code']);
+  const codeRevision=git(['rev-parse','HEAD']),changedFileSha256=Object.fromEntries(adaptiveRunner.RUNTIME_REVISION_05_PATHS.map(relative=>[
+    relative,core.sha256(fs.readFileSync(path.join(root,relative)))]));
+  const diff=execFileSync('rtk',['proxy','git','diff','--binary','--no-ext-diff',
+    `${adaptiveRunner.RUNTIME_REVISION_05_PROMOTION_COMMIT}..${codeRevision}`,'--',...adaptiveRunner.RUNTIME_REVISION_05_PATHS],{cwd:root});
+  const promotionBinding={promotionCommit:adaptiveRunner.RUNTIME_REVISION_05_PROMOTION_COMMIT,
+    promotionParentCommit:previousCodeRevision,promotionParentTree:git(['rev-parse',`${adaptiveRunner.RUNTIME_REVISION_05_PROMOTION_COMMIT}^^{tree}`]),
+    promotionCommitTree:git(['rev-parse',`${adaptiveRunner.RUNTIME_REVISION_05_PROMOTION_COMMIT}^{tree}`]),
+    promotionIntentSha256:'1'.repeat(64),supersededPromotionIntentSha256:'2'.repeat(64),promotionReceiptSha256:'3'.repeat(64)};
+  const previous={sha256:'4'.repeat(64),value:{codeRevision:previousCodeRevision,newRunnerSha256:'5'.repeat(64)}};
+  const frozen={epoch:core.EPOCH,creatorRevision:previousCodeRevision},parentManifestSha256='6'.repeat(64);
+  const revision={schemaVersion:1,schema:'issue7-stage3e-adaptive-runtime-revision/v1',issue:7,revisionNumber:5,
+    extension:adaptiveRunner.EXTENSION,epoch:core.EPOCH,parentManifestSha256,previousCreatorRevision:previousCodeRevision,
+    previousCodeRevision,previousRuntimeRevisionSha256:previous.sha256,previousRunnerSha256:previous.value.newRunnerSha256,
+    codeRevision,newRunnerSha256:changedFileSha256['wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.cjs'],
+    newTestSha256:changedFileSha256['wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.test.cjs'],
+    changedPaths:adaptiveRunner.RUNTIME_REVISION_05_PATHS,changedFileSha256,
+    approvalSha256:adaptiveRunner.RUNTIME_REVISION_05_APPROVAL_SHA256,...promotionBinding,
+    diffSha256:core.sha256(diff)};
+  assert.equal(adaptiveRunner.validateRuntimeRevision5Code(root,frozen,parentManifestSha256,previous,revision,promotionBinding),true);
+  assert.throws(()=>adaptiveRunner.validateRuntimeRevision5Code(root,frozen,parentManifestSha256,previous,
+    {...revision,diffSha256:'f'.repeat(64)},promotionBinding),/revision 5 exact source diff SHA/);
+  const extra='README.md';fs.writeFileSync(path.join(root,extra),'unapproved fifth file\n');git(['add',extra]);git(['commit','-m','unapproved extra path']);
+  const badHead=git(['rev-parse','HEAD']),badPaths=[...adaptiveRunner.RUNTIME_REVISION_05_PATHS,extra].sort();
+  const badFiles=Object.fromEntries(badPaths.map(relative=>[relative,core.sha256(fs.readFileSync(path.join(root,relative)))]));
+  const badDiff=execFileSync('rtk',['proxy','git','diff','--binary','--no-ext-diff',
+    `${adaptiveRunner.RUNTIME_REVISION_05_PROMOTION_COMMIT}..${badHead}`,'--',...badPaths],{cwd:root});
+  assert.throws(()=>adaptiveRunner.validateRuntimeRevision5Code(root,frozen,parentManifestSha256,previous,
+    {...revision,codeRevision:badHead,changedPaths:badPaths,changedFileSha256:badFiles,diffSha256:core.sha256(badDiff)},promotionBinding),
+  /revision 5 identity, promotion binding, or exact eight-file path set/);
 });

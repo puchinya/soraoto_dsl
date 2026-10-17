@@ -110,21 +110,36 @@ test('Stage3 selection reader accepts a controlled adaptive PASS fixture without
   assert.deepEqual([roots.primary,roots.secondary].map(fs.existsSync),[false,false]);
 });
 
+test('Stage3 prerequisite keeps adaptive terminal-result and full-result hashes distinct and archive-free',()=>{
+  const terminal='a'.repeat(64),full='b'.repeat(64),screen='c'.repeat(64),plan='d'.repeat(64),selectionSha='e'.repeat(64);
+  const selected={extensionSelection:true,final:{sha256:full,result:{decision:'ADAPTIVE_MID_FULL_PASS'}},
+    extension:{resultSha256:terminal,parentManifestSha256:'f'.repeat(64),executionPlanSha256:plan,
+      parentManifest:{creatorRevision:'1'.repeat(40)},screenResultSha256:screen,fullResultSha256:full},
+    selection:{schema:'issue7-stage3e-extension-selection/v1',probeResultSha256:['2'.repeat(64)]},selectionSha256:selectionSha};
+  const prerequisite=runner.stage3ExecutionPrerequisite(selected);
+  assert.equal(prerequisite.resultSha256,terminal);
+  assert.equal(prerequisite.fullResultSha256,full);
+  assert.notEqual(prerequisite.resultSha256,prerequisite.fullResultSha256);
+  assert.equal(prerequisite.executionPlanSha256,plan);
+  assert.equal(Object.hasOwn(prerequisite,'archiveSha256'),false);
+});
+
 test('derived production identity binds the selected tuple to a dedicated promotion commit and preserves diagnostic builds',t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3-derived-'));
   try{
-    const record=structuredClone(runner.identityRecord()),sourceRoot=runner.ROOT;
+    const record=structuredClone(runner.identityRecord()),sourceRoot=runner.ROOT,sourceCommit=record.sourceCommit;
     record.sourceCommit='1'.repeat(40);
     for(const entry of Object.values(record.inputs)){
       const target=path.join(root,entry.path);fs.mkdirSync(path.dirname(target),{recursive:true});
-      fs.copyFileSync(path.join(sourceRoot,entry.path),target);
+      fs.writeFileSync(target,execFileSync('rtk',['proxy','git','show',`${sourceCommit}:${entry.path}`],{cwd:sourceRoot,maxBuffer:16*1024*1024}));
     }
     for(const relative of runner.PROMOTION_PATHS.filter(file=>file.endsWith('super-synth_descriptor.cbor')||file.endsWith('super-synth_descriptor.h'))){
       const target=path.join(root,relative);fs.mkdirSync(path.dirname(target),{recursive:true});
-      fs.copyFileSync(path.join(sourceRoot,relative),target);
+      fs.writeFileSync(target,execFileSync('rtk',['proxy','git','show',`${sourceCommit}:${relative}`],{cwd:sourceRoot,maxBuffer:16*1024*1024}));
     }
     const toolchainTarget=path.join(root,record.toolchain.toolchainFile);
-    fs.mkdirSync(path.dirname(toolchainTarget),{recursive:true});fs.copyFileSync(path.join(sourceRoot,record.toolchain.toolchainFile),toolchainTarget);
+    fs.mkdirSync(path.dirname(toolchainTarget),{recursive:true});
+    fs.writeFileSync(toolchainTarget,execFileSync('rtk',['proxy','git','show',`${sourceCommit}:${record.toolchain.toolchainFile}`],{cwd:sourceRoot,maxBuffer:16*1024*1024}));
     for(const build of Object.values(record.builds)){
       for(const relative of ['CMakeCache.txt',build.wasm.path,'generated/super-synth_descriptor.cbor','generated/super-synth_descriptor.h']){
         const source=path.join(sourceRoot,build.buildDirectory,relative),target=path.join(root,build.buildDirectory,relative);
@@ -154,7 +169,8 @@ test('derived production identity binds the selected tuple to a dedicated promot
     const baselineIdentity={sourceCommit:record.sourceCommit,buildIdentitySha256:core.sha256(fs.readFileSync(identityPath)),
       inputs:Object.fromEntries(Object.entries(record.inputs).map(([key,value])=>[key,{path:value.path,sha256:value.sha256}])),
       builds:Object.fromEntries(Object.entries(record.builds).map(([role,build])=>[role,{cmakeCacheSha256:build.cmakeCacheSha256,wasmSha256:build.wasm.sha256}]))};
-    const parentFiles=new Map(runner.PROMOTION_PATHS.map(relative=>[relative,fs.readFileSync(path.join(sourceRoot,relative))]));
+    const parentFiles=new Map(runner.PROMOTION_PATHS.map(relative=>[relative,
+      execFileSync('rtk',['proxy','git','show',`${sourceCommit}:${relative}`],{cwd:sourceRoot,maxBuffer:16*1024*1024})]));
     assert.deepEqual(runner.PROMOTION_PATHS,[
       'wasm/plugins/dsp/super-synth/presets.json',
       'wasm/shared/generated/super-synth_descriptor.cbor',
@@ -225,6 +241,49 @@ test('a restarted promotion runner accepts only complete four-path staging and v
     readCommitFile:relative=>execFileSync('rtk',['git','show',`${commit}:${relative}`],{cwd:root})};
   assert.equal(runner.validatePromotionDetails(details,parent),true);
   assert.deepEqual(runner.promotionStatus(root).stagedChanges,[]);
+});
+
+test('promotion readback resolves its frozen commit when HEAD is a later descendant',t=>{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-promotion-descendant-'));
+  t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
+  const root=path.join(temp,'repo');fs.mkdirSync(root,{recursive:true});
+  execFileSync('rtk',['git','init','-b',runner.PROMOTION_BRANCH,root],{stdio:'ignore'});
+  const git=args=>execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim();
+  git(['config','user.name','Issue 7 frozen promotion test']);git(['config','user.email','issue7-frozen-promotion@example.invalid']);
+  const tuple={low:0.35,mid:0.55,bassHardness:0.5},values={velocity_launch_scale_low:tuple.low,
+    velocity_launch_scale_mid:tuple.mid,velocity_hardness_scale_bass:tuple.bassHardness};
+  const presetsPath=runner.PROMOTION_PATHS.find(relative=>relative.endsWith('/presets.json'));
+  const profilePath=runner.PROMOTION_PATHS.find(relative=>relative.endsWith('_profiles.h'));
+  const presets={concert_grand:{engine_config:{hammer:{velocity_launch_scale_low:0.1,velocity_launch_scale_mid:0.1,
+    velocity_hardness_scale_bass:0.1}}}};
+  const profile=`.velocity_launch_scale_low = 0.1f\n.velocity_launch_scale_mid = 0.1f\n.velocity_hardness_scale_bass = 0.1f\n`;
+  const write=(relative,value)=>{const target=path.join(root,relative);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,value);};
+  write(presetsPath,JSON.stringify(presets,null,2)+'\n');write(profilePath,profile);
+  for(const relative of runner.PROMOTION_PATHS.filter(item=>item!==presetsPath&&item!==profilePath))write(relative,`baseline ${relative}\n`);
+  const identityPath='docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json';
+  write(identityPath,JSON.stringify({sourceCommit:'0'.repeat(40)},null,2)+'\n');
+  git(['add','--',...runner.PROMOTION_PATHS,identityPath]);git(['commit','-m','baseline identity']);
+  const sourceCommit=git(['rev-parse','HEAD']);
+  write(identityPath,JSON.stringify({sourceCommit},null,2)+'\n');git(['add','--',identityPath]);git(['commit','-m','pin source identity']);
+  const parentCommit=git(['rev-parse','HEAD']),parentTree=git(['rev-parse','HEAD^{tree}']);
+  const record={sourceCommit,inputs:{presets:{sha256:core.sha256(fs.readFileSync(path.join(root,presetsPath)))},
+    generatedProfile:{sha256:core.sha256(fs.readFileSync(path.join(root,profilePath)))}}};
+  const selection={tuple,selectionSha256:'a'.repeat(64),selection:{selectedAt:'2026-10-17T00:00:00.000Z'},final:{sha256:'b'.repeat(64)}};
+  const intent=runner.promotionIntent(root,record,selection,parentCommit,parentTree,{supersedesIntentSha256:'c'.repeat(64)});
+  const promoted=JSON.parse(fs.readFileSync(path.join(root,presetsPath),'utf8'));
+  Object.assign(promoted.concert_grand.engine_config.hammer,values);write(presetsPath,JSON.stringify(promoted,null,2)+'\n');
+  let promotedProfile=fs.readFileSync(path.join(root,profilePath),'utf8');
+  for(const [field,value] of Object.entries(values))promotedProfile=promotedProfile.replace(new RegExp(`(\\.${field}\\s*=\\s*)([-+0-9.eE]+)f`),`$1${value}f`);
+  write(profilePath,promotedProfile);
+  for(const relative of runner.PROMOTION_PATHS.filter(item=>item!==presetsPath&&item!==profilePath))write(relative,`promoted ${relative}\n`);
+  git(['add','--',...runner.PROMOTION_PATHS]);git(['commit','-m',runner.PROMOTION_SUBJECT]);
+  const promotionCommit=git(['rev-parse','HEAD']),promotionParentTree=git(['rev-parse','HEAD^^{tree}']);
+  const promotionCommitTree=git(['rev-parse','HEAD^{tree}']);
+  const receipt={intent,promotionCommit,promotionParentCommit:parentCommit,promotionParentTree,
+    promotionCommitTree};
+  write('README.md','later approved code descendant\n');git(['add','README.md']);git(['commit','-m','later code descendant']);
+  assert.throws(()=>runner.readPromotionCommit(root,intent,record),/current commit does not match the pending dedicated promotion intent/);
+  assert.equal(runner.readPromotionCommit(root,intent,record,receipt).commit,promotionCommit);
 });
 
 test('promotion readback rejects a commit that contains only a subset of the four paths',t=>{

@@ -500,10 +500,28 @@ function documentationOnlyDescendant(root,ancestor){
     return changed.length>0&&changed.every(relative=>relative.startsWith('docs/'));
   }catch{return false;}
 }
-function prerequisiteRecord(item){
-  if(!item||typeof item!=='object'||!item.stage||!item.phase||!/^([a-f0-9]{64})$/.test(item.resultSha256||'')
-    ||!/^([a-f0-9]{64})$/.test(item.archiveSha256||'')||!/^([a-f0-9]{40})$/.test(item.creatorRevision||'')
-    ||typeof item.decision!=='string'||(item.executionPlanSha256&&!/^[a-f0-9]{64}$/.test(item.executionPlanSha256)))
+function prerequisiteRecord(item,{stage:planStage,phase:planPhase}={}){
+  const hash=value=>/^([a-f0-9]{64})$/.test(value||'');
+  const creator=/^([a-f0-9]{40})$/.test(item?.creatorRevision||'');
+  const adaptiveStage3=item?.stage==='stage3e'&&item?.phase==='adaptive-mid-01';
+  if(adaptiveStage3){
+    const expectedKeys=['creatorRevision','decision','executionPlanSha256','fullResultSha256','parentManifestSha256',
+      'phase','probeResultSha256','resultSha256','screenResultSha256','selectionSchema','selectionSha256','stage'].sort();
+    if(planStage!=='stage3'||planPhase!=='stage3'||!same(Object.keys(item).sort(),expectedKeys)
+      ||item.decision!=='ADAPTIVE_MID_FULL_PASS'||!hash(item.resultSha256)||!creator
+      ||item.selectionSchema!=='issue7-stage3e-extension-selection/v1'||!hash(item.selectionSha256)
+      ||!hash(item.parentManifestSha256)||!hash(item.executionPlanSha256)||!hash(item.screenResultSha256)
+      ||!hash(item.fullResultSha256)||!Array.isArray(item.probeResultSha256)
+      ||item.probeResultSha256.length<1||item.probeResultSha256.length>7||item.probeResultSha256.some(value=>!hash(value)))
+      throw new Error('BLOCKED_EXECUTION_PLAN: adaptive Stage3 prerequisite provenance is incomplete or invalid');
+    return stable({stage:item.stage,phase:item.phase,decision:item.decision,resultSha256:item.resultSha256,
+      creatorRevision:item.creatorRevision,selectionSchema:item.selectionSchema,selectionSha256:item.selectionSha256,
+      parentManifestSha256:item.parentManifestSha256,executionPlanSha256:item.executionPlanSha256,
+      probeResultSha256:item.probeResultSha256,screenResultSha256:item.screenResultSha256,fullResultSha256:item.fullResultSha256});
+  }
+  if(!item||typeof item!=='object'||!item.stage||!item.phase||!hash(item.resultSha256)
+    ||!hash(item.archiveSha256)||!creator||typeof item.decision!=='string'
+    ||(item.executionPlanSha256&&!hash(item.executionPlanSha256)))
     throw new Error('BLOCKED_EXECUTION_PLAN: prerequisite evidence is incomplete');
   return stable({stage:item.stage,phase:item.phase,decision:item.decision,resultSha256:item.resultSha256,
     archiveSha256:item.archiveSha256,creatorRevision:item.creatorRevision,
@@ -519,7 +537,7 @@ function deriveExecutionPlan({stage,phase,cells,renderBudget,identity,prerequisi
   if(!identity||typeof identity!=='object'||Array.isArray(identity))throw new Error('BLOCKED_EXECUTION_PLAN: frozen input identity is missing');
   if(!/^[a-f0-9]{40}$/.test(creatorRevision||''))throw new Error('BLOCKED_EXECUTION_PLAN: pinned creator revision is missing');
   if(!Array.isArray(prerequisites))throw new Error('BLOCKED_EXECUTION_PLAN: prerequisite list must be deterministic');
-  const frozenIdentity=stable(identity),frozenPrerequisites=prerequisites.map(prerequisiteRecord);
+  const frozenIdentity=stable(identity),frozenPrerequisites=prerequisites.map(item=>prerequisiteRecord(item,{stage,phase}));
   return stable({schemaVersion:1,issue:ISSUE,epoch:EPOCH,stage,phase,creatorRevision,contractSha256:CONTRACT_SHA256,
     identity:frozenIdentity,identitySha256:sha256(canonicalBytes(frozenIdentity)),cellKeys:keys,
     orderedCellSetSha256:sha256(canonicalBytes(keys)),cellSetSha256:cellSetSha256(keys),renderBudget,maxCalls:renderBudget,budgetCap:cap,
