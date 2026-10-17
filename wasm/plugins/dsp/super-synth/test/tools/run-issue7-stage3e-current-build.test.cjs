@@ -6,11 +6,20 @@ const crypto=require('node:crypto');
 const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
+const {execFileSync}=require('node:child_process');
 const runner=require('./run-issue7-stage3e-current-build.cjs');
 const core=require('./issue7-current-build-core.cjs');
 
 function metricsForBaseline(){
   return Object.fromEntries([...runner.BASELINE_FIELDS,...runner.MIDI41_FIELDS].map(field=>[field,0]));
+}
+function fixtureIdentity(root=runner.ROOT,record=runner.identityRecord(root)){
+  try{return runner.currentIdentity(root,record);}
+  catch(error){
+    const frozen=runner.loadFrozenParentIdentity(root,os.homedir(),core.EPOCH);
+    if(frozen)return frozen.identity;
+    throw error;
+  }
 }
 function baselineRows(){
   return runner.baselineCells().map(cell=>({cellKey:cell.key,observation:{metrics:metricsForBaseline()}}));
@@ -41,7 +50,7 @@ function treeSnapshot(root){
   return {exists:true,entries};
 }
 function seedFinalPhase(roots,phase,cells,decision,summary={}){
-  const identity=runner.currentIdentity(runner.ROOT,runner.identityRecord()),createdAt='2026-10-13T00:00:00.000Z';
+  const identity=fixtureIdentity(),createdAt='2026-10-13T00:00:00.000Z';
   const manifest={schemaVersion:1,issue:7,epoch:core.EPOCH,stage:'stage3e',phase,candidateId:`synthetic-${phase}`,
     creatorCommit:core.gitHead(runner.ROOT),identity,authorizationSha256:'a'.repeat(64),runnerSha256:'b'.repeat(64),
     captureHelperSha256:'c'.repeat(64),primaryWasmSha256:'d'.repeat(64),createdAt};
@@ -51,6 +60,23 @@ function seedFinalPhase(roots,phase,cells,decision,summary={}){
     core.completeCell({roots,phase,cellKey:cell.key,observation:{syntheticTest:true,label:'SYNTHETIC TEST',metrics:{finite:true,outputGuardHits:0,peakDbfs:-1,fullRenderPeakDbfs:-1}},now:()=>createdAt});
   }
   return core.finalizePhase({roots,phase,decision,summary,now:()=>createdAt});
+}
+function writeDualValue(roots,relative,value){
+  const bytes=core.canonicalBytes(value);
+  const paths=core.dualPaths(roots,relative);
+  for(const target of [paths.primary,paths.secondary]){fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,bytes);}
+  return bytes;
+}
+function seedFrozenIdentityBaseline(roots,identity,creatorRevision){
+  const createdAt='2026-10-17T00:00:00.000Z',cells=[{key:'frozen-identity-check'}];
+  const manifest={schemaVersion:1,issue:7,epoch:core.EPOCH,stage:'stage3e',phase:'baseline',candidateId:'frozen-identity-test',
+    creatorCommit:creatorRevision,identity,authorizationSha256:'a'.repeat(64),runnerSha256:'b'.repeat(64),
+    captureHelperSha256:'c'.repeat(64),primaryWasmSha256:'d'.repeat(64),createdAt};
+  core.initializePhase({roots,phase:'baseline',manifest,cells,renderBudget:1,now:()=>createdAt});
+  core.startCell({roots,phase:'baseline',cellKey:cells[0].key,cell:cells[0],identity,identityNow:()=>identity,now:()=>createdAt});
+  core.completeCell({roots,phase:'baseline',cellKey:cells[0].key,
+    observation:{finite:true,outputGuardHits:0,peakDbfs:-1,fullRenderPeakDbfs:-1},now:()=>createdAt});
+  return core.finalizePhase({roots,phase:'baseline',decision:'STAGE3E_BASELINE_EQUIVALENCE_PASS',now:()=>createdAt});
 }
 
 test('baseline plan contains the exact 12 coordinate pairs and 24 build captures',()=>{
@@ -63,6 +89,56 @@ test('baseline plan contains the exact 12 coordinate pairs and 24 build captures
   assert.equal(new Set(cells.map(cell=>cell.key)).size,24);
   assert.deepEqual([...new Set(cells.map(cell=>cell.buildRole))],['production','stage3e']);
   assert.deepEqual(runner.MIDI41_FIELDS,['velocityDerivative','velocityDerivativeWindowMs']);
+});
+
+test('frozen Stage3E parent identity binds both stores and the exact build-identity bytes',t=>{
+  const base=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-frozen-identity-'));
+  const root=path.join(base,'repo'),home=path.join(base,'home'),common=path.join(base,'common');
+  fs.mkdirSync(root);fs.mkdirSync(home);fs.mkdirSync(common);
+  const git=args=>execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim();
+  git(['init','-b','main']);git(['config','user.name','Issue 7 frozen identity test']);
+  git(['config','user.email','issue7-frozen-identity@example.invalid']);
+  fs.writeFileSync(path.join(root,'README.md'),'frozen identity fixture\n');git(['add','README.md']);git(['commit','-m','base identity source']);
+  const record={issue:7,epoch:core.EPOCH,sourceCommit:git(['rev-parse','HEAD'])};
+  const identityPath=path.join(root,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json');
+  fs.mkdirSync(path.dirname(identityPath),{recursive:true});
+  const recordBytes=Buffer.from(`${JSON.stringify(record,null,2)}\n`);fs.writeFileSync(identityPath,recordBytes);
+  const identity={sourceCommit:record.sourceCommit,buildIdentitySha256:core.sha256(recordBytes)};
+  const parent={issue:7,epoch:core.EPOCH,sourceCommit:record.sourceCommit,creatorRevision:record.sourceCommit,
+    recordSha256:core.sha256(core.canonicalBytes(record)),identity};
+  const roots=core.resolveRoots(root,'stage3e',core.EPOCH,{home,commonDirectory:common});
+  writeDualValue(roots,'adaptive-mid-01/parent-manifest.json',parent);
+  t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  assert.equal(runner.loadFrozenParentIdentity(root,home,core.EPOCH,common).parentManifestSha256,
+    core.sha256(core.canonicalBytes(parent)));
+  fs.writeFileSync(identityPath,Buffer.concat([recordBytes,Buffer.from(' ')]));
+  assert.throws(()=>runner.loadFrozenParentIdentity(root,home,core.EPOCH,common),/frozen build identity/);
+  fs.writeFileSync(identityPath,recordBytes);
+  const paths=core.dualPaths(roots,'adaptive-mid-01/parent-manifest.json');
+  fs.writeFileSync(paths.secondary,core.canonicalBytes({...parent,creatorRevision:'0'.repeat(40)}));
+  assert.throws(()=>runner.loadFrozenParentIdentity(root,home,core.EPOCH,common));
+});
+
+test('Stage3E verify uses the frozen parent identity for finalized history after promoted preset drift',t=>{
+  const root=runner.ROOT,record=runner.identityRecord(root),home=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-frozen-verify-home-')),
+    common=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-stage3e-frozen-verify-common-'));
+  t.after(()=>{fs.rmSync(home,{recursive:true,force:true});fs.rmSync(common,{recursive:true,force:true});});
+  try{runner.assertBuildExports(root,record);}catch(error){t.skip(`current build artifacts unavailable: ${error.message}`);return;}
+  const currentPresetsSha=runner.fileSha(root,record.inputs.presets.path);
+  assert.notEqual(currentPresetsSha,record.inputs.presets.sha256,'fixture requires promoted preset drift from the frozen build identity');
+  const recordBytes=fs.readFileSync(path.join(root,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json'));
+  const identity={issue:7,epoch:core.EPOCH,sourceCommit:record.sourceCommit,buildIdentitySha256:core.sha256(recordBytes),
+    inputs:record.inputs,toolchain:record.toolchain,builds:record.builds};
+  const roots=core.resolveRoots(root,'stage3e',core.EPOCH,{home,commonDirectory:common}),creatorRevision=core.gitHead(root);
+  const parent={issue:7,epoch:core.EPOCH,sourceCommit:record.sourceCommit,creatorRevision,
+    recordSha256:core.sha256(core.canonicalBytes(record)),identity};
+  writeDualValue(roots,'adaptive-mid-01/parent-manifest.json',parent);
+  seedFrozenIdentityBaseline(roots,identity,creatorRevision);
+  const result=runner.run({mode:'verify',root,home,epoch:core.EPOCH,commonDirectory:common});
+  assert.equal(result.decision,'STAGE3E_VERIFY_OK');
+  assert.equal(result.identitySource,'FROZEN_PARENT');
+  assert.equal(result.parentManifestSha256,core.sha256(core.canonicalBytes(parent)));
+  assert.equal(result.phases.baseline.identityMatches,true);
 });
 
 test('Stage3E cumulative budget includes baseline and initial diagnostic and reports the conditional 80-call skip',()=>{
@@ -303,7 +379,7 @@ test('legacy approval comments are ignored and the runner never reads them',t=>{
   try{record=runner.identityRecord(runner.ROOT);runner.assertBuildExports(runner.ROOT,record);}
   catch{t.skip('current-build identity/build artifacts are unavailable');return;}
   const cells=runner.baselineCells().map(cell=>cell.key),authorizedCellKeys=[...cells].sort();
-  const identity=runner.currentIdentity(runner.ROOT,record);
+  const identity=fixtureIdentity(runner.ROOT,record);
   const executionIdentity=core.makeExecutionIdentity({stage:'stage3e',phase:'baseline',cells,
     renderBudget:cells.length,prHeadSha:core.gitHead(runner.ROOT),identity});
   const executionIdentitySha256=core.executionIdentitySha256(executionIdentity);
@@ -347,7 +423,7 @@ test('legacy approval comments are ignored and the runner never reads them',t=>{
   }
 });
 
-test('dry-run does not change either canonical Stage3E store',t=>{
+test('post-promotion Stage3E dry-run blocks on live identity drift without changing either store',t=>{
   let record;
   try{record=runner.identityRecord(runner.ROOT);}catch{t.skip('current-build identity/build artifacts are unavailable');return;}
   for(const role of ['production','stage3e','stage4']){
@@ -361,15 +437,9 @@ test('dry-run does not change either canonical Stage3E store',t=>{
     const roots=core.resolveRoots(runner.ROOT,'stage3e',core.EPOCH,{home,commonDirectory:common});
     const before={primary:treeSnapshot(roots.primary),secondary:treeSnapshot(roots.secondary)};
     let calls=0;
-    const result=runner.run({mode:'dry-run',root:runner.ROOT,home,commonDirectory:common,render:()=>{calls+=1;return {};}});
+    assert.throws(()=>runner.run({mode:'dry-run',root:runner.ROOT,home,commonDirectory:common,render:()=>{calls+=1;return {};}}),
+      /BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT/);
     const after={primary:treeSnapshot(roots.primary),secondary:treeSnapshot(roots.secondary)};
-    assert.equal(result.decision,'STAGE3E_DRY_RUN_READY');
-    assert.equal(result.builds,0);
-    assert.equal(result.renders,0);
-    assert.equal(result.writes,0);
-    assert.equal(result.acousticRenders,0);
-    assert.equal(result.plan.maxGridCalls,2555);
-    assert.deepEqual(result.plan.budget,runner.budgetPlan());
     assert.equal(calls,0);
     assert.deepEqual(after,before);
   }finally{fs.rmSync(home,{recursive:true,force:true});}

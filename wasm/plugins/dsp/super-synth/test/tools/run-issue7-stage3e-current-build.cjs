@@ -12,6 +12,8 @@ const directMetrics=require('./stage3-direct-reference-metrics.cjs');
 
 const ROOT=core.ROOT;
 const STAGE='stage3e';
+const IDENTITY_REL='docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json';
+const PARENT_MANIFEST_REL='adaptive-mid-01/parent-manifest.json';
 const DEFAULT_RESPONSE=Object.freeze({low:1,mid:1,bassHardness:1});
 const BASELINE_FIELDS=generation.BASELINE_METRIC_FIELDS;
 // The accepted Generation-2 helper keeps its MIDI41 diagnostic field list private.
@@ -32,7 +34,32 @@ const EXTRA_INPUTS=Object.freeze([
 ]);
 
 function fileSha(root,relative){return core.sha256(fs.readFileSync(path.join(root,relative)));}
-function identityRecord(root=ROOT){return JSON.parse(fs.readFileSync(path.join(root,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json'),'utf8'));}
+function identityRecord(root=ROOT){return JSON.parse(fs.readFileSync(path.join(root,IDENTITY_REL),'utf8'));}
+function loadFrozenParentIdentity(root=ROOT,home=os.homedir(),epoch=core.EPOCH,commonDirectory,record=identityRecord(root)){
+  const roots=core.resolveRoots(root,STAGE,epoch,{home,commonDirectory}),paths=core.dualPaths(roots,PARENT_MANIFEST_REL);
+  if(!fs.existsSync(paths.primary)&&!fs.existsSync(paths.secondary))return null;
+  const stored=core.readDualBytes(roots,PARENT_MANIFEST_REL),parent=JSON.parse(stored.bytes.toString('utf8'));
+  const recordBytes=fs.readFileSync(path.join(root,IDENTITY_REL)),recordSha256=core.sha256(core.canonicalBytes(record));
+  if(!core.same(JSON.parse(recordBytes.toString('utf8')),record)||parent.issue!==7||parent.epoch!==epoch
+    ||parent.recordSha256!==recordSha256||parent.sourceCommit!==record.sourceCommit
+    ||parent.identity?.buildIdentitySha256!==core.sha256(recordBytes)
+    ||parent.identity?.sourceCommit!==record.sourceCommit||!core.commitIsAncestor(root,record.sourceCommit)
+    ||!core.commitIsAncestor(root,parent.creatorRevision))
+    throw new Error('BLOCKED_STAGE3E_PARENT_IDENTITY: immutable parent manifest does not match the frozen build identity');
+  return {roots,parent,identity:parent.identity,parentManifestSha256:stored.sha256,recordSha256};
+}
+function verifyFrozenFinalizedPhases({root=ROOT,roots,identity}={}){
+  if(!roots||!identity)throw new Error('BLOCKED_STAGE3E_PARENT_IDENTITY: frozen parent identity is required');
+  const phases={};
+  for(const phase of core.PHASES){
+    if(!PHASE_SEQUENCE.some(([name])=>name===phase))continue;
+    const result=loadFinalMaybe(roots,phase);if(!result)continue;
+    const final=core.readFinal(roots,phase);core.verifyFinalizedIdentity({root,final,identity});
+    phases[phase]={decision:result.decision,renderCount:result.renderCount,identityMatches:true,
+      executionPlanSha256:result.executionPlanSha256||null};
+  }
+  return phases;
+}
 function currentIdentity(root=ROOT,record=identityRecord(root)){
   const base=core.hashInputs(root,record),helperInputs={};
   for(const relative of EXTRA_INPUTS)helperInputs[relative]=fileSha(root,relative);
@@ -459,7 +486,8 @@ function runCellsLocked({root,roots,record,identity,phase,cells,syntheticTest=fa
   for(const cell of cells){
     const existing=core.readCell(roots,phase,cell.key);
     if(existing.cell.state==='COMPLETE')continue;
-    const started=core.startCell({roots,phase,cellKey:cell.key,cell,identity,identityNow:()=>currentIdentity(root,record),now});
+    const started=core.startCell({roots,phase,cellKey:cell.key,cell,identity,
+      identityNow:()=>syntheticTest?identity:currentIdentity(root,record),now});
     if(started.skipped)continue;
     let measured;calls+=1;
     try{
@@ -491,6 +519,7 @@ function runCellsLocked({root,roots,record,identity,phase,cells,syntheticTest=fa
 function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDefault,now=()=>new Date().toISOString(),
   syntheticTest=false,commonDirectory,phase:requestedPhase}={}){
   if(!['dry-run','baseline','screen','full','finalize','verify'].includes(mode))throw new Error('explicit mode required: dry-run, baseline, screen, full, finalize, or verify');
+  if(['baseline','screen','full'].includes(mode))validateExecutionMode({syntheticTest,render});
   let phase=null;
   if(mode==='baseline'||mode==='screen'||mode==='full'){
     phase=expectedPhaseForMode(root,home,mode,epoch,commonDirectory);
@@ -501,7 +530,11 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDef
       throw new Error('BLOCKED_STAGE3E_PHASE: no eligible phase is available for this mode');
     }
   }
-  const record=identityRecord(root),identity=currentIdentity(root,record),exports=assertBuildExports(root,record),roots=core.resolveRoots(root,STAGE,epoch,{home,commonDirectory});
+  const record=identityRecord(root),roots=core.resolveRoots(root,STAGE,epoch,{home,commonDirectory});
+  const frozenParent=mode==='verify'?loadFrozenParentIdentity(root,home,epoch,commonDirectory,record)
+    :syntheticTest?(loadFrozenParentIdentity(root,home,epoch,commonDirectory,record)
+      ||loadFrozenParentIdentity(root,os.homedir(),epoch,undefined,record)):null;
+  const identity=frozenParent?.identity||currentIdentity(root,record),exports=assertBuildExports(root,record);
   const budget=budgetPlan();
   const plan={baselineCells:24,midi51DiagnosticCells:16,lowScreenCellsPerCandidate:search.lowScreenCells().length,
     midi51CandidateCellsPerCandidate:MIDI51_VELOCITIES.length,maxMidi51CandidateCount:5,
@@ -513,17 +546,20 @@ function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,render=renderDef
     return {decision:'STAGE3E_DRY_RUN_READY',phase:progress.phase,identitySha256:core.sha256(core.canonicalBytes(identity)),builds:0,renders:0,writes:0,acousticRenders:0,plan,exports};
   }
   if(mode==='verify'){
-    const phases={};
-    for(const phase of core.PHASES){
-      if(!['baseline','midi51-diagnostic','low-screen','midi51-candidate-diagnostic','low-full','mid-screen','midi51-final-diagnostic','mid-full'].includes(phase))continue;
+    const phases=frozenParent?verifyFrozenFinalizedPhases({root,roots,identity}):{};
+    if(!frozenParent)for(const phase of core.PHASES){
+      if(!PHASE_SEQUENCE.some(([name])=>name===phase))continue;
       const result=loadFinalMaybe(roots,phase);if(result){
         const final=core.readFinal(roots,phase);core.verifyFinalizedIdentity({root,final,identity});
-        phases[phase]={decision:result.decision,renderCount:result.renderCount,identityMatches:true,executionPlanSha256:result.executionPlanSha256||null};
+        phases[phase]={decision:result.decision,renderCount:result.renderCount,identityMatches:true,
+          executionPlanSha256:result.executionPlanSha256||null};
       }
     }
     const selectionPath=core.dualPaths(roots,'selection.json');
     const selection=fs.existsSync(selectionPath.primary)||fs.existsSync(selectionPath.secondary)?core.readDualJson(roots,'selection.json'):null;
-    return {decision:selection?'STAGE3E_SELECTED_RESPONSE':'STAGE3E_VERIFY_OK',phases,selection,builds:0,renders:0,writes:0,acousticRenders:0};
+    return {decision:selection?'STAGE3E_SELECTED_RESPONSE':'STAGE3E_VERIFY_OK',phases,selection,
+      identitySource:frozenParent?'FROZEN_PARENT':'CURRENT',parentManifestSha256:frozenParent?.parentManifestSha256||null,
+      builds:0,renders:0,writes:0,acousticRenders:0};
   }
   if(mode==='finalize'){
     return core.withWriterLock({commonDirectory:roots.commonDirectory},()=>{
@@ -560,7 +596,7 @@ function main(argv=process.argv.slice(2)){
 if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=/^BLOCKED_/.test(error.message)?2:1;}}
 
 module.exports={ROOT,STAGE,DEFAULT_RESPONSE,BASELINE_FIELDS,MIDI41_FIELDS,MIDI51_VELOCITIES,EXTRA_INPUTS,
-  fileSha,identityRecord,currentIdentity,buildDirectory,assertBuildExports,baselineCoordinates,baselineCells,midi51Cells,
+  fileSha,identityRecord,loadFrozenParentIdentity,verifyFrozenFinalizedPhases,currentIdentity,buildDirectory,assertBuildExports,baselineCoordinates,baselineCells,midi51Cells,
   midi51CandidateCells,phaseManifest,captureOptions,renderDefault,compareValue,compareBaseline,evaluateMidi51,diagnoseMidi51,
   lowScreenCells,midScreenCells,fullCells,loadFinalMaybe,rowsForPhase,phaseCompletedWith,screenLowerBounds,evaluateScreen,
   validateLowScreenTuples,normalizeMidFullTuples,lowScreenTopTuples,passingCandidates,evaluateFull,evaluateCandidateDiagnostics,

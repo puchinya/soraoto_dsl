@@ -250,6 +250,23 @@ function recordRunAllEvent(roots,owner,event,now){
   return core.appendDualJournal(roots,{schemaVersion:1,issue:7,epoch:core.EPOCH,ownerId:owner.ownerId,pid:owner.pid,
     occurredAt:now(),...event},{relative:RUN_ALL_JOURNAL});
 }
+function ensureRunAllRuntimeRevisionEvents({roots,owner,append,events}={}){
+  const check=event=>{
+    const journal=core.readDualJournal(roots,RUN_ALL_JOURNAL),matches=journal.events.filter(item=>item.type===event.type);
+    if(matches.length>1||matches.some(item=>Object.entries(event).some(([key,value])=>!core.same(item[key],value))))
+      throw new Error(`BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: conflicting or duplicate ${event.type} master journal event`);
+    return matches;
+  };
+  const before=events.map(event=>({event,matches:check(event)}));
+  for(const item of before)if(!item.matches.length)append(owner,item.event);
+  const after=events.map(event=>({event,matches:check(event)}));
+  const missing=after.find(item=>item.matches.length!==1);
+  if(missing)throw new Error(`BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: ${missing.event.type} master journal readback is missing`);
+  return after.map(item=>item.matches[0]);
+}
+function ensureRunAllRuntimeRevisionEvent(options={}){
+  return ensureRunAllRuntimeRevisionEvents({...options,events:[options.event]})[0];
+}
 function resultDecision(result){return typeof result?.decision==='string'?result.decision:'BLOCKED_ISSUE7_UNKNOWN_RESULT';}
 function phaseDecisionValid(item,result){
   const allowed=[item.success,...(item.accepted||[])];return allowed.includes(resultDecision(result));
@@ -301,7 +318,13 @@ function snapshotEvidence(root,home,epoch,commonDirectory){
 function runReadOnlyFinalGate({root,home,epoch,runners,readPhase,commonDirectory,verifyReadOnly=verify,statusReadOnly=status,dryRunReadOnly=dryRun}={}){
   const before=snapshotEvidence(root,home,epoch,commonDirectory);
   const observed={status:statusReadOnly({root,home,epoch,runners,readPhase}),dryRun:dryRunReadOnly({root,home,epoch,runners,readPhase}),verify:verifyReadOnly({root,home,epoch,runners})};
-  if(Object.values(observed).some(item=>item.builds!==0||item.renders!==0||item.writes!==0||item.acousticRenders!==0))
+  const hasStatefulCount=item=>{
+    const values=[item.buildsStarted,item.renders,item.writes,item.acousticRenders,
+      typeof item.builds==='number'?item.builds:undefined,item.builds?.builds,item.builds?.renders,item.builds?.writes,
+      item.stage3?.builds,item.stage3?.renders,item.stage3?.writes,item.stage4?.builds,item.stage4?.renders,item.stage4?.writes];
+    return values.some(value=>value!==undefined&&value!==0);
+  };
+  if(Object.values(observed).some(hasStatefulCount))
     throw new Error('BLOCKED_ISSUE7_READ_ONLY_CHECK: status/dry-run/verify reported a stateful operation');
   const after=snapshotEvidence(root,home,epoch,commonDirectory);
   if(!core.same(before,after))throw new Error('BLOCKED_ISSUE7_READ_ONLY_CHECK: evidence SHA or mtime changed during status/dry-run/verify');
@@ -338,7 +361,7 @@ function buildRunAllReport({root,home,epoch,roots,spend,runAcousticRenders,fullS
 function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe,
   now=()=>new Date().toISOString(),commonDirectory,promoteSelection=stage3.promoteSelection,runSuite=runVerificationSuite,
   verifyReadOnly=verify,statusReadOnly=status,dryRunReadOnly=dryRun,getStageFinal=finalizedStage,
-  runFinalGate=runReadOnlyFinalGate,buildReport=buildRunAllReport}={}){
+  runFinalGate=runReadOnlyFinalGate,buildReport=buildRunAllReport,readRenderCount=phaseRenderCount}={}){
   const roots=core.resolveRoots(root,'stage3e',epoch,{home,commonDirectory}),append=(owner,event)=>recordRunAllEvent(roots,owner,event,now);
   return core.withRunAllLock({commonDirectory:roots.commonDirectory,now},owner=>{
     let spend,startRenderCount=0;
@@ -391,8 +414,44 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
         if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_05_RECORDED'||recorded.builds!==0
           ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==2371)
           throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'}: ${recorded.reason||'revision 5 zero-render recording failed'}`);
-        append(owner,{type:'RUNTIME_REVISION_05_RECORDED',runtimeRevisionSha256:recorded.runtimeRevisionSha256,
-          renderCount:recorded.renderCount,acousticRenders:0});
+        ensureRunAllRuntimeRevisionEvent({roots,owner,append,event:{type:'RUNTIME_REVISION_05_RECORDED',
+          runtimeRevisionSha256:recorded.runtimeRevisionSha256,renderCount:2371,acousticRenders:0}});
+        preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+        assertReadOnlyStatus(preflight);
+      }
+      const expectedRuntimeRevision6Blocks=new Set([
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 6',
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 6 acceptance journal entry is missing or mismatched'
+      ]);
+      const revision6Pending=preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&expectedRuntimeRevision6Blocks.has(preflight.adaptiveMid.reason);
+      const activeRuntimeRevision=preflight.adaptiveMid?.runtimeRevisionNumber;
+      if(revision6Pending||activeRuntimeRevision===5||activeRuntimeRevision===6){
+        const record=runners.adaptiveMid?.recordRuntimeRevision6;
+        if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: approved revision 6 recorder is unavailable');
+        const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+        const cumulative=readRenderCount(root,home,epoch,roots.commonDirectory);
+        if(cumulative.total!==2371||cumulative.phases.find(item=>item.stage==='stage3')?.count!==0
+          ||cumulative.phases.find(item=>item.stage==='stage4')?.count!==0)
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: completed 2,371-cell checkpoint or zero downstream counts differ');
+        const expectedR5Sha=recorded.previousRuntimeRevisionSha256;
+        if(!/^[a-f0-9]{64}$/.test(expectedR5Sha||''))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 6 recorder did not return the verified R5 SHA');
+        if(recorded.decision==='ADAPTIVE_MID_RUNTIME_REVISION_06_RECORDED'){
+          if(recorded.builds!==0||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
+            ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||'')||recorded.previousRuntimeRevisionSha256!==expectedR5Sha)
+            throw new Error(`${recorded.decision}: revision 6 recorder did not preserve the exact zero-render R5 checkpoint`);
+          ensureRunAllRuntimeRevisionEvents({roots,owner,append,events:[
+            {type:'RUNTIME_REVISION_05_RECORDED',runtimeRevisionSha256:expectedR5Sha,renderCount:2371,acousticRenders:0},
+            {type:'RUNTIME_REVISION_06_RECORDED',runtimeRevisionSha256:recorded.runtimeRevisionSha256,
+              previousRuntimeRevisionSha256:expectedR5Sha,renderCount:2371,acousticRenders:0}
+          ]});
+        }else if(recorded.decision==='ADAPTIVE_MID_RUNTIME_REVISION_06_NOT_REQUIRED'&&activeRuntimeRevision===5&&!revision6Pending){
+          if(recorded.builds!==0||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136)
+            throw new Error(`${recorded.decision}: revision 5 zero-render confirmation differs`);
+          ensureRunAllRuntimeRevisionEvent({roots,owner,append,event:{type:'RUNTIME_REVISION_05_RECORDED',
+            runtimeRevisionSha256:expectedR5Sha,renderCount:2371,acousticRenders:0}});
+        }else throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'}: ${recorded.reason||'revision 6 was not accepted'}`);
         preflight=statusReadOnly({root,home,epoch,runners,readPhase});
         assertReadOnlyStatus(preflight);
       }
@@ -487,6 +546,52 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
     }
   });
 }
+function recordRuntimeRevision6Only({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},
+  readPhase=stage3e.loadFinalMaybe,now=()=>new Date().toISOString(),commonDirectory,readRenderCount=phaseRenderCount,
+  statusReadOnly=status,dryRunReadOnly=dryRun,verifyReadOnly=verify,runFinalGate=runReadOnlyFinalGate}={}){
+  const roots=core.resolveRoots(root,'stage3e',epoch,{home,commonDirectory});
+  return core.withRunAllLock({commonDirectory:roots.commonDirectory,now},owner=>{
+    const before=readRenderCount(root,home,epoch,roots.commonDirectory);
+    if(before.total!==2371||before.phases.find(item=>item.stage==='stage3')?.count!==0
+      ||before.phases.find(item=>item.stage==='stage4')?.count!==0)
+      return {decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',reason:'completed 2,371-cell checkpoint or zero downstream counts differ',
+        cumulativeRenderCount:before.total,builds:0,renders:0,acousticRenders:0};
+    const record=runners.adaptiveMid?.recordRuntimeRevision6;
+    if(typeof record!=='function')return {decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
+      reason:'approved revision 6 recorder is unavailable',cumulativeRenderCount:before.total,builds:0,renders:0,acousticRenders:0};
+    const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+    const r5Sha=recorded.previousRuntimeRevisionSha256;
+    if(!/^[a-f0-9]{64}$/.test(r5Sha||''))
+      return {decision:recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',reason:'verified R5 SHA is unavailable',
+        recorded,cumulativeRenderCount:before.total,builds:0,renders:0,acousticRenders:0};
+    if(recorded.decision==='ADAPTIVE_MID_RUNTIME_REVISION_06_RECORDED'){
+      if(recorded.builds!==0||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
+        ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||'')||recorded.previousRuntimeRevisionSha256!==r5Sha)
+        return {decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',reason:'revision 6 recorder did not preserve the exact zero-render R5 checkpoint',
+          recorded,cumulativeRenderCount:before.total,builds:0,renders:0,acousticRenders:0};
+      ensureRunAllRuntimeRevisionEvents({roots,owner,append:(lock,event)=>recordRunAllEvent(roots,lock,event,now),events:[
+        {type:'RUNTIME_REVISION_05_RECORDED',runtimeRevisionSha256:r5Sha,renderCount:2371,acousticRenders:0},
+        {type:'RUNTIME_REVISION_06_RECORDED',runtimeRevisionSha256:recorded.runtimeRevisionSha256,
+          previousRuntimeRevisionSha256:r5Sha,renderCount:2371,acousticRenders:0}
+      ]});
+    }else if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_06_NOT_REQUIRED')
+      return {decision:recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',reason:recorded.reason||'revision 6 recording failed',
+        recorded,cumulativeRenderCount:before.total,builds:0,renders:0,acousticRenders:0};
+    else ensureRunAllRuntimeRevisionEvent({roots,owner,append:(lock,event)=>recordRunAllEvent(roots,lock,event,now),
+      event:{type:'RUNTIME_REVISION_05_RECORDED',runtimeRevisionSha256:r5Sha,renderCount:2371,acousticRenders:0}});
+    const after=readRenderCount(root,home,epoch,roots.commonDirectory);
+    if(!core.same(before,after))return {decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
+      reason:'runtime revision recording changed completed acoustic cell accounting',recorded,
+      cumulativeRenderCount:after.total,builds:0,renders:0,acousticRenders:0};
+    const readOnlyGate=runFinalGate({root,home,epoch,runners,readPhase,commonDirectory:roots.commonDirectory,
+      statusReadOnly,dryRunReadOnly,verifyReadOnly});
+    if(readOnlyGate.decision!=='ISSUE7_READ_ONLY_FINAL_GATE_PASS')return {decision:'BLOCKED_ISSUE7_FINAL_VERIFY',
+      recorded,readOnlyGate,cumulativeRenderCount:after.total,builds:0,renders:0,acousticRenders:0};
+    return {decision:recorded.decision==='ADAPTIVE_MID_RUNTIME_REVISION_06_RECORDED'
+      ?'ISSUE7_RUNTIME_REVISION_06_RECORDED':'ISSUE7_RUNTIME_REVISION_06_NOT_REQUIRED',recorded,readOnlyGate,
+      cumulativeRenderCount:after.total,builds:0,renders:0,acousticRenders:0};
+  });
+}
 function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners}={}){
   if(mode==='status')return status({root,home,epoch,runners});
   if(mode==='dry-run')return dryRun({root,home,epoch,runners});
@@ -510,4 +615,5 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`${error
 
 module.exports={ROOT,PHASE_FLOW,STAGE3E_BUDGETS,TOTAL_RENDER_BUDGET,RUN_ALL_JOURNAL,readFinal,stage3eProgress,lockStatus,
   runAllLockStatus,status,finalizedStage,dryRun,verify,stage3eNextMode,dispatchNext,next,phaseRenderCount,runVerificationSuite,
-  preMidSearchLowFullPlan,runPreMidSearchLowFull,snapshotEvidence,runReadOnlyFinalGate,buildRunAllReport,runAll,run,parseMode,main};
+  preMidSearchLowFullPlan,runPreMidSearchLowFull,snapshotEvidence,runReadOnlyFinalGate,buildRunAllReport,runAll,
+  recordRuntimeRevision6Only,run,parseMode,main};

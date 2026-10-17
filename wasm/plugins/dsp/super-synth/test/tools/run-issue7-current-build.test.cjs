@@ -290,6 +290,89 @@ test('run-all records and verifies runtime revision 5 before any continuation',t
     &&event.runtimeRevisionSha256==='e'.repeat(64)&&event.renderCount===2371&&event.acousticRenders===0));
 });
 
+test('run-all recovers the missing R5 and R6 master events once and reuses them on retry',t=>{
+  const fixture=runAllFixture(t),adaptive=fixture.options.runners.adaptiveMid,order=[];
+  let statusCalls=0,recordCalls=0;
+  adaptive.recordRuntimeRevision6=options=>{
+    recordCalls++;order.push('record-r6');assert.ok(options.runAllOwner);
+    return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_06_RECORDED',runtimeRevisionSha256:'f'.repeat(64),
+      previousRuntimeRevisionSha256:'e'.repeat(64),renderCount:136,builds:0,renders:0,writes:3,acousticRenders:0};
+  };
+  fixture.options.statusReadOnly=()=>{
+    statusCalls++;order.push('status');const pending=statusCalls===1;
+    return {decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
+      builds:{builds:0,renders:0,writes:0},stage3:{builds:0,renders:0,writes:0},stage4:{builds:0,renders:0,writes:0},
+      stage3e:{decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:'adaptive-mid-01'},
+      adaptiveMid:pending?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
+        reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 6'}
+        :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:6}};
+  };
+  fixture.options.readRenderCount=()=>({total:2371,phases:[{stage:'stage3',count:0},{stage:'stage4',count:0}]});
+  fixture.options.verifyReadOnly=()=>{order.push('verify');return {decision:'ISSUE7_CURRENT_BUILD_VERIFY_OK'};};
+  const first=master.runAll(fixture.options);
+  assert.equal(first.decision,'ISSUE7_READY_FOR_REVIEW');
+  assert.equal(statusCalls,2);assert.equal(recordCalls,1);assert.ok(order.indexOf('record-r6')<order.indexOf('verify'));
+  const roots=core.resolveRoots(fixture.root,'stage3e',core.EPOCH,{home:fixture.home});
+  const readEvents=()=>core.readDualJournal(roots,master.RUN_ALL_JOURNAL).events;
+  const revisions=()=>readEvents().filter(event=>/^RUNTIME_REVISION_0[56]_RECORDED$/.test(event.type));
+  assert.deepEqual(revisions().map(event=>event.type),['RUNTIME_REVISION_05_RECORDED','RUNTIME_REVISION_06_RECORDED']);
+  assert.equal(revisions()[0].runtimeRevisionSha256,'e'.repeat(64));
+  assert.equal(revisions()[1].runtimeRevisionSha256,'f'.repeat(64));
+  assert.equal(revisions()[1].previousRuntimeRevisionSha256,revisions()[0].runtimeRevisionSha256);
+  assert.ok(revisions().every(event=>event.renderCount===2371&&event.acousticRenders===0));
+  fixture.options.statusReadOnly=()=>({decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
+    builds:{builds:0,renders:0,writes:0},stage3:{builds:0,renders:0,writes:0},stage4:{builds:0,renders:0,writes:0},
+    stage3e:{decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:'adaptive-mid-01'},
+    adaptiveMid:{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:6}});
+  const second=master.runAll(fixture.options);
+  assert.equal(second.decision,'ISSUE7_READY_FOR_REVIEW');
+  assert.equal(recordCalls,2);
+  assert.equal(revisions().length,2,'retry must not duplicate the R5/R6 master events');
+});
+
+test('run-all fails closed on a conflicting R5 master event before acoustic continuation',t=>{
+  const fixture=runAllFixture(t),adaptive=fixture.options.runners.adaptiveMid;
+  let recordCalls=0;
+  adaptive.recordRuntimeRevision6=()=>{recordCalls++;return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_06_RECORDED',
+    runtimeRevisionSha256:'f'.repeat(64),previousRuntimeRevisionSha256:'e'.repeat(64),renderCount:136,
+    builds:0,renders:0,writes:0,acousticRenders:0};};
+  fixture.options.statusReadOnly=()=>({decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
+    builds:{builds:0,renders:0,writes:0},stage3:{builds:0,renders:0,writes:0},stage4:{builds:0,renders:0,writes:0},
+    stage3e:{decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:'adaptive-mid-01'},
+    adaptiveMid:{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:6}});
+  fixture.options.readRenderCount=()=>({total:2371,phases:[{stage:'stage3',count:0},{stage:'stage4',count:0}]});
+  const roots=core.resolveRoots(fixture.root,'stage3e',core.EPOCH,{home:fixture.home});
+  core.appendDualJournal(roots,{type:'RUNTIME_REVISION_05_RECORDED',runtimeRevisionSha256:'0'.repeat(64),
+    renderCount:2371,acousticRenders:0},{relative:master.RUN_ALL_JOURNAL});
+  const result=master.runAll(fixture.options);
+  assert.equal(result.decision,'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION');
+  assert.equal(recordCalls,1);
+  assert.equal(fixture.calls.some(call=>call.mode==='execute'||call.mode==='adaptive-execute'),false);
+});
+
+test('R6 metadata-only recorder preserves 2,371 cells, verifies read-only gates, and reuses journal entries',t=>{
+  const fixture=runAllFixture(t),adaptive=fixture.options.runners.adaptiveMid;
+  let recordCalls=0;
+  adaptive.recordRuntimeRevision6=()=>{recordCalls++;return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_06_RECORDED',
+    runtimeRevisionSha256:'f'.repeat(64),previousRuntimeRevisionSha256:'e'.repeat(64),renderCount:136,
+    builds:0,renders:0,writes:3,acousticRenders:0};};
+  const readOnly=()=>({decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
+    builds:{builds:0,renders:0,writes:0},stage3:{builds:0,renders:0,writes:0},stage4:{builds:0,renders:0,writes:0}});
+  const options={...fixture.options,readRenderCount:()=>({total:2371,phases:[{stage:'stage3',count:0},{stage:'stage4',count:0}]}),
+    statusReadOnly:readOnly,dryRunReadOnly:readOnly,verifyReadOnly:()=>({decision:'ISSUE7_CURRENT_BUILD_VERIFY_OK',
+      builds:0,renders:0,writes:0,acousticRenders:0}),runFinalGate:master.runReadOnlyFinalGate};
+  const first=master.recordRuntimeRevision6Only(options),second=master.recordRuntimeRevision6Only(options);
+  assert.equal(first.decision,'ISSUE7_RUNTIME_REVISION_06_RECORDED');
+  assert.equal(first.readOnlyGate.decision,'ISSUE7_READ_ONLY_FINAL_GATE_PASS');
+  assert.equal(first.cumulativeRenderCount,2371);assert.equal(first.acousticRenders,0);
+  assert.equal(second.decision,'ISSUE7_RUNTIME_REVISION_06_RECORDED');assert.equal(recordCalls,2);
+  const roots=core.resolveRoots(fixture.root,'stage3e',core.EPOCH,{home:fixture.home});
+  const events=core.readDualJournal(roots,master.RUN_ALL_JOURNAL).events
+    .filter(event=>/^RUNTIME_REVISION_0[56]_RECORDED$/.test(event.type));
+  assert.deepEqual(events.map(event=>event.type),['RUNTIME_REVISION_05_RECORDED','RUNTIME_REVISION_06_RECORDED']);
+  assert.ok(events.every(event=>event.renderCount===2371&&event.acousticRenders===0));
+});
+
 test('run-all does not invoke runtime revision recovery for any other adaptive blocker',t=>{
   const fixture=runAllFixture(t),adaptive=fixture.options.runners.adaptiveMid;
   let recordCalls=0;
