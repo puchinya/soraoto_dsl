@@ -100,14 +100,14 @@ test('Stage3 dry-run reports the missing Stage3E selection without writes or ren
   assert.equal(result.acousticRenders,0);assert.equal(calls,0);assert.deepEqual(after,before);
 });
 
-test('Stage3 dry-run accepts adaptive selection only with verified R6 and R7 runner identities',t=>{
+test('Stage3 dry-run accepts adaptive selection only with verified R6 and R8 runner identities',t=>{
   const {root,home}=isolatedRepo(t),stage3ePath='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.cjs',
     stage3Path='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.cjs';
   for(const relative of [stage3ePath,stage3Path]){
     const target=path.join(root,relative);fs.mkdirSync(path.dirname(target),{recursive:true});
     fs.copyFileSync(path.join(runner.ROOT,relative),target);
   }
-  const parentSha='a'.repeat(64),r6Sha='6'.repeat(64),r7Sha='7'.repeat(64);
+  const parentSha='a'.repeat(64),r6Sha='6'.repeat(64),r7Sha='7'.repeat(64),r8Sha='8'.repeat(64);
   const stage3eRunnerSha=runner.fileSha(root,stage3ePath),stage3RunnerSha=runner.fileSha(root,stage3Path);
   const selected={extensionSelection:true,selection:{schema:'issue7-stage3e-extension-selection/v1',
     decision:'ADAPTIVE_MID_FULL_PASS',parent:{manifestSha256:parentSha},extensionResultSha256:'b'.repeat(64),
@@ -122,8 +122,10 @@ test('Stage3 dry-run accepts adaptive selection only with verified R6 and R7 run
   let lineage={parentManifestSha256:parentSha,runtimeRevisions:[
     ...Array.from({length:5},(_,index)=>({sha256:String(index+1).repeat(64),value:{revisionNumber:index+1}})),
     {sha256:r6Sha,value:{revisionNumber:6,changedFileSha256:{[stage3ePath]:stage3eRunnerSha}}},
-    {sha256:r7Sha,value:{revisionNumber:7,previousRuntimeRevisionSha256:r6Sha,changedFileSha256:{[stage3Path]:stage3RunnerSha}}}
-  ]};
+    {sha256:r7Sha,value:{revisionNumber:7,previousRuntimeRevisionSha256:r6Sha}},
+    {sha256:r8Sha,value:{revisionNumber:8,previousRuntimeRevisionSha256:r7Sha,
+      approvalSha256:adaptiveMid.RUNTIME_REVISION_08_APPROVAL_SHA256,changedFileSha256:{[stage3Path]:stage3RunnerSha}}}
+  ],runtimeRevision:{sha256:r8Sha,value:{revisionNumber:8}}};
   adaptiveMid.verifyParentManifest=()=>lineage;
   try{
     const ready=runner.run({mode:'dry-run',root,home,prepareForDryRun:()=>{
@@ -138,8 +140,10 @@ test('Stage3 dry-run accepts adaptive selection only with verified R6 and R7 run
       {...lineage,runtimeRevisions:lineage.runtimeRevisions.slice(0,6)},
       {...lineage,runtimeRevisions:lineage.runtimeRevisions.map((revision,index)=>index===5
         ?{...revision,value:{...revision.value,changedFileSha256:{[stage3ePath]:'9'.repeat(64)}}}:revision)},
-      {...lineage,runtimeRevisions:lineage.runtimeRevisions.map((revision,index)=>index===6
-        ?{...revision,value:{...revision.value,changedFileSha256:{[stage3Path]:'9'.repeat(64)}}}:revision)}
+      {...lineage,runtimeRevisions:lineage.runtimeRevisions.map((revision,index)=>index===7
+        ?{...revision,value:{...revision.value,changedFileSha256:{[stage3Path]:'9'.repeat(64)}}}:revision)},
+      {...lineage,runtimeRevisions:lineage.runtimeRevisions.map((revision,index)=>index===7
+        ?{...revision,value:{...revision.value,previousRuntimeRevisionSha256:'0'.repeat(64)}}:revision)}
     ]){
       lineage=broken;
       const blocked=runner.run({mode:'dry-run',root,home,prepareForDryRun:()=>{
@@ -354,7 +358,12 @@ test('promotion readback rejects a commit that contains only a subset of the fou
 test('recovery appends one successor intent at R and resumes the exact four-path single-parent promotion',t=>{
   const fixture=recoveryPromotionRepo(t),{root,home,git,roots,record,selection,recoveryCommit,oldBytes,oldPaths,oldStats}=fixture;
   let acousticCalls=0,prepareCalls=0,verifyCalls=0;
-  const verifyRevision4=()=>{verifyCalls++;return {sha256:'9'.repeat(64),value:{revisionNumber:4,codeRevision:recoveryCommit}};};
+  let acceptedPromotionCommit=null,acceptedR8CodeRevision=recoveryCommit;
+  const verifyRevision4=()=>{verifyCalls++;return {sha256:'ab7833c3ae875593554c41366601ba00c41799396f0a7becdd90c8403a1aab5a',
+    value:{revisionNumber:4,codeRevision:recoveryCommit},
+    acceptedRuntimeRevision8:{sha256:'8'.repeat(64),value:{revisionNumber:8,codeRevision:acceptedR8CodeRevision,
+      previousRuntimeRevisionSha256:'b007fdcf3daaf12402896bed69c47b70bb775fcced4731e8eba31d8c05bde246',
+      promotionCommit:acceptedPromotionCommit}}};};
   const writeSelected=(target,selectedRecord,tuple)=>{
     prepareCalls++;
     const presets=runner.PROMOTION_PATHS.find(relative=>relative.endsWith('/presets.json'));
@@ -386,6 +395,7 @@ test('recovery appends one successor intent at R and resumes the exact four-path
   assert.deepEqual(promoted.details.changedPaths,runner.PROMOTION_PATHS);
   assert.equal(git(['rev-list','--parents','-n','1','HEAD']).split(/\s+/).length,2);
   const promotionCommit=git(['rev-parse','HEAD']);
+  acceptedPromotionCommit=promotionCommit;
   assert.equal(git(['rev-parse','HEAD^']),recoveryCommit);
   assert.deepEqual([oldPaths.primary,oldPaths.secondary].map(file=>fs.statSync(file).mtimeMs),oldStats);
   assert.deepEqual(fs.readFileSync(oldPaths.primary),oldBytes.bytes);assert.deepEqual(fs.readFileSync(oldPaths.secondary),oldBytes.bytes);
@@ -399,6 +409,22 @@ test('recovery appends one successor intent at R and resumes the exact four-path
   assert.equal(git(['rev-parse','HEAD']),promotionCommit);
   assert.equal(prepareCalls,2);
   assert.equal(verifyCalls>=4,true);
+  assert.equal(acousticCalls,0);
+  const r8Paths=[
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.test.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-current-build.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-current-build.test.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.test.cjs'
+  ].sort();
+  for(const relative of r8Paths){const file=path.join(root,relative);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,`R8 source fixture ${relative}\n`);}
+  git(['add','--',...r8Paths]);git(['commit','-m','Issue 7 accepted R8 descendant fixture']);
+  acceptedR8CodeRevision=git(['rev-parse','HEAD']);
+  const beforeR8Reuse=acceptedR8CodeRevision,acceptedR8Reuse=runner.ensurePromotionCommit({...common,prepareSelectedFiles:writeSelected});
+  assert.equal(acceptedR8Reuse.reused,true);
+  assert.equal(acceptedR8Reuse.details.commit,promotionCommit);
+  assert.equal(git(['rev-parse','HEAD']),beforeR8Reuse,'R8 descendant reuse must not create another promotion commit');
   assert.equal(acousticCalls,0);
   fs.writeFileSync(path.join(root,'README.md'),'unexpected later HEAD\n');git(['add','README.md']);git(['commit','-m','unexpected later HEAD']);
   assert.throws(()=>runner.ensurePromotionCommit({...common,prepareSelectedFiles:writeSelected}),/BLOCKED_STAGE3_PROMOTION/);

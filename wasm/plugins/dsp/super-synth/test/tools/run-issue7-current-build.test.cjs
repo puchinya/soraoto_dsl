@@ -193,11 +193,15 @@ function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL',fin
       ?{selection:{schema:'issue7-stage3e-extension-selection/v1'},selectionSha256:'c'.repeat(64)}:null;},
     run(options){
       calls.push({stage:'stage3e',mode:options.mode==='execute'?'adaptive-execute':options.mode,phase:'adaptive-mid-01'});
-      if(options.mode==='dry-run')return {decision:'ADAPTIVE_MID_DRY_RUN_READY',builds:0,renders:0,writes:0,acousticRenders:0};
+      if(options.mode==='dry-run')return {decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8,
+        builds:0,renders:0,writes:0,acousticRenders:0};
       if(options.mode==='verify')return {decision:'ADAPTIVE_MID_VERIFY_OK',builds:0,renders:0,writes:0,acousticRenders:0};
       adaptiveFinal={decision:finalDiagnosticPass?'ADAPTIVE_MID_FULL_PASS':'BLOCKED_NO_FEASIBLE_MID_RESPONSE',renderCount:0,summary:{}};
       return {...adaptiveFinal,phase:'adaptive-mid-01',acousticRenders:0,builds:0,renders:0,writes:1};
-    }
+    },
+    recordRuntimeRevision8(options){assert.ok(options.runAllOwner);return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_08_RECORDED',
+      runtimeRevisionSha256:'8'.repeat(64),previousRuntimeRevisionSha256:'b007fdcf3daaf12402896bed69c47b70bb775fcced4731e8eba31d8c05bde246',
+      renderCount:136,builds:0,renders:0,writes:0,acousticRenders:0};}
   };
   const counters={promotion:0,suite:0,report:0};
   const options={root,home,runners:{stage3e,adaptiveMid,stage3,stage4},readPhase,
@@ -205,7 +209,11 @@ function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL',fin
     promoteSelection:()=>{counters.promotion++;return {decision:'STAGE3_PROMOTION_READY'};},
     runSuite:()=>{counters.suite++;return {decision:'ISSUE7_FULL_SUITE_PASS',results:[]};},
     getStageFinal:({stage})=>stageFinals.get(stage)||null,
-    runFinalGate:()=>({decision:'ISSUE7_READ_ONLY_FINAL_GATE_PASS'}),
+    runFinalGate:()=>({decision:'ISSUE7_READ_ONLY_FINAL_GATE_PASS',observed:{dryRun:{
+      decision:'BLOCKED_ISSUE7_CURRENT_BUILD_DRY_RUN',stage3e:{decision:'STAGE3E_SELECTED_RESPONSE'},
+      adaptiveMid:{decision:'ADAPTIVE_MID_DRY_RUN_READY'},stage3:{decision:'STAGE3_DRY_RUN_READY'},
+      stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED'}}}}),
+    readRenderCount:()=>({total:2371,phases:[{stage:'stage3',count:0},{stage:'stage4',count:0}]}),
     buildReport:({spend,runAcousticRenders})=>{counters.report++;return {decision:'ISSUE7_READY_FOR_REVIEW',acousticRenders:runAcousticRenders,cumulativeRenderCount:spend.total};}};
   return {root,home,phases,stageFinals,calls,counters,options};
 }
@@ -282,6 +290,75 @@ test('run-all records only the exact pending runtime revision 4 blocker before a
     &&event.runtimeRevisionSha256==='d'.repeat(64)&&event.renderCount===2371&&event.acousticRenders===0));
 });
 
+test('run-all records the exact pending R8 once, tolerates Stage4 waiting for Stage3, and continues in the same invocation',t=>{
+  const fixture=runAllFixture(t),adaptive=fixture.options.runners.adaptiveMid;
+  const expected='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 8';
+  const r7Sha='b007fdcf3daaf12402896bed69c47b70bb775fcced4731e8eba31d8c05bde246';
+  let statusCalls=0,recordCalls=0,gateCalls=0;
+  adaptive.recordRuntimeRevision8=options=>{
+    recordCalls++;assert.ok(options.runAllOwner);
+    return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_08_RECORDED',runtimeRevisionSha256:'8'.repeat(64),
+      previousRuntimeRevisionSha256:r7Sha,renderCount:136,builds:0,renders:0,writes:3,acousticRenders:0};
+  };
+  fixture.options.readRenderCount=()=>({total:2371,phases:[{stage:'stage3',count:0},{stage:'stage4',count:0}]});
+  fixture.options.statusReadOnly=()=>{
+    statusCalls++;const pending=statusCalls===1;
+    return {decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
+      builds:{builds:0,renders:0,writes:0},stage3e:{decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:'adaptive-mid-01'},
+      adaptiveMid:pending?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',reason:expected}
+        :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8},
+      stage3:{decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,writes:0},
+      stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED',builds:0,renders:0,writes:0}};
+  };
+  fixture.options.runFinalGate=()=>{
+    gateCalls++;
+    return {decision:'ISSUE7_READ_ONLY_FINAL_GATE_PASS',observed:{
+      status:{buildsStarted:0,renders:0,writes:0,acousticRenders:0},verify:{decision:'ISSUE7_CURRENT_BUILD_VERIFY_OK'},
+      dryRun:{decision:'BLOCKED_ISSUE7_CURRENT_BUILD_DRY_RUN',
+        stage3e:{decision:'STAGE3E_SELECTED_RESPONSE'},adaptiveMid:{decision:'ADAPTIVE_MID_DRY_RUN_READY'},
+        stage3:{decision:'STAGE3_DRY_RUN_READY'},stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED'}}}};
+  };
+  const result=master.runAll(fixture.options);
+  assert.equal(result.decision,'ISSUE7_READY_FOR_REVIEW');
+  assert.equal(statusCalls,2);assert.equal(recordCalls,1);assert.equal(gateCalls,2);
+  assert.equal(fixture.counters.promotion,1);assert.equal(fixture.counters.suite,1);
+  const roots=core.resolveRoots(fixture.root,'stage3e',core.EPOCH,{home:fixture.home});
+  const events=core.readDualJournal(roots,master.RUN_ALL_JOURNAL).events.filter(event=>event.type==='RUNTIME_REVISION_08_RECORDED');
+  assert.equal(events.length,1);
+  assert.deepEqual(Object.fromEntries(['type','runtimeRevisionSha256','previousRuntimeRevisionSha256','renderCount','acousticRenders']
+    .map(key=>[key,events[0][key]])),{type:'RUNTIME_REVISION_08_RECORDED',runtimeRevisionSha256:'8'.repeat(64),
+    previousRuntimeRevisionSha256:r7Sha,renderCount:2371,acousticRenders:0});
+});
+
+test('run-all keeps R8 fail-closed when Stage3 preflight has an unexpected blocker',t=>{
+  const fixture=runAllFixture(t),adaptive=fixture.options.runners.adaptiveMid;
+  let statusCalls=0,recordCalls=0;
+  adaptive.recordRuntimeRevision8=()=>{recordCalls++;return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_08_RECORDED',
+    runtimeRevisionSha256:'8'.repeat(64),previousRuntimeRevisionSha256:'b007fdcf3daaf12402896bed69c47b70bb775fcced4731e8eba31d8c05bde246',
+    renderCount:136,builds:0,renders:0,writes:3,acousticRenders:0};};
+  fixture.options.readRenderCount=()=>({total:2371,phases:[{stage:'stage3',count:0},{stage:'stage4',count:0}]});
+  fixture.options.statusReadOnly=()=>{
+    statusCalls++;const pending=statusCalls===1;
+    return {buildsStarted:0,renders:0,writes:0,acousticRenders:0,builds:{builds:0,renders:0,writes:0},
+      stage3e:{decision:'STAGE3E_SELECTED_RESPONSE'},
+      adaptiveMid:pending?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
+        reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 8'}
+        :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8},
+      stage3:{decision:'BLOCKED_STAGE3E_SELECTION_REQUIRED',builds:0,renders:0,writes:0},
+      stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED',builds:0,renders:0,writes:0}};
+  };
+  fixture.options.runFinalGate=()=>({decision:'ISSUE7_READ_ONLY_FINAL_GATE_PASS',observed:{dryRun:{
+    decision:'BLOCKED_ISSUE7_CURRENT_BUILD_DRY_RUN',stage3e:{decision:'STAGE3E_SELECTED_RESPONSE'},
+    adaptiveMid:{decision:'ADAPTIVE_MID_DRY_RUN_READY'},stage3:{decision:'BLOCKED_STAGE3E_SELECTION_REQUIRED'},
+    stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED'}}}});
+  const result=master.runAll(fixture.options);
+  assert.equal(result.decision,'BLOCKED_ISSUE7_R8_STAGE3_PREFLIGHT');
+  assert.equal(statusCalls,2);assert.equal(recordCalls,1);assert.equal(fixture.counters.promotion,0);
+  assert.equal(fixture.calls.some(call=>call.mode==='execute'),false);
+  const roots=core.resolveRoots(fixture.root,'stage3e',core.EPOCH,{home:fixture.home});
+  assert.equal(core.readDualJournal(roots,master.RUN_ALL_JOURNAL).events.some(event=>event.type==='RUNTIME_REVISION_08_RECORDED'),true);
+});
+
 test('run-all records and verifies runtime revision 5 before any continuation',t=>{
   const fixture=runAllFixture(t),adaptive=fixture.options.runners.adaptiveMid,order=[];
   let statusCalls=0,recordCalls=0;
@@ -291,18 +368,21 @@ test('run-all records and verifies runtime revision 5 before any continuation',t
       renderCount:2371,builds:0,renders:0,writes:3,acousticRenders:0};
   };
   fixture.options.statusReadOnly=()=>{
-    statusCalls++;order.push('status');const pending=statusCalls===1;
+    statusCalls++;order.push('status');const pendingR5=statusCalls===1,pendingR8=statusCalls===2;
     return {decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
-      builds:{builds:0,renders:0,writes:0},stage3:{builds:0,renders:0,writes:0},stage4:{builds:0,renders:0,writes:0},
+      builds:{builds:0,renders:0,writes:0},stage3:{decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,writes:0},
+      stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED',builds:0,renders:0,writes:0},
       stage3e:{decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:'adaptive-mid-01'},
-      adaptiveMid:pending?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
+      adaptiveMid:pendingR5?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
         reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 5'}
-        :{decision:'ADAPTIVE_MID_VERIFY_OK'}};
+        :pendingR8?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
+          reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 8'}
+          :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8}};
   };
   fixture.options.verifyReadOnly=()=>{order.push('verify');return {decision:'ISSUE7_CURRENT_BUILD_VERIFY_OK'};};
   const result=master.runAll(fixture.options);
   assert.equal(result.decision,'ISSUE7_READY_FOR_REVIEW');
-  assert.equal(statusCalls,2);assert.equal(recordCalls,1);assert.ok(order.indexOf('record')<order.indexOf('verify'));
+  assert.equal(statusCalls,3);assert.equal(recordCalls,1);assert.ok(order.indexOf('record')<order.indexOf('verify'));
   const roots=core.resolveRoots(fixture.root,'stage3e',core.EPOCH,{home:fixture.home});
   assert.ok(core.readDualJournal(roots,master.RUN_ALL_JOURNAL).events.some(event=>event.type==='RUNTIME_REVISION_05_RECORDED'
     &&event.runtimeRevisionSha256==='e'.repeat(64)&&event.renderCount===2371&&event.acousticRenders===0));
@@ -317,19 +397,22 @@ test('run-all recovers the missing R5 and R6 master events once and reuses them 
       previousRuntimeRevisionSha256:'e'.repeat(64),renderCount:136,builds:0,renders:0,writes:3,acousticRenders:0};
   };
   fixture.options.statusReadOnly=()=>{
-    statusCalls++;order.push('status');const pending=statusCalls===1;
+    statusCalls++;order.push('status');const pendingR6=statusCalls===1,pendingR8=statusCalls===2;
     return {decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
-      builds:{builds:0,renders:0,writes:0},stage3:{builds:0,renders:0,writes:0},stage4:{builds:0,renders:0,writes:0},
+      builds:{builds:0,renders:0,writes:0},stage3:{decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,writes:0},
+      stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED',builds:0,renders:0,writes:0},
       stage3e:{decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:'adaptive-mid-01'},
-      adaptiveMid:pending?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
+      adaptiveMid:pendingR6?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
         reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 6'}
-        :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:6}};
+        :pendingR8?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
+          reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 8'}
+          :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8}};
   };
   fixture.options.readRenderCount=()=>({total:2371,phases:[{stage:'stage3',count:0},{stage:'stage4',count:0}]});
   fixture.options.verifyReadOnly=()=>{order.push('verify');return {decision:'ISSUE7_CURRENT_BUILD_VERIFY_OK'};};
   const first=master.runAll(fixture.options);
   assert.equal(first.decision,'ISSUE7_READY_FOR_REVIEW');
-  assert.equal(statusCalls,2);assert.equal(recordCalls,1);assert.ok(order.indexOf('record-r6')<order.indexOf('verify'));
+  assert.equal(statusCalls,3);assert.equal(recordCalls,1);assert.ok(order.indexOf('record-r6')<order.indexOf('verify'));
   const roots=core.resolveRoots(fixture.root,'stage3e',core.EPOCH,{home:fixture.home});
   const readEvents=()=>core.readDualJournal(roots,master.RUN_ALL_JOURNAL).events;
   const revisions=()=>readEvents().filter(event=>/^RUNTIME_REVISION_0[56]_RECORDED$/.test(event.type));
@@ -339,13 +422,16 @@ test('run-all recovers the missing R5 and R6 master events once and reuses them 
   assert.equal(revisions()[1].previousRuntimeRevisionSha256,revisions()[0].runtimeRevisionSha256);
   assert.ok(revisions().every(event=>event.renderCount===2371&&event.acousticRenders===0));
   fixture.options.statusReadOnly=()=>({decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
-    builds:{builds:0,renders:0,writes:0},stage3:{builds:0,renders:0,writes:0},stage4:{builds:0,renders:0,writes:0},
+    builds:{builds:0,renders:0,writes:0},stage3:{decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,writes:0},
+    stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED',builds:0,renders:0,writes:0},
     stage3e:{decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:'adaptive-mid-01'},
-    adaptiveMid:{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:6}});
+    adaptiveMid:{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8}});
   const second=master.runAll(fixture.options);
   assert.equal(second.decision,'ISSUE7_READY_FOR_REVIEW');
-  assert.equal(recordCalls,2);
+  assert.equal(recordCalls,1,'the finalized R6 recorder is not rerun after accepted R8');
   assert.equal(revisions().length,2,'retry must not duplicate the R5/R6 master events');
+  assert.equal(readEvents().filter(event=>event.type==='RUNTIME_REVISION_08_RECORDED').length,1,
+    'R8 recovery event must remain single across resume');
 });
 
 test('run-all fails closed on a conflicting R5 master event before acoustic continuation',t=>{

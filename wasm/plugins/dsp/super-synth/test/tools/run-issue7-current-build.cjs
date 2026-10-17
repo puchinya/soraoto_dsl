@@ -489,6 +489,54 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
         if(gate.decision!=='ISSUE7_READ_ONLY_FINAL_GATE_PASS')
           throw new Error(`BLOCKED_ISSUE7_R7_READ_ONLY_GATE: ${gate.decision||'read-only verification failed'}`);
       }
+      const expectedRuntimeRevision8Blocks=new Set([
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 8',
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 8 acceptance journal entry is missing or mismatched'
+      ]);
+      const revision8Pending=preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&expectedRuntimeRevision8Blocks.has(preflight.adaptiveMid.reason);
+      const selectedResponse=preflight.stage3e?.decision==='STAGE3E_SELECTED_RESPONSE';
+      const acceptedR8Ready=selectedResponse&&preflight.adaptiveMid?.decision==='ADAPTIVE_MID_DRY_RUN_READY'
+        &&preflight.adaptiveMid?.runtimeRevisionNumber===8;
+      if(revision8Pending||acceptedR8Ready){
+        const record=runners.adaptiveMid?.recordRuntimeRevision8;
+        if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: approved revision 8 recorder is unavailable');
+        const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+        const cumulative=readRenderCount(root,home,epoch,roots.commonDirectory);
+        if(cumulative.total!==2371||cumulative.phases.find(item=>item.stage==='stage3')?.count!==0
+          ||cumulative.phases.find(item=>item.stage==='stage4')?.count!==0)
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: completed 2,371-cell checkpoint or zero downstream counts differ');
+        if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_08_RECORDED'||recorded.builds!==0
+          ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
+          ||recorded.previousRuntimeRevisionSha256!==adaptiveMid.RUNTIME_REVISION_07_SHA256
+          ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||''))
+          throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08'}: ${recorded.reason||'revision 8 zero-render recording failed'}`);
+        ensureRunAllRuntimeRevisionEvent({roots,owner,append,event:{type:'RUNTIME_REVISION_08_RECORDED',
+          runtimeRevisionSha256:recorded.runtimeRevisionSha256,previousRuntimeRevisionSha256:recorded.previousRuntimeRevisionSha256,
+          renderCount:2371,acousticRenders:0}});
+        preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+        assertReadOnlyStatus(preflight);
+        const gate=runFinalGate({root,home,epoch,runners,readPhase,commonDirectory:roots.commonDirectory,
+          statusReadOnly,dryRunReadOnly,verifyReadOnly});
+        if(gate.decision!=='ISSUE7_READ_ONLY_FINAL_GATE_PASS')
+          throw new Error(`BLOCKED_ISSUE7_R8_READ_ONLY_GATE: ${gate.decision||'read-only verification failed'}`);
+        if(preflight.adaptiveMid?.decision!=='ADAPTIVE_MID_DRY_RUN_READY'||preflight.adaptiveMid?.runtimeRevisionNumber!==8
+          ||preflight.stage3?.decision!=='STAGE3_DRY_RUN_READY')
+          throw new Error(`BLOCKED_ISSUE7_R8_STAGE3_PREFLIGHT: ${preflight.adaptiveMid?.decision||'adaptive not ready'} / ${preflight.stage3?.decision||'Stage3 not ready'}`);
+        const stage3Final=getStageFinal({root,home,epoch,stage:'stage3',phase:'stage3'});
+        if(!stage3Final){
+          if(preflight.stage4?.decision!=='BLOCKED_STAGE4_STAGE3_REQUIRED'
+            ||gate.observed?.dryRun?.decision!=='BLOCKED_ISSUE7_CURRENT_BUILD_DRY_RUN'
+            ||gate.observed?.dryRun?.stage3?.decision!=='STAGE3_DRY_RUN_READY'
+            ||gate.observed?.dryRun?.stage4?.decision!=='BLOCKED_STAGE4_STAGE3_REQUIRED'
+            ||gate.observed?.dryRun?.stage3e?.decision?.startsWith('BLOCKED_')
+            ||gate.observed?.dryRun?.adaptiveMid?.decision?.startsWith('BLOCKED_'))
+            throw new Error('BLOCKED_ISSUE7_R8_STAGE3_PREFLIGHT: expected only the Stage4-awaiting-Stage3 dry-run blocker');
+        }
+      }
+      if(preflight.stage3e?.decision==='STAGE3E_SELECTED_RESPONSE'
+        &&(preflight.adaptiveMid?.decision!=='ADAPTIVE_MID_DRY_RUN_READY'||preflight.adaptiveMid.runtimeRevisionNumber!==8))
+        throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: accepted runtime revision 8 is required before Stage3 promotion or acoustic work');
       const verified=verifyReadOnly({root,home,epoch,runners});
       if(verified.decision.startsWith('BLOCKED_'))throw new Error(`BLOCKED_ISSUE7_PREFLIGHT_VERIFY: ${verified.decision}`);
       const progress=preflight.stage3e;
