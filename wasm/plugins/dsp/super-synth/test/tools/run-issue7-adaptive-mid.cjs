@@ -829,8 +829,9 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
     if(storedRevision5&&!storedRevision4)throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 5 has no revision 4 parent');
     if(storedRevision6&&!storedRevision5)throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 6 has no revision 5 parent');
     const runnerChanged=fileSha(root,RUNNER_REL)!==frozen.helperHashes?.[RUNNER_REL];
-    const helperHashesOverride=storedRevision||storedRevision2||storedRevision3||storedRevision4||storedRevision5||storedRevision6||runnerChanged
-      ?{[RUNNER_REL]:frozen.helperHashes?.[RUNNER_REL]}:undefined;
+    const helperHashesOverride=parentManifestHelperHashOverrides(root,frozen,{runtimeRevisionExists:Boolean(
+      storedRevision||storedRevision2||storedRevision3||storedRevision4||storedRevision5||storedRevision6||runnerChanged),
+      revision5:storedRevision5,revision6:storedRevision6});
     const built=buildParentManifest({root,home,epoch,commonDirectory,identityOverride:frozen.identity,
       creatorRevisionOverride:frozen.creatorRevision,helperHashesOverride,now});
     if(!core.same(frozen,built.manifest))
@@ -1011,6 +1012,15 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
   if(!write)return {...built,roots};
   const manifest=built.manifest,stored=writeImmutableObject(roots,'parent-manifest.json',manifest);
   return {...built,root,home,commonDirectory:roots.commonDirectory,roots,manifest,parentManifestSha256:stored.sha256};
+}
+function parentManifestHelperHashOverrides(root,frozen,{runtimeRevisionExists=false,revision5=null,revision6=null}={}){
+  const overrides={};
+  if(runtimeRevisionExists)overrides[RUNNER_REL]=frozen.helperHashes?.[RUNNER_REL];
+  const previousCodeRevision=revision5?.value?.codeRevision,head=core.gitHead(root);
+  const changedFromR5=previousCodeRevision&&head!==previousCodeRevision?gitPaths(root,previousCodeRevision,head):[];
+  if(revision6||core.same(changedFromR5,RUNTIME_REVISION_06_PATHS))
+    overrides[PARENT_EVALUATOR_REL]=frozen.helperHashes?.[PARENT_EVALUATOR_REL];
+  return Object.keys(overrides).length?overrides:undefined;
 }
 function assertPromotedDerivedIdentity(frozenIdentity,selection,derived){
   const links=derived?.stage3eSelectionSchema===selection.selection.schema
@@ -1906,6 +1916,7 @@ function verify({root=ROOT,home=os.homedir(),epoch=core.EPOCH,commonDirectory,pr
 }
 
 module.exports={ROOT,EXTENSION,PARENT_PHASES,PARENT_RENDER_COUNT,baseRoots,sidecarRoots,buildParentManifest,verifyParentManifest,assertPromotedDerivedIdentity,
+  parentManifestHelperHashOverrides,
   makeExecutionPlan,ensureExecutionPlan,readLedger,validateLedger,preflight,lockStatus,persistStepResult,loadProbeHistory,verifyRevisionProbe,
   validateRuntimeRevision2Code,validateRuntimeRevision2Snapshot,validateRuntimeRevision3Snapshot,validateRuntimeRevision3Code,
   validateRuntimeRevision4Code,validateRuntimeRevision4Snapshot,verifyRuntimeRevision4Checkpoint,createRuntimeRevision4Candidate,
