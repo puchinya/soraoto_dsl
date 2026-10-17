@@ -17,6 +17,4 @@ __pycache__/
 
 # macOS metadata
 .DS_Store
-
-# Local editor settings
 /.vscode/settings.json
