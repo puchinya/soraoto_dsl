@@ -193,7 +193,7 @@ function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL',fin
       ?{selection:{schema:'issue7-stage3e-extension-selection/v1'},selectionSha256:'c'.repeat(64)}:null;},
     run(options){
       calls.push({stage:'stage3e',mode:options.mode==='execute'?'adaptive-execute':options.mode,phase:'adaptive-mid-01'});
-      if(options.mode==='dry-run')return {decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8,
+      if(options.mode==='dry-run')return {decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8,runtimeRevisionSha256:'8'.repeat(64),
         builds:0,renders:0,writes:0,acousticRenders:0};
       if(options.mode==='verify')return {decision:'ADAPTIVE_MID_VERIFY_OK',builds:0,renders:0,writes:0,acousticRenders:0};
       adaptiveFinal={decision:finalDiagnosticPass?'ADAPTIVE_MID_FULL_PASS':'BLOCKED_NO_FEASIBLE_MID_RESPONSE',renderCount:0,summary:{}};
@@ -201,7 +201,7 @@ function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL',fin
     },
     recordRuntimeRevision8(options){assert.ok(options.runAllOwner);return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_08_RECORDED',
       runtimeRevisionSha256:'8'.repeat(64),previousRuntimeRevisionSha256:'b007fdcf3daaf12402896bed69c47b70bb775fcced4731e8eba31d8c05bde246',
-      renderCount:136,builds:0,renders:0,writes:0,acousticRenders:0};}
+      renderCount:136,builds:0,renders:0,writes:3,acousticRenders:0};}
   };
   const counters={promotion:0,suite:0,report:0};
   const options={root,home,runners:{stage3e,adaptiveMid,stage3,stage4},readPhase,
@@ -217,6 +217,145 @@ function runAllFixture(t,{initialDiagnostic='STAGE3E_MIDI51_DIAGNOSTIC_FAIL',fin
     buildReport:({spend,runAcousticRenders})=>{counters.report++;return {decision:'ISSUE7_READY_FOR_REVIEW',acousticRenders:runAcousticRenders,cumulativeRenderCount:spend.total};}};
   return {root,home,phases,stageFinals,calls,counters,options};
 }
+
+function seedSyntheticDownstreamLedger(root,home,stage,count){
+  const roots=core.resolveRoots(root,stage,core.EPOCH,{home}),limit=stage==='stage3'?486:1423,
+    phase=stage,cells=Array.from({length:limit},(_,index)=>({key:`${stage}-cell-${String(index).padStart(4,'0')}`})),
+    identity={syntheticTest:true,stage},manifest={schemaVersion:1,issue:7,epoch:core.EPOCH,stage,phase,
+      authorizationSha256:'a'.repeat(64),identity,createdAt:'2026-10-17T00:00:00.000Z'};
+  core.initializePhase({roots,phase,manifest,cells,renderBudget:limit,now:()=>manifest.createdAt});
+  if(count>0){
+    const first=cells[0].key;
+    core.startCell({roots,phase,cellKey:first,cell:cells[0],identity,identityNow:()=>identity,now:()=>manifest.createdAt});
+    core.completeCell({roots,phase,cellKey:first,now:()=>manifest.createdAt,
+      observation:{syntheticTest:true,finite:true,outputPeakDbfs:-12,guardHits:0}});
+  }
+  const state=core.readPhaseLedger(roots,phase);
+  for(let index=1;index<count;index++)state.ledger.cells[cells[index].key]={state:'COMPLETE',markerSha256:'b'.repeat(64),
+    resultSha256:'c'.repeat(64),decision:'PASS',completedAt:manifest.createdAt};
+  state.ledger.renderCount=count;
+  core.writeMutableDual(roots,core.phaseRelative(phase,'ledger.json'),core.canonicalBytes(state.ledger));
+  return roots;
+}
+
+function snapshotTree(root){
+  if(!fs.existsSync(root))return [];
+  const entries=[];
+  function walk(directory){
+    for(const item of fs.readdirSync(directory,{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name))){
+      const absolute=path.join(directory,item.name);
+      if(item.isDirectory())walk(absolute);
+      else{const bytes=fs.readFileSync(absolute),stat=fs.statSync(absolute);
+        entries.push({relative:path.relative(root,absolute),sha256:core.sha256(bytes),size:stat.size,mtimeMs:stat.mtimeMs});}
+    }
+  }
+  walk(root);return entries;
+}
+
+test('accepted R8 resumes with real synthetic downstream ledgers without rewriting cells or R8 evidence',t=>{
+  const cases=[
+    {name:'Stage3 partial',stage3:17,stage4:0,masterEventPresent:false},
+    {name:'Stage3 complete, Stage4 absent',stage3:486,stage4:0,masterEventPresent:false},
+    {name:'Stage4 partial',stage3:486,stage4:23,masterEventPresent:false},
+    {name:'all downstream work complete',stage3:486,stage4:1423,masterEventPresent:true}
+  ];
+  for(const scenario of cases){
+    const fixture=runAllFixture(t),{root,home}=fixture,adaptive=fixture.options.runners.adaptiveMid,
+      rootsByStage={stage3:seedSyntheticDownstreamLedger(root,home,'stage3',scenario.stage3),
+        stage4:seedSyntheticDownstreamLedger(root,home,'stage4',scenario.stage4)};
+    const snapshots=Object.fromEntries(Object.entries(rootsByStage).map(([stage,roots])=>[stage,
+      [snapshotTree(roots.primary),snapshotTree(roots.secondary)]]));
+    let recordCalls=0,stage3Executes=0,stage4Executes=0;
+    adaptive.recordRuntimeRevision8=()=>{recordCalls++;throw new Error('accepted R8 recorder must not run on resume');};
+    adaptive.loadFinalMaybe=()=>({decision:'ADAPTIVE_MID_FULL_PASS',renderCount:136});
+    adaptive.loadSelection=()=>({selection:{schema:'issue7-stage3e-extension-selection/v1'},selectionSha256:'c'.repeat(64)});
+    fixture.options.readRenderCount=(repo,isolatedHome,epoch,commonDirectory)=>{
+      const counts=master.phaseRenderCount(repo,isolatedHome,epoch,commonDirectory);
+      return {...counts,total:2371+counts.total};
+    };
+    fixture.options.statusReadOnly=()=>({decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
+      builds:{builds:0,renders:0,writes:0},stage3e:{decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:'adaptive-mid-01'},
+      adaptiveMid:{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8,runtimeRevisionSha256:'8'.repeat(64),
+        builds:0,renders:0,writes:0,acousticRenders:0},
+      stage3:{decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,writes:0},
+      stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED',builds:0,renders:0,writes:0}});
+    fixture.options.getStageFinal=({stage})=>{
+      if(fixture.stageFinals.has(stage))return fixture.stageFinals.get(stage);
+      const state=core.readPhaseLedger(rootsByStage[stage],stage),count=state?.ledger.renderCount||0,
+        limit=stage==='stage3'?486:1423;
+      if(count!==limit)return null;
+      const decision=stage==='stage3'?'STAGE3_READY_FOR_STAGE4':'STAGE4_FULL_RANGE_COMPLETE';
+      return {decision,result:{decision,renderCount:count},sha256:(stage==='stage3'?'a':'b').repeat(64)};
+    };
+    const originalStage3=fixture.options.runners.stage3.run;
+    fixture.options.runners.stage3.run=options=>{
+      if(options.mode==='execute')stage3Executes++;
+      return originalStage3(options);
+    };
+    const originalStage4=fixture.options.runners.stage4.run;
+    fixture.options.runners.stage4.run=options=>{
+      if(options.mode==='execute')stage4Executes++;
+      return originalStage4(options);
+    };
+    const commonRoots=core.resolveRoots(root,'stage3e',core.EPOCH,{home});
+    if(scenario.masterEventPresent)core.appendDualJournal(commonRoots,{type:'RUNTIME_REVISION_08_RECORDED',runtimeRevisionSha256:'8'.repeat(64),
+      previousRuntimeRevisionSha256:'b007fdcf3daaf12402896bed69c47b70bb775fcced4731e8eba31d8c05bde246',
+      renderCount:2371,acousticRenders:0},{relative:master.RUN_ALL_JOURNAL});
+    fixture.options.commonDirectory=commonRoots.commonDirectory;
+    const result=master.runAll(fixture.options);
+    assert.equal(result.decision,'ISSUE7_READY_FOR_REVIEW',scenario.name+': '+result.reason);
+    assert.equal(result.cumulativeRenderCount,2371+scenario.stage3+scenario.stage4,scenario.name+' counter total');
+    assert.equal(result.acousticRenders,0,scenario.name+' synthetic test must not claim audio renders');
+    assert.equal(recordCalls,0,scenario.name+' must reuse accepted R8');
+    assert.equal(stage3Executes,scenario.stage3===486?0:1,scenario.name+' Stage3 resume decision');
+    assert.equal(stage4Executes,scenario.stage4===1423?0:1,scenario.name+' Stage4 resume decision');
+    assert.deepEqual(Object.fromEntries(Object.entries(rootsByStage).map(([stage,roots])=>[stage,
+      [snapshotTree(roots.primary),snapshotTree(roots.secondary)]])),snapshots,scenario.name+' synthetic cell evidence must remain byte/mtime identical');
+    const events=core.readDualJournal(commonRoots,master.RUN_ALL_JOURNAL).events;
+    assert.equal(events.filter(event=>event.type==='RUNTIME_REVISION_08_RECORDED').length,1,scenario.name+' R8 event must not duplicate');
+    assert.equal(events.filter(event=>event.type==='PHASE_FINISHED'&&event.stage==='stage3').length,stage3Executes,
+      scenario.name+' must not append repeated Stage3 completion markers');
+  }
+});
+
+test('run-all records one exact pending R9 and continues without repeating acoustic work',t=>{
+  const fixture=runAllFixture(t),adaptive=fixture.options.runners.adaptiveMid,r8Sha='e247ef01385996ecd6fee220cbf44b95bc31c9f0c1319d64222c81e60e9b7404';
+  let statusCalls=0,recordCalls=0,gateCalls=0;
+  adaptive.loadFinalMaybe=()=>({decision:'ADAPTIVE_MID_FULL_PASS',renderCount:136});
+  adaptive.loadSelection=()=>({selection:{schema:'issue7-stage3e-extension-selection/v1'},selectionSha256:'c'.repeat(64)});
+  adaptive.recordRuntimeRevision9=options=>{
+    recordCalls++;assert.ok(options.runAllOwner);
+    return {decision:'ADAPTIVE_MID_RUNTIME_REVISION_09_RECORDED',runtimeRevisionSha256:'9'.repeat(64),
+      previousRuntimeRevisionSha256:r8Sha,renderCount:136,builds:0,renders:0,writes:3,acousticRenders:0,created:true};
+  };
+  const pendingReason='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 9';
+  fixture.options.statusReadOnly=()=>{
+    statusCalls++;
+    const pending=statusCalls===1;
+    return {decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
+      builds:{builds:0,renders:0,writes:0},stage3e:{decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:'adaptive-mid-01'},
+      adaptiveMid:pending?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',reason:pendingReason}
+        :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:9,runtimeRevisionSha256:'9'.repeat(64)},
+      stage3:{decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,writes:0},
+      stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED',builds:0,renders:0,writes:0}};
+  };
+  fixture.options.runFinalGate=()=>{
+    gateCalls++;
+    return {decision:'ISSUE7_READ_ONLY_FINAL_GATE_PASS',observed:{dryRun:{
+      decision:'BLOCKED_ISSUE7_CURRENT_BUILD_DRY_RUN',stage3e:{decision:'STAGE3E_SELECTED_RESPONSE'},
+      adaptiveMid:{decision:'ADAPTIVE_MID_DRY_RUN_READY'},stage3:{decision:'STAGE3_DRY_RUN_READY'},
+      stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED'}}}};
+  };
+  const result=master.runAll(fixture.options);
+  assert.equal(result.decision,'ISSUE7_READY_FOR_REVIEW',result.reason);
+  assert.equal(result.acousticRenders,0);assert.equal(statusCalls,2);assert.equal(recordCalls,1);assert.equal(gateCalls,2);
+  const roots=core.resolveRoots(fixture.root,'stage3e',core.EPOCH,{home:fixture.home}),events=core.readDualJournal(roots,master.RUN_ALL_JOURNAL).events,
+    r9Events=events.filter(event=>event.type==='RUNTIME_REVISION_09_RECORDED');
+  assert.equal(r9Events.length,1);
+  assert.deepEqual(Object.fromEntries(['runtimeRevisionSha256','previousRuntimeRevisionSha256','renderCount','acousticRenders']
+    .map(key=>[key,r9Events[0][key]])),{runtimeRevisionSha256:'9'.repeat(64),previousRuntimeRevisionSha256:r8Sha,
+    renderCount:2371,acousticRenders:0});
+});
 
 test('run-all drives adaptive Stage3E, Stage3, and Stage4 in one call and records append-only dual-store events',t=>{
   const fixture=runAllFixture(t),result=master.runAll(fixture.options);
@@ -306,7 +445,7 @@ test('run-all records the exact pending R8 once, tolerates Stage4 waiting for St
     return {decision:'ISSUE7_CURRENT_BUILD_STATUS',buildsStarted:0,renders:0,writes:0,acousticRenders:0,
       builds:{builds:0,renders:0,writes:0},stage3e:{decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:'adaptive-mid-01'},
       adaptiveMid:pending?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',reason:expected}
-        :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8},
+        :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8,runtimeRevisionSha256:'8'.repeat(64)},
       stage3:{decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,writes:0},
       stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED',builds:0,renders:0,writes:0}};
   };
@@ -343,7 +482,7 @@ test('run-all keeps R8 fail-closed when Stage3 preflight has an unexpected block
       stage3e:{decision:'STAGE3E_SELECTED_RESPONSE'},
       adaptiveMid:pending?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
         reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 8'}
-        :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8},
+        :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8,runtimeRevisionSha256:'8'.repeat(64)},
       stage3:{decision:'BLOCKED_STAGE3E_SELECTION_REQUIRED',builds:0,renders:0,writes:0},
       stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED',builds:0,renders:0,writes:0}};
   };
@@ -377,7 +516,7 @@ test('run-all records and verifies runtime revision 5 before any continuation',t
         reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 5'}
         :pendingR8?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
           reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 8'}
-          :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8}};
+          :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8,runtimeRevisionSha256:'8'.repeat(64)}};
   };
   fixture.options.verifyReadOnly=()=>{order.push('verify');return {decision:'ISSUE7_CURRENT_BUILD_VERIFY_OK'};};
   const result=master.runAll(fixture.options);
@@ -406,7 +545,7 @@ test('run-all recovers the missing R5 and R6 master events once and reuses them 
         reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 6'}
         :pendingR8?{decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
           reason:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 8'}
-          :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8}};
+          :{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8,runtimeRevisionSha256:'8'.repeat(64)}};
   };
   fixture.options.readRenderCount=()=>({total:2371,phases:[{stage:'stage3',count:0},{stage:'stage4',count:0}]});
   fixture.options.verifyReadOnly=()=>{order.push('verify');return {decision:'ISSUE7_CURRENT_BUILD_VERIFY_OK'};};
@@ -425,7 +564,7 @@ test('run-all recovers the missing R5 and R6 master events once and reuses them 
     builds:{builds:0,renders:0,writes:0},stage3:{decision:'STAGE3_DRY_RUN_READY',builds:0,renders:0,writes:0},
     stage4:{decision:'BLOCKED_STAGE4_STAGE3_REQUIRED',builds:0,renders:0,writes:0},
     stage3e:{decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:'adaptive-mid-01'},
-    adaptiveMid:{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8}});
+    adaptiveMid:{decision:'ADAPTIVE_MID_DRY_RUN_READY',runtimeRevisionNumber:8,runtimeRevisionSha256:'8'.repeat(64)}});
   const second=master.runAll(fixture.options);
   assert.equal(second.decision,'ISSUE7_READY_FOR_REVIEW');
   assert.equal(recordCalls,1,'the finalized R6 recorder is not rerun after accepted R8');

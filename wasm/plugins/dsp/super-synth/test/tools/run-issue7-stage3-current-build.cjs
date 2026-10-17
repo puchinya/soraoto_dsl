@@ -350,18 +350,26 @@ function validatePromotionIntentSelection(root,record,selection,intent,{supersed
 }
 function verifiedRuntimeRevision4({root,home,commonDirectory}){
   const verified=adaptiveMid.verifyParentManifest({root,home,epoch:core.EPOCH,commonDirectory});
-  const revisions=verified.runtimeRevisions||[],revision4=revisions[3],revision5=revisions[4],revision6=revisions[5],
-    revision7=revisions[6],revision8=revisions[7];
-  if(revisions.length!==8||revisions.some((revision,index)=>revision?.value?.revisionNumber!==index+1)
+  const revisions=verified.runtimeRevisions||[],revision1=revisions[0],revision4=revisions[3],revision5=revisions[4],
+    revision6=revisions[5],revision7=revisions[6],revision8=revisions[7],revision9=revisions[8],
+    activeNumber=verified.runtimeRevision?.value?.revisionNumber;
+  if(![8,9].includes(revisions.length)||activeNumber!==revisions.length
+    ||Object.hasOwn(revision1?.value||{},'revisionNumber')
+    ||revisions.slice(1).some((revision,index)=>revision?.value?.revisionNumber!==index+2)
     ||revision4?.sha256!==adaptiveMid.RUNTIME_REVISION_04_SHA256
     ||revision4.value.codeRevision!=='fa30708a41e1c013d2790370fa28afe87a1b68e1'
     ||revision7?.sha256!==adaptiveMid.RUNTIME_REVISION_07_SHA256
     ||revision7.value.codeRevision!==adaptiveMid.RUNTIME_REVISION_07_CODE_REVISION
     ||revision8?.value?.revisionNumber!==8||revision8.value.previousRuntimeRevisionSha256!==revision7.sha256
     ||revision8.value.previousCodeRevision!==revision7.value.codeRevision
-    ||verified.runtimeRevision?.value?.revisionNumber!==8||verified.runtimeRevision.sha256!==revision8.sha256)
-    throw new Error('BLOCKED_STAGE3_PROMOTION: complete accepted R1-R8 chain and immutable R4/R7/R8 bindings are required');
-  return {...revision4,acceptedRuntimeRevision5:revision5,acceptedRuntimeRevision8:revision8};
+    ||(revisions.length===8&&verified.runtimeRevision.sha256!==revision8.sha256)
+    ||(revisions.length===9&&(revision9?.value?.revisionNumber!==9
+      ||revision9.value.previousRuntimeRevisionSha256!==revision8.sha256
+      ||revision9.value.approvalSha256!==adaptiveMid.RUNTIME_REVISION_09_APPROVAL_SHA256
+      ||verified.runtimeRevision.sha256!==revision9.sha256)))
+    throw new Error('BLOCKED_STAGE3_PROMOTION: complete accepted R1-R9 chain and immutable R4/R7/R8 bindings are required');
+  return {...revision4,acceptedRuntimeRevision5:revision5,acceptedRuntimeRevision8:revision8,
+    ...(revision9?{acceptedRuntimeRevision9:revision9}:{})};
 }
 function expectedTupleValues(tuple){
   if(!tuple||![tuple.low,tuple.mid,tuple.bassHardness].every(Number.isFinite))throw new Error('BLOCKED_STAGE3_PROMOTION: selected tuple must contain three finite values');
@@ -472,13 +480,14 @@ function ensurePromotionCommit({root,record,selection,roots,now,prepareSelectedF
       intent=successorIntent;
       proposed=promotionIntent(root,record,selection,intent.parentCommit,intent.parentTree,{supersedesIntentSha256:originalSha256});
     }else if(existingReceipt&&core.same(existingReceipt.intent,originalIntent)){
-      const accepted=verifyRevision4({root,home:roots.home,commonDirectory:roots.commonDirectory}),revision8=accepted?.acceptedRuntimeRevision8;
-      const validR8Current=accepted?.value?.revisionNumber===4&&accepted.sha256===adaptiveMid.RUNTIME_REVISION_04_SHA256
-        &&revision8?.value?.revisionNumber===8&&revision8.value.codeRevision===current
-        &&revision8.value.promotionCommit===existingReceipt.promotionCommit
-        &&revision8.value.previousRuntimeRevisionSha256===adaptiveMid.RUNTIME_REVISION_07_SHA256
+      const accepted=verifyRevision4({root,home:roots.home,commonDirectory:roots.commonDirectory}),revision8=accepted?.acceptedRuntimeRevision8,
+        revision9=accepted?.acceptedRuntimeRevision9,currentRevision=revision9||revision8;
+      const validAcceptedCurrent=accepted?.value?.revisionNumber===4&&accepted.sha256===adaptiveMid.RUNTIME_REVISION_04_SHA256
+        &&currentRevision?.value?.revisionNumber===(revision9?9:8)&&currentRevision.value.codeRevision===current
+        &&currentRevision.value.promotionCommit===existingReceipt.promotionCommit
+        &&currentRevision.value.previousRuntimeRevisionSha256===(revision9?revision8.sha256:adaptiveMid.RUNTIME_REVISION_07_SHA256)
         &&isCommitAncestor(root,existingReceipt.promotionCommit,current);
-      if((current!==existingReceipt.promotionCommit&&!validR8Current)
+      if((current!==existingReceipt.promotionCommit&&!validAcceptedCurrent)
         ||existingReceipt.promotionParentCommit!==originalIntent.parentCommit)
         throw new Error('BLOCKED_STAGE3_PROMOTION: old receipt prevents successor intent');
       intent=originalIntent;
@@ -530,19 +539,21 @@ function ensurePromotionCommit({root,record,selection,roots,now,prepareSelectedF
   if(receipt){
     if(!core.same(receipt.intent,intent))throw new Error('BLOCKED_STAGE3_PROMOTION: receipt belongs to a different intent');
     const accepted=verifyRevision4({root,home:roots.home,commonDirectory:roots.commonDirectory});
-    const revision8=accepted?.acceptedRuntimeRevision8;
+    const revision8=accepted?.acceptedRuntimeRevision8,revision9=accepted?.acceptedRuntimeRevision9,
+      currentRevision=revision9||revision8;
     if(accepted?.value?.revisionNumber!==4||accepted.sha256!==adaptiveMid.RUNTIME_REVISION_04_SHA256
       ||intent.parentCommit!==accepted.value.codeRevision||receipt.promotionParentCommit!==intent.parentCommit
-      ||revision8?.value?.revisionNumber!==8||revision8.value.promotionCommit!==receipt.promotionCommit)
+      ||revision8?.value?.revisionNumber!==8||currentRevision?.value?.revisionNumber!==(revision9?9:8)
+      ||currentRevision.value.promotionCommit!==receipt.promotionCommit)
       throw new Error('BLOCKED_STAGE3_PROMOTION: original R4 intent or accepted R8 promotion lineage differs');
     const details=promotionDetails(root,{promotionCommit:receipt.promotionCommit,promotionParentCommit:receipt.promotionParentCommit,
       promotionParentTree:receipt.promotionParentTree,promotionCommitTree:receipt.promotionCommitTree});
     validatePromotionDetails(details,record.sourceCommit);
     if(current!==receipt.promotionCommit){
-      if(revision8.value.promotionCommit!==receipt.promotionCommit||revision8.value.codeRevision!==current
-        ||revision8.value.previousRuntimeRevisionSha256!==adaptiveMid.RUNTIME_REVISION_07_SHA256
+      if(currentRevision.value.promotionCommit!==receipt.promotionCommit||currentRevision.value.codeRevision!==current
+        ||currentRevision.value.previousRuntimeRevisionSha256!==(revision9?revision8.sha256:adaptiveMid.RUNTIME_REVISION_07_SHA256)
         ||!isCommitAncestor(root,receipt.promotionCommit,current))
-        throw new Error('BLOCKED_STAGE3_PROMOTION: current HEAD is not the accepted R8 descendant of the frozen promotion');
+        throw new Error(`BLOCKED_STAGE3_PROMOTION: current HEAD is not the accepted R${revision9?9:8} descendant of the frozen promotion`);
     }
     if(intent.supersedesIntentSha256)readPromotionCommit(root,intent,record,receipt);
     return {intent,receipt,details,reused:true};
@@ -660,22 +671,28 @@ function verifyAcceptedAdaptiveRunnerLineage(root,home,selected){
   let parent;
   try{parent=adaptiveMid.verifyParentManifest({root,home,epoch:core.EPOCH,commonDirectory:selected.roots?.commonDirectory});}
   catch(error){throw new Error(`BLOCKED_STAGE3E_SELECTION_REQUIRED: accepted R6/R8 lineage verification failed: ${error.message}`);}
-  const revisions=parent.runtimeRevisions||[],revision6=revisions[5],revision7=revisions[6],revision8=revisions[7];
-  if(revisions.length!==8||revision6?.value?.revisionNumber!==6||revision7?.value?.revisionNumber!==7
+  const revisions=parent.runtimeRevisions||[],revision6=revisions[5],revision7=revisions[6],revision8=revisions[7],
+    revision9=revisions[8],active=parent.runtimeRevision,liveRunnerRevision=revisions.length===9?revision9:revision8;
+  if(![8,9].includes(revisions.length)||revision6?.value?.revisionNumber!==6||revision7?.value?.revisionNumber!==7
     ||revision8?.value?.revisionNumber!==8||revision7.value.previousRuntimeRevisionSha256!==revision6.sha256
     ||revision8.value.previousRuntimeRevisionSha256!==revision7.sha256
     ||!/^([a-f0-9]{64})$/.test(revision8.sha256||'')
     ||revision8.value.approvalSha256!==adaptiveMid.RUNTIME_REVISION_08_APPROVAL_SHA256
-    ||parent.runtimeRevision?.sha256!==revision8.sha256||parent.runtimeRevision?.value?.revisionNumber!==8
+    ||(revisions.length===8&&(active?.sha256!==revision8.sha256||active?.value?.revisionNumber!==8))
+    ||(revisions.length===9&&(revision9?.value?.revisionNumber!==9
+      ||revision9.value.previousRuntimeRevisionSha256!==revision8.sha256
+      ||revision9.value.approvalSha256!==adaptiveMid.RUNTIME_REVISION_09_APPROVAL_SHA256
+      ||active?.sha256!==revision9.sha256||active?.value?.revisionNumber!==9))
     ||selected.extension?.parentManifestSha256!==parent.parentManifestSha256)
-    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: accepted R6/R8 lineage is missing or mismatched');
+    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: accepted R6-R9 lineage is missing or mismatched');
   const stage3eRunnerSha=fileSha(root,STAGE3E_RUNNER_REL),stage3RunnerSha=fileSha(root,RUNNER_REL);
   if(revision6.value.changedFileSha256?.[STAGE3E_RUNNER_REL]!==stage3eRunnerSha)
     throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: live Stage3E runner does not match accepted R6 file SHA');
-  if(revision8.value.changedFileSha256?.[RUNNER_REL]!==stage3RunnerSha)
-    throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: live Stage3 runner does not match accepted R8 file SHA');
+  if(liveRunnerRevision?.value?.changedFileSha256?.[RUNNER_REL]!==stage3RunnerSha)
+    throw new Error(`BLOCKED_STAGE3E_SELECTION_REQUIRED: live Stage3 runner does not match accepted R${revisions.length} file SHA`);
   return {parentManifestSha256:parent.parentManifestSha256,runtimeRevision6Sha256:revision6.sha256,
     runtimeRevision7Sha256:revision7.sha256,runtimeRevision8Sha256:revision8.sha256,
+    ...(revision9?{runtimeRevision9Sha256:revision9.sha256}:{}),
     stage3eRunnerSha256:stage3eRunnerSha,stage3RunnerSha256:stage3RunnerSha};
 }
 function verifyStage3ePrerequisite(root,selected,{allowSyntheticTest=false,home=os.homedir()}={}){
@@ -894,8 +911,6 @@ function main(argv=process.argv.slice(2)){
   if(/^BLOCKED_/.test(result.decision||''))process.exitCode=2;
   return result;
 }
-if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=/^BLOCKED_/.test(error.message)?2:1;}}
-
 module.exports={ROOT,STAGE,PHASE,REGRESSION_REL,REQUIRED_REGRESSIONS,REGRESSION_TESTS,CELL_SPECS,
   sha256,fileSha,identityRecord,buildDirectory,productionWasm,assertProductionExports,readSelection,assertPromotedValues,
   isCommitAncestor,promotionDetails,validatePromotionDetails,derivedBuildSnapshot,deriveProductionBuildIdentity,DERIVED_IDENTITY_REL,PROMOTION_PATHS,
@@ -905,3 +920,4 @@ module.exports={ROOT,STAGE,PHASE,REGRESSION_REL,REQUIRED_REGRESSIONS,REGRESSION_
   runRequiredRegressions,promoteSelection,currentIdentity,cells,verifyAcceptedAdaptiveRunnerLineage,verifyStage3ePrerequisite,
   stage3ExecutionPrerequisite,phaseManifest,renderDefault,readRows,
   evaluate,finalize,prepare,execute,executeAuthorized,run,parseMode,main};
+if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=/^BLOCKED_/.test(error.message)?2:1;}}

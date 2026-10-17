@@ -120,7 +120,8 @@ test('Stage3 dry-run accepts adaptive selection only with verified R6 and R8 run
       summary:{syntheticTest:true}},executionPlan:{creatorRevision:'1'.repeat(40),identity:{runnerSha256:'0'.repeat(64),helperInputs:{}}}}};
   const original=adaptiveMid.verifyParentManifest;
   let lineage={parentManifestSha256:parentSha,runtimeRevisions:[
-    ...Array.from({length:5},(_,index)=>({sha256:String(index+1).repeat(64),value:{revisionNumber:index+1}})),
+    {sha256:'1'.repeat(64),value:{codeRevision:'1'.repeat(40)}},
+    ...Array.from({length:4},(_,index)=>({sha256:String(index+2).repeat(64),value:{revisionNumber:index+2}})),
     {sha256:r6Sha,value:{revisionNumber:6,changedFileSha256:{[stage3ePath]:stage3eRunnerSha}}},
     {sha256:r7Sha,value:{revisionNumber:7,previousRuntimeRevisionSha256:r6Sha}},
     {sha256:r8Sha,value:{revisionNumber:8,previousRuntimeRevisionSha256:r7Sha,
@@ -156,6 +157,34 @@ test('Stage3 dry-run accepts adaptive selection only with verified R6 and R8 run
       .flatMap(roots=>[roots.primary,roots.secondary]).map(fs.existsSync);
     assert.deepEqual(after,before);
   }finally{adaptiveMid.verifyParentManifest=original;}
+});
+
+test('Stage3 R4 resolver accepts the historical R1 schema without revisionNumber and rejects renumbered R1',t=>{
+  const {root,home}=isolatedRepo(t),original=adaptiveMid.verifyParentManifest;
+  const r4={sha256:adaptiveMid.RUNTIME_REVISION_04_SHA256,value:{revisionNumber:4,codeRevision:'fa30708a41e1c013d2790370fa28afe87a1b68e1'}},
+    r7={sha256:adaptiveMid.RUNTIME_REVISION_07_SHA256,value:{revisionNumber:7,codeRevision:adaptiveMid.RUNTIME_REVISION_07_CODE_REVISION}},
+    r8={sha256:'8'.repeat(64),value:{revisionNumber:8,previousRuntimeRevisionSha256:r7.sha256,
+      previousCodeRevision:r7.value.codeRevision}},
+    values=[{sha256:'1'.repeat(64),value:{codeRevision:'1'.repeat(40)}},
+      {sha256:'2'.repeat(64),value:{revisionNumber:2}},{sha256:'3'.repeat(64),value:{revisionNumber:3}},r4,
+      {sha256:'5'.repeat(64),value:{revisionNumber:5}},{sha256:'6'.repeat(64),value:{revisionNumber:6}},r7,r8];
+  let accepted={runtimeRevisions:values,runtimeRevision:r8};
+  adaptiveMid.verifyParentManifest=()=>accepted;
+  try{
+    assert.equal(runner.verifiedRuntimeRevision4({root,home}).sha256,r4.sha256);
+    accepted={...accepted,runtimeRevisions:[{...values[0],value:{...values[0].value,revisionNumber:1}},...values.slice(1)]};
+    assert.throws(()=>runner.verifiedRuntimeRevision4({root,home}),/complete accepted R1-R9 chain/);
+  }finally{adaptiveMid.verifyParentManifest=original;}
+});
+
+test('Stage3 CLI dry-run entry exports helpers before its dynamic adaptive self-require',t=>{
+  const file=path.join(__dirname,'run-issue7-stage3-current-build.cjs'),source=fs.readFileSync(file,'utf8');
+  assert.ok(source.indexOf('module.exports=')<source.indexOf('if(require.main===module)'),
+    'exports must be assigned before main invokes adaptive verification');
+  if(process.env.ISSUE7_RUN_CANONICAL_ACCEPTANCE!=='1')return t.skip('real canonical-store CLI acceptance is opt-in');
+  const result=require('node:child_process').spawnSync(process.execPath,[file,'--dry-run'],{cwd:runner.ROOT,encoding:'utf8'});
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`,/promotionIntentNames is not a function/);
+  assert.ok(result.stdout.includes('"builds":0')&&result.stdout.includes('"acousticRenders":0'));
 });
 
 test('Stage3 selection reader accepts a controlled adaptive PASS fixture without writing evidence',t=>{

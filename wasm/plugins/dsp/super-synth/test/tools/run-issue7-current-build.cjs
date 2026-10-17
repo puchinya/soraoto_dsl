@@ -369,7 +369,7 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
   return core.withRunAllLock({commonDirectory:roots.commonDirectory,now},owner=>{
     let spend,startRenderCount=0;
     try{
-      spend=phaseRenderCount(root,home,epoch,roots.commonDirectory);startRenderCount=spend.total;
+      spend=readRenderCount(root,home,epoch,roots.commonDirectory);startRenderCount=spend.total;
       append(owner,{type:'RUN_STARTED',head:core.gitHead(root)});
       const assertReadOnlyStatus=observed=>{
         if(observed.lock?.locked)throw new Error('BLOCKED_WRITER_LOCK: an Issue #7 phase writer is active');
@@ -496,26 +496,35 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
       const revision8Pending=preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
         &&expectedRuntimeRevision8Blocks.has(preflight.adaptiveMid.reason);
       const selectedResponse=preflight.stage3e?.decision==='STAGE3E_SELECTED_RESPONSE';
-      const acceptedR8Ready=selectedResponse&&preflight.adaptiveMid?.decision==='ADAPTIVE_MID_DRY_RUN_READY'
+      const activeRuntimeRevision8=selectedResponse&&preflight.adaptiveMid?.decision==='ADAPTIVE_MID_DRY_RUN_READY'
         &&preflight.adaptiveMid?.runtimeRevisionNumber===8;
-      if(revision8Pending||acceptedR8Ready){
-        const record=runners.adaptiveMid?.recordRuntimeRevision8;
-        if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: approved revision 8 recorder is unavailable');
-        const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
-        const cumulative=readRenderCount(root,home,epoch,roots.commonDirectory);
-        if(cumulative.total!==2371||cumulative.phases.find(item=>item.stage==='stage3')?.count!==0
-          ||cumulative.phases.find(item=>item.stage==='stage4')?.count!==0)
-          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: completed 2,371-cell checkpoint or zero downstream counts differ');
-        if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_08_RECORDED'||recorded.builds!==0
-          ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
-          ||recorded.previousRuntimeRevisionSha256!==adaptiveMid.RUNTIME_REVISION_07_SHA256
-          ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||''))
-          throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08'}: ${recorded.reason||'revision 8 zero-render recording failed'}`);
+      if(revision8Pending||activeRuntimeRevision8){
+        const initialR8=revision8Pending&&preflight.adaptiveMid.reason==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 8';
+        const before=readRenderCount(root,home,epoch,roots.commonDirectory);
+        if(initialR8&&(before.total!==2371||before.phases.find(item=>item.stage==='stage3')?.count!==0
+          ||before.phases.find(item=>item.stage==='stage4')?.count!==0))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: initial R8 creation requires the 2,371-cell checkpoint and zero downstream cells');
+        let revision8Sha=preflight.adaptiveMid.runtimeRevisionSha256,previousRuntimeRevisionSha256=adaptiveMid.RUNTIME_REVISION_07_SHA256;
+        if(revision8Pending){
+          const record=runners.adaptiveMid?.recordRuntimeRevision8;
+          if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: approved revision 8 recorder is unavailable');
+          const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+          const after=readRenderCount(root,home,epoch,roots.commonDirectory);
+          if(!core.same(after,before))throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: recovery changed downstream render counters');
+          if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_08_RECORDED'||recorded.builds!==0
+            ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
+            ||recorded.previousRuntimeRevisionSha256!==previousRuntimeRevisionSha256
+            ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||'')
+            ||(initialR8&&recorded.writes!==3)||(!initialR8&&recorded.writes!==1))
+            throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08'}: ${recorded.reason||'revision 8 creation or exact event recovery failed'}`);
+          revision8Sha=recorded.runtimeRevisionSha256;
+        }
+        if(!/^[a-f0-9]{64}$/.test(revision8Sha||''))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: accepted runtime revision 8 SHA is missing');
         ensureRunAllRuntimeRevisionEvent({roots,owner,append,event:{type:'RUNTIME_REVISION_08_RECORDED',
-          runtimeRevisionSha256:recorded.runtimeRevisionSha256,previousRuntimeRevisionSha256:recorded.previousRuntimeRevisionSha256,
-          renderCount:2371,acousticRenders:0}});
-        preflight=statusReadOnly({root,home,epoch,runners,readPhase});
-        assertReadOnlyStatus(preflight);
+          runtimeRevisionSha256:revision8Sha,previousRuntimeRevisionSha256,renderCount:2371,acousticRenders:0}});
+        if(revision8Pending){preflight=statusReadOnly({root,home,epoch,runners,readPhase});assertReadOnlyStatus(preflight);}
+        if(initialR8){
         const gate=runFinalGate({root,home,epoch,runners,readPhase,commonDirectory:roots.commonDirectory,
           statusReadOnly,dryRunReadOnly,verifyReadOnly});
         if(gate.decision!=='ISSUE7_READ_ONLY_FINAL_GATE_PASS')
@@ -533,15 +542,68 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
             ||gate.observed?.dryRun?.adaptiveMid?.decision?.startsWith('BLOCKED_'))
             throw new Error('BLOCKED_ISSUE7_R8_STAGE3_PREFLIGHT: expected only the Stage4-awaiting-Stage3 dry-run blocker');
         }
+        }
+      }
+      const expectedRuntimeRevision9Blocks=new Set([
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 9',
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 9 acceptance journal entry is missing or mismatched'
+      ]);
+      const revision9Pending=preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&expectedRuntimeRevision9Blocks.has(preflight.adaptiveMid.reason);
+      const activeRuntimeRevision9=selectedResponse&&preflight.adaptiveMid?.decision==='ADAPTIVE_MID_DRY_RUN_READY'
+        &&preflight.adaptiveMid?.runtimeRevisionNumber===9;
+      if(revision9Pending||activeRuntimeRevision9){
+        const initialR9=revision9Pending&&preflight.adaptiveMid.reason==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 9';
+        const before=readRenderCount(root,home,epoch,roots.commonDirectory);
+        if(initialR9&&(before.total!==2371||before.phases.find(item=>item.stage==='stage3')?.count!==0
+          ||before.phases.find(item=>item.stage==='stage4')?.count!==0))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_09: initial R9 creation requires the 2,371-cell checkpoint and zero downstream cells');
+        let revision9Sha=preflight.adaptiveMid.runtimeRevisionSha256,previousRuntimeRevisionSha256='e247ef01385996ecd6fee220cbf44b95bc31c9f0c1319d64222c81e60e9b7404';
+        if(revision9Pending){
+          const record=runners.adaptiveMid?.recordRuntimeRevision9;
+          if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_09: approved revision 9 recorder is unavailable');
+          const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+          const after=readRenderCount(root,home,epoch,roots.commonDirectory);
+          if(!core.same(after,before))throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_09: recovery changed downstream render counters');
+          if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_09_RECORDED'||recorded.builds!==0
+            ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
+            ||recorded.previousRuntimeRevisionSha256!==previousRuntimeRevisionSha256
+            ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||'')
+            ||(initialR9&&recorded.writes!==3)||(!initialR9&&recorded.writes!==1))
+            throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_09'}: ${recorded.reason||'revision 9 creation or exact event recovery failed'}`);
+          revision9Sha=recorded.runtimeRevisionSha256;
+        }
+        if(!/^[a-f0-9]{64}$/.test(revision9Sha||''))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_09: accepted runtime revision 9 SHA is missing');
+        ensureRunAllRuntimeRevisionEvent({roots,owner,append,event:{type:'RUNTIME_REVISION_09_RECORDED',
+          runtimeRevisionSha256:revision9Sha,previousRuntimeRevisionSha256,renderCount:2371,acousticRenders:0}});
+        if(revision9Pending){preflight=statusReadOnly({root,home,epoch,runners,readPhase});assertReadOnlyStatus(preflight);}
+        if(initialR9){
+          const gate=runFinalGate({root,home,epoch,runners,readPhase,commonDirectory:roots.commonDirectory,
+            statusReadOnly,dryRunReadOnly,verifyReadOnly});
+          if(gate.decision!=='ISSUE7_READ_ONLY_FINAL_GATE_PASS')
+            throw new Error(`BLOCKED_ISSUE7_R9_READ_ONLY_GATE: ${gate.decision||'read-only verification failed'}`);
+          if(preflight.adaptiveMid?.decision!=='ADAPTIVE_MID_DRY_RUN_READY'||preflight.adaptiveMid?.runtimeRevisionNumber!==9
+            ||preflight.stage3?.decision!=='STAGE3_DRY_RUN_READY')
+            throw new Error(`BLOCKED_ISSUE7_R9_STAGE3_PREFLIGHT: ${preflight.adaptiveMid?.decision||'adaptive not ready'} / ${preflight.stage3?.decision||'Stage3 not ready'}`);
+          const stage3Final=getStageFinal({root,home,epoch,stage:'stage3',phase:'stage3'});
+          if(!stage3Final&&(preflight.stage4?.decision!=='BLOCKED_STAGE4_STAGE3_REQUIRED'
+            ||gate.observed?.dryRun?.decision!=='BLOCKED_ISSUE7_CURRENT_BUILD_DRY_RUN'
+            ||gate.observed?.dryRun?.stage3?.decision!=='STAGE3_DRY_RUN_READY'
+            ||gate.observed?.dryRun?.stage4?.decision!=='BLOCKED_STAGE4_STAGE3_REQUIRED'
+            ||gate.observed?.dryRun?.stage3e?.decision?.startsWith('BLOCKED_')
+            ||gate.observed?.dryRun?.adaptiveMid?.decision?.startsWith('BLOCKED_')))
+            throw new Error('BLOCKED_ISSUE7_R9_STAGE3_PREFLIGHT: expected only the Stage4-awaiting-Stage3 dry-run blocker');
+        }
       }
       if(preflight.stage3e?.decision==='STAGE3E_SELECTED_RESPONSE'
-        &&(preflight.adaptiveMid?.decision!=='ADAPTIVE_MID_DRY_RUN_READY'||preflight.adaptiveMid.runtimeRevisionNumber!==8))
-        throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: accepted runtime revision 8 is required before Stage3 promotion or acoustic work');
+        &&(preflight.adaptiveMid?.decision!=='ADAPTIVE_MID_DRY_RUN_READY'||![8,9].includes(preflight.adaptiveMid.runtimeRevisionNumber)))
+        throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: accepted runtime revision 8 or 9 is required before Stage3 promotion or acoustic work');
       const verified=verifyReadOnly({root,home,epoch,runners});
       if(verified.decision.startsWith('BLOCKED_'))throw new Error(`BLOCKED_ISSUE7_PREFLIGHT_VERIFY: ${verified.decision}`);
       const progress=preflight.stage3e;
       if(progress.decision.startsWith('BLOCKED_'))throw new Error(`${progress.decision}: ${progress.reason||progress.phase||'preflight stopped'}`);
-      spend=phaseRenderCount(root,home,epoch,roots.commonDirectory);
+      spend=readRenderCount(root,home,epoch,roots.commonDirectory);
       append(owner,{type:'PREFLIGHT_PASSED',verifyDecision:verified.decision,renderCount:spend.total,renderBudget:TOTAL_RENDER_BUDGET});
       let steps=0;
       while(steps<PHASE_FLOW.length+4){
@@ -551,7 +613,7 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
         if(current.decision==='NEXT_PHASE_READY'&&current.stage==='stage3e'){
           const item=stage3eNextMode(current);
           if(!item)throw new Error(`BLOCKED_ISSUE7_PHASE_TRANSITION: no phase mapping for ${current.phase}`);
-          const before=phaseRenderCount(root,home,epoch,roots.commonDirectory);
+          const before=readRenderCount(root,home,epoch,roots.commonDirectory);
           if(before.total>TOTAL_RENDER_BUDGET||before.phases.find(entry=>entry.phase===item.phase)?.count>STAGE3E_BUDGETS[item.phase])
             throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: Stage3E phase budget exhausted');
           const preLowFullPlan=item.phase==='low-full'?preMidSearchLowFullPlan({root,home,epoch,runners,readPhase}):null;
@@ -559,7 +621,7 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
             reason:'MID_REGISTER_SEARCH_FOLLOWS_LOW_FULL',candidateCount:preLowFullPlan.tuples.length,
             candidates:preLowFullPlan.tuples,initialMidi51ErrorDb:preLowFullPlan.initialErrorDb});
           const result=dispatchNext({root,home,epoch,runners,readPhase,runAllOwner:owner,preLowFullPlan});
-          const after=phaseRenderCount(root,home,epoch,roots.commonDirectory),phaseSpend=after.phases.find(entry=>entry.phase===item.phase)?.count||0;
+          const after=readRenderCount(root,home,epoch,roots.commonDirectory),phaseSpend=after.phases.find(entry=>entry.phase===item.phase)?.count||0;
           append(owner,{type:'PHASE_FINISHED',stage:'stage3e',phase:item.phase,decision:resultDecision(result),
             acousticRenders:after.total-before.total,renderCount:phaseSpend});
           if(!phaseDecisionValid(item,result))throw new Error(`${resultDecision(result)}: ${result.reason||item.phase}`);
@@ -576,10 +638,10 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
           if(resultDecision(promotion)!=='STAGE3_PROMOTION_READY')throw new Error(`${resultDecision(promotion)}: ${promotion.reason||'production promotion failed'}`);
           const stage3Dry=runners.stage3.run({mode:'dry-run',root,home,epoch,runAllOwner:owner});
           if(stage3Dry.decision!=='STAGE3_DRY_RUN_READY')throw new Error(`${stage3Dry.decision}: Stage3 promotion preflight failed`);
-          const before=phaseRenderCount(root,home,epoch,roots.commonDirectory);
+          const before=readRenderCount(root,home,epoch,roots.commonDirectory);
           if(before.total+486>TOTAL_RENDER_BUDGET)throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: Stage3 would exceed cumulative render budget');
           const result=runners.stage3.run({mode:'execute',root,home,epoch,runAllOwner:owner});
-          const after=phaseRenderCount(root,home,epoch,roots.commonDirectory);
+          const after=readRenderCount(root,home,epoch,roots.commonDirectory);
           append(owner,{type:'PHASE_FINISHED',stage:'stage3',phase:'stage3',decision:resultDecision(result),
             acousticRenders:after.total-before.total,renderCount:after.phases.find(entry=>entry.stage==='stage3')?.count||0});
           if(resultDecision(result)!=='STAGE3_READY_FOR_STAGE4')throw new Error(`${resultDecision(result)}: Stage3 acceptance failed`);
@@ -591,10 +653,10 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
         if(!stage4Final){
           const stage4Dry=runners.stage4.run({mode:'dry-run',root,home,epoch,runAllOwner:owner});
           if(stage4Dry.decision!=='STAGE4_DRY_RUN_READY')throw new Error(`${stage4Dry.decision}: Stage4 promotion preflight failed`);
-          const before=phaseRenderCount(root,home,epoch,roots.commonDirectory);
+          const before=readRenderCount(root,home,epoch,roots.commonDirectory);
           if(before.total+1423>TOTAL_RENDER_BUDGET)throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: Stage4 would exceed cumulative render budget');
           const result=runners.stage4.run({mode:'execute',root,home,epoch,runAllOwner:owner});
-          const after=phaseRenderCount(root,home,epoch,roots.commonDirectory);
+          const after=readRenderCount(root,home,epoch,roots.commonDirectory);
           append(owner,{type:'PHASE_FINISHED',stage:'stage4',phase:'stage4',decision:resultDecision(result),
             acousticRenders:after.total-before.total,renderCount:after.phases.find(entry=>entry.stage==='stage4')?.count||0});
           if(resultDecision(result)!=='STAGE4_FULL_RANGE_COMPLETE')throw new Error(`${resultDecision(result)}: Stage4 acceptance failed`);
@@ -607,7 +669,7 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
         if(resultDecision(finalSuite)!=='ISSUE7_FULL_SUITE_PASS')throw new Error(`${resultDecision(finalSuite)}: ${finalSuite.failed||'full verification failed'}`);
         const finalGate=runFinalGate({root,home,epoch,runners,readPhase,commonDirectory:roots.commonDirectory,
           verifyReadOnly,statusReadOnly,dryRunReadOnly});
-        const finalSpend=phaseRenderCount(root,home,epoch,roots.commonDirectory);
+        const finalSpend=readRenderCount(root,home,epoch,roots.commonDirectory);
         if(finalSpend.total>TOTAL_RENDER_BUDGET)throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: final cumulative render count exceeds cap');
         const report=buildReport({root,home,epoch,roots,spend:finalSpend,runAcousticRenders:finalSpend.total-startRenderCount,
           fullSuite:finalSuite,readOnlyGate:finalGate,now});
@@ -620,7 +682,7 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
       throw new Error('BLOCKED_ISSUE7_PHASE_TRANSITION: run-all exceeded its bounded transition count');
     }catch(error){
       const decision=/^BLOCKED_[A-Z0-9_]+/.exec(error.message)?.[0]||'BLOCKED_ISSUE7_RUN_ALL';
-      let total=startRenderCount;try{total=phaseRenderCount(root,home,epoch,roots.commonDirectory).total;}catch{}
+      let total=startRenderCount;try{total=readRenderCount(root,home,epoch,roots.commonDirectory).total;}catch{}
       try{append(owner,{type:'RUN_STOPPED',decision,reason:error.message,cumulativeRenderCount:total,
         runAcousticRenders:Math.max(0,total-startRenderCount)});}catch{}
       return {decision,reason:error.message,acousticRenders:Math.max(0,total-startRenderCount),cumulativeRenderCount:total,

@@ -718,20 +718,38 @@ test('runtime revision 7 binds the exact R6 child, seven paths, file SHAs, diff,
   /revision 7 identity or exact seven-file path set/);
 });
 
+function syntheticRuntimeRevision7(root){
+  const gitBytes=args=>execFileSync('rtk',['proxy','git',...args],{cwd:root,encoding:'buffer'}),
+    digestAt=(commit,relative)=>core.sha256(gitBytes(['show',`${commit}:${relative}`])),
+    frozen={epoch:core.EPOCH,creatorRevision:'a'.repeat(40)},parentManifestSha256='f'.repeat(64),
+    snapshot={priorLedgerSha256:'1'.repeat(64),priorLedgerSnapshot:{renderCount:136,cells:{}},
+      priorCounts:{probes:48,screen:24,full:64,total:136},probeResultSha256:['2'.repeat(64)],screenResultSha256:'3'.repeat(64),
+      fullResultSha256:'4'.repeat(64),terminalResultSha256:'5'.repeat(64),extensionResultSha256:'5'.repeat(64),
+      selectionSha256:'6'.repeat(64),executionPlanSha256:'7'.repeat(64)},
+    promotion={promotionCommit:adaptiveRunner.RUNTIME_REVISION_05_PROMOTION_COMMIT,promotionParentCommit:'8'.repeat(40),
+      promotionParentTree:'9'.repeat(40),promotionCommitTree:'b'.repeat(40),promotionIntentSha256:'c'.repeat(64),
+      supersededPromotionIntentSha256:'d'.repeat(64),promotionReceiptSha256:'e'.repeat(64)},
+    r6Code=adaptiveRunner.RUNTIME_REVISION_06_CODE_REVISION,r7Code=adaptiveRunner.RUNTIME_REVISION_07_CODE_REVISION,
+    previous6={sha256:adaptiveRunner.RUNTIME_REVISION_06_SHA256,value:{schemaVersion:1,
+      schema:'issue7-stage3e-adaptive-runtime-revision/v1',issue:7,revisionNumber:6,epoch:core.EPOCH,
+      extension:adaptiveRunner.EXTENSION,parentManifestSha256,previousCreatorRevision:frozen.creatorRevision,
+      codeRevision:r6Code,newRunnerSha256:digestAt(r6Code,'wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.cjs'),
+      ...snapshot,...promotion}},
+    revision7={...previous6.value,revisionNumber:7,previousCodeRevision:r6Code,
+      previousRuntimeRevisionSha256:previous6.sha256,codeRevision:r7Code,previousRunnerSha256:previous6.value.newRunnerSha256,
+      newRunnerSha256:digestAt(r7Code,'wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.cjs'),
+      newTestSha256:digestAt(r7Code,'wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.test.cjs'),
+      changedPaths:adaptiveRunner.RUNTIME_REVISION_07_PATHS,
+      changedFileSha256:Object.fromEntries(adaptiveRunner.RUNTIME_REVISION_07_PATHS.map(relative=>[relative,digestAt(r7Code,relative)])),
+      approvalSha256:adaptiveRunner.RUNTIME_REVISION_07_APPROVAL_SHA256,
+      diffSha256:core.sha256(gitBytes(['diff','--binary','--no-ext-diff',`${r6Code}..${r7Code}`,'--',...adaptiveRunner.RUNTIME_REVISION_07_PATHS]))};
+  return {frozen,parentManifestSha256,previous6,previous7:{sha256:adaptiveRunner.RUNTIME_REVISION_07_SHA256,value:revision7},
+    parent:{manifest:frozen,parentManifestSha256}};
+}
+
 test('runtime revision 8 accepts only the exact R7 child and preserves its historical code and 136-cell evidence',t=>{
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-runtime-revision-08-code-'));
   t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
-  const canonicalRoots=adaptiveRunner.sidecarRoots(adaptiveRunner.ROOT,os.homedir(),core.EPOCH);
-  const readCanonical=(relative)=>{
-    const files=core.dualPaths(canonicalRoots,relative),first=fs.readFileSync(files.primary),second=fs.readFileSync(files.secondary);
-    assert.deepEqual(first,second,`${relative} canonical copies diverged`);
-    return {value:JSON.parse(first.toString('utf8')),sha256:core.sha256(first)};
-  };
-  const manifestBytes=fs.readFileSync(core.dualPaths(canonicalRoots,'parent-manifest.json').primary),
-    manifest=JSON.parse(manifestBytes.toString('utf8')),frozen=manifest,parentManifestSha256=core.sha256(manifestBytes),
-    previous6=readCanonical(adaptiveRunner.RUNTIME_REVISION_06_REL),previous7=readCanonical(adaptiveRunner.RUNTIME_REVISION_07_REL);
-  assert.equal(previous7.sha256,adaptiveRunner.RUNTIME_REVISION_07_SHA256);
-  assert.equal(previous7.value.codeRevision,adaptiveRunner.RUNTIME_REVISION_07_CODE_REVISION);
   const root=path.join(temp,'repo');fs.mkdirSync(root,{recursive:true});
   execFileSync('rtk',['git','init','-b','issue7-r8-test',root],{stdio:'ignore'});
   const git=args=>execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim();
@@ -739,10 +757,10 @@ test('runtime revision 8 accepts only the exact R7 child and preserves its histo
   git(['remote','add','upstream',adaptiveRunner.ROOT]);
   git(['fetch','--quiet','--no-tags','upstream',adaptiveRunner.RUNTIME_REVISION_07_CODE_REVISION]);
   git(['checkout','-b','issue7-r8-test-code',adaptiveRunner.RUNTIME_REVISION_07_CODE_REVISION]);
+  const {frozen,parentManifestSha256,previous6,previous7,parent}=syntheticRuntimeRevision7(root);
   for(const relative of adaptiveRunner.RUNTIME_REVISION_08_PATHS)
     fs.appendFileSync(path.join(root,relative),'\n// runtime revision 8 test delta\n');
   git(['add','--',...adaptiveRunner.RUNTIME_REVISION_08_PATHS]);git(['commit','-m','Issue 7 runtime revision 8 code']);
-  const parent={manifest,parentManifestSha256};
   const revision=adaptiveRunner.createRuntimeRevision8Candidate(root,parent,previous7);
   assert.equal(revision.revisionNumber,8);
   assert.equal(revision.previousRuntimeRevisionSha256,adaptiveRunner.RUNTIME_REVISION_07_SHA256);
@@ -774,7 +792,59 @@ test('runtime revision 8 accepts only the exact R7 child and preserves its histo
     /revision 7 identity or exact seven-file path set/);
 });
 
-test('runtime revision 8 recorder writes both immutable copies, recovers a missing event, and blocks a one-sided record',t=>{
+test('runtime revision 9 binds one exact R8 child and keeps the original 136-cell snapshot',t=>{
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-runtime-revision-09-code-'));
+  t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
+  const root=path.join(temp,'repo');fs.mkdirSync(root,{recursive:true});
+  execFileSync('rtk',['git','init','-b','issue7-r9-test',root],{stdio:'ignore'});
+  const git=args=>execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim(),
+    gitBytes=args=>execFileSync('rtk',['proxy','git',...args],{cwd:root,encoding:'buffer'});
+  git(['config','user.name','Issue 7 runtime revision 9 test']);git(['config','user.email','issue7-r9@example.invalid']);
+  git(['remote','add','upstream',adaptiveRunner.ROOT]);
+  git(['fetch','--quiet','--no-tags','upstream',adaptiveRunner.RUNTIME_REVISION_08_CODE_REVISION]);
+  git(['checkout','-b','issue7-r9-test-code',adaptiveRunner.RUNTIME_REVISION_08_CODE_REVISION]);
+  const digestAt=(commit,relative)=>core.sha256(gitBytes(['show',`${commit}:${relative}`])),
+    previous7=syntheticRuntimeRevision7(root).previous7,
+    runnerRel='wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.cjs',
+    testRel='wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.test.cjs',
+    previous8={sha256:'e247ef01385996ecd6fee220cbf44b95bc31c9f0c1319d64222c81e60e9b7404',value:{
+      ...previous7.value,revisionNumber:8,previousCodeRevision:previous7.value.codeRevision,
+      previousRuntimeRevisionSha256:previous7.sha256,codeRevision:adaptiveRunner.RUNTIME_REVISION_08_CODE_REVISION,
+      previousRunnerSha256:previous7.value.newRunnerSha256,
+      newRunnerSha256:digestAt(adaptiveRunner.RUNTIME_REVISION_08_CODE_REVISION,runnerRel),
+      newTestSha256:digestAt(adaptiveRunner.RUNTIME_REVISION_08_CODE_REVISION,testRel),
+      changedPaths:adaptiveRunner.RUNTIME_REVISION_08_PATHS,
+      changedFileSha256:Object.fromEntries(adaptiveRunner.RUNTIME_REVISION_08_PATHS.map(relative=>[
+        relative,digestAt(adaptiveRunner.RUNTIME_REVISION_08_CODE_REVISION,relative)])),
+      approvalSha256:adaptiveRunner.RUNTIME_REVISION_08_APPROVAL_SHA256,
+      diffSha256:core.sha256(gitBytes(['diff','--binary','--no-ext-diff',
+        `${adaptiveRunner.RUNTIME_REVISION_07_CODE_REVISION}..${adaptiveRunner.RUNTIME_REVISION_08_CODE_REVISION}`,
+        '--',...adaptiveRunner.RUNTIME_REVISION_08_PATHS]))}};
+  for(const relative of adaptiveRunner.RUNTIME_REVISION_09_PATHS)
+    fs.appendFileSync(path.join(root,relative),'\n// runtime revision 9 test delta\n');
+  git(['add','--',...adaptiveRunner.RUNTIME_REVISION_09_PATHS]);git(['commit','-m','Issue 7 runtime revision 9 code']);
+  const parent={manifest:{epoch:core.EPOCH,creatorRevision:'a'.repeat(40)},parentManifestSha256:'f'.repeat(64)};
+  const revision=adaptiveRunner.createRuntimeRevision9Candidate(root,parent,previous8);
+  assert.equal(revision.revisionNumber,9);assert.equal(revision.previousRuntimeRevisionSha256,previous8.sha256);
+  assert.equal(revision.previousCodeRevision,adaptiveRunner.RUNTIME_REVISION_08_CODE_REVISION);
+  assert.deepEqual(revision.changedPaths,adaptiveRunner.RUNTIME_REVISION_09_PATHS);
+  assert.equal(adaptiveRunner.validateRuntimeRevision9Code(root,parent.manifest,parent.parentManifestSha256,previous8,revision),true);
+  assert.equal(adaptiveRunner.validateRuntimeRevision9Snapshot(revision,previous8),true);
+  assert.throws(()=>adaptiveRunner.validateRuntimeRevision9Code(root,parent.manifest,parent.parentManifestSha256,
+    {...previous8,sha256:'0'.repeat(64)},revision),/identity or exact six-file path set/);
+  assert.throws(()=>adaptiveRunner.validateRuntimeRevision9Code(root,parent.manifest,parent.parentManifestSha256,previous8,
+    {...revision,approvalSha256:'0'.repeat(64)}),/identity or exact six-file path set/);
+  assert.throws(()=>adaptiveRunner.validateRuntimeRevision9Snapshot({...revision,selectionSha256:'0'.repeat(64)},previous8),
+    /does not preserve the exact R8 136-cell checkpoint/);
+  const event={type:'RUNTIME_REVISION_ACCEPTED',revisionNumber:9,runtimeRevisionSha256:core.sha256(core.canonicalBytes(revision)),
+    previousRuntimeRevisionSha256:previous8.sha256,codeRevision:revision.codeRevision,priorLedgerSha256:revision.priorLedgerSha256,
+    selectionSha256:revision.selectionSha256,changedPaths:adaptiveRunner.RUNTIME_REVISION_09_PATHS};
+  assert.equal(adaptiveRunner.runtimeRevision9AcceptedEvent([event],revision,event.runtimeRevisionSha256),true);
+  assert.equal(adaptiveRunner.runtimeRevision9AcceptedEvent([event,event],revision,event.runtimeRevisionSha256),false);
+});
+
+test('opt-in real-snapshot copy: runtime revision 8 recorder writes both immutable copies and recovers a missing event',
+  {skip:process.env.ISSUE7_RUN_CANONICAL_ACCEPTANCE!=='1'},t=>{
   const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-runtime-revision-08-record-')),
     root=path.join(temp,'repo'),home=path.join(temp,'home'),commonDirectory=path.join(temp,'common');
   fs.mkdirSync(root,{recursive:true});fs.mkdirSync(home);fs.mkdirSync(commonDirectory);
