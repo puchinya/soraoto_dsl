@@ -550,15 +550,18 @@ function ensurePhaseC(roots, p1, reference, phaseB, ownerId) {
   return {phase: executed, summary, selected: accepted, gainDb};
 }
 function ensurePhaseD(roots, p1, reference, phaseB, phaseC, ownerId) {
-  const identity = stageIdentity(roots, p1, reference, {purpose: 'held-out generalization 25 cells', selectedValues: phaseC.selected.values});
-  const cells = core.holdoutCells();
+  const cells = holdoutEvidenceCells(core.holdoutCells());
+  const holdoutClassification = holdoutEvidenceSummary(cells);
+  const identity = stageIdentity(roots, p1, reference, {purpose: '25-cell mixed confirmation matrix; coordinate-level holdout labels are explicit',
+    selectedValues: phaseC.selected.values, holdoutClassification});
   const output = executePlan(roots, 'holdout', identity, cells, cell => renderAudio({cell, values: phaseC.selected.values, frames: 24000, notes: [{pitch: cell.pitch, velocity: cell.velocity}]}), {ownerId});
   const refs = referenceMetricRows(reference.record.rows), measured = allMetricRows(output.rows);
   const evaluation = directMetrics.evaluateDirectReferenceMatrix(refs, measured, {requiredVelocityLayers: [...core.HOLDOUT_VELOCITIES]});
   const loss = researchLoss(reference.record.rows, output.rows, phaseC.gainDb);
   const pass = evaluation.metrics.cellFailureCount === 0 && evaluation.metrics.directPitchFailureCount === 0 && evaluation.metrics.peakWorstDbfs < 0 && evaluation.metrics.guardHitTotal === 0 && evaluation.metrics.finite;
-  const finalized = finalizePhase(roots, output.plan, output.ledger, pass ? 'PHYSICAL_FIT_HELDOUT_PASS' : 'BLOCKED_PHYSICAL_FIT_HELDOUT_FAIL', {evaluation, researchLoss: loss, calls: output.plan.cells.length});
-  if (!pass) throw new Error('BLOCKED_PHYSICAL_FIT_HELDOUT_FAIL');
+  const finalized = finalizePhase(roots, output.plan, output.ledger, pass ? 'PHYSICAL_FIT_MIXED_CONFIRMATION_PASS' : 'BLOCKED_PHYSICAL_FIT_MIXED_CONFIRMATION_FAIL',
+    {evaluation, researchLoss: loss, calls: output.plan.cells.length, holdoutClassification});
+  if (!pass) throw new Error('BLOCKED_PHYSICAL_FIT_MIXED_CONFIRMATION_FAIL');
   const headroomCells = core.headroomCells();
   const headroom = executePlan(roots, 'headroom', stageIdentity(roots, p1, reference, {purpose: 'exact 4-call musical chord and 32-voice RT headroom comparison', selectedValues: phaseC.selected.values}), headroomCells, cell => {
     const pitches = cell.pattern === 'open-c-major-nine' ? [48, 55, 60, 64, 67, 71, 74, 76, 79, 84] : Array.from({length: 32}, (_, index) => 48 + index);
@@ -589,7 +592,28 @@ function ensurePhaseD(roots, p1, reference, phaseB, phaseC, ownerId) {
     if (!core.same(body, selected)) throw new Error('BLOCKED_PHYSICAL_P1_ACCEPTANCE_IDENTITY_DRIFT');
   } else selected.createdAt = new Date().toISOString();
   const stored = core.writeJson(roots, 'candidate/physical-fit-P1-accepted.json', selected, true);
-  return {decision: selected.decision, selected, sha256: stored.sha256, holdout: {resultSha256: finalized.sha256, evaluation, researchLoss: loss}, headroom: {resultSha256: safetyFinal.sha256, comparisons}};
+  return {decision: selected.decision, selected, sha256: stored.sha256,
+    confirmationMatrix: {resultSha256: finalized.sha256, evaluation, researchLoss: loss, holdoutClassification},
+    headroom: {resultSha256: safetyFinal.sha256, comparisons}};
+}
+function holdoutEvidenceCells(cells = core.holdoutCells()) {
+  const training = new Set(core.SCREEN_CELLS.map(cell => `${cell.pitch}:${cell.velocity}`));
+  return cells.map(cell => {
+    const trainingOverlap = training.has(`${cell.pitch}:${cell.velocity}`);
+    const reservedPitch = cell.pitch === 93 || cell.pitch === 99;
+    return {...cell,
+      evidenceRole: trainingOverlap ? 'training-overlap' : reservedPitch ? 'reserved-pitch-other-velocity' : 'unseen-pitch-velocity-coordinate',
+      pitchScope: reservedPitch ? 'partially-touched-at-velocity-31' : 'not-one-of-the-two-reserved-pitches'};
+  });
+}
+function holdoutEvidenceSummary(cells) {
+  const key = cell => `${cell.pitch}:${cell.velocity}`;
+  return {classification: 'mixed-in-sample-and-held-out-coordinates',
+    trainingOverlapCellKeys: cells.filter(cell => cell.evidenceRole === 'training-overlap').map(key).sort(),
+    independentCoordinateCellKeys: cells.filter(cell => cell.evidenceRole !== 'training-overlap').map(key).sort(),
+    reservedPitchOtherVelocityCellKeys: cells.filter(cell => cell.evidenceRole === 'reserved-pitch-other-velocity').map(key).sort(),
+    reservedPitchTrainingCellKeys: cells.filter(cell => (cell.pitch === 93 || cell.pitch === 99)
+      && cell.evidenceRole === 'training-overlap').map(key).sort()};
 }
 function writeImmutableRecord(roots, relative, record) {
   const existing = core.readJson(roots, relative, false);
@@ -612,6 +636,31 @@ function verifyPromotionCommit(intent) {
       || git(['show', '-s', '--format=%s', 'HEAD'], {raw: true}) !== 'stage3: promote physical-fit P1 candidate'
       || !core.same(promotionChangedPaths('HEAD'), PROMOTION_FILES)) throw new Error('BLOCKED_PHYSICAL_P2_PROMOTION_COMMIT');
   return {commit, parent, tree: git(['rev-parse', 'HEAD^{tree}'])};
+}
+function readPromotionPr(label) {
+  const result = runRtk(['gh', 'pr', 'view', '8', '--repo', 'puchinya/soraoto_dsl', '--json', 'state,headRefName,headRefOid'], label);
+  try { return JSON.parse(result.stdout); }
+  catch { throw new Error('BLOCKED_PHYSICAL_P2_PR_READBACK_JSON'); }
+}
+function publishPromotionCommit({commit, parent, readPr = readPromotionPr,
+  push = commitSha => runRtk(['git', 'push', 'origin', `${commitSha}:refs/heads/${BRANCH}`], 'push-p2-promotion')} = {}) {
+  if (!/^[0-9a-f]{40}$/.test(commit || '') || !/^[0-9a-f]{40}$/.test(parent || '') || commit === parent)
+    throw new Error('BLOCKED_PHYSICAL_P2_PROMOTION_IDENTITY');
+  const read = label => {
+    let pr;
+    try { pr = readPr(label); }
+    catch (error) { throw new Error(`BLOCKED_PHYSICAL_P2_PR_READBACK: ${error.message}`); }
+    if (pr?.state !== 'OPEN' || pr.headRefName !== BRANCH) throw new Error('BLOCKED_PHYSICAL_P2_PR_IDENTITY');
+    return pr;
+  };
+  const before = read('p2-promotion-pr-before');
+  if (before.headRefOid === commit) return {branch: BRANCH, headRefOid: commit, pushed: false};
+  if (before.headRefOid !== parent) throw new Error('BLOCKED_PHYSICAL_P2_PR_HEAD_DRIFT');
+  try { push(commit); }
+  catch (error) { throw new Error(`BLOCKED_PHYSICAL_P2_PUSH: ${error.message}`); }
+  const after = read('p2-promotion-pr-after');
+  if (after.headRefOid !== commit) throw new Error('BLOCKED_PHYSICAL_P2_PR_HEAD_READBACK_MISMATCH');
+  return {branch: BRANCH, headRefOid: after.headRefOid, pushed: true};
 }
 function updateSelectedPreset(values) {
   const presetPath = path.join(ROOT, 'wasm/plugins/dsp/super-synth/presets.json');
@@ -649,6 +698,7 @@ function promoteCandidate(roots, p1) {
     if (existingP2.p1AcceptanceSha256 !== acceptedSha || existingP2.lineage !== core.LINEAGE.production
         || !core.same(existingP2.values, values) || fileSha(wasm) !== existingP2.builds.productionTest.wasmSha256)
       throw new Error('BLOCKED_PHYSICAL_P2_IDENTITY_DRIFT');
+    publishPromotionCommit({commit: existingP2.promotion.commit, parent: existingP2.promotion.parent});
     return {record: existingP2, sha256: core.readDual(roots, P2_REL).sha256};
   }
   const p1Head = p1.sourceIdentity.git.head;
@@ -680,8 +730,9 @@ function promoteCandidate(roots, p1) {
     runRtk(['git', 'commit', '-m', 'stage3: promote physical-fit P1 candidate'], 'commit-p2-promotion');
   }
   const promotion = verifyPromotionCommit(intent);
+  const publication = publishPromotionCommit({commit: promotion.commit, parent: promotion.parent});
   const receipt = {schemaVersion: 1, issue: core.ISSUE, epoch: core.EPOCH, lineage: core.LINEAGE.production,
-    p1AcceptanceSha256: acceptedSha, values, ...promotion};
+    p1AcceptanceSha256: acceptedSha, values, ...promotion, publication};
   const receiptStored = writeImmutableRecord(roots, PROMOTION_RECEIPT_REL, receipt);
   return {intent, receipt: receiptStored.record, receiptSha256: receiptStored.sha256, selected, acceptedSha};
 }
@@ -760,6 +811,7 @@ function ensureProductionP2(roots, p1) {
     const wasm = path.join(ROOT, p2Stored.builds.productionTest.buildDirectory, WASM_REL);
     if (fileSha(wasm) !== p2Stored.builds.productionTest.wasmSha256
         || git(['rev-parse', 'HEAD']) !== p2Stored.promotion.commit) throw new Error('BLOCKED_PHYSICAL_P2_IDENTITY_DRIFT');
+    publishPromotionCommit({commit: p2Stored.promotion.commit, parent: p2Stored.promotion.parent});
     if (core.readJson(roots, REGRESSION_REL, true).results && core.readJson(roots, CTEST_REL, true).result?.decision === 'PASS')
       return {record: p2Stored, sha256: core.readDual(roots, P2_REL).sha256};
     throw new Error('BLOCKED_PHYSICAL_P2_ACCEPTANCE_RECORDS');
@@ -838,7 +890,24 @@ function runStage4(roots, p2, stage3Result, ownerId) {
     matrix, repeats, stage3Rows, legacyConformance});
   const finalized = finalizePhase(roots, executed.plan, executed.ledger, evaluation.decision, evaluation);
   if (evaluation.decision !== 'STAGE4_FULL_RANGE_COMPLETE') throw new Error(`BLOCKED_PHYSICAL_STAGE4_FAIL: ${evaluation.decision}`);
-  return {decision: evaluation.decision, resultSha256: finalized.sha256, evaluation, calls: executed.plan.cells.length};
+  return {decision: evaluation.decision, resultSha256: finalized.sha256, identity, evaluation, calls: executed.plan.cells.length};
+}
+function releaseBuildAcceptance(p2) {
+  const testSha256 = p2?.builds?.productionTest?.wasmSha256 || null;
+  const releaseSha256 = p2?.builds?.productionRelease?.wasmSha256 || null;
+  if (testSha256 && releaseSha256 && testSha256 === releaseSha256)
+    return {decision: 'PASS', method: 'byte-identical-test-and-release-binaries', testSha256, releaseSha256};
+  return {decision: 'BLOCKED_PHYSICAL_RELEASE_ACOUSTIC_ACCEPTANCE_REQUIRED', method: null, testSha256, releaseSha256,
+    reason: 'Stage3/Stage4 must not consume test-build acoustic results when the release WASM differs; Issue #7 authorizes no additional release-equivalence renders.'};
+}
+function finalAcceptanceDecision({p2, stage3Result, stage4Result} = {}) {
+  if (stage3Result?.decision !== 'STAGE3_READY_FOR_STAGE4' || stage4Result?.decision !== 'STAGE4_FULL_RANGE_COMPLETE')
+    return {decision: 'BLOCKED_PHYSICAL_IDENTIFICATION_INCOMPLETE'};
+  const release = releaseBuildAcceptance(p2);
+  if (release.decision !== 'PASS') return release;
+  return {decision: 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW', release,
+    finalization: {webPlayerTestsAndBuild: 'NOT RUN', finalReadOnlyShaMtimeAttestation: 'NOT RUN',
+      documentedListeningOrExplicitNotRun: 'NOT RUN', reviewerChecklist: 'NOT RUN', prStatusUpdate: 'NOT RUN', issuePhaseReview: 'NOT RUN'}};
 }
 function status({home = os.homedir()} = {}) {
   const roots = core.resolveRoots(ROOT, home), phases = state(roots);
@@ -851,10 +920,8 @@ function verify({home = os.homedir()} = {}) {
     .map(stage => [stage, core.readJson(roots, `${stage}/result.json`, false)])
     .find(([, result]) => result?.decision?.startsWith('BLOCKED_')) || null;
   const p2 = core.readJson(roots, P2_REL, false), stage3Result = core.readJson(roots, 'stage3/result.json', false), stage4Result = core.readJson(roots, 'stage4/result.json', false);
-  const complete = candidate?.decision === 'PHYSICAL_FIT_P1_ACCEPTANCE_PASS' && p2
-    && stage3Result?.decision === 'STAGE3_READY_FOR_STAGE4' && stage4Result?.decision === 'STAGE4_FULL_RANGE_COMPLETE';
-  return {...current, decision: terminal ? terminal[1].decision : complete ? 'ISSUE7_PHYSICAL_IDENTIFICATION_V1_COMPLETE'
-      : candidate?.decision === 'PHYSICAL_FIT_P1_ACCEPTANCE_PASS' ? 'ISSUE7_PHYSICAL_IDENTIFICATION_V1_PHASE_D_PASS' : 'BLOCKED_PHYSICAL_IDENTIFICATION_INCOMPLETE',
+  const finalization = finalAcceptanceDecision({p2, stage3Result, stage4Result});
+  return {...current, decision: terminal ? terminal[1].decision : finalization.decision, finalization,
     candidateSha256: candidate ? core.readDual(roots, 'candidate/physical-fit-P1-accepted.json').sha256 : null,
     p2Sha256: p2 ? core.readDual(roots, P2_REL).sha256 : null,
     stage3Sha256: stage3Result ? core.readDual(roots, 'stage3/result.json').sha256 : null,
@@ -868,7 +935,7 @@ function dryRun({home = os.homedir()} = {}) {
     if (!current.phases.baseline || current.phases.baseline.counts.COMPLETE !== 7) next = 'render 7 P1 baseline cells';
     else if (!current.phases.finiteDifference || current.phases.finiteDifference.counts.COMPLETE !== 42) next = 'render 42 centered finite-difference cells';
     else if (!current.phases.candidate || current.phases.candidate.counts.COMPLETE !== current.phases.candidate.authorizedCellCount) next = 'render up to 49 bounded candidate cells';
-    else if (!current.phases.holdout || current.phases.holdout.counts.COMPLETE !== 25) next = 'render 25 fixed held-out cells';
+    else if (!current.phases.holdout || current.phases.holdout.counts.COMPLETE !== 25) next = 'render 25 fixed confirmation-matrix cells with explicit overlap labels';
     else if (!current.phases.headroom || current.phases.headroom.counts.COMPLETE !== 4) next = 'render 4 fixed headroom/RT calls';
     else if (phaseD) next = 'promote physical-fit-P2 after acceptance record';
   }
@@ -886,9 +953,14 @@ async function runAll({home = os.homedir()} = {}) {
     const phaseC = ensurePhaseC(roots, p1, reference, phaseB, ownerId);
     const phaseD = ensurePhaseD(roots, p1, reference, phaseB, phaseC, ownerId);
     const p2Stored = ensureProductionP2(roots, p1), p2 = p2Stored.record;
+    const release = releaseBuildAcceptance(p2);
+    if (release.decision !== 'PASS') return {decision: release.decision, release, phaseD,
+      p2Sha256: p2Stored.sha256, productionBuilds: p2.builds, budget: core.assertBudget(allLedgers(roots)),
+      builds: 3, acousticRenders: core.totalCharged(allLedgers(roots))};
     const phase3 = runStage3(roots, p2, ownerId);
     const phase4 = runStage4(roots, p2, phase3, ownerId);
-    return {decision: 'ISSUE7_PHYSICAL_IDENTIFICATION_V1_COMPLETE', lineage: core.LINEAGE.production, p1Sha256: core.readDual(roots, P1_REL).sha256,
+    const finalization = finalAcceptanceDecision({p2, stage3Result: phase3, stage4Result: phase4});
+    return {decision: finalization.decision, finalization, lineage: core.LINEAGE.production, p1Sha256: core.readDual(roots, P1_REL).sha256,
       oldEvidence, phaseB: {sensitivityRank: phaseB.summary.sensitivityRank, calls: 49, baselineResultSha256: phaseB.baselineResult.sha256, finiteDifferenceResultSha256: phaseB.differenceResult.sha256},
       phaseC: {selectedValues: phaseC.selected.values, selectedCandidate: phaseC.selected.candidate, resultSha256: core.readDual(roots, 'candidate/result.json').sha256},
       phaseD, p2Sha256: p2Stored.sha256, productionBuilds: p2.builds, regressionResultsSha256: p2.identity.regressionResultsSha256,
@@ -924,4 +996,5 @@ module.exports = {ROOT, BASE_HEAD, BRANCH, BUILD_DIR, WASM_REL, P1_REL, REF_REL,
   configureDiagnosticBuild, sourceIdentity, rootsForReadOnly, readOnlyProtected, allLedgers, readPhase, state,
   verifyOldEvidence, ensureDiagnosticBuild, ensureReference, planStage, finalizePhase, loadRows, evaluateOfficial,
   gateViolation, researchLoss, writeWavFloat32, renderAudio, ensurePhaseB, ensurePhaseC, ensurePhaseD,
-  evaluateOfficial, status, verify, dryRun, runAll, recordP1, main};
+  evaluateOfficial, publishPromotionCommit, releaseBuildAcceptance, finalAcceptanceDecision,
+  holdoutEvidenceCells, holdoutEvidenceSummary, status, verify, dryRun, runAll, recordP1, main};

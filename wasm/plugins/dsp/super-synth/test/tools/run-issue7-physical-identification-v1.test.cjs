@@ -22,6 +22,57 @@ test('physical-identification allocation is fixed and totals the approved acoust
   assert.equal(runner.SOURCE_FILES.includes('wasm/plugins/dsp/super-synth/test/tools/run-issue7-physical-identification-v1.test.cjs'), true);
 });
 
+test('holdout matrix labels exact training overlaps and only untouched velocity layers as holdout', () => {
+  const cells = runner.holdoutEvidenceCells();
+  const summary = runner.holdoutEvidenceSummary(cells);
+  assert.equal(cells.length, 25);
+  assert.equal(summary.classification, 'mixed-in-sample-and-held-out-coordinates');
+  assert.deepEqual(summary.reservedPitchTrainingCellKeys, ['93:31', '99:31']);
+  assert.equal(summary.trainingOverlapCellKeys.length, 7);
+  assert.equal(summary.independentCoordinateCellKeys.length, 18);
+  assert.equal(summary.reservedPitchOtherVelocityCellKeys.length, 8);
+  assert.ok(cells.filter(cell => cell.pitch === 93 || cell.pitch === 99)
+    .every(cell => cell.pitchScope === 'partially-touched-at-velocity-31'));
+});
+
+test('P2 promotion pushes exact commit and verifies the PR head before reporting success', () => {
+  const parent = 'a'.repeat(40), commit = 'b'.repeat(40), pushes = [];
+  const responses = [
+    {state: 'OPEN', headRefName: runner.BRANCH, headRefOid: parent},
+    {state: 'OPEN', headRefName: runner.BRANCH, headRefOid: commit}
+  ];
+  const published = runner.publishPromotionCommit({commit, parent, readPr: () => responses.shift(), push: sha => pushes.push(sha)});
+  assert.deepEqual(pushes, [commit]);
+  assert.deepEqual(published, {branch: runner.BRANCH, headRefOid: commit, pushed: true});
+});
+
+test('P2 promotion fails closed on unexpected PR identity or post-push HEAD mismatch', () => {
+  const parent = 'a'.repeat(40), commit = 'b'.repeat(40);
+  assert.throws(() => runner.publishPromotionCommit({commit, parent,
+    readPr: () => ({state: 'CLOSED', headRefName: runner.BRANCH, headRefOid: parent}), push: () => assert.fail('must not push') }),
+  /BLOCKED_PHYSICAL_P2_PR_IDENTITY/);
+  const responses = [
+    {state: 'OPEN', headRefName: runner.BRANCH, headRefOid: parent},
+    {state: 'OPEN', headRefName: runner.BRANCH, headRefOid: 'c'.repeat(40)}
+  ];
+  assert.throws(() => runner.publishPromotionCommit({commit, parent, readPr: () => responses.shift(), push: () => {}}),
+    /BLOCKED_PHYSICAL_P2_PR_HEAD_READBACK_MISMATCH/);
+});
+
+test('Stage 3 and Stage 4 cannot accept a different unverified release binary or complete Issue delivery', () => {
+  const p2 = {builds: {productionTest: {wasmSha256: 'a'.repeat(64)}, productionRelease: {wasmSha256: 'b'.repeat(64)}}};
+  const stage3Result = {decision: 'STAGE3_READY_FOR_STAGE4'};
+  const stage4Result = {decision: 'STAGE4_FULL_RANGE_COMPLETE'};
+  assert.equal(runner.releaseBuildAcceptance(p2).decision, 'BLOCKED_PHYSICAL_RELEASE_ACOUSTIC_ACCEPTANCE_REQUIRED');
+  assert.equal(runner.finalAcceptanceDecision({p2, stage3Result, stage4Result}).decision,
+    'BLOCKED_PHYSICAL_RELEASE_ACOUSTIC_ACCEPTANCE_REQUIRED');
+  const identicalBuilds = {builds: {productionTest: {wasmSha256: 'a'.repeat(64)}, productionRelease: {wasmSha256: 'a'.repeat(64)}}};
+  const result = runner.finalAcceptanceDecision({p2: identicalBuilds, stage3Result, stage4Result});
+  assert.equal(result.decision, 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW');
+  assert.equal(result.finalization.webPlayerTestsAndBuild, 'NOT RUN');
+  assert.notEqual(result.decision, 'ISSUE7_PHYSICAL_IDENTIFICATION_V1_COMPLETE');
+});
+
 test('candidate values stay within the approved box and invalid values fail closed', () => {
   const baseline = core.PARAMS.map(parameter => parameter.baseline);
   assert.deepEqual(core.validateCandidate(baseline), baseline);
