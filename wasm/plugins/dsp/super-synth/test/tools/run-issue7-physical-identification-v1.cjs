@@ -15,12 +15,14 @@ const stage4 = require('./run-issue7-stage4-current-build.cjs');
 
 const ROOT = core.ROOT;
 const BASE_HEAD = '4af394d56c986f35260ad5adcc6eee7f6e575ce7';
+const P1_EVALUATOR_PREDECESSOR_HEAD = '468710ab8760d76ab66b16d82c11883ab5b3866c';
 const BRANCH = 'codex/issue-7-supersynth-v9';
 const BUILD_DIR = path.join(ROOT, 'build/issue7-physical-identification-v1/diagnostic');
 const P2_TEST_BUILD_DIR = path.join(ROOT, 'build/issue7-physical-identification-v1/production-test');
 const P2_RELEASE_BUILD_DIR = path.join(ROOT, 'build/issue7-physical-identification-v1/production-release');
 const WASM_REL = 'plugins/dsp/super-synth/plugin.wasm';
 const P1_REL = 'runtime-revisions/physical-fit-P1.json';
+const P1_EVALUATION_REVISION_REL = 'runtime-revisions/physical-fit-P1-evaluation-01.json';
 const P2_REL = 'runtime-revisions/physical-fit-P2.json';
 const REF_REL = 'reference/corpus.json';
 const REGRESSION_REL = 'production/regressions.json';
@@ -115,6 +117,72 @@ function sourceIdentity() {
   const tree = git(['rev-parse', 'HEAD^{tree}']);
   return {git: {...gitFacts, tree}, files};
 }
+function ensureP1EvaluationRevision(roots, prior, source) {
+  const evaluatorFiles = [
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-physical-identification-v1.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-physical-identification-v1.test.cjs'
+  ].sort();
+  const priorFiles = Object.keys(prior.sourceIdentity?.files || {}).sort();
+  const currentFiles = Object.keys(source.files).sort();
+  if (!core.same(priorFiles, currentFiles)) throw new Error('BLOCKED_PHYSICAL_P1_EVALUATOR_SOURCE_SET_DRIFT');
+  if (prior.sourceIdentity?.git?.head !== P1_EVALUATOR_PREDECESSOR_HEAD)
+    throw new Error('BLOCKED_PHYSICAL_P1_EVALUATOR_PREDECESSOR_HEAD');
+  const fileChanges = priorFiles.filter(relative => prior.sourceIdentity.files[relative] !== source.files[relative]).sort();
+  const commitChanges = git(['diff', '--name-only', `${prior.sourceIdentity.git.head}..${source.git.head}`], {raw: true}).split(/\r?\n/).filter(Boolean).sort();
+  if (!core.same(fileChanges, evaluatorFiles) || !core.same(commitChanges, evaluatorFiles))
+    throw new Error(`BLOCKED_PHYSICAL_P1_EVALUATOR_CHANGE_SCOPE: ${commitChanges.join(',')}`);
+  git(['merge-base', '--is-ancestor', prior.sourceIdentity.git.head, source.git.head], {raw: true});
+  if (git(['rev-list', '--count', `${prior.sourceIdentity.git.head}..${source.git.head}`]) !== '1')
+    throw new Error('BLOCKED_PHYSICAL_P1_EVALUATOR_COMMIT_COUNT');
+  if (git(['rev-parse', `${prior.sourceIdentity.git.head}^{tree}`]) !== prior.sourceIdentity.git.tree)
+    throw new Error('BLOCKED_PHYSICAL_P1_PREDECESSOR_TREE_DRIFT');
+  const wasmSha256 = fileSha(wasmPath());
+  if (wasmSha256 !== prior.build?.wasmSha256) throw new Error('BLOCKED_PHYSICAL_P1_EVALUATOR_BUILD_DRIFT');
+  assertDiagnosticExports(wasmPath());
+  const baseline = readPhase(roots, 'baseline'), finiteDifference = readPhase(roots, 'finiteDifference');
+  if (baseline?.counts.COMPLETE !== 7 || baseline.counts.PENDING || baseline.counts.IN_PROGRESS || baseline.counts.AMBIGUOUS
+      || finiteDifference?.counts.COMPLETE !== 42 || finiteDifference.counts.PENDING || finiteDifference.counts.IN_PROGRESS || finiteDifference.counts.AMBIGUOUS
+      || core.totalCharged(allLedgers(roots)) !== 49)
+    throw new Error('BLOCKED_PHYSICAL_P1_EVALUATOR_CELL_STATE');
+  const p1Sha256 = core.readDual(roots, P1_REL).sha256;
+  const referenceSha256 = core.readDual(roots, REF_REL)?.sha256;
+  if (!referenceSha256 || baseline.plan.identity?.p1Sha256 !== p1Sha256 || finiteDifference.plan.identity?.p1Sha256 !== p1Sha256
+      || baseline.plan.identity?.referenceSha256 !== referenceSha256 || finiteDifference.plan.identity?.referenceSha256 !== referenceSha256
+      || baseline.plan.identity?.p1Lineage !== prior.lineage || finiteDifference.plan.identity?.p1Lineage !== prior.lineage)
+    throw new Error('BLOCKED_PHYSICAL_P1_EVALUATOR_PLAN_IDENTITY');
+  const baselineLedger = core.readDual(roots, 'baseline/ledger.json');
+  const finiteDifferenceLedger = core.readDual(roots, 'finiteDifference/ledger.json');
+  const input = {revisionId: 'physical-fit-P1-evaluation-01', decision: 'P1_EVALUATOR_ONLY_RESUME', p1Sha256, referenceSha256,
+    predecessorHead: prior.sourceIdentity.git.head, predecessorTree: prior.sourceIdentity.git.tree,
+    currentHead: source.git.head, currentTree: source.git.tree, predecessorEvaluatorSha256: prior.sourceIdentity.files[evaluatorFiles[0]],
+    currentEvaluatorSha256: source.files[evaluatorFiles[0]], predecessorTestSha256: prior.sourceIdentity.files[evaluatorFiles[1]],
+    currentTestSha256: source.files[evaluatorFiles[1]], wasmSha256,
+    baselinePlanSha256: core.sha256(core.jsonBytes(baseline.plan)), baselineLedgerSha256: baselineLedger.sha256,
+    finiteDifferencePlanSha256: core.sha256(core.jsonBytes(finiteDifference.plan)), finiteDifferenceLedgerSha256: finiteDifferenceLedger.sha256,
+    preservedAcousticCells: 49, additionalRenderCalls: 0};
+  const inputDigest = core.sha256(core.jsonBytes(input));
+  let record = core.readJson(roots, P1_EVALUATION_REVISION_REL, false);
+  const hadRecord = Boolean(record);
+  if (!hadRecord && (baseline.result || finiteDifference.result)) throw new Error('BLOCKED_PHYSICAL_P1_EVALUATOR_RESULT_REVISION');
+  if (record) {
+    if (record.inputDigest !== inputDigest || !core.same(record.input, input)) throw new Error('BLOCKED_PHYSICAL_P1_EVALUATOR_REVISION_DRIFT');
+  } else {
+    const recordValue = {schemaVersion: 1, issue: core.ISSUE, epoch: core.EPOCH, lineage: core.LINEAGE.diagnostic,
+      createdAt: new Date().toISOString(), input, inputDigest};
+    core.writeJson(roots, P1_EVALUATION_REVISION_REL, recordValue, true);
+    record = recordValue;
+  }
+  const recordSha256 = core.readDual(roots, P1_EVALUATION_REVISION_REL).sha256;
+  if ((baseline.result && baseline.result.summary?.p1EvaluationRevisionSha256 !== recordSha256)
+      || (finiteDifference.result && finiteDifference.result.summary?.p1EvaluationRevisionSha256 !== recordSha256))
+    throw new Error('BLOCKED_PHYSICAL_P1_EVALUATOR_RESULT_REVISION');
+  const eventId = 'runtime:physical-fit-P1-evaluation-01';
+  const event = {eventId, type: 'runtime-revision', lineage: core.LINEAGE.diagnostic, sha256: recordSha256, at: record.createdAt};
+  const existingEvent = core.journal(roots).events.find(item => item.eventId === eventId);
+  if (existingEvent && !core.same(existingEvent, event)) throw new Error('BLOCKED_PHYSICAL_P1_EVALUATOR_REVISION_EVENT_DRIFT');
+  if (!existingEvent) core.appendJournal(roots, event);
+  return {record, sha256: recordSha256};
+}
 function rootsForReadOnly(home = os.homedir()) {
   const roots = core.resolveRoots(ROOT, home);
   return [roots.primary, roots.secondary,
@@ -206,7 +274,8 @@ function ensureDiagnosticBuild(roots, refRecord) {
   const prior = readRuntime(roots);
   let build;
   if (prior) {
-    if (!core.same(prior.sourceIdentity, source) || !core.same(prior.reference, refRecord.source) || prior.lineage !== core.LINEAGE.diagnostic) throw new Error('BLOCKED_PHYSICAL_P1_IDENTITY_DRIFT');
+    if ((!core.same(prior.sourceIdentity, source) && !ensureP1EvaluationRevision(roots, prior, source))
+        || !core.same(prior.reference, refRecord.source) || prior.lineage !== core.LINEAGE.diagnostic) throw new Error('BLOCKED_PHYSICAL_P1_IDENTITY_DRIFT');
     build = {buildDirectory: prior.build.buildDirectory, wasmSha256: fileSha(wasmPath()), exports: assertDiagnosticExports(wasmPath())};
     if (build.wasmSha256 !== prior.build.wasmSha256) throw new Error('BLOCKED_PHYSICAL_DIAGNOSTIC_BUILD_DRIFT');
     return prior;
@@ -276,8 +345,8 @@ function loadRows(roots, stage) {
 }
 function allMetricRows(records) { return records.map(record => ({pitch: record.cell.pitch, velocity: record.cell.velocity, metrics: record.row.metrics.official})); }
 function referenceMetricRows(referenceRows) { return referenceRows.map(record => ({pitch: record.pitch, velocity: record.velocity, metrics: record.metrics.official})); }
-function evaluateOfficial(referenceRows, actualRecords, requiredVelocityLayers) {
-  return directMetrics.evaluateDirectReferenceMatrix(referenceRows, allMetricRows(actualRecords), {requiredVelocityLayers});
+function evaluateOfficial(referenceRows, actualRows, requiredVelocityLayers) {
+  return directMetrics.evaluateDirectReferenceMatrix(referenceRows, actualRows, {requiredVelocityLayers});
 }
 function gateViolation(evaluation) {
   const limits = evaluation.limits || directMetrics.LIMITS;
@@ -435,7 +504,9 @@ function ensurePhaseB(roots, p1, reference, ownerId) {
     return positiveObs.some((value, i) => Math.abs(value - negativeObs[i]) > 1e-8);
   });
   if (causalSignals.some(value => !value)) throw new Error('BLOCKED_PHYSICAL_INTERNAL_SIGNAL_UNIDENTIFIABLE');
-  const summary = {baselineOfficial, sharedGainOffsetDb: gainDb, featureCountPerCell: sensitivity.featureCount,
+  const evaluationRevision = core.readDual(roots, P1_EVALUATION_REVISION_REL);
+  const summary = {baselineOfficial, p1EvaluationRevisionSha256: evaluationRevision?.sha256 || null,
+    sharedGainOffsetDb: gainDb, featureCountPerCell: sensitivity.featureCount,
     sensitivityRank: core.matrixRank3(sensitivity.rows), parameterDeltas: core.PARAMS.map(parameter => parameter.baseline * 0.1),
     causalSignals, baselineRows: base.rows.map(row => ({cell: row.cell, sha256: row.sha256})), finiteDifferenceRows: perturbations.rows.map(row => ({cell: row.cell, sha256: row.sha256}))};
   const baselineResult = finalizePhase(roots, base.plan, base.ledger, 'PHYSICAL_FIT_P1_BASELINE_COMPLETE', summary);
@@ -853,4 +924,4 @@ module.exports = {ROOT, BASE_HEAD, BRANCH, BUILD_DIR, WASM_REL, P1_REL, REF_REL,
   configureDiagnosticBuild, sourceIdentity, rootsForReadOnly, readOnlyProtected, allLedgers, readPhase, state,
   verifyOldEvidence, ensureDiagnosticBuild, ensureReference, planStage, finalizePhase, loadRows, evaluateOfficial,
   gateViolation, researchLoss, writeWavFloat32, renderAudio, ensurePhaseB, ensurePhaseC, ensurePhaseD,
-  status, verify, dryRun, runAll, recordP1, main};
+  evaluateOfficial, status, verify, dryRun, runAll, recordP1, main};

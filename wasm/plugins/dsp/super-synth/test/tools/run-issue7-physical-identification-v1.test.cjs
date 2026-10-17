@@ -7,6 +7,7 @@ const path = require('node:path');
 const test = require('node:test');
 const core = require('./issue7-physical-identification-v1-core.cjs');
 const runner = require('./run-issue7-physical-identification-v1.cjs');
+const directMetrics = require('./stage3-direct-reference-metrics.cjs');
 const {PluginHarness} = require('../../../../../test/helpers/plugin-harness.cjs');
 
 test('physical-identification allocation is fixed and totals the approved acoustic cap', () => {
@@ -41,6 +42,23 @@ test('central differences identify three parameters and damped steps remain at m
   assert.equal(solved.rank, 3);
   assert.ok(Math.max(...solved.delta.map((value, index) => Math.abs(value / core.PARAMS[index].baseline))) <= 0.05 + 1e-12);
   assert.throws(() => core.dampedLeastSquares({sensitivity: [[1, 0, 0], [2, 0, 0], [3, 0, 0]], residual: [1, 1, 1]}), /BLOCKED_PHYSICAL_PARAMETER_UNIDENTIFIABLE/);
+});
+
+test('official evaluation receives normalized rows without mapping them a second time', () => {
+  const original = directMetrics.evaluateDirectReferenceMatrix;
+  const referenceRows = [{pitch: 60, velocity: 64, metrics: {}}];
+  const actualRows = [{pitch: 60, velocity: 64, metrics: {official: {finite: true}}}];
+  let received;
+  directMetrics.evaluateDirectReferenceMatrix = (reference, actual, options) => {
+    received = {reference, actual, options};
+    return {decision: 'TEST_STUB'};
+  };
+  try {
+    assert.deepEqual(runner.evaluateOfficial(referenceRows, actualRows, [64]), {decision: 'TEST_STUB'});
+    assert.deepEqual(received, {reference: referenceRows, actual: actualRows, options: {requiredVelocityLayers: [64]}});
+  } finally {
+    directMetrics.evaluateDirectReferenceMatrix = original;
+  }
 });
 
 test('dual-store ledger charges before completion and binds immutable results', t => {
