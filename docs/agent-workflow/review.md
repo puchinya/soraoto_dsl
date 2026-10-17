@@ -13,6 +13,8 @@ Keep the PR focused on the approved delta. Include:
 
 Do not copy the full requirements or design into the PR. Do not claim browser interaction, plugin lifecycle, or audio behavior without direct evidence.
 
+For contract-driven changes, review the diff against the preserved contract, approved Reviewer Checklist, and owning normative sources. Confirm each acceptance criterion has evidence or an explicit `NOT RUN`/`BLOCKED` result, and that status documents remain nonnormative mirrors of the Issue and observed checks.
+
 ## Review handling
 
 1. Read all actionable review comments and required CI results.

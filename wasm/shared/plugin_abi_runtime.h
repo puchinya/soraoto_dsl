@@ -12,7 +12,7 @@
 #define SORAOTO_E_BUFFER_TOO_SMALL -4
 #define SORAOTO_E_INCOMPATIBLE_LAYOUT -5
 #define SORAOTO_E_OUT_OF_MEMORY -6
-#define SORAOTO_E_STATE_INCOMPATIBLE -7
+#define SORAOTO_E_RESERVED_7 -7
 #define SORAOTO_E_INTERNAL -9
 
 #define SORAOTO_CONTROL_GET_DESCRIPTOR 1
@@ -203,7 +203,14 @@ static int32_t write_parameter_snapshot(int32_t outp,int32_t cap){
 }
 #ifdef PLUGIN_FACTORY_PRESET_COUNT
 static int apply_factory_preset_id(uint32_t id){
-  for(uint32_t p=0;p<PLUGIN_FACTORY_PRESET_COUNT;p++)if(soraoto_factory_preset_ids[p]==id){for(uint32_t i=0;i<PLUGIN_PARAM_COUNT;i++)apply_param(soraoto_param_ids[i],soraoto_factory_preset_norm[p][i]);return 1;}return 0;
+  for(uint32_t p=0;p<PLUGIN_FACTORY_PRESET_COUNT;p++)if(soraoto_factory_preset_ids[p]==id){
+    for(uint32_t i=0;i<PLUGIN_PARAM_COUNT;i++)apply_param(soraoto_param_ids[i],soraoto_factory_preset_norm[p][i]);
+#ifdef PLUGIN_FACTORY_PRESET_APPLY_HOOK
+    PLUGIN_FACTORY_PRESET_APPLY_HOOK(p,id);
+#endif
+    return 1;
+  }
+  return 0;
 }
 #endif
 
@@ -345,16 +352,6 @@ int32_t soraoto_plugin_process(int32_t process_block_ptr){
   wr32(pb+48,0);wr32(pb+72,0);wr32(pb+112,0);wr32(pb+128,0);wr32(pb+148,0);wr32(pb+152,0);wr32(pb+168,0);return SORAOTO_OK;
 }
 
-int32_t soraoto_plugin_state_snapshot(int32_t dst_ptr,int32_t capacity){
-  if(soraoto_state<ST_CONFIGURED||soraoto_state>ST_PROCESSING)return SORAOTO_E_BAD_STATE;uint32_t need=8u+PLUGIN_PARAM_COUNT*4u;
-  if(!dst_ptr&&!capacity)return (int32_t)need;if(dst_ptr<=0||capacity<(int32_t)need)return SORAOTO_E_BUFFER_TOO_SMALL;
-  uint32_t p=(uint32_t)dst_ptr;wr32(p,0x3154534du);wr32(p+4,PLUGIN_PARAM_COUNT);for(uint32_t i=0;i<PLUGIN_PARAM_COUNT;i++)*(float*)(uintptr_t)(p+8+i*4)=soraoto_param_norm[i];return (int32_t)need;
-}
-int32_t soraoto_plugin_state_load(int32_t src_ptr,int32_t len,int32_t context_ptr,int32_t context_len){
-  (void)context_ptr;(void)context_len;if(soraoto_state!=ST_CONFIGURED&&soraoto_state!=ST_ACTIVE)return SORAOTO_E_BAD_STATE;uint32_t need=8u+PLUGIN_PARAM_COUNT*4u;
-  if(src_ptr<=0||(uint32_t)len!=need)return SORAOTO_E_STATE_INCOMPATIBLE;uint32_t p=(uint32_t)src_ptr;if(rd32(p)!=0x3154534du||rd32(p+4)!=PLUGIN_PARAM_COUNT)return SORAOTO_E_STATE_INCOMPATIBLE;
-  for(uint32_t i=0;i<PLUGIN_PARAM_COUNT;i++)apply_param(soraoto_param_ids[i],*(float*)(uintptr_t)(p+8+i*4));return SORAOTO_OK;
-}
 int32_t soraoto_plugin_latency_samples(void){
 #ifdef PLUGIN_HAS_DYNAMIC_LATENCY
   return dsp_latency_samples();

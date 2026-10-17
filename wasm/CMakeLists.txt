@@ -8,6 +8,15 @@ set(CMAKE_C_EXTENSIONS OFF)
 include(CTest)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 find_program(SORAOTO_NODE_EXECUTABLE NAMES node)
+option(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS
+  "Build the isolated test-only Stage3D SuperSynth source"
+  OFF)
+option(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS
+  "Build the isolated test-only Stage3E SuperSynth velocity-response mode"
+  OFF)
+option(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS
+  "Build test-only bounded physical-parameter identification controls for SuperSynth"
+  OFF)
 include(cmake/wasm_plugin.cmake)
 
 set(SORAOTO_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
@@ -32,6 +41,8 @@ foreach(plugin_path IN LISTS SORAOTO_PLUGIN_PATHS)
   list(APPEND SORAOTO_METADATA_INPUTS
     "${CMAKE_CURRENT_SOURCE_DIR}/${plugin_path}/descriptor.json")
 endforeach()
+list(APPEND SORAOTO_METADATA_OUTPUTS
+  "${CMAKE_CURRENT_SOURCE_DIR}/shared/generated/super-synth_grand_profiles.h")
 list(APPEND SORAOTO_METADATA_INPUTS
   "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/presets.json"
   "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/interface.soraoto")
@@ -55,6 +66,37 @@ add_subdirectory(plugins/effects/master-limiter)
 add_subdirectory(plugins/dsp/drum-machine)
 add_subdirectory(plugins/dsp/super-synth)
 
+if(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+  if(NOT BUILD_TESTING OR NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+    message(FATAL_ERROR "Physical-identification diagnostics require BUILD_TESTING=ON and SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON")
+  endif()
+endif()
+
+if(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS)
+  if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS OR NOT SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+    message(FATAL_ERROR "Stage3D diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON and SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=ON")
+  endif()
+  if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS OR SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS)
+    message(FATAL_ERROR "Stage3B, Stage3C, and Stage3D diagnostics are mutually exclusive")
+  endif()
+  set(stage3d_target soraoto_dsp_super_synth)
+  set_property(TARGET ${stage3d_target} PROPERTY SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/src/plugin_stage3d.c")
+  target_compile_definitions(${stage3d_target} PRIVATE SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS=1)
+  target_link_options(${stage3d_target} PRIVATE
+    "-Wl,--export=soraoto_supersynth_stage3d_set_variant"
+    "-Wl,--export=soraoto_supersynth_stage3d_get_variant")
+endif()
+
+if(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS)
+  if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS OR NOT SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
+    message(FATAL_ERROR "Stage3E diagnostics require SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON and SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS=ON")
+  endif()
+  if(SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS OR SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS OR SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS)
+    message(FATAL_ERROR "Stage3B, Stage3C, Stage3D, and Stage3E diagnostics are mutually exclusive")
+  endif()
+endif()
+
 if(BUILD_TESTING AND SORAOTO_NODE_EXECUTABLE)
   file(GLOB SORAOTO_SHARED_WASM_TESTS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/test/*.test.js")
@@ -65,4 +107,47 @@ if(BUILD_TESTING AND SORAOTO_NODE_EXECUTABLE)
     set_tests_properties("wasm.${test_name}" PROPERTIES
       ENVIRONMENT "SORAOTO_WASM_BUILD_DIR=${CMAKE_BINARY_DIR}")
   endforeach()
+  add_test(NAME wasm.dsp.super-synth.supersynth-v9-production-lifecycle
+    COMMAND "${SORAOTO_NODE_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/test/tools/verify-supersynth-v9-production-lifecycle.cjs"
+      --production-dir "${CMAKE_BINARY_DIR}"
+      --output "${CMAKE_BINARY_DIR}/test-results/supersynth-v9-production-lifecycle.json")
+  add_test(NAME wasm.dsp.super-synth.salamander-board-fit-scale
+    COMMAND "${SORAOTO_NODE_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/test/fit-salamander-board.test.cjs")
+  add_test(NAME wasm.dsp.super-synth.salamander-pitch-detector
+    COMMAND "${SORAOTO_NODE_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/test/tools/salamander-metrics.test.cjs")
+  set(SORAOTO_STAGE3E_EVIDENCE_TESTS
+    durable-evidence.test.cjs
+    capture-supersynth-stage3e-matrix.test.cjs
+    run-stage3e-master-orchestrator.test.cjs
+    run-stage3e-velocity-response.test.cjs
+    stage3e-generation2-core.test.cjs
+    run-stage3e-generation2.test.cjs
+    run-stage3e-historical-reference-requalification.test.cjs
+    run-stage3-production-recovery.test.cjs
+    capture-supersynth-stage4-lifecycle.test.cjs
+    stage4-full-range-evaluator.test.cjs
+    run-stage4-full-range.test.cjs
+    issue7-current-build-core.test.cjs
+    run-issue7-stage3e-current-build.test.cjs
+    run-issue7-stage3-current-build.test.cjs
+    run-issue7-stage4-current-build.test.cjs
+    run-issue7-current-build.test.cjs
+    run-issue7-physical-identification-v1.test.cjs)
+  foreach(test_file IN LISTS SORAOTO_STAGE3E_EVIDENCE_TESTS)
+    string(REPLACE ".test.cjs" "" test_name "${test_file}")
+    add_test(NAME "wasm.dsp.super-synth.${test_name}"
+      COMMAND "${SORAOTO_NODE_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/plugins/dsp/super-synth/test/tools/${test_file}")
+    set_tests_properties("wasm.dsp.super-synth.${test_name}" PROPERTIES
+      ENVIRONMENT "SORAOTO_WASM_BUILD_DIR=${CMAKE_BINARY_DIR}")
+  endforeach()
+endif()
+
+if(BUILD_TESTING)
+  add_test(NAME wasm.super-synth-grand-profile-schema
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_super_synth_metadata.py")
 endif()

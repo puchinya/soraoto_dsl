@@ -1,0 +1,633 @@
+# Stage3B Contact Attribution Status
+
+## Decision
+
+`STAGE3B_PREFLIGHT_READY_FOR_MASK0_EQUIVALENCE`
+
+This is a zero-acoustic-render preflight result. It resolves the production provenance blocker and corrects the factor-selection gates. It does not authorize mask-0 acoustic renders or the 477 Stage3B diagnostic renders.
+
+## Provenance and accounting
+
+- Preflight baseline: `c1fd7f39b1c5d8353862169cadf7e187a7ed6eb6`.
+- Fixed candidate: `stage2n-r3-candidate-01`.
+- Authoritative production WASM remains SHA-256 `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`.
+- Stage3A evidence validated and remains the M0 baseline; it was not rerendered.
+- Embedded plugin descriptor matches exactly one isolated metadata variant: C, generated from clean Stage2Q inputs with only a temporary copy of the existing dirty descriptor.
+- C runtime metadata fingerprint equals clean Stage2Q and clean Stage3B baseline fingerprints; fixed profile identity matches.
+- Embedded interface matches Stage2Q byte-for-byte. Stage2Q-to-Stage3A production-input diff is empty.
+- The existing dirty descriptor and authoritative production artifact were unchanged by reconciliation.
+- Isolated ordinary production build SHA-256: `eef4fb43c8df85d7840bacd258e289448d2f841c95a02157d29d45803341df47`; byte-identical rebuild was not achieved, so provenance classification is `SUFFICIENT_METADATA_PROVENANCE`.
+- Stage3B diagnostic WASM SHA-256: `2fe2919e9d903ade8e42c1eab44a081d1119bdbdc322961e9427fccc571a78d9`.
+- Stage3B acoustic renders: 0. Production candidate delta: 0. Stage4 renders: 0.
+
+Detailed hashes, A/B/C header and CBOR metadata, toolchain information, and descriptor working-tree integrity are recorded privately in `.agent-state/issues/7/stage3b/preflight-provenance.json`.
+
+## Selection-gate corrections
+
+- Worst failing pitch is selected from M0 span error; the persisted Stage3A measurements confirm MIDI51 at 20.696187 dB. The six-decibel gate now applies to MIDI51 for each factor.
+- MIDI96/v31 direct-level error uses I and P factorial main effects independently.
+- MIDI41 derivative checks are factor-specific: I uses masks 1/3 and P uses masks 2/3.
+- Safety checks are factor-specific. An unsafe mask family does not automatically disqualify the other family.
+- Decision precedence compares eligible safe families, and does not use comparative or interaction evidence against an unsafe family.
+
+## Verification
+
+- Provenance parser/unit tests: PASS.
+- Stage3B selection/ledger tests: PASS.
+- Gate self-check against actual Stage3A M0 evidence: PASS; worst pitch MIDI51.
+- Dedicated Stage3B CMake configure/build: PASS; diagnostics enabled, production build directory untouched.
+- `--preflight`: PASS as `STAGE3B_PREFLIGHT_READY_FOR_MASK0_EQUIVALENCE`; 0 acoustic renders; no Stage3B ledger cells created.
+- Ordinary `--dry-run`: PASS; 0 builds and 0 renders; 477 future identities reported.
+- `git diff --check`: PASS.
+- Production and Stage3A artifact hashes: PASS.
+- Stage3B mask-0 equivalence, 477-cell render matrix/finalization, Stage3 production acceptance, Stage4, full CTest, Web Player, and manual listening: NOT RUN by contract.
+
+Issue #7 remains in implementation and blocked. Stage3B may proceed only under a separate contract authorizing mask-0 acoustic equivalence. No Stage3B architecture has been selected.
+
+## Stage3B execution-lock correction — 2026-10-04
+
+- Added a required private authorization artifact at `.agent-state/issues/7/stage3b/mask0-equivalence-authorization.json`. It must bind schema 1, `STAGE3B_MASK0_EQUIVALENT`, candidate ID, current production and diagnostic WASM SHA-256 values, the current preflight-provenance SHA-256, production candidate delta 0, and Stage4 renders 0.
+- The normal `--execute` and `--finalize` modes now require that authorization before Stage3B state inspection. Direct production calls to the exported finalizer enforce the same gate. `identityOverride` remains available only for injected unit-test identities; the CLI cannot provide it.
+- With no real authorization artifact present, CLI `--execute` and `--finalize` both exit nonzero with `BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED`. Tests also verify that direct `finalize()` blocks before reading/writing acoustic state. No acoustic ledger, cells, aggregates, or final result exist.
+- `--preflight`: PASS as `STAGE3B_PREFLIGHT_READY_FOR_MASK0_EQUIVALENCE`, provenance `SUFFICIENT_METADATA_PROVENANCE`, one isolated production-provenance build, zero acoustic renders. Current private preflight-provenance SHA-256: `e90cefbf5336f4e39ce401f6bd4c671098cb7ae36cf60cc8a67d6a3cfc4c4a30`.
+- `--dry-run`: PASS, builds 0, renders 0, masks 1/2/3, 477 future identities, mask-0 renders 0. The private authorization file, acoustic ledger, and final-result file are all absent.
+- PASS: Stage3B authorization/runner test, production-provenance test, JavaScript syntax checks, scoped `git diff --check`, production WASM SHA unchanged (`9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`), diagnostic WASM SHA unchanged (`2fe2919e9d903ade8e42c1eab44a081d1119bdbdc322961e9427fccc571a78d9`), and dirty descriptor hash unchanged (`6ba10fccb856d56adccd21d67966d9625eadd070ac1891b3587dd24e18c007a0`).
+- No real authorization artifact was created. No mask-0 or Stage3B acoustic render, ledger/cell write, aggregate write, or finalization was performed. Production candidate delta remains 0; Stage4 remains 0/locked. Stage3B workflow state remains `STAGE3B_PREFLIGHT_READY_FOR_MASK0_EQUIVALENCE`; Issue #7 remains `phase:implementation` + `blocked`.
+- NOT RUN: mask-0 acoustic equivalence, 477 Stage3B renders/finalization, Stage3 480-cell acceptance, Stage4, full CTest, Web Player tests/build, and manual listening.
+
+## Stage3B mask-0 evidence-binding correction — 2026-10-04
+
+This section supersedes the earlier execution-lock artifact path and schema above. The prior implementation used `mask0-equivalence-authorization.json`; it no longer grants production execution. The sole accepted path is `.agent-state/issues/7/stage3b/mask0-equivalence.json`, with decision `STAGE3B_MASK0_EQUIVALENCE_COMPLETE` and fields binding the current candidate, production and diagnostic WASM hashes, accepted preflight classification/SHA, all three Stage3A evidence SHAs, finite/guard outcome, exact tolerance `0.000001`, measured maximum metric difference, render count, production candidate delta 0, and Stage4 count 0.
+
+Any future Stage3B acoustic ledger stores both `mask0EquivalenceSha256` (hash of the exact result-file bytes) and `preflightProvenanceSha256`. Execute/resume, each new cell, and finalization must validate the same pair. A mismatch stops before a pending cell becomes `IN_PROGRESS`; existing evidence is never silently rebased. Synthetic tests must inject identity and binding explicitly. This correction does not create the real mask-0 result, ledger, cells, or render evidence.
+
+Verification:
+
+- PASS: `run-stage3b-contact-attribution.test.cjs` covers malformed/missing and mismatched result fields, accepted provenance classes, three Stage3A SHA bindings, exact tolerance/limit, exact-byte hash changes, required ledger binding, changed-binding resume/finalize blocks, explicit test injection, and mid-run evidence replacement before the next cell enters `IN_PROGRESS`.
+- PASS: `stage3b-production-provenance.test.cjs`.
+- PASS: `--preflight` → `STAGE3B_PREFLIGHT_READY_FOR_MASK0_EQUIVALENCE`; one isolated provenance build, zero acoustic renders, classification `SUFFICIENT_METADATA_PROVENANCE`. Current preflight-provenance SHA-256: `f69e8adf900db451bc91c48928f914dc8b7da28b732e533f1742d5b49d9ce1dc`.
+- PASS: `--dry-run` → 0 builds, 0 renders, 477 future identities, zero mask-0 renders.
+- PASS: real CLI `--execute` and `--finalize` both exit nonzero with `BLOCKED_STAGE3B_MASK0_EQUIVALENCE_NOT_AUTHORIZED` because the authoritative result is absent.
+- PASS: scoped `git diff --check`. Production WASM SHA-256 remains `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`; Stage3B diagnostic WASM remains `2fe2919e9d903ade8e42c1eab44a081d1119bdbdc322961e9427fccc571a78d9`; working-tree descriptor SHA-256 remains `6ba10fccb856d56adccd21d67966d9625eadd070ac1891b3587dd24e18c007a0`.
+- Confirmed absent: new and old mask-0 files, Stage3B ledger, cells, aggregates, and final result. No real mask-0 result or acoustic render was created; production candidate delta remains 0 and Stage4 remains 0.
+- NOT RUN by contract: mask-0 equivalence render, 477 acoustic renders/finalization, Stage3, Stage4, full CTest, Web Player tests/build, and manual listening.
+
+Issue #7 remains OPEN, `phase:implementation` + `blocked`. This correction only hardens the future render lock.
+
+## Stage3B CLI render-lock completion record — 2026-10-04
+
+**STAGE3B_CLI_RENDER_LOCK_COMPLETE**
+
+This decision records completion of the CLI/evidence-lock implementation only. It does not establish mask-0 acoustic equivalence or complete Stage3B attribution, and it does not pass Stage3 or unlock Stage4.
+
+- Real `.agent-state/issues/7/stage3b/mask0-equivalence.json`: absent.
+- Real mask-0 renders: 0.
+- Stage3B acoustic ledger, cells, aggregates, and final result: absent.
+- Stage3B acoustic renders: 0.
+- Production candidate delta: 0.
+- Stage4 renders: 0; Stage4 remains NOT RUN / LOCKED.
+- Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`.
+- Next work requires a separate Stage3B mask-0 acoustic-equivalence Implementation Contract.
+
+The token means only that the execution lock is complete; it does not authorize any acoustic render. Issue #7 remains OPEN with `phase:implementation` and `blocked`; PR #8 remains OPEN with `Closes #7`.
+
+## Stage3B mask-0 acoustic equivalence — 2026-10-04
+
+**STAGE3B_MASK0_EQUIVALENCE_COMPLETE**
+
+The six authorized Stage3B diagnostic-WASM renders used Stage2M mask 3 and Stage3B mask 0. Each matched both the saved production Stage3 capture and accepted Stage3A diagnostic row across the contracted output, hammer, and soundboard diagnostics. The maximum numeric difference was `0` against the exact `1e-6` tolerance. All six were finite, had zero output-guard hits, and had negative measured and full-render peaks; the worst peak was `-4.880980 dBFS`.
+
+- Authorized cells: `(36,14)`, `(36,124)`, `(51,14)`, `(51,124)`, `(96,31)`, `(96,124)`; COMPLETE `6/6`; new renders `6`; no build was run.
+- Accounting: historical Stage3A diagnostic calls `390`; new mask-0 calls `6`; cumulative diagnostic calls `396`; production candidate delta `0`; Stage4 renders `0`.
+- Production, Stage3A diagnostic, and Stage3B diagnostic WASM hashes remained the pinned identities recorded above. Preflight provenance remains `SUFFICIENT_METADATA_PROVENANCE`.
+- The authoritative mask-0 result passed the existing Stage3B validator. Repeated `--finalize` was idempotent and rendered zero cells.
+- PASS: the dedicated mask-0 runner tests (11/11), existing Stage3B runner tests, existing production-provenance tests, mask-0 dry-run (0 builds/0 renders/6 cells), actual six-cell execution, zero-render finalize, read-only artifact validation, and `git diff --check`.
+- Stage3B masks 1/2/3 attribution (`477` renders) remains NOT RUN and locked pending its separate contract. Stage3 480-cell recapture, Stage4, full CTest, Web Player, and manual listening remain NOT RUN.
+
+Issue #7 remains OPEN with `phase:implementation` and `blocked`; PR #8 remains OPEN with `Closes #7`. This result authorizes no factor render by itself.
+
+## Stage3B mask-0 Completion Report — 2026-10-04
+
+**STAGE3B_MASK0_EQUIVALENCE_COMPLETE**
+
+This completion record uses the persisted mask-0 evidence only. No renderer, build, preflight, or finalization command was run for this report.
+
+| MIDI | Velocity | Production max difference | Stage3A diagnostic max difference | Combined max difference | Finite | Guard hits | Peak dBFS | Full-render peak dBFS | Result |
+|---:|---:|---:|---:|---:|:---:|---:|---:|---:|:---:|
+| 36 | 14 | 0 | 0 | 0 | true | 0 | -38.504727 | -38.50472659272666 | PASS |
+| 36 | 124 | 0 | 0 | 0 | true | 0 | -4.88098 | -4.880979944191414 | PASS |
+| 51 | 14 | 0 | 0 | 0 | true | 0 | -47.545753 | -47.54575302855055 | PASS |
+| 51 | 124 | 0 | 0 | 0 | true | 0 | -7.163076 | -7.163076230820552 | PASS |
+| 96 | 31 | 0 | 0 | 0 | true | 0 | -29.897132 | -29.89713248540157 | PASS |
+| 96 | 124 | 0 | 0 | 0 | true | 0 | -15.95573 | -15.955730012201277 | PASS |
+
+Exact-byte SHA-256:
+
+- Mask-0 ledger: `23ff977042540645cd99be1392cce6ee0341faa7dcf4dad50156b04b523e1f57`
+- Mask-0 evaluation: `4f8a3cd31bec279fdc48d24d73a6d93d3b120aa21d0bb98565d11d137e6e2d55`
+- Authoritative result: `fc54305c158e706ca5a28eeacdf9390c029a932283d94d047c9a443a28eb702a`
+
+Accounting: authorized mask-0 renders `6`; actual mask-0 renders `6`; additional renders for this report `0`; Stage3B masks 1/2/3 attribution `NOT RUN` (`0` renders); production candidate delta `0`; Stage4 `0` renders and remains **LOCKED**. The 477-cell attribution is **NOT RUN** and remains locked pending its separate execution contract.
+
+## Stage3B 477-cell contact attribution — 2026-10-04
+
+**BLOCKED_STAGE3B_DIAGNOSTIC_SAFETY**
+
+The authorized Stage3B factorial matrix completed and was finalized from persisted evidence. The result is a safety blocker: every cell was finite, but mask 1 and mask 3 violated output safety. No factor is selected and this result authorizes no production change.
+
+### Repository and provenance
+
+- Starting HEAD / source revision: `064db066955e9e72c77ebe60dfd0ce4ad99ab615`.
+- Candidate: `stage2n-r3-candidate-01`; Stage2N budget `1/1`; Stage2L budget `1/12`.
+- Production WASM SHA-256: `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`.
+- Config/profile/presets/reference-fixture SHA-256: `792c563e3ae6ffbf6bef72b18a6c841a24598e1bc20ad5ec7dd39a4c0832513d` / `cf3d4adabd055b1b9895820bcaeee95b4a4999d6a245bea06c07fb14eeb7eb66` / `cbe58468911ee583d535c7d3ce09bd40199aeb93183def0a8204d591feac4431` / `5d27b6beae2a3c478e21ef0e260e588fdfd22bd1fea4181c74c0d00520a08cd7`.
+- Stage3A diagnostic WASM SHA-256: `59d661e4e435298baf8f097fc1d85bfc8c517c2af1c23f391963a125cb3328b3`.
+- Stage3B diagnostic WASM SHA-256: `2fe2919e9d903ade8e42c1eab44a081d1119bdbdc322961e9427fccc571a78d9`.
+- Mask-0 result SHA-256: `fc54305c158e706ca5a28eeacdf9390c029a932283d94d047c9a443a28eb702a`.
+- Preflight provenance: `SUFFICIENT_METADATA_PROVENANCE`; SHA-256 `f69e8adf900db451bc91c48928f914dc8b7da28b732e533f1742d5b49d9ce1dc`.
+- Stage3A ledger/final/supplement SHA-256: `e43d6d1b88f57766d0c48e413801916b313580cec83d629b54835be0f23060e9` / `e953ba33a363f378a006aafcbe4066cb1b05d69ac42ca1f401cd68d7e7261cd4` / `91b6b4df895a2a044135752156b88d1ab04806f02ebd338a8518f703e29c1713`.
+
+### Render accounting and safety
+
+- Authorized factor renders: `477`; actual new factor renders: `477`; COMPLETE `477`; PENDING `0`; IN_PROGRESS `0`.
+- Factor masks: `1`, `2`, `3`; Stage2M mask `3`; mask-0 rerenders `0`.
+- Stage3A historical calls `390`; mask-0 equivalence calls `6`; Stage3B factor calls `477`; factual cumulative diagnostic calls `873`.
+- The finalizer's legacy report field still says `totalStage3aAndStage3bCalls = 867` (`390 + 477`) and omits the separate six mask-0 calls. This is a known reporting-only discrepancy; the persisted render ledger independently records `477` new calls. It did not affect factor selection. No runner or test code was changed under this contract.
+- Production candidate delta: `0`; Stage4 renders: `0`.
+- Finite cells: `477/477`; total output guard hits: `1,440,235`; worst peak and full-render peak: `+1.583625266 dBFS`.
+- Mask 1: 59/159 safety-failing cells; 695,958 guard hits; worst full-render peak `+1.583625266 dBFS`.
+- Mask 2: 0/159 safety-failing cells; 0 guard hits; worst full-render peak `-3.902679902 dBFS`.
+- Mask 3: 58/159 safety-failing cells; 744,277 guard hits; worst full-render peak `+1.583625266 dBFS`.
+- Factor I safety (masks 1 and 3): FAIL. Factor P safety (masks 2 and 3): FAIL.
+- All renders used production SIMD, Stage2M mask `3`, Stage3B masks `1/2/3`, soundboard diagnostics, and the fixed 30–180 ms velocity-derivative window.
+
+Safety-failing cells are listed by MIDI and velocity. Mask 1: MIDI36 `101,109,117,124`; MIDI42 `45,49,54`; MIDI45 `36,40,45,49,54,61,69,77`; MIDI48 `14,31,40,45,49,54,61,69,77,85,93,101,109`; MIDI51 `14,31,36,40,45,49,54,61,69,77,85,93,101,109,117,124`; MIDI54 `31,36,40,45,49,54,61,69,77,85,93,101,109,117,124`. Mask 3: MIDI36 `101,109,117,124`; MIDI42 `45,49,54`; MIDI45 `36,40,45,49,54,61,69,77`; MIDI48 `14,31,40,45,49,54,61,69,77,85,93,101,109`; MIDI51 `14,31,36,40,45,49,54,61,69,77,85,93,101,109,117,124`; MIDI54 `31,36,45,49,54,61,69,77,85,93,101,109,117,124`. Mask 2 had no safety-failing cells.
+
+### Failing-pitch span results
+
+The M0–M3 columns are absolute span error in dB. `I_main`, `P_main`, and `interaction` are the contract factorial effects on that error; positive error effect means worse. The improvement columns below use the runner's improvement convention, where positive means error reduction.
+
+| MIDI | M0 | M1 | M2 | M3 | I improvement | P improvement | I effect | P effect | Interaction |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 36 | 12.580882 | 17.890174 | 12.980804 | 18.255703 | -5.292095 | -0.382725 | +5.292095 | +0.382725 | -0.034393 |
+| 39 | 12.069386 | 13.534894 | 12.445666 | 13.887020 | -1.453431 | -0.364203 | +1.453431 | +0.364203 | -0.024154 |
+| 51 | 20.696187 | 8.266599 | 21.758897 | 9.084338 | +12.552073 | -0.940224 | -12.552073 | +0.940224 | -0.244971 |
+| 54 | 9.249924 | 5.004335 | 10.117455 | 4.977901 | +4.692572 | -0.420549 | -4.692572 | +0.420549 | -0.893965 |
+
+MIDI51, the baseline-worst pitch, improves by `12.552073 dB` under the Factor I improvement convention and worsens by `0.940224 dB` under Factor P. Factor I reaches the required MIDI51 improvement gate, but only two of four failing pitches improve by at least 4 dB; its three-of-four gate fails.
+
+Complete dynamic-span output for all required pitches. Each M0–M3 value is `synth span / reference span / absolute error / signed difference` in dB; the final columns are factorial effects on absolute error.
+
+| MIDI | Group | M0 | M1 | M2 | M3 | I main | P main | Interaction |
+|---:|---|---|---|---|---|---:|---:|---:|
+| 33 | Control | 21.3630/18.2444/3.1187/3.1187 | 21.3630/18.2444/3.1187/3.1187 | 21.3630/18.2444/3.1187/3.1187 | 21.3630/18.2444/3.1187/3.1187 | 0.0000 | 0.0000 | 0.0000 |
+| 36 | Failure | 33.6833/21.1024/12.5809/12.5809 | 38.9926/21.1024/17.8902/17.8902 | 34.0832/21.1024/12.9808/12.9808 | 39.3581/21.1024/18.2557/18.2557 | +5.2921 | +0.3827 | -0.0344 |
+| 39 | Failure | 27.7951/15.7258/12.0694/12.0694 | 29.2607/15.7258/13.5349/13.5349 | 28.1714/15.7258/12.4457/12.4457 | 29.6128/15.7258/13.8870/13.8870 | +1.4534 | +0.3642 | -0.0242 |
+| 42 | Control | 15.7936/18.8002/3.0066/-3.0066 | 31.8527/18.8002/13.0525/13.0525 | 15.8051/18.8002/2.9950/-2.9950 | 31.2225/18.8002/12.4223/12.4223 | +9.7366 | -0.3209 | -0.6187 |
+| 45 | Control | 26.5268/19.6729/6.8539/6.8539 | 38.2430/19.6729/18.5700/18.5700 | 33.6877/19.6729/14.0148/14.0148 | 38.2703/19.6729/18.5974/18.5974 | +8.1494 | +3.5942 | -7.1336 |
+| 48 | Control | 19.4092/17.4451/1.9641/1.9641 | 26.0327/17.4451/8.5876/8.5876 | 20.0811/17.4451/2.6360/2.6360 | 25.6503/17.4451/8.2052/8.2052 | +6.0963 | +0.1447 | -1.0543 |
+| 51 | Failure | 37.1721/16.4759/20.6962/20.6962 | 8.2093/16.4759/8.2666/-8.2666 | 38.2348/16.4759/21.7589/21.7589 | 7.3916/16.4759/9.0843/-9.0843 | -12.5521 | +0.9402 | -0.2450 |
+| 54 | Failure | 29.7988/20.5489/9.2499/9.2499 | 25.5532/20.5489/5.0043/5.0043 | 30.6664/20.5489/10.1175/10.1175 | 25.5268/20.5489/4.9779/4.9779 | -4.6926 | +0.4205 | -0.8940 |
+| 57 | Control | 19.4577/23.6852/4.2275/-4.2275 | 8.9822/23.6852/14.7030/-14.7030 | 19.6114/23.6852/4.0738/-4.0738 | 8.7825/23.6852/14.9027/-14.9027 | +10.6522 | +0.0230 | +0.3534 |
+| 93 | Treble | 24.7154/23.5125/1.2028/1.2028 | 17.7132/23.5125/5.7993/-5.7993 | 24.7015/23.5125/1.1889/1.1889 | 19.3710/23.5125/4.1416/-4.1416 | +3.7746 | -0.8358 | -1.6438 |
+| 96 | Treble | 24.9516/26.2339/1.2823/-1.2823 | 20.8398/26.2339/5.3941/-5.3941 | 24.2395/26.2339/1.9945/-1.9945 | 23.8121/26.2339/2.4218/-2.4218 | +2.2696 | -1.1301 | -3.6845 |
+| 99 | Treble | 25.0109/32.0192/7.0084/-7.0084 | 17.4157/32.0192/14.6036/-14.6036 | 25.1860/32.0192/6.8332/-6.8332 | 16.0672/32.0192/15.9521/-15.9521 | +8.3570 | +0.5867 | +1.5236 |
+
+### Control pitches and subgroup results
+
+Control worsening in absolute span error (dB; positive means worse):
+
+| MIDI | Factor I worsening | Factor P worsening |
+|---:|---:|---:|
+| 33 | 0.000000 | 0.000000 |
+| 42 | 9.730865 | 4.702113 |
+| 45 | 11.729842 | 9.452232 |
+| 48 | 6.432273 | 3.456483 |
+| 57 | 10.575346 | 5.260731 |
+
+| Group | Factor I mean improvement | Factor P mean improvement |
+|---|---:|---:|
+| Two-string (36,39) | -3.372763 dB | -0.373464 dB |
+| Three-string (51,54) | +8.622323 dB | -0.680387 dB |
+| Pooled failing pitches | +2.624780 dB | -0.526925 dB |
+
+Mean absolute failing-pitch interaction: `0.299371 dB`. Factor I reverses direction between the two-string and three-string groups; Factor P does not.
+
+### Treble and MIDI41 guardrails
+
+MIDI96/velocity31 absolute direct-level error: M0 `6.749034 dB`, M1 `5.982623 dB`, M2 `6.768095 dB`, M3 `4.312521 dB`; `I_main = -1.610992 dB`, `P_main = -0.825520 dB`, interaction `-1.689163 dB`. Both ≤3 dB treble guardrails PASS.
+
+Treble direct-level errors M0/M1/M2/M3 and factorial effects I/P/interaction, all in dB:
+
+| MIDI | Velocity | M0/M1/M2/M3 absolute error | I/P/interaction |
+|---:|---:|---|---|
+| 93 | 14 | 4.2253/3.7082/4.2606/1.0290 | -1.8744/-1.3219/-2.7145 |
+| 93 | 31 | 0.2093/0.5827/0.1594/1.2676 | +0.7407/+0.3175/+0.7348 |
+| 93 | 61 | 1.3626/3.7521/1.4458/3.1467 | +2.0452/-0.2611/-0.6887 |
+| 93 | 124 | 3.0224/9.5075/3.0717/5.1705 | +4.2919/-2.1439/-4.3861 |
+| 96 | 14 | 0.1428/0.5544/0.1666/0.0649 | +0.1549/-0.2329/-0.5133 |
+| 96 | 31 | 6.7490/5.9826/6.7681/4.3125 | -1.6110/-0.8255/-1.6892 |
+| 96 | 61 | 0.3179/0.1187/0.3645/4.1370 | +1.7866/+2.0325/+3.9716 |
+| 96 | 124 | 1.4252/4.8397/2.1611/2.3569 | +1.8052/-0.8734/-3.2188 |
+| 99 | 14 | 0.6046/4.5776/0.5754/2.7667 | +3.0822/-0.9201/-1.7818 |
+| 99 | 31 | 3.1274/6.1233/3.2084/3.0643 | +1.4259/-1.4890/-3.1401 |
+| 99 | 61 | 4.8651/8.6740/4.8931/6.8783 | +2.8970/-0.8839/-1.8237 |
+| 99 | 124 | 6.4038/11.1113/6.2579/13.1854 | +5.8175/+0.9641/+2.2200 |
+
+MIDI41 derivative, 30–180 ms:
+
+| Normalized velocity | M0 | M1 | M2 | M3 |
+|---:|---:|---:|---:|---:|
+| 0.25 | 0.062991 | 0.415140 | 0.063690 | 0.413098 |
+| 0.55 | 0.053890 | 0.055096 | 0.054006 | 0.055264 |
+| 0.90 | 0.242315 | 0.348419 | 0.241354 | 0.347165 |
+
+MIDI41 factorial I/P/interaction effects for normalized velocities `0.25/0.55/0.90`: `+0.35077880/-0.00067102/-0.00274037`; `+0.00123191/+0.00014216/+0.00005239`; `+0.10595784/-0.00110780/-0.00029363`.
+
+Hard derivative remains above mid. Factor I derivative guard FAILS: soft/mid/hard deviations are mask 1 `0.352149/0.001206/0.106105` and mask 3 `0.350108/0.001374/0.104850`; each required deviation must be ≤0.10. Factor P derivative guard FAILS because mask 3 exceeds 0.10 (mask 2 itself is within the guard).
+
+### Gate matrix
+
+| Gate | Factor I | Factor P |
+|---|:---:|:---:|
+| At least 3/4 failing pitches improve by ≥4 dB | FAIL | FAIL |
+| MIDI51 improves by ≥6 dB | PASS | FAIL |
+| All controls worsen by ≤3 dB | FAIL | FAIL |
+| Factor-specific safety | FAIL | FAIL |
+| MIDI96/v31 factorial worsening ≤3 dB | PASS | PASS |
+| MIDI41 derivative guard | FAIL | FAIL |
+| Two-/three-string direction does not reverse | FAIL | PASS |
+
+Neither factor is safe, so comparative winner selection is not applicable. The finalizer's precedence selects `BLOCKED_STAGE3B_DIAGNOSTIC_SAFETY`; no architecture is selected.
+
+### Path attribution
+
+Pooled factorial effects are in each metric's native units; `mean |interaction|` is across cells.
+
+| Metric | I main | P main | Interaction | Mean |interaction| |
+|---|---:|---:|---:|---:|
+| Contact duration (samples) | 48.116352 | 0.059748 | -2.031447 | 3.792453 |
+| Peak force | 83.418950 | 0.317006 | -0.493524 | 0.613343 |
+| Post-contact transverse energy | 4,241,925.738018 | 80,943.941834 | 155,767.193425 | 242,380.545501 |
+| Bridge-B RMS | 30.995189 | 1.165612 | 2.067496 | 2.120258 |
+| Board-drive-B RMS | 30.994426 | 1.165557 | 2.067392 | 2.120153 |
+| Post-radiation-L RMS | 1.910972 | 0.075732 | 0.147407 | 0.150707 |
+| Spectral centroid (Hz) | 2,352.088243 | -59.916935 | -162.109868 | 244.941662 |
+| Above-2k power ratio | 0.339161 | 0.001123 | -0.014898 | 0.018699 |
+
+### Persisted evidence and next state
+
+- Finalized ledger SHA-256 (exact current file): `3c688ce49877dd7a94a2920c02bc9ddb7145709d06b1e7a04a7aecda4b18fbaf`.
+- Factorial analysis SHA-256: `220c4904fc858ee671002ce84de85a75abd2271f78a53f433dbf5bd4021675cb`.
+- Ledger's analysis snapshot hash: `58132618393f3e84b04a0c38cdcbb8411b96e2c942e080ad51bab15fbd1e200c` (the ledger was finalized after this snapshot; both hashes are retained as persisted).
+- Final decision: `BLOCKED_STAGE3B_DIAGNOSTIC_SAFETY`.
+- Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains NOT RUN / LOCKED.
+- Issue #7 remains OPEN with `phase:implementation` and `blocked`; PR #8 remains OPEN with `Closes #7`.
+- Stage3 production 480-cell recapture, Stage3A recapture, Stage4, full CTest, Web Player, and manual listening remain NOT RUN.
+
+No code, DSP, candidate, configuration, threshold, or reference fixture was changed. The existing production and diagnostic build artifacts were reused; no build occurred. This status record does not authorize a 26th or repeat acoustic evaluation, production adoption of Factor I or P, or Stage4. A new requirements/design decision is required before any further acoustic evaluation or production architecture work.
+
+## Stage3C contact-vs-bridge split diagnostic attempt — 2026-10-04
+
+**Decision: `BLOCKED_STAGE3C_EQUIVALENCE`**
+
+Stage3C diagnostic implementation and its dedicated production-SIMD diagnostic build were prepared. The fixed production WASM remained byte-identical (`9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`). Stage3B's persisted aggregate count was validated as **39**.
+
+The authorized 20-cell equivalence gate ran to completion. Nineteen rows passed with maximum numeric difference `0`; the Stage3C mask-0 MIDI41 / normalized velocity `0.25` row failed the exact `velocityDerivativeWindowMs` comparison. The capture used `[0,160]` ms while its accepted Stage3A supplemental reference uses `[30,180]` ms. The measured row therefore cannot establish the required equivalence. This is an implementation contract violation in the Stage3C capture-window selection, not evidence of an acoustic mismatch. The Stage3B mask-1 checks, including unsafe guard telemetry, matched exactly where compared.
+
+| MIDI / velocity | Stage3C mask 0 | Stage3C mask 3 |
+|---|---:|---:|
+| 36 / 124 | PASS, diff 0 | PASS, diff 0 |
+| 39 / 124 | PASS, diff 0 | PASS, diff 0 |
+| 45 / 69 | PASS, diff 0 | PASS, diff 0 |
+| 48 / 69 | PASS, diff 0 | PASS, diff 0 |
+| 51 / 14 | PASS, diff 0 | PASS, diff 0 |
+| 51 / 124 | PASS, diff 0 | PASS, diff 0 |
+| 54 / 124 | PASS, diff 0 | PASS, diff 0 |
+| 57 / 124 | PASS, diff 0 | PASS, diff 0 |
+| 96 / 31 | PASS, diff 0 | PASS, diff 0 |
+| 41 / normalized 0.25 | FAIL, window mismatch | PASS, diff 0 |
+
+Render accounting:
+
+```text
+Stage3C equivalence authorized = 20
+Stage3C equivalence rendered   = 20
+Stage3C split authorized       = 286
+Stage3C split rendered         = 0
+Stage3C total renders          = 20
+cumulative diagnostic calls    = 893 (390 + 6 + 477 + 20)
+production candidate delta     = 0
+Stage4 renders                 = 0
+```
+
+The equivalence ledger has 20 `COMPLETE`, 0 `PENDING`, and 0 `IN_PROGRESS` rows. Its SHA-256 is `348409a1fe0ded9fd9f60d5cd91dcfd80990d4df1d8635578e079c86b7ca5055`; the blocked equivalence evaluation SHA-256 is `4141debf0673e8b36cd6c34363e0a8f0e91540e6cb228fef9e00dd3714d3fcf9`. This was the original attempt; its history remains immutable and the approved correction contract supplies the continuation path.
+
+The previous cumulative value `993` was an arithmetic error. The corrected historical total is `893` (`390 + 6 + 477 + 20`).
+
+## Stage3C equivalence correction and split continuation — 2026-10-04
+
+Execution HEAD: `d3fa2e359dae0a8a21c04f1f535259d4a89cc59b` (PR #8). The original 20-cell ledger, blocked evaluation, all original cells, Stage3C WASM, Stage3C runner, capture helper, `plugin.c`, and CMake source remained unchanged.
+
+The single authorized correction render for MIDI41 / normalized velocity `0.25` / Stage3C mask 0 used Stage2M mask 3 and the exact `[30,180] ms` derivative window. It matched the Stage3A supplement with maximum difference `0`:
+
+- Correction decision: `STAGE3C_EQUIVALENCE_CORRECTION_COMPLETE`.
+- Historical 19 PASS rows reused without rerender; the failed historical row remains immutable and is referenced as superseded.
+- Correction render calls: `1`; correction cell SHA-256: `018da7dd3687006eb7989881d33b2daaf9b2fe93918c66ba7d084f64a42eb925`.
+- Correction ledger SHA-256: `5fe8da6e32b7195a1b186f724ed41638b54db379ef2da64c2c00d75b09aef46b`.
+- Corrected-equivalence SHA-256: `e28178043baaf087dae5795d63e3de5acb74cc06904972e88a5755f8860a8b97`.
+
+The authorized contact/bridge split matrix then completed using masks 1 and 2 only:
+
+| Measure | Result |
+|---|---:|
+| New split renders | 286 |
+| COMPLETE / PENDING / IN_PROGRESS | 286 / 0 / 0 |
+| Continuation aggregates | 24 |
+| Finite cells | 286 / 286 |
+| Output guard hits | 778311 |
+| Worst full-render peak | +1.583625 dBFS |
+| Continuation ledger SHA-256 | `6cd380fe66f7b0d0a7a410f00ba8e40fc403f6c9b227382c4d53cd903d6d5d19` |
+
+### Finalization blocker
+
+The zero-render `--finalize` attempt stopped before producing `split-attribution.json`. The existing `calculateAttribution()` helper hard-codes `.agent-state/issues/7/stage3c/split/ledger.json`; this contract requires continuation evidence under `.agent-state/issues/7/stage3c/continuation/` and forbids reusing the old `split/` path. That directory remains absent. No attribution result or architecture decision is claimed. Current state: `BLOCKED_STAGE3C_CONTINUATION_EVIDENCE` pending a narrowly scoped finalizer correction contract; no acoustic rerender is needed or authorized by this report.
+
+Correct diagnostic-call accounting is:
+
+```text
+Stage3A historical                 390
+Stage3B mask-0                       6
+Stage3B factorial                  477
+Stage3C original equivalence        20
+Stage3C correction                   1
+Stage3C contact/bridge split       286
+--------------------------------------
+cumulative diagnostic calls       1180
+production candidate delta           0
+Stage4 renders                       0
+```
+
+The totals after correction and after split execution were `894` and `1180`. Production architecture remains unselected. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains locked. Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`.
+
+Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`. No production architecture was selected.
+
+## Stage3C continuation attribution finalization — 2026-10-05
+
+**Decision:** `STAGE3C_SPLIT_ATTRIBUTION_COMPLETE`
+
+The finalizer consumed only the persisted Stage3C continuation ledger, cell evidence, and aggregates. The result separates contact-path and bridge-path diagnostic effects. It does not select or authorize a production architecture, and it does not establish physical root cause beyond the measured output-path attribution.
+
+### Identity and evidence
+
+| Evidence | SHA-256 / identity |
+|---|---|
+| Candidate | `stage2n-r3-candidate-01` |
+| Production WASM | `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2` |
+| Stage3B diagnostic WASM | `2fe2919e9d903ade8e42c1eab44a081d1119bdbdc322961e9427fccc571a78d9` |
+| Stage3A diagnostic WASM | `59d661e4e435298baf8f097fc1d85bfc8c517c2af1c23f391963a125cb3328b3` |
+| Corrected Stage3C equivalence | `e28178043baaf087dae5795d63e3de5acb74cc06904972e88a5755f8860a8b97` |
+| Continuation ledger / result `ledgerSha256` | `6cd380fe66f7b0d0a7a410f00ba8e40fc403f6c9b227382c4d53cd903d6d5d19` |
+| Finalizer | `ea567b05b950ad08395ab7e08938a1660c5e32978ffac25e92dc6fad5c6da08c` |
+| Attribution core | `0d1ffa7d6bf4ba5b711b2e211a99aaa012290bf7d2aa86b6bbf33bd322960bdf` |
+| Final result `split-attribution.json` | `1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1e63737` |
+
+The correction reused the 19 historical passing equivalence rows and the single corrected MIDI41 / normalized-velocity 0.25 row; the original failed row remains preserved as superseded evidence. Corrected Stage3C equivalence is 20/20 with maximum difference 0. The split continuation has 286/286 COMPLETE cells, 24 aggregates, and 0 PENDING / 0 IN_PROGRESS.
+
+### Safety and render accounting
+
+| Diagnostic variant | Unsafe cells | Guard hits | Worst full-render peak |
+|---|---:|---:|---:|
+| Contact-only (mask 1) | 59 | 778,311 | +1.583625 dBFS |
+| Bridge-only (mask 2) | 0 | 0 | −4.974125 dBFS |
+| Persisted Stage3B full-I comparison | 59 | 695,958 | +1.583625 dBFS |
+
+The mask-1 contact diagnostic is unsafe; this precludes treating it as a production recommendation. Mask 2 was safe in these measured cells, but that alone is not production selection evidence.
+
+| Diagnostic call source | Calls |
+|---|---:|
+| Stage3A historical | 390 |
+| Stage3B mask-0 equivalence | 6 |
+| Stage3B factorial | 477 |
+| Stage3C historical equivalence | 20 |
+| Stage3C correction | 1 |
+| Stage3C contact/bridge split | 286 |
+| **Cumulative diagnostic calls** | **1,180** |
+| Production candidate delta | 0 |
+| Stage4 renders | 0 |
+
+Finalizer dry-run: PASS, 0 builds / 0 renders, 286 cells and 24 aggregates recognized. Finalize: PASS, 0 builds / 0 renders / 0 acoustic renders. No acoustic capture, production build, Stage3 recapture, or Stage4 run was performed for finalization.
+
+### Dynamic-span attribution
+
+Values are absolute span error in dB. `MC` is contact-only, `MB` bridge-only, and `MI` combined. Positive improvement means lower error than M0; the main effects use the contracted factorial signs.
+
+| MIDI | Strings | Group | M0 | MC | MB | MI | Contact improvement | Bridge improvement | Interaction |
+|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 36 | 2 | failure | 12.580882 | 18.011487 | 12.400970 | 17.890174 | −5.459905 | +0.150613 | +0.058599 |
+| 39 | 2 | failure | 12.069386 | 13.784909 | 11.831009 | 13.534894 | −1.709704 | +0.244196 | −0.011638 |
+| 42 | 2 | control | 3.006558 | 13.298398 | 3.008712 | 13.052525 | −10.167827 | +0.121860 | −0.248027 |
+| 45 | 2 | control | 6.853855 | 18.228781 | 6.483811 | 18.570019 | −11.730567 | +0.014403 | +0.711282 |
+| 48 | 3 | control | 1.964136 | 7.436629 | 1.601008 | 8.587612 | −6.229549 | −0.393928 | +1.514111 |
+| 51 | 3 | failure | 20.696187 | 9.636255 | 20.031128 | 8.266599 | +11.412230 | +1.017358 | −0.704597 |
+| 54 | 3 | failure | 9.249924 | 3.557543 | 8.476384 | 5.004335 | +4.582215 | −0.336626 | +2.220332 |
+| 57 | 3 | control | 4.227523 | 15.004954 | 4.071495 | 14.703038 | −10.704487 | +0.228972 | −0.145888 |
+
+MIDI 51 contact / bridge improvements are +11.412230 / +1.017358 dB. Mean contact / bridge improvement is −7.267000 / +0.132768 dB in the two-string subgroup and −0.234897 / +0.128944 dB in the three-string subgroup. Across the four failing pitches, mean absolute interaction is 0.748792 dB. Contact-path improvement direction reverses across the string-count groups; the result is diagnostic and does not justify promoting either factor.
+
+### Treble direct-level guardrail
+
+Entries show direct-level error for M0 / MC / MB / MI, followed by contact main effect, bridge main effect, and interaction (dB).
+
+| MIDI | Velocity | M0 | MC | MB | MI | Contact main | Bridge main | Interaction |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 93 | 14 | −4.225260 | +5.050555 | −13.399287 | −3.708154 | +9.483474 | −8.966368 | +0.415318 |
+| 93 | 31 | +0.209337 | +7.311514 | −8.838288 | −0.582678 | +7.678894 | −8.470909 | +1.153433 |
+| 93 | 61 | −1.362593 | +3.945983 | −10.235695 | −3.752140 | +5.896066 | −8.285613 | +1.174979 |
+| 93 | 124 | −3.022449 | −1.702629 | −10.985391 | −9.507459 | +1.398876 | −7.883886 | +0.158112 |
+| 96 | 14 | −0.142844 | +9.014160 | −10.902800 | +0.554411 | +10.307107 | −9.609852 | +2.300207 |
+| 96 | 31 | +6.749034 | +15.427619 | −3.865345 | +5.982623 | +9.263277 | −10.029688 | +1.169383 |
+| 96 | 61 | −0.317869 | +7.014857 | −10.681978 | −0.118729 | +8.947987 | −8.748848 | +3.230523 |
+| 96 | 124 | −1.425192 | +5.596235 | −10.937488 | −4.839735 | +6.559590 | −9.974133 | −0.923674 |
+| 99 | 14 | +0.604576 | +16.663021 | −11.942300 | +4.577641 | +16.289193 | −12.316128 | +0.461496 |
+| 99 | 31 | −3.127353 | +5.690034 | −15.622232 | −6.123296 | +9.158161 | −12.154104 | +0.681549 |
+| 99 | 61 | −4.865120 | +3.166269 | −17.158647 | −8.673953 | +8.258042 | −12.066875 | +0.453305 |
+| 99 | 124 | −6.403777 | −0.012347 | −17.845291 | −11.111332 | +6.562694 | −11.270250 | +0.342529 |
+
+Explicit MIDI 96 / velocity 31: contact and bridge main effects are +9.263277 dB and −10.029688 dB, respectively.
+
+### MIDI 41 velocity derivative
+
+Window `[30,180]` ms. Columns are M0 / MC / MB / MI, then contact main effect, bridge main effect, and interaction.
+
+| Normalized velocity | M0 | MC | MB | MI | Contact main | Bridge main | Interaction |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.25 | 0.062991 | 0.415730 | 0.062979 | 0.415140 | +0.352450 | −0.000301 | −0.000579 |
+| 0.55 | 0.053890 | 0.055212 | 0.053890 | 0.055096 | +0.001264 | −0.000058 | −0.000116 |
+| 0.90 | 0.242315 | 0.351484 | 0.238234 | 0.348419 | +0.109677 | −0.003572 | +0.001016 |
+
+### Path attribution
+
+Pooled factorial values; 143 coordinates per metric.
+
+| Metric | Contact main | Bridge main | Interaction | Mean absolute interaction |
+|---|---:|---:|---:|---:|
+| Contact duration (samples) | +54.636364 | −0.006993 | −0.013986 | 0.167832 |
+| Peak force | +93.026911 | 0.000000 | 0.000000 | 0.000000 |
+| Post-contact transverse energy | +5,414,136.475596 | −784,187.521277 | −1,498,557.079550 | 1,498,557.079550 |
+| Bridge B RMS | +35.694381 | −2.380611 | −4.478462 | 4.478462 |
+| Board-drive B RMS | +35.693510 | −2.380531 | −4.478312 | 4.478312 |
+| Post-radiation L RMS | +2.212276 | −0.169439 | −0.336321 | 0.336321 |
+| Spectral centroid (Hz) | +2,693.146513 | +12.236460 | −8.671306 | 128.357984 |
+| Above-2-kHz power ratio | +0.389911 | −0.004519 | +0.003584 | 0.009211 |
+
+### Workflow and limits
+
+Issue #7 remains OPEN with `phase:implementation` and `blocked`; PR #8 remains OPEN and retains `Closes #7`. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. No Stage3C production architecture was selected. Production candidate delta is 0. No Stage3 or Stage4 execution is part of this finalizer report.
+
+The continuation finalizer source revision is `d88ee6f0c061548409f8a19d452c5276560999de`; the split execution source revision is `d3fa2e359dae0a8a21c04f1f535259d4a89cc59b`. The existing PR #8 remains the sole delivery path.
+
+## Stage3C finalizer idempotency and completion-report closure — 2026-10-05
+
+**Decision:** `STAGE3C_SPLIT_ATTRIBUTION_COMPLETE` remains authoritative. This closure records the finalizer replay fix and fills the missing completion-report fields. It does not rerun or rewrite Stage3C acoustic evidence.
+
+### Immutable result and replay identity
+
+- Authoritative `split-attribution.json` SHA-256: `1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1c63737`.
+- Historical result creator: revision `d88ee6f0c061548409f8a19d452c5276560999de`; finalizer SHA-256 `ea567b05b950ad08395ab7e08938a1660c5e32978ffac25e92dc6fad5c6da08c`; attribution-core SHA-256 `0d1ffa7d6bf4ba5b711b2e211a99aaa012290bf7d2aa86b6bbf33bd322960bdf`.
+- Idempotent replay finalizer SHA-256: `0617d705870972d04310708532c75c09b432db25dbebf8a31989932eb8f238a5`.
+- The current finalizer validates the exact existing result bytes and bindings, then returns it without reading a new source revision, writing a result, building, or rendering. Repeated replay preserved result bytes and modification time.
+- Pre-status replay: PASS, decision `STAGE3C_SPLIT_ATTRIBUTION_COMPLETE`, 0 builds / 0 renders / 0 acoustic renders; authoritative result SHA remained unchanged.
+
+### Evidence closure
+
+| Evidence | SHA-256 / count |
+|---|---|
+| Original Stage3C equivalence ledger | `348409a1fe0ded9fd9f60d5cd91dcfd80990d4df1d8635578e079c86b7ca5055` |
+| Original blocked equivalence evaluation | `4141debf0673e8b36cd6c34363e0a8f0e91540e6cb228fef9e00dd3714d3fcf9` |
+| Corrected equivalence ledger | `5fe8da6e32b7195a1b186f724ed41638b54db379ef2da64c2c00d75b09aef46b` |
+| Corrected equivalence evaluation | `e28178043baaf087dae5795d63e3de5acb74cc06904972e88a5755f8860a8b97` |
+| Stage3C continuation ledger | `6cd380fe66f7b0d0a7a410f00ba8e40fc403f6c9b227382c4d53cd903d6d5d19` |
+| Stage3B aggregates | 39 |
+| Stage3C continuation aggregates | 24 |
+| Authoritative Stage3C result | `1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1c63737` |
+
+The execution provenance remains source revision `d3fa2e359dae0a8a21c04f1f535259d4a89cc59b`; preflight classification is `SUFFICIENT_METADATA_PROVENANCE`, SHA-256 `f69e8adf900db451bc91c48928f914dc8b7da28b732e533f1742d5b49d9ce1dc`.
+
+### Attribution classifications
+
+- `safetyOrigin = CONTACT`. Contact-only had 59 unsafe cells, 778,311 guard hits, and worst peak +1.583625 dBFS. Bridge-only had 0 unsafe cells, 0 guard hits, and worst peak −4.974125 dBFS.
+- MIDI 51: contact improvement +11.412230 dB, bridge improvement +1.017358 dB, `benefitOrigin = BOTH`.
+- MIDI 54: contact improvement +4.582215 dB, bridge improvement −0.336626 dB, `benefitOrigin = CONTACT`.
+- Contact-path improvement direction reverses between two-string and three-string groups. Stage3C remains diagnostic; no production architecture is selected.
+
+### Accounting and workflow
+
+```text
+Stage3A historical                 390
+Stage3B mask-0                       6
+Stage3B factorial                  477
+Stage3C original equivalence        20
+Stage3C correction                   1
+Stage3C contact/bridge split       286
+--------------------------------------
+cumulative diagnostic calls       1180
+new calls in idempotency/closure      0
+production candidate delta            0
+Stage4 renders                        0
+```
+
+Stage3C diagnostic attribution is COMPLETE; production architecture is NOT SELECTED. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Issue #7 remains OPEN / `phase:implementation` / `blocked`, and PR #8 remains OPEN with `Closes #7`. The next work requires a separate production-architecture requirements/design contract based on this evidence.
+
+## Stage3D equivalence-window correction and selection — 2026-10-06
+
+**Decision:** `BLOCKED_STAGE3D_CONTACT_TRANSFORMER_FAMILY`. The Stage3D diagnostic-only candidate family did not satisfy the unchanged selection gates. No production architecture was selected or promoted.
+
+The Stage3D implementation commit is `02baf88307547b343968d1bffacc842fcef4d915`, based on PR baseline `4821d5eb2e4657fc303793dfcc3ad94ed908c47b`. The isolated diagnostic WASM remained byte-identical at `9883b54eaa888b5a8d2e4d9da0490de92dd4c31915fb0d97d47cc03ce123a63a`; production WASM remained `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`. Stage3C's protected source files and authoritative result were unchanged; its result SHA-256 remains `1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1c63737`.
+
+### Historical equivalence and correction
+
+The original 10-cell Stage3D equivalence ledger/result were not edited or rerendered. Their hashes remain ledger `186305188a08a8852dafa7013e6a2ea3c73b09aa7d3561c24bb375e7ae1816a0` and result `b4057b7d7cec163722a82b67646dda0d52120402c0cc792219c32a2b123deab4`; the historical decision remains `BLOCKED_STAGE3D_EQUIVALENCE`, with nine ordinary `[30,180]` versus `[0,160]` window mismatches and one passing MIDI41 supplement row at `[30,180]`.
+
+The separate correction rendered the nine ordinary cells at `[0,160]` ms. All nine passed with max metric difference 0, finite output, zero guard hits, and safe peaks. The historical MIDI41 pass was reused, producing 10 effective passing equivalence rows.
+
+| MIDI | Velocity | Difference | Result |
+|---:|---:|---:|:---|
+| 36 | 124 | 0 | PASS |
+| 39 | 124 | 0 | PASS |
+| 45 | 69 | 0 | PASS |
+| 48 | 69 | 0 | PASS |
+| 51 | 14 | 0 | PASS |
+| 51 | 124 | 0 | PASS |
+| 54 | 124 | 0 | PASS |
+| 57 | 124 | 0 | PASS |
+| 96 | 31 | 0 | PASS |
+
+Correction decision: `STAGE3D_EQUIVALENCE_CORRECTION_COMPLETE`; authorized/completed 9/9; max difference 0 (tolerance `1e-6`). Correction ledger SHA-256: `e6b98f1d8a30fb7bc7cae503d54796548a5d17a3d31ae8ffd220c1ffa899ed10`. Corrected result SHA-256: `153a8b7265ae1a4e5d8a79fce5af87611602315b6d3affc345eb3aec74a7050a`.
+
+### Selection window policy and results
+
+Selection used exactly 261 rows: 132 at `[0,160]` ms (MIDI48/57 and MIDI93/96/99) and 129 at `[30,180]` ms (MIDI51/54, MIDI41 supplement, and MIDI49/50/55/56 transitions). No-op comparisons passed for all variants.
+
+| Variant | Plateau ratio | Unsafe / 87 | Guard hits | Worst peak dBFS | MIDI51 span error dB | MIDI54 span error dB | Direct-reference failures | Transition failures | Eligible |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---|
+| 1 | 0.809321 | 9 | 82,116 | +1.583625 | 36.209626 | 23.734756 | 10 | 1 | No |
+| 2 | 0.577350 | 24 | 338,507 | +1.583625 | 0.365872 | 10.015281 | 27 | 2 | No |
+| 3 | 0.333333 | 34 | 674,249 | +1.583625 | 13.704034 | 7.552482 | 33 | 2 | No |
+
+All 261 rows were finite. Each variant failed safety (guard hits and peak above 0 dBFS); each also failed direct-reference and transition-safety checks. Variant 1 failed both dynamic-span limits, variant 2 failed MIDI54's span limit, and variant 3 failed MIDI51's span limit. Selection decision: `BLOCKED_STAGE3D_CONTACT_TRANSFORMER_FAMILY`; no variant was eligible.
+
+### Accounting and verification
+
+```text
+Historical diagnostic calls before Stage3D     1180
+Original Stage3D equivalence calls                10
+Stage3D equivalence correction calls               9
+Stage3D selection calls                           261
+Total Stage3D calls                               280
+Maximum cumulative diagnostic calls             1460
+Production candidate delta                          0
+Stage4 renders                                      0
+```
+
+Stage3D correction and selection ledgers finished with 9/9 and 261/261 COMPLETE, with no PENDING or IN_PROGRESS rows. Selection ledger SHA-256: `70f1f2311c09adcd79e2be48ae9b1d6af4ae094912bf29e5eecc3d555ad15914`. Selection result SHA-256: `a331b4785d7d554c7aaf0c0b688ee3f28c217a1ffa5f69784683a2dd337f1b3c`.
+
+PASS: Stage3D capture-helper test, Stage3D runner test, four Stage3C regression tests, Stage3C dry-run/finalizer replay (0 builds/0 renders; authoritative result SHA unchanged), Stage3D dry-runs (0 builds/0 renders; 9+261 authorized and window counts validated), and `git diff --check`. The referenced Stage3D source-generation and diagnostic-build test files were absent from this checkout; no rebuild was run. NOT RUN: Stage3 production acceptance, Stage4, production promotion/build, and manual listening.
+
+Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Further work requires a separate production-promotion requirements/design contract if one is proposed.
+
+## Stage3D final verification closure — 2026-10-07
+
+This read-only verification closure records three findings: **B** — prior verification incorrectly equated the pre-finalization and final selection-ledger hashes; **B** — the runner test still assumed selection evidence was absent; **C** — completed evidence needs historical execution identity separated from current verifier identity.
+
+The two-stage selection binding is valid and unchanged. The immutable result SHA-256 is `a331b4785d7d554c7aaf0c0b688ee3f28c217a1ffa5f69784683a2dd337f1b3c`; its `ledgerSha256` is the historical pre-finalization value `71b33e3928fc94a80ed8a766d05ebc22824b9f5811dea475677ec8b170ec9309`. The final selection ledger SHA-256 is `70f1f2311c09adcd79e2be48ae9b1d6af4ae094912bf29e5eecc3d555ad15914`, and its `finalResultSha256` matches the result SHA. The two ledger hashes differ by design. No evidence identity or file was rewritten.
+
+Persisted correction identity validates 9 COMPLETE / 0 PENDING / 0 IN_PROGRESS; corrected-equivalence result SHA-256 remains `153a8b7265ae1a4e5d8a79fce5af87611602315b6d3affc345eb3aec74a7050a`. Persisted selection identity validates 261 COMPLETE / 0 PENDING / 0 IN_PROGRESS. The decision remains `BLOCKED_STAGE3D_CONTACT_TRANSFORMER_FAMILY`; no variant was selected.
+
+Verifier-only fields are `sourceRevision`, `runnerSha256`, and `stage3dCaptureEvaluatorSha256`; all strict-core identity fields pass. At verification, the persisted/current build-identity values were:
+
+| Field | Historical | Current |
+|---|---|---|
+| source revision | `4821d5eb2e4657fc303793dfcc3ad94ed908c47b` | `593972c2b3a5601e109c968e145f16d7b29440c0` |
+| runner SHA-256 | `316dcd1540bc5f6cda6a387b62f3bc07e8fb49625367776d9e6d6073fa3bcf83` | `82a870a43dd7c1039cc5689df64d41ca8ed007c8956250ea50c449b82a668307` |
+| Stage3D capture-helper SHA-256 | `aa5310b4ebc43ea447305eee212c7122349424fca6e226be10dbcd8a4f5991c1` | `8a1b58ccab0656f1dfca0cfedc7a52fa47a3a391e094b2b41f871efddafce52c` |
+
+The correction identity separately retains its historical execution revision `02baf88307547b343968d1bffacc842fcef4d915` and runner SHA `8803801bcef339a405e6007afdfd7012ccd10fc2dfd0008a4867a9d3611fdaa0`; its capture-helper SHA is `8a1b58ccab0656f1dfca0cfedc7a52fa47a3a391e094b2b41f871efddafce52c`. Current verifier values were reported separately without changing either persisted identity.
+
+Scratch Stage3D rebuild reproduced the historical WASM exactly: `9883b54eaa888b5a8d2e4d9da0490de92dd4c31915fb0d97d47cc03ce123a63a` (`EXACT_REBUILD_PROVENANCE`). Descriptor, interface, and export topology passed. Production WASM remains `9c2feccda9d956f86187604440752ee08f53e2388eba85d6bed643594ae8aaf2`; Stage3C authoritative result remains `1a6f5c251ae06379b199bee7aebb08774412d2f388443837a66fbefec1c63737`.
+
+Stage3D dry-run passed twice with zero builds, renders, or evidence writes. Both runs validated 9 correction rows, 261 selection rows, and window counts 132 at `[0,160]` ms / 129 at `[30,180]` ms. SHA and mtime snapshots for all 328 files under Stage3D private evidence were unchanged. Stage3C dry-run and finalizer replay also passed with zero builds/renders and unchanged result identity.
+
+```text
+Historical diagnostic calls before Stage3D     1180
+Original Stage3D equivalence calls                10
+Stage3D equivalence correction calls               9
+Stage3D selection calls                           261
+Total Stage3D calls                               280
+Cumulative diagnostic calls                      1460
+Additional acoustic renders in this closure         0
+Production candidate delta                          0
+Stage4 renders                                      0
+```
+
+Verification PASS: source/isolation test, scratch provenance rebuild, Stage3D capture-helper test, Stage3D runner test, four Stage3C regression tests, Stage3C dry-run/finalizer replay, two Stage3D read-only dry-runs with evidence snapshot stability, and `git diff --check`. Stage3 remains `BLOCKED_STAGE3_DIRECT_REFERENCE`; Stage4 remains `NOT RUN / LOCKED`. Issue #7 remains OPEN / `phase:implementation` / `blocked`; PR #8 remains OPEN with `Closes #7`.

@@ -78,6 +78,12 @@ def normalized_value(parameter: dict, value) -> float:
         count = int(maximum - minimum + 1)
         return 0.0 if count <= 1 else (number - minimum) / (count - 1)
     number = float(value)
+    if parameter.get("scale", {}).get("kind") == "log":
+        lower = float(minimum)
+        upper = float(maximum)
+        if number <= 0 or lower <= 0 or upper <= lower:
+            raise ValueError(f"invalid logarithmic parameter value {parameter['path']}={value}")
+        return max(0.0, min(1.0, math.log(number / lower) / math.log(upper / lower)))
     return 0.0 if maximum == minimum else max(0.0, min(1.0, (number - float(minimum)) / (float(maximum) - float(minimum))))
 
 
@@ -211,7 +217,7 @@ def descriptor_for_plugin(group: str, plugin: str):
     for key in ("abi_major", "abi_minor", "id", "vendor", "name", "version", "kinds"):
         if descriptor.get(key) != derived.get(key):
             raise ValueError(f"{plugin}/descriptor.json disagrees with interface.soraoto at {key}")
-    for key in ("parameters", "units", "factory_presets", "program_lists", "state"):
+    for key in ("parameters", "units", "factory_presets", "program_lists"):
         descriptor[key] = derived[key]
     extension = descriptor.setdefault(DESCRIPTOR_EXTENSION, {})
     generated_extension = derived[DESCRIPTOR_EXTENSION]
@@ -219,6 +225,7 @@ def descriptor_for_plugin(group: str, plugin: str):
         extension[key] = generated_extension[key]
     descriptor["_factory_values"] = derived["_factory_values"]
     descriptor["_program_infos"] = derived["_program_infos"]
+    descriptor["_grand_profile_header"] = helpers.grand_profile_header(presets)
     return descriptor, interface_text, helpers
 
 
@@ -234,12 +241,15 @@ def main() -> None:
     generated_dir = Path(sys.argv[1]).resolve() / "generated"
     for plugin, group in PLUGIN_GROUPS.items():
         descriptor, _, _ = descriptor_for_plugin(group, plugin)
+        grand_profile_header = descriptor.pop("_grand_profile_header", None)
         factory_values = descriptor.pop("_factory_values", None)
         program_infos = descriptor.pop("_program_infos", None)
         encoded = cbor(descriptor)
         header = descriptor_header(descriptor, encoded, factory_values, program_infos)
         write_if_changed(generated_dir / f"{plugin}_descriptor.cbor", encoded)
         write_if_changed(generated_dir / f"{plugin}_descriptor.h", header.encode("utf-8"))
+        if grand_profile_header is not None:
+            write_if_changed(WASM_ROOT / "shared" / "generated" / "super-synth_grand_profiles.h", grand_profile_header.encode("utf-8"))
         print(f"{group}/{plugin}: {len(descriptor.get('parameters', []))} parameters, {len(encoded)} descriptor bytes")
 
 
