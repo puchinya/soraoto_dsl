@@ -600,6 +600,7 @@ test('runtime revision 6 accepts only the six approved files after fixed R5 and 
   const stage3eRunnerPath='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.cjs';
   const frozenHelpers={helperHashes:{[adaptiveRunnerPath]:'c'.repeat(64),[stage3eRunnerPath]:'d'.repeat(64)}};
   const r5={value:{codeRevision:previousCodeRevision}};
+  assert.equal(adaptiveRunner.hasExactRuntimeRevision6Code(root,r5),true);
   assert.deepEqual(adaptiveRunner.parentManifestHelperHashOverrides(root,frozenHelpers,
     {runtimeRevisionExists:true,revision5:r5}),{[adaptiveRunnerPath]:'c'.repeat(64),[stage3eRunnerPath]:'d'.repeat(64)});
   const codeRevision=git(['rev-parse','HEAD']),changedFileSha256=Object.fromEntries(adaptiveRunner.RUNTIME_REVISION_06_PATHS.map(relative=>[
@@ -634,6 +635,7 @@ test('runtime revision 6 accepts only the six approved files after fixed R5 and 
     {...revision,changedFileSha256:{...changedFileSha256,[adaptiveRunner.RUNTIME_REVISION_06_PATHS[0]]:'0'.repeat(64)}}),
   /revision 6 committed or working bytes differ/);
   const extra='README.md';fs.writeFileSync(path.join(root,extra),'unapproved seventh path\n');git(['add',extra]);git(['commit','-m','unapproved extra path']);
+  assert.equal(adaptiveRunner.hasExactRuntimeRevision6Code(root,r5),false);
   assert.deepEqual(adaptiveRunner.parentManifestHelperHashOverrides(root,frozenHelpers,
     {runtimeRevisionExists:true,revision5:r5}),{[adaptiveRunnerPath]:'c'.repeat(64)});
   const badHead=git(['rev-parse','HEAD']),badPaths=[...adaptiveRunner.RUNTIME_REVISION_06_PATHS,extra].sort();

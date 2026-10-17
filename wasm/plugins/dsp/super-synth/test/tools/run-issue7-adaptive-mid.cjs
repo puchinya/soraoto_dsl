@@ -156,7 +156,14 @@ function buildParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,commo
 function gitBytes(root,args){return execFileSync('rtk',['proxy','git',...args],{cwd:root,encoding:'buffer',maxBuffer:32*1024*1024});}
 function gitPaths(root,from,to){return gitBytes(root,['diff','--name-only','--no-renames',`${from}..${to}`]).toString('utf8').trim().split(/\r?\n/).filter(Boolean).sort();}
 function trackedWorktreeIsClean(root){return gitBytes(root,['status','--porcelain=v1','--untracked-files=no']).toString('utf8').trim()==='';}
-function validateRuntimeRevisionCode(root,frozen,parentManifestSha256,revision,{requireCurrentSource=true}={}){
+function hasExactRuntimeRevision6Code(root,revision5,revision6){
+  if(revision6)return true;
+  const previousCodeRevision=revision5?.value?.codeRevision,head=core.gitHead(root);
+  return Boolean(previousCodeRevision&&head!==previousCodeRevision
+    &&core.same(gitPaths(root,previousCodeRevision,head),RUNTIME_REVISION_06_PATHS));
+}
+function validateRuntimeRevisionCode(root,frozen,parentManifestSha256,revision,
+  {requireCurrentSource=true,allowRuntimeRevision6Code=false}={}){
   if(revision.schema!=='issue7-stage3e-adaptive-runtime-revision/v1'||revision.schemaVersion!==1||revision.issue!==7
     ||revision.extension!==EXTENSION||revision.epoch!==frozen.epoch||revision.parentManifestSha256!==parentManifestSha256
     ||revision.previousCreatorRevision!==frozen.creatorRevision||revision.previousRunnerSha256!==frozen.helperHashes?.[RUNNER_REL]
@@ -177,7 +184,7 @@ function validateRuntimeRevisionCode(root,frozen,parentManifestSha256,revision,{
     ||(requireCurrentSource&&(fileSha(root,RUNNER_REL)!==revision.newRunnerSha256||core.sha256(revisedTest)!==fileSha(root,TEST_REL))))
     throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed or working helper bytes do not match the revision record');
   for(const [relative,expected] of Object.entries(frozen.helperHashes||{}))
-    if(relative!==RUNNER_REL&&fileSha(root,relative)!==expected)
+    if(relative!==RUNNER_REL&&!(allowRuntimeRevision6Code&&relative===PARENT_EVALUATOR_REL)&&fileSha(root,relative)!==expected)
       throw new Error(`BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: another frozen helper changed: ${relative}`);
   const diff=gitBytes(root,['diff','--binary','--no-ext-diff',`${frozen.creatorRevision}..${revision.codeRevision}`,'--',...RUNTIME_REVISION_PATHS]);
   if(core.sha256(diff)!==revision.diffSha256)throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: exact source diff SHA-256 differs');
@@ -818,6 +825,8 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
     const storedRevision=readOptional(roots,RUNTIME_REVISION_REL),storedRevision2=readOptional(roots,RUNTIME_REVISION_02_REL),
       storedRevision3=readOptional(roots,RUNTIME_REVISION_03_REL),storedRevision4=readOptional(roots,RUNTIME_REVISION_04_REL),
       storedRevision5=readOptional(roots,RUNTIME_REVISION_05_REL),storedRevision6=readOptional(roots,RUNTIME_REVISION_06_REL);
+    const runtimeRevision6CodeDrift=hasExactRuntimeRevision6Code(root,
+      storedRevision5&&{value:storedRevision5.value},storedRevision6);
     const expectedRevisionFiles=[...(storedRevision?[RUNTIME_REVISION_REL]:[]),
       ...(storedRevision2?[RUNTIME_REVISION_02_REL]:[]),...(storedRevision3?[RUNTIME_REVISION_03_REL]:[]),
       ...(storedRevision4?[RUNTIME_REVISION_04_REL]:[]),...(storedRevision5?[RUNTIME_REVISION_05_REL]:[]),
@@ -860,7 +869,8 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
         const revision1Test=gitBytes(root,['show',revision1.value.codeRevision+':'+TEST_REL]);
         const sourceMatchesRevision1=fileSha(root,RUNNER_REL)===revision1.value.newRunnerSha256
           &&fileSha(root,TEST_REL)===core.sha256(revision1Test);
-        validateRuntimeRevisionCode(root,frozen,existing.sha256,revision1.value,{requireCurrentSource:sourceMatchesRevision1});
+        validateRuntimeRevisionCode(root,frozen,existing.sha256,revision1.value,{requireCurrentSource:sourceMatchesRevision1,
+          allowRuntimeRevision6Code:runtimeRevision6CodeDrift});
         const revision1Parent={...parentBase,runtimeRevision:revision1,runtimeRevisions:[revision1]};
         verifyRevisionProbe(revision1Parent,plan,ledgerState,revision1.value);
         const journal=core.readDualJournal(roots,'journal/events.jsonl');
@@ -1016,9 +1026,7 @@ function verifyParentManifest({root=ROOT,home=os.homedir(),epoch=core.EPOCH,comm
 function parentManifestHelperHashOverrides(root,frozen,{runtimeRevisionExists=false,revision5=null,revision6=null}={}){
   const overrides={};
   if(runtimeRevisionExists)overrides[RUNNER_REL]=frozen.helperHashes?.[RUNNER_REL];
-  const previousCodeRevision=revision5?.value?.codeRevision,head=core.gitHead(root);
-  const changedFromR5=previousCodeRevision&&head!==previousCodeRevision?gitPaths(root,previousCodeRevision,head):[];
-  if(revision6||core.same(changedFromR5,RUNTIME_REVISION_06_PATHS))
+  if(hasExactRuntimeRevision6Code(root,revision5,revision6))
     overrides[PARENT_EVALUATOR_REL]=frozen.helperHashes?.[PARENT_EVALUATOR_REL];
   return Object.keys(overrides).length?overrides:undefined;
 }
@@ -1916,7 +1924,7 @@ function verify({root=ROOT,home=os.homedir(),epoch=core.EPOCH,commonDirectory,pr
 }
 
 module.exports={ROOT,EXTENSION,PARENT_PHASES,PARENT_RENDER_COUNT,baseRoots,sidecarRoots,buildParentManifest,verifyParentManifest,assertPromotedDerivedIdentity,
-  parentManifestHelperHashOverrides,
+  hasExactRuntimeRevision6Code,parentManifestHelperHashOverrides,
   makeExecutionPlan,ensureExecutionPlan,readLedger,validateLedger,preflight,lockStatus,persistStepResult,loadProbeHistory,verifyRevisionProbe,
   validateRuntimeRevision2Code,validateRuntimeRevision2Snapshot,validateRuntimeRevision3Snapshot,validateRuntimeRevision3Code,
   validateRuntimeRevision4Code,validateRuntimeRevision4Snapshot,verifyRuntimeRevision4Checkpoint,createRuntimeRevision4Candidate,
