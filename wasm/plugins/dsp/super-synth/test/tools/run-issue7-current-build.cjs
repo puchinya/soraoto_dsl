@@ -368,6 +368,20 @@ function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,a
         preflight=statusReadOnly({root,home,epoch,runners,readPhase});
         assertReadOnlyStatus(preflight);
       }
+      const expectedRuntimeRevision4Block='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 4';
+      if(preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&preflight.adaptiveMid.reason===expectedRuntimeRevision4Block){
+        const record=runners.adaptiveMid?.recordRuntimeRevision4;
+        if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: approved revision 4 recorder is unavailable');
+        const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+        if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_04_RECORDED'||recorded.builds!==0
+          ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==2371)
+          throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'}: ${recorded.reason||'revision 4 zero-render recording failed'}`);
+        append(owner,{type:'RUNTIME_REVISION_04_RECORDED',runtimeRevisionSha256:recorded.runtimeRevisionSha256,
+          renderCount:recorded.renderCount,acousticRenders:0});
+        preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+        assertReadOnlyStatus(preflight);
+      }
       const verified=verifyReadOnly({root,home,epoch,runners});
       if(verified.decision.startsWith('BLOCKED_'))throw new Error(`BLOCKED_ISSUE7_PREFLIGHT_VERIFY: ${verified.decision}`);
       const progress=preflight.stage3e;

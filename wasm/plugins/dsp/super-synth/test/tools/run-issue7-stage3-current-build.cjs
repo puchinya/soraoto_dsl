@@ -28,6 +28,7 @@ const RUNNER_REL='wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-curr
 const DERIVED_IDENTITY_REL='production-build-identity.json';
 const PROMOTION_PATHS=Object.freeze([PRESETS_REL,PROFILE_REL,GENERATED_DESCRIPTOR_CBO_REL,GENERATED_DESCRIPTOR_HEADER_REL].sort());
 const PROMOTION_INTENT_REL='promotion/intent.json';
+const PROMOTION_INTENT_02_REL='promotion/intent-02.json';
 const PROMOTION_RECEIPT_REL='promotion/receipt.json';
 const PROMOTION_BRANCH='codex/issue-7-supersynth-v9';
 const PROMOTION_SUBJECT='stage3e: promote selected velocity response';
@@ -55,6 +56,7 @@ function repoSha(root,relative){
   return digest;
 }
 function git(root,args){return execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim();}
+function gitRaw(root,args){return execFileSync('rtk',['proxy','git',...args],{cwd:root,encoding:'utf8'}).trim();}
 function isCommitAncestor(root,ancestor,descendant='HEAD'){
   try{execFileSync('rtk',['git','merge-base','--is-ancestor',ancestor,descendant],{cwd:root,stdio:'ignore'});return true;}
   catch{return false;}
@@ -100,9 +102,9 @@ function promotionDetails(root,frozen){
   if(statusLines.some(line=>line&&!line.startsWith('# ')))throw new Error('BLOCKED_STAGE3_PROMOTION: tracked worktree changes remain after the dedicated promotion commit');
   const cached=PROMOTION_CACHE.get(cacheKey);if(cached)return validateFrozenPromotion(cached,frozen);
   if(frozen&&!isCommitAncestor(root,commit,head))throw new Error('BLOCKED_STAGE3_PROMOTION: current HEAD is not a descendant of the immutable promotion commit');
-  const parents=git(root,['rev-list','--parents','-n','1',commit]).split(/\s+/).filter(Boolean);
+  const parents=gitRaw(root,['rev-list','--parents','-n','1',commit]).split(/\s+/).filter(Boolean);
   if(parents.length!==2||parents[0]!==commit)throw new Error('BLOCKED_STAGE3_PROMOTION: promotion must be a single-parent commit');
-  const parent=parents[1],changedPaths=git(root,['diff-tree','--no-commit-id','--name-only','-r','--no-renames',commit]).split(/\r?\n/).filter(Boolean).sort();
+  const parent=parents[1],changedPaths=gitRaw(root,['diff-tree','--no-commit-id','--name-only','-r','--no-renames',commit]).split(/\r?\n/).filter(Boolean).sort();
   const parentTree=git(root,['rev-parse',`${parent}^{tree}`]),commitTree=git(root,['rev-parse',`${commit}^{tree}`]);
   const readBlob=(revision,relative)=>{
     const key=`${canonicalRoot}:${revision}:${relative}`;
@@ -324,6 +326,34 @@ function storeDualObject(roots,relative,value){
   if(existing){if(!core.same(existing,value))throw new Error(`BLOCKED_STAGE3_PROMOTION: immutable ${relative} differs`);return core.readDualBytes(roots,relative);}
   return core.writeImmutableDual(roots,relative,core.canonicalBytes(value));
 }
+function promotionIntentNames(roots){
+  const paths=core.dualPaths(roots,'promotion');
+  const names=[paths.primary,paths.secondary].map(directory=>fs.existsSync(directory)
+    ?fs.readdirSync(directory).filter(name=>name.startsWith('intent')).sort():[]);
+  if(!core.same(names[0],names[1]))throw new Error('BLOCKED_STAGE3_PROMOTION: intent directory entries differ between canonical stores');
+  if(names[0].some(name=>![path.basename(PROMOTION_INTENT_REL),path.basename(PROMOTION_INTENT_02_REL)].includes(name)))
+    throw new Error('BLOCKED_STAGE3_PROMOTION: unexpected third promotion intent exists');
+  if(names[0].includes(path.basename(PROMOTION_INTENT_02_REL))&&!names[0].includes(path.basename(PROMOTION_INTENT_REL)))
+    throw new Error('BLOCKED_STAGE3_PROMOTION: successor intent exists without its immutable predecessor');
+  return names[0];
+}
+function validatePromotionIntentSelection(root,record,selection,intent,{supersedesIntentSha256}={}){
+  if(!intent||typeof intent.parentCommit!=='string'||typeof intent.parentTree!=='string'
+    ||git(root,['rev-parse',`${intent.parentCommit}^{tree}`])!==intent.parentTree
+    ||!isCommitAncestor(root,record.sourceCommit,intent.parentCommit))
+    throw new Error('BLOCKED_STAGE3_PROMOTION: intent parent tree or source ancestry is invalid');
+  const expected=promotionIntent(root,record,selection,intent.parentCommit,intent.parentTree,
+    supersedesIntentSha256?{supersedesIntentSha256}:{});
+  if(!core.same(intent,expected))throw new Error('BLOCKED_STAGE3_PROMOTION: intent differs from the immutable selection or baseline identity');
+  return true;
+}
+function verifiedRuntimeRevision4({root,home,commonDirectory}){
+  const verified=adaptiveMid.verifyParentManifest({root,home,epoch:core.EPOCH,commonDirectory});
+  if(verified.runtimeRevisions?.length!==4||verified.runtimeRevision?.value?.revisionNumber!==4
+    ||verified.runtimeRevision.sha256!==verified.runtimeRevisions[3].sha256)
+    throw new Error('BLOCKED_STAGE3_PROMOTION: accepted runtime revision 4 is required before successor intent');
+  return verified.runtimeRevision;
+}
 function expectedTupleValues(tuple){
   if(!tuple||![tuple.low,tuple.mid,tuple.bassHardness].every(Number.isFinite))throw new Error('BLOCKED_STAGE3_PROMOTION: selected tuple must contain three finite values');
   return {velocity_launch_scale_low:tuple.low,velocity_launch_scale_mid:tuple.mid,velocity_hardness_scale_bass:tuple.bassHardness};
@@ -337,7 +367,7 @@ function assertSelectedFullPass(selection){
     throw new Error('BLOCKED_STAGE3E_SELECTION_REQUIRED: selected tuple is not the passing full candidate for its explicit selection schema');
   return true;
 }
-function promotionIntent(root,record,selection,parentCommit,parentTree){
+function promotionIntent(root,record,selection,parentCommit,parentTree,{supersedesIntentSha256}={}){
   const tuple={...selection.tuple};
   return {schemaVersion:1,issue:7,epoch:core.EPOCH,type:'stage3e-promotion-intent',parentCommit,parentTree,
     sourceCommit:record.sourceCommit,tuple,selectionSha256:selection.selectionSha256,stage3eResultSha256:selection.final.sha256,
@@ -346,7 +376,7 @@ function promotionIntent(root,record,selection,parentCommit,parentTree){
       probeResultSha256:selection.selection.probeResultSha256,screenResultSha256:selection.extension.screenResultSha256,
       fullResultSha256:selection.extension.fullResultSha256}:{}),
     baselinePresetsSha256:record.inputs.presets.sha256,baselineProfileSha256:record.inputs.generatedProfile.sha256,
-    createdAt:selection.selection.selectedAt};
+    createdAt:selection.selection.selectedAt,...(supersedesIntentSha256?{supersedesIntentSha256}:{})};
 }
 function promotionStatus(root){
   const status=git(root,['status','--porcelain=v2','--branch','--untracked-files=no']),lines=status.split(/\r?\n/);
@@ -380,8 +410,8 @@ function ensureSelectedFiles(root,record,tuple){
   execFileSync('rtk',['python3','wasm/cmake/super_synth_metadata.py'],{cwd:root,stdio:'pipe',maxBuffer:16*1024*1024});
   assertPromotedValues(root,tuple);
   const changes=[...new Set([
-    ...git(root,['diff','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean),
-    ...git(root,['diff','--cached','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean)
+    ...gitRaw(root,['diff','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean),
+    ...gitRaw(root,['diff','--cached','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean)
   ])].sort();
   if(!core.same(changes,PROMOTION_PATHS))throw new Error(`BLOCKED_STAGE3_PROMOTION: generated tracked diff must be exactly the four promotion paths; found ${changes.join(',')}`);
   return {presetsSha256:fileSha(root,PRESETS_REL),profileSha256:fileSha(root,PROFILE_REL),
@@ -389,7 +419,9 @@ function ensureSelectedFiles(root,record,tuple){
 }
 function readPromotionCommit(root,intent,record){
   const details=promotionDetails(root),subject=git(root,['show','-s','--format=%s',details.commit]);
-  if(details.parent!==intent.parentCommit||subject!==PROMOTION_SUBJECT||!core.same(details.changedPaths,PROMOTION_PATHS)
+  if(details.parent!==intent.parentCommit||details.parentTree!==intent.parentTree
+      ||(intent.supersedesIntentSha256&&details.commit!==git(root,['rev-parse','HEAD']))
+      ||subject!==PROMOTION_SUBJECT||!core.same(details.changedPaths,PROMOTION_PATHS)
       ||details.sourceCommitIsAncestor!==true||details.currentHeadDescendsFromPromotion!==true)
     throw new Error('BLOCKED_STAGE3_PROMOTION: current commit does not match the pending dedicated promotion intent');
   for(const [relative,expected] of [[PRESETS_REL,intent.baselinePresetsSha256],[PROFILE_REL,intent.baselineProfileSha256]])
@@ -405,15 +437,53 @@ function readPromotionCommit(root,intent,record){
   }
   return details;
 }
-function ensurePromotionCommit({root,record,selection,roots,now}){
+function ensurePromotionCommit({root,record,selection,roots,now,prepareSelectedFiles=ensureSelectedFiles,
+  verifyRevision4=verifiedRuntimeRevision4}={}){
   const current=git(root,['rev-parse','HEAD']),parentTree=git(root,['rev-parse',`${current}^{tree}`]);
-  let intent=maybeReadDualObject(roots,PROMOTION_INTENT_REL);
-  const state=promotionStatus(root);
-  if(!intent&&state.changes.length)throw new Error('BLOCKED_STAGE3_PROMOTION: tracked worktree must be clean before creating the promotion intent');
-  const existingReceipt=maybeReadDualObject(roots,PROMOTION_RECEIPT_REL);
-  if(existingReceipt&&!intent)throw new Error('BLOCKED_STAGE3_PROMOTION: receipt exists without its immutable intent');
-  let proposed;
-  if(!intent){
+  const intentNames=promotionIntentNames(roots);
+  let originalIntent=maybeReadDualObject(roots,PROMOTION_INTENT_REL),successorIntent=maybeReadDualObject(roots,PROMOTION_INTENT_02_REL);
+  const state=promotionStatus(root),existingReceipt=maybeReadDualObject(roots,PROMOTION_RECEIPT_REL);
+  if(existingReceipt&&!originalIntent)throw new Error('BLOCKED_STAGE3_PROMOTION: receipt exists without its immutable intent');
+  if(!originalIntent&&state.changes.length)throw new Error('BLOCKED_STAGE3_PROMOTION: tracked worktree must be clean before creating the promotion intent');
+  let intent=null,proposed=null;
+  if(originalIntent){
+    validatePromotionIntentSelection(root,record,selection,originalIntent);
+    const originalBytes=core.readDualBytes(roots,PROMOTION_INTENT_REL),originalSha256=originalBytes.sha256;
+    if(successorIntent){
+      if(existingReceipt&&core.same(existingReceipt.intent,originalIntent))
+        throw new Error('BLOCKED_STAGE3_PROMOTION: old promotion receipt exists; successor intent cannot supersede it');
+      validatePromotionIntentSelection(root,record,selection,successorIntent,{supersedesIntentSha256:originalSha256});
+      const revision4=verifyRevision4({root,home:roots.home,commonDirectory:roots.commonDirectory});
+      if(revision4?.value?.revisionNumber!==4||successorIntent.parentCommit!==revision4.value.codeRevision
+        ||successorIntent.parentTree!==git(root,['rev-parse',`${revision4.value.codeRevision}^{tree}`]))
+        throw new Error('BLOCKED_STAGE3_PROMOTION: successor intent does not use the accepted revision-4 recovery commit R');
+      intent=successorIntent;
+      proposed=promotionIntent(root,record,selection,intent.parentCommit,intent.parentTree,{supersedesIntentSha256:originalSha256});
+    }else if(existingReceipt&&core.same(existingReceipt.intent,originalIntent)){
+      if(current!==existingReceipt.promotionCommit||existingReceipt.promotionParentCommit!==originalIntent.parentCommit)
+        throw new Error('BLOCKED_STAGE3_PROMOTION: old receipt prevents successor intent');
+      intent=originalIntent;
+      proposed=promotionIntent(root,record,selection,intent.parentCommit,intent.parentTree);
+    }else if(current===originalIntent.parentCommit){
+      intent=originalIntent;
+      proposed=promotionIntent(root,record,selection,intent.parentCommit,intent.parentTree);
+    }else{
+      if(existingReceipt)throw new Error('BLOCKED_STAGE3_PROMOTION: old receipt prevents successor intent recovery');
+      if(state.changes.length)throw new Error('BLOCKED_STAGE3_PROMOTION: recovery parent must be clean before successor intent');
+      const revision4=verifyRevision4({root,home:roots.home,commonDirectory:roots.commonDirectory});
+      if(revision4?.value?.revisionNumber!==4||revision4.value.codeRevision!==current
+        ||!isCommitAncestor(root,originalIntent.parentCommit,current))
+        throw new Error('BLOCKED_STAGE3_PROMOTION: no exact accepted revision-4 recovery commit is active at HEAD');
+      proposed=promotionIntent(root,record,selection,current,parentTree,{supersedesIntentSha256:originalSha256});
+      const saved=storeDualObject(roots,PROMOTION_INTENT_02_REL,proposed);
+      if(saved.sha256!==core.sha256(core.canonicalBytes(proposed)))
+        throw new Error('BLOCKED_STAGE3_PROMOTION: successor intent immutable dual-store readback differs');
+      successorIntent=maybeReadDualObject(roots,PROMOTION_INTENT_02_REL);
+      if(!successorIntent||!core.same(successorIntent,proposed)||!core.readDualBytes(roots,PROMOTION_INTENT_02_REL).bytes.equals(core.canonicalBytes(proposed)))
+        throw new Error('BLOCKED_STAGE3_PROMOTION: successor intent failed canonical dual-store readback');
+      intent=successorIntent;
+    }
+  }else if(!successorIntent){
     const currentSubject=git(root,['show','-s','--format=%s',current]);
     if(currentSubject===PROMOTION_SUBJECT){
       const candidate=promotionDetails(root),candidateIntent=promotionIntent(root,record,selection,candidate.parent,candidate.parentTree);
@@ -424,27 +494,36 @@ function ensurePromotionCommit({root,record,selection,roots,now}){
       intent=proposed;storeDualObject(roots,PROMOTION_INTENT_REL,intent);
     }
   }
-  proposed=proposed||promotionIntent(root,record,selection,intent.parentCommit,intent.parentTree);
-  if(intent){
-    const {createdAt:priorCreated,...prior}=intent,{createdAt:nextCreated,...next}=proposed;
-    if(!core.same(prior,next)||typeof priorCreated!=='string')throw new Error('BLOCKED_STAGE3_PROMOTION: pending intent differs from the immutable selection');
+  if(!intent||!intentNames.includes(path.basename(PROMOTION_INTENT_REL)))
+    throw new Error('BLOCKED_STAGE3_PROMOTION: active promotion intent is missing');
+  if(intent.supersedesIntentSha256){
+    const oldSha256=core.readDualBytes(roots,PROMOTION_INTENT_REL).sha256;
+    if(intent.supersedesIntentSha256!==oldSha256||!successorIntent||!core.same(intent,successorIntent))
+      throw new Error('BLOCKED_STAGE3_PROMOTION: successor intent chain or immutable predecessor SHA differs');
+    const revision4=verifyRevision4({root,home:roots.home,commonDirectory:roots.commonDirectory});
+    if(revision4?.value?.revisionNumber!==4||intent.parentCommit!==revision4.value.codeRevision)
+      throw new Error('BLOCKED_STAGE3_PROMOTION: successor intent is not authorized by runtime revision 4');
   }
+  proposed=proposed||promotionIntent(root,record,selection,intent.parentCommit,intent.parentTree,
+    intent.supersedesIntentSha256?{supersedesIntentSha256:intent.supersedesIntentSha256}:{});
+  if(!core.same(intent,proposed))throw new Error('BLOCKED_STAGE3_PROMOTION: pending intent differs from the immutable selection');
   let receipt=existingReceipt;
   if(receipt){
     if(!core.same(receipt.intent,intent))throw new Error('BLOCKED_STAGE3_PROMOTION: receipt belongs to a different intent');
     const details=promotionDetails(root,{promotionCommit:receipt.promotionCommit,promotionParentCommit:receipt.promotionParentCommit,
       promotionParentTree:receipt.promotionParentTree,promotionCommitTree:receipt.promotionCommitTree});
     validatePromotionDetails(details,record.sourceCommit);
+    if(intent.supersedesIntentSha256)readPromotionCommit(root,intent,record);
     return {intent,receipt,details,reused:true};
   }
   const head=git(root,['rev-parse','HEAD']);
   let details;
   if(head===intent.parentCommit){
     promotionStatus(root);
-    ensureSelectedFiles(root,record,selection.tuple);
+    prepareSelectedFiles(root,record,selection.tuple);
     execFileSync('rtk',['git','add','--',...PROMOTION_PATHS],{cwd:root,stdio:'pipe'});
-    const staged=git(root,['diff','--cached','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean).sort();
-    if(!core.same(staged,PROMOTION_PATHS))throw new Error('BLOCKED_STAGE3_PROMOTION: staged paths do not match the exact four-file set');
+    const staged=gitRaw(root,['diff','--cached','--name-only','--no-renames']).split(/\r?\n/).filter(Boolean).sort();
+    if(!core.same(staged,PROMOTION_PATHS))throw new Error(`BLOCKED_STAGE3_PROMOTION: staged paths do not match the exact four-file set; found ${staged.join(',')}`);
     execFileSync('rtk',['git','commit','-m',PROMOTION_SUBJECT],{cwd:root,stdio:'pipe',maxBuffer:16*1024*1024});
     promotionStatus(root);
     details=readPromotionCommit(root,intent,record);
@@ -747,7 +826,8 @@ if(require.main===module){try{main();}catch(error){process.stderr.write(`${error
 module.exports={ROOT,STAGE,PHASE,REGRESSION_REL,REQUIRED_REGRESSIONS,REGRESSION_TESTS,CELL_SPECS,
   sha256,fileSha,identityRecord,buildDirectory,productionWasm,assertProductionExports,readSelection,assertPromotedValues,
   isCommitAncestor,promotionDetails,validatePromotionDetails,derivedBuildSnapshot,deriveProductionBuildIdentity,DERIVED_IDENTITY_REL,PROMOTION_PATHS,
-  PROMOTION_INTENT_REL,PROMOTION_RECEIPT_REL,PROMOTION_BRANCH,PROMOTION_SUBJECT,readRegressions,maybeReadDualObject,storeDualObject,
+  PROMOTION_INTENT_REL,PROMOTION_INTENT_02_REL,PROMOTION_RECEIPT_REL,PROMOTION_BRANCH,PROMOTION_SUBJECT,
+  readRegressions,maybeReadDualObject,storeDualObject,promotionIntentNames,validatePromotionIntentSelection,verifiedRuntimeRevision4,
   expectedTupleValues,assertSelectedFullPass,promotionIntent,promotionStatus,ensureSelectedFiles,readPromotionCommit,ensurePromotionCommit,
   runRequiredRegressions,promoteSelection,currentIdentity,cells,verifyStage3ePrerequisite,phaseManifest,renderDefault,readRows,
   evaluate,finalize,prepare,execute,executeAuthorized,run,parseMode,main};

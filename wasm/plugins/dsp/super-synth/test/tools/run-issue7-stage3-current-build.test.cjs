@@ -37,6 +37,40 @@ function promotionRepo(t){
   git(['add','--',...runner.PROMOTION_PATHS]);git(['commit','-m','synthetic promotion parent']);
   return {root,git};
 }
+function recoveryPromotionRepo(t){
+  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-promotion-recovery-'));
+  t.after(()=>fs.rmSync(temp,{recursive:true,force:true}));
+  const root=path.join(temp,'repo'),home=path.join(temp,'home');fs.mkdirSync(root,{recursive:true});fs.mkdirSync(home,{recursive:true});
+  execFileSync('rtk',['git','init','-b',runner.PROMOTION_BRANCH,root],{stdio:'ignore'});
+  const git=args=>execFileSync('rtk',['git',...args],{cwd:root,encoding:'utf8'}).trim();
+  git(['config','user.name','Issue 7 promotion recovery test']);git(['config','user.email','issue7-promotion-recovery@example.invalid']);
+  for(const relative of runner.PROMOTION_PATHS){const target=path.join(root,relative);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,`baseline:${relative}\n`);}
+  git(['add','--',...runner.PROMOTION_PATHS]);git(['commit','-m','synthetic stale promotion parent']);
+  const staleParent=git(['rev-parse','HEAD']),tuple={low:0.35,mid:0.55,bassHardness:0.5};
+  const identity=structuredClone(runner.identityRecord());identity.sourceCommit=staleParent;
+  const identityPath=path.join(root,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json');
+  fs.mkdirSync(path.dirname(identityPath),{recursive:true});fs.writeFileSync(identityPath,JSON.stringify(identity,null,2)+'\n');
+  const presets=runner.PROMOTION_PATHS.find(relative=>relative.endsWith('/presets.json'));
+  const profile=runner.PROMOTION_PATHS.find(relative=>relative.endsWith('_profiles.h'));
+  const record={sourceCommit:staleParent,inputs:{presets:{sha256:core.sha256(fs.readFileSync(path.join(root,presets)))},
+    generatedProfile:{sha256:core.sha256(fs.readFileSync(path.join(root,profile)))}}};
+  const selection={tuple,selection:{selectedAt:'2026-10-17T00:00:00.000Z'},selectionSha256:'e'.repeat(64),final:{sha256:'f'.repeat(64)}};
+  const roots=core.resolveRoots(root,'stage3',core.EPOCH,{home});
+  const oldIntent=runner.promotionIntent(root,record,selection,staleParent,git(['rev-parse',`${staleParent}^{tree}`]));
+  runner.storeDualObject(roots,runner.PROMOTION_INTENT_REL,oldIntent);
+  const oldBytes=core.readDualBytes(roots,runner.PROMOTION_INTENT_REL);
+  const oldPaths=core.dualPaths(roots,runner.PROMOTION_INTENT_REL);
+  const oldStats=[oldPaths.primary,oldPaths.secondary].map(file=>fs.statSync(file).mtimeMs);
+  const recoveryPaths=adaptiveMid.RUNTIME_REVISION_04_PATHS;
+  const reviewPath='wasm/plugins/dsp/super-synth/test/tools/run-issue7-current-build.cjs';
+  fs.mkdirSync(path.dirname(path.join(root,reviewPath)),{recursive:true});fs.writeFileSync(path.join(root,reviewPath),'review-only descendant\n');
+  git(['add','--',reviewPath]);git(['commit','-m','review-only descendant']);
+  const reviewOnly=git(['rev-parse','HEAD']);
+  for(const relative of recoveryPaths){const target=path.join(root,relative);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,`recovery R:${relative}\n`);}
+  git(['add','--',...recoveryPaths]);git(['commit','-m','runtime revision 4 recovery R']);
+  const recoveryCommit=git(['rev-parse','HEAD']);
+  return {root,home,git,roots,staleParent,reviewOnly,recoveryCommit,record,selection,oldIntent,oldBytes,oldPaths,oldStats};
+}
 
 test('Stage3 uses exactly 480 direct cells and six sentinels with unique keys',()=>{
   const cells=runner.cells();
@@ -202,6 +236,97 @@ test('promotion readback rejects a commit that contains only a subset of the fou
     changedPaths:git(['diff-tree','--no-commit-id','--name-only','-r','HEAD']).split(/\r?\n/).filter(Boolean).sort(),
     sourceCommitIsAncestor:true,currentHeadDescendsFromPromotion:true,readParentFile:()=>Buffer.alloc(0),readCommitFile:()=>Buffer.alloc(0)};
   assert.throws(()=>runner.validatePromotionDetails(details,parent),/exactly the four approved promotion paths/);
+});
+
+test('recovery appends one successor intent at R and resumes the exact four-path single-parent promotion',t=>{
+  const fixture=recoveryPromotionRepo(t),{root,home,git,roots,record,selection,recoveryCommit,oldBytes,oldPaths,oldStats}=fixture;
+  let acousticCalls=0,prepareCalls=0,verifyCalls=0;
+  const verifyRevision4=()=>{verifyCalls++;return {sha256:'9'.repeat(64),value:{revisionNumber:4,codeRevision:recoveryCommit}};};
+  const writeSelected=(target,selectedRecord,tuple)=>{
+    prepareCalls++;
+    const presets=runner.PROMOTION_PATHS.find(relative=>relative.endsWith('/presets.json'));
+    const profile=runner.PROMOTION_PATHS.find(relative=>relative.endsWith('_profiles.h'));
+    fs.writeFileSync(path.join(target,presets),JSON.stringify({concert_grand:{engine_config:{hammer:{
+      velocity_launch_scale_low:tuple.low,velocity_launch_scale_mid:tuple.mid,velocity_hardness_scale_bass:tuple.bassHardness}}}},null,2)+'\n');
+    fs.writeFileSync(path.join(target,profile),`.velocity_launch_scale_low = ${tuple.low}f;\n.velocity_launch_scale_mid = ${tuple.mid}f;\n.velocity_hardness_scale_bass = ${tuple.bassHardness}f;\n`);
+    for(const relative of runner.PROMOTION_PATHS.filter(item=>item!==presets&&item!==profile))
+      fs.writeFileSync(path.join(target,relative),`derived:${selectedRecord.sourceCommit}:${relative}\n`);
+  };
+  const common={root,record,selection,roots,now:()=>selection.selection.selectedAt,verifyRevision4};
+  assert.throws(()=>runner.ensurePromotionCommit({...common,prepareSelectedFiles:()=>{throw new Error('simulated interruption after intent write');}}),
+    /simulated interruption after intent write/);
+  assert.equal(git(['rev-parse','HEAD']),recoveryCommit);
+  assert.equal(acousticCalls,0);
+  const successorRelative=runner.PROMOTION_INTENT_02_REL,successorPaths=core.dualPaths(roots,successorRelative);
+  const successorBytes=core.readDualBytes(roots,successorRelative),successor=runner.maybeReadDualObject(roots,successorRelative);
+  assert.equal(successor.parentCommit,recoveryCommit);
+  assert.equal(successor.parentTree,git(['rev-parse',`${recoveryCommit}^{tree}`]));
+  assert.equal(successor.supersedesIntentSha256,oldBytes.sha256);
+  assert.deepEqual(fs.readFileSync(successorPaths.primary),fs.readFileSync(successorPaths.secondary));
+  assert.deepEqual(fs.readFileSync(oldPaths.primary),oldBytes.bytes);assert.deepEqual(fs.readFileSync(oldPaths.secondary),oldBytes.bytes);
+  assert.deepEqual([oldPaths.primary,oldPaths.secondary].map(file=>fs.statSync(file).mtimeMs),oldStats);
+  assert.ok(successorBytes.sha256);
+  writeSelected(root,record,selection.tuple);
+  git(['add','--',...runner.PROMOTION_PATHS]);
+  const promoted=runner.ensurePromotionCommit({...common,prepareSelectedFiles:writeSelected});
+  assert.equal(promoted.details.parent,recoveryCommit);
+  assert.deepEqual(promoted.details.changedPaths,runner.PROMOTION_PATHS);
+  assert.equal(git(['rev-list','--parents','-n','1','HEAD']).split(/\s+/).length,2);
+  const promotionCommit=git(['rev-parse','HEAD']);
+  assert.equal(git(['rev-parse','HEAD^']),recoveryCommit);
+  assert.deepEqual([oldPaths.primary,oldPaths.secondary].map(file=>fs.statSync(file).mtimeMs),oldStats);
+  assert.deepEqual(fs.readFileSync(oldPaths.primary),oldBytes.bytes);assert.deepEqual(fs.readFileSync(oldPaths.secondary),oldBytes.bytes);
+  assert.equal(acousticCalls,0);
+  assert.equal(runner.ensurePromotionCommit({...common,prepareSelectedFiles:writeSelected}).reused,true);
+  assert.equal(git(['rev-parse','HEAD']),promotionCommit);
+  const receiptPaths=core.dualPaths(roots,runner.PROMOTION_RECEIPT_REL);
+  fs.rmSync(receiptPaths.primary);fs.rmSync(receiptPaths.secondary);
+  const recoveredAfterCommit=runner.ensurePromotionCommit({...common,prepareSelectedFiles:writeSelected});
+  assert.equal(recoveredAfterCommit.details.commit,promotionCommit);
+  assert.equal(git(['rev-parse','HEAD']),promotionCommit);
+  assert.equal(prepareCalls,2);
+  assert.equal(verifyCalls>=4,true);
+  assert.equal(acousticCalls,0);
+  fs.writeFileSync(path.join(root,'README.md'),'unexpected later HEAD\n');git(['add','README.md']);git(['commit','-m','unexpected later HEAD']);
+  assert.throws(()=>runner.ensurePromotionCommit({...common,prepareSelectedFiles:writeSelected}),/BLOCKED_STAGE3_PROMOTION/);
+});
+
+test('successor intent recovery blocks without revision 4 and rejects old receipt, mismatched stores, and extra intents',t=>{
+  const withoutRevision4=recoveryPromotionRepo(t);
+  assert.throws(()=>runner.ensurePromotionCommit({root:withoutRevision4.root,record:withoutRevision4.record,
+    selection:withoutRevision4.selection,roots:withoutRevision4.roots,verifyRevision4:()=>{throw new Error('revision 4 absent');}}),/revision 4 absent/);
+  assert.equal(fs.existsSync(core.dualPaths(withoutRevision4.roots,runner.PROMOTION_INTENT_02_REL).primary),false);
+
+  const oldReceipt=recoveryPromotionRepo(t);
+  runner.storeDualObject(oldReceipt.roots,runner.PROMOTION_RECEIPT_REL,{intent:oldReceipt.oldIntent});
+  assert.throws(()=>runner.ensurePromotionCommit({root:oldReceipt.root,record:oldReceipt.record,selection:oldReceipt.selection,
+    roots:oldReceipt.roots,verifyRevision4:()=>({value:{revisionNumber:4,codeRevision:oldReceipt.recoveryCommit}})}),/old receipt prevents successor intent/);
+  assert.equal(fs.existsSync(core.dualPaths(oldReceipt.roots,runner.PROMOTION_INTENT_02_REL).primary),false);
+
+  const oneStore=recoveryPromotionRepo(t);
+  const oneStoreValue=runner.promotionIntent(oneStore.root,oneStore.record,oneStore.selection,oneStore.recoveryCommit,
+    oneStore.git(['rev-parse',`${oneStore.recoveryCommit}^{tree}`]),{supersedesIntentSha256:oneStore.oldBytes.sha256});
+  const oneStorePaths=core.dualPaths(oneStore.roots,runner.PROMOTION_INTENT_02_REL);
+  fs.mkdirSync(path.dirname(oneStorePaths.primary),{recursive:true});fs.writeFileSync(oneStorePaths.primary,core.canonicalBytes(oneStoreValue));
+  assert.throws(()=>runner.ensurePromotionCommit({root:oneStore.root,record:oneStore.record,selection:oneStore.selection,
+    roots:oneStore.roots,verifyRevision4:()=>({value:{revisionNumber:4,codeRevision:oneStore.recoveryCommit}})}),/intent directory entries differ/);
+
+  const mismatched=recoveryPromotionRepo(t);
+  const wrongIntent=runner.promotionIntent(mismatched.root,mismatched.record,mismatched.selection,mismatched.recoveryCommit,
+    mismatched.git(['rev-parse',`${mismatched.recoveryCommit}^{tree}`]),{supersedesIntentSha256:'0'.repeat(64)});
+  runner.storeDualObject(mismatched.roots,runner.PROMOTION_INTENT_02_REL,wrongIntent);
+  assert.throws(()=>runner.ensurePromotionCommit({root:mismatched.root,record:mismatched.record,selection:mismatched.selection,
+    roots:mismatched.roots,verifyRevision4:()=>({value:{revisionNumber:4,codeRevision:mismatched.recoveryCommit}})}),/intent differs from the immutable selection/);
+
+  const third=recoveryPromotionRepo(t);
+  runner.storeDualObject(third.roots,'promotion/intent-03.json',{schemaVersion:1,third:true});
+  assert.throws(()=>runner.ensurePromotionCommit({root:third.root,record:third.record,selection:third.selection,
+    roots:third.roots,verifyRevision4:()=>({value:{revisionNumber:4,codeRevision:third.recoveryCommit}})}),/unexpected third promotion intent/);
+
+  const changedR=recoveryPromotionRepo(t);
+  fs.writeFileSync(path.join(changedR.root,'README.md'),'changed after R\n');changedR.git(['add','README.md']);changedR.git(['commit','-m','changed R']);
+  assert.throws(()=>runner.ensurePromotionCommit({root:changedR.root,record:changedR.record,selection:changedR.selection,
+    roots:changedR.roots,verifyRevision4:()=>({value:{revisionNumber:4,codeRevision:changedR.recoveryCommit}})}),/no exact accepted revision-4 recovery commit is active at HEAD/);
 });
 
 test('Stage3 runner exposes only the contract modes and no legacy authoritative namespace',()=>{
