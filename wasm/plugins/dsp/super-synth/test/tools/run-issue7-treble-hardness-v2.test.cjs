@@ -6,6 +6,7 @@ const fs=require('node:fs');
 const os=require('node:os');
 const path=require('node:path');
 const core=require('./issue7-treble-hardness-v2-core.cjs');
+const v1core=require('./issue7-current-build-core.cjs');
 const stage3=require('./run-stage3-production-recovery.cjs');
 const stage4Capture=require('./capture-supersynth-stage4-lifecycle.cjs');
 const runner=require('./run-issue7-treble-hardness-v2.cjs');
@@ -37,6 +38,20 @@ test('equivalence comparator uses numeric tolerance and exact integer/guard valu
   assert.match(core.compareMetrics({x:1,guard:0},{x:1,guard:1}).path,/guard/);
   assert.match(core.compareMetrics({x:1.00001},{x:1}).path,/x/);
   assert.match(core.compareMetrics({a:[1,2]},{a:[1]}).path,/a/);
+});
+
+test('R9 equivalence reader uses the canonical Stage3 direct-cell reader and observation schema',()=>{
+  const original=v1core.readCell,metrics=sampleMetrics(),seen=[];
+  v1core.readCell=(roots,phase,key)=>{seen.push({roots,phase,key});const match=/^direct-(\d+)-(\d+)$/.exec(key);assert.ok(match);const pitch=Number(match[1]),velocity=Number(match[2]);return {cell:{state:'COMPLETE',resultSha256:'a'.repeat(64)},marker:{cell:{phase:'stage3',key,kind:'direct',pitch,velocity}},observation:{observation:{kind:'direct',pitch,velocity,metrics}}};};
+  try{const rows=runner.oldRowsForEquivalence({home:os.homedir()});assert.equal(rows.size,6);assert.deepEqual(rows.get('66:40'),metrics);assert.equal(seen.length,6);assert.ok(seen.every(item=>item.phase==='stage3'&&item.key.startsWith('direct-')));}
+  finally{v1core.readCell=original;}
+});
+
+test('R9 equivalence reader fails closed on incomplete or mismatched canonical cells',()=>{
+  const original=v1core.readCell;
+  v1core.readCell=()=>({cell:{state:'PENDING'},marker:null,observation:null});
+  try{assert.throws(()=>runner.oldRowsForEquivalence({home:os.homedir()}),/BLOCKED_V2_R9_CONTROL_MISSING/);}
+  finally{v1core.readCell=original;}
 });
 
 test('independent treble smoothstep has exact boundaries and midpoint',()=>{
@@ -118,6 +133,14 @@ test('append-only transition events reject duplicates and divergent history',()=
   assert.throws(()=>core.validateJournal(roots),/DIVERGENT_DUAL_COPY/);
 });
 
+test('R10 correction lineage record is dual-store, append-only, and idempotent',()=>{
+  const {roots}=tempRoots(),record={schemaVersion:1,issue:7,epoch:core.EPOCH,correctionId:'R10-CORRECTION-01',predecessorRuntimeRevisionSha256:'b'.repeat(64),createdAt:'2026-10-17T00:00:00.000Z',git:{head:'c'.repeat(40)},inputs:{},equivalence:{planSha256:'d'.repeat(64),cellOutputsSha256:'e'.repeat(64),requalification:{decision:'PASS'}}};
+  const first=runner.persistR10Correction(roots,record),second=runner.persistR10Correction(roots,record);
+  assert.equal(first.sha256,core.sha256(core.jsonBytes(record)));assert.equal(second.sha256,first.sha256);assert.equal(core.validateJournal(roots).events,1);
+  const event=JSON.parse(core.readDual(roots,'journal/transitions.jsonl').bytes.toString('utf8').trim());assert.equal(event.eventId,'runtime-correction-recorded-R10-01');assert.equal(event.correctionSha256,first.sha256);assert.equal(event.renderCalls,0);
+  assert.throws(()=>runner.persistR10Correction(roots,{...record,predecessorRuntimeRevisionSha256:'f'.repeat(64)}),/BLOCKED_V2_R10_CORRECTION_CONFLICT/);
+});
+
 test('R10/R11 immutable runtime revisions require exact predecessor and unique accepted events',()=>{
   const {roots}=tempRoots(),r10={revisionNumber:10,previousRuntimeRevisionSha256:core.R9_SHA256,gitSha:'a'.repeat(40),createdAt:'2026-10-17T00:00:00.000Z'};
   const one=core.recordRuntimeRevision(roots,10,r10);
@@ -125,10 +148,10 @@ test('R10/R11 immutable runtime revisions require exact predecessor and unique a
   const paths=core.revisionPaths(10);for(const relative of paths.slice(1)){for(const root of [roots.primary,roots.secondary])fs.unlinkSync(path.join(root,relative));}
   assert.equal(core.recordRuntimeRevision(roots,10,r10).runtimeRevisionSha256,one.runtimeRevisionSha256);
   assert.equal(core.verifyRuntimeRevision(roots,10,core.R9_SHA256).sha256,one.runtimeRevisionSha256);
-  const r11={revisionNumber:11,previousRuntimeRevisionSha256:one.runtimeRevisionSha256,gitSha:'b'.repeat(40)};
+  const correctionSha256='d'.repeat(64),r11={revisionNumber:11,previousRuntimeRevisionSha256:correctionSha256,correctionLineageSha256:correctionSha256,gitSha:'b'.repeat(40)};
   const two=core.recordRuntimeRevision(roots,11,r11);
-  assert.equal(core.verifyRuntimeRevision(roots,11,one.runtimeRevisionSha256).sha256,two.runtimeRevisionSha256);
-  assert.throws(()=>core.verifyRuntimeRevision(roots,11,core.R9_SHA256),/LINEAGE/);
+  assert.equal(core.verifyRuntimeRevision(roots,11,correctionSha256).sha256,two.runtimeRevisionSha256);
+  assert.throws(()=>core.verifyRuntimeRevision(roots,11,one.runtimeRevisionSha256),/LINEAGE/);
   assert.throws(()=>core.recordRuntimeRevision(roots,10,{...r10,gitSha:'c'.repeat(40)}),/CONFLICT/);
 });
 
@@ -159,6 +182,14 @@ test('legacy R9 fixed identity remains the accepted v1 predecessor',()=>{
 
 test('real Stage3 FAIL blocks Stage4 before any Stage4 cell or render can start',()=>{
   assert.throws(()=>runner.runStage4({}, {decision:'BLOCKED_STAGE3_DIRECT_REFERENCE'}, {record:{}}, path.join(core.ROOT,'build/unused')),/STAGE4_REQUIRES_STAGE3_PASS/);
+});
+
+test('Stage3-only continuation reports its terminal result without selecting Stage4',()=>{
+  assert.equal(runner.stage3OnlyDecision({decision:'STAGE3_READY_FOR_STAGE4'}),'ISSUE7_STAGE3_COMPLETE');
+  assert.equal(runner.stage3OnlyDecision({decision:'BLOCKED_STAGE3_DIRECT_REFERENCE'}),'BLOCKED_STAGE3_DIRECT_REFERENCE');
+  const source=fs.readFileSync(path.join(__dirname,'run-issue7-treble-hardness-v2.cjs'),'utf8');
+  assert.match(source,/case '--run-through-stage3':result=runAll\(\{stopAfterStage3:true\}\)/);
+  assert.match(source,/if\(stopAfterStage3\)[\s\S]*?return \{decision:stage3OnlyDecision\(s3\)[\s\S]*?const s4=runStage4/);
 });
 
 test('diagnostic scale setters enforce bounds and production omits both exports',()=>{
