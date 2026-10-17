@@ -341,6 +341,18 @@ enum {
 static unsigned int g_stage2m_factor_mask=7u;
 static float g_stage2m_hammer_diag[STAGE2M_HAMMER_DIAG_COUNT]={0};
 #endif
+#if defined(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+enum {
+  PHYSICAL_IDENTIFICATION_LAUNCH_VELOCITY=0,
+  PHYSICAL_IDENTIFICATION_EFFECTIVE_HARDNESS=1,
+  PHYSICAL_IDENTIFICATION_PEAK_FORCE=2,
+  PHYSICAL_IDENTIFICATION_MAX_COMPRESSION=3,
+  PHYSICAL_IDENTIFICATION_MAX_BRIDGE_FORCE=4,
+  PHYSICAL_IDENTIFICATION_MAX_TRANSVERSE=5,
+  PHYSICAL_IDENTIFICATION_OBSERVATION_COUNT=6
+};
+static float g_physical_identification_observations[PHYSICAL_IDENTIFICATION_OBSERVATION_COUNT]={0};
+#endif
 #if defined(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS)
 static float g_stage3e_velocity_launch_scale_low=1.0f;
 static float g_stage3e_velocity_launch_scale_mid=1.0f;
@@ -757,6 +769,57 @@ void dsp_reset(void){
   g_grand_board_excitation_pan=0.0f;
   grand_clear_sympathetic_state();g_grand_symp_mask_dirty=1;g_grand_symp_clear_pending=0;g_grand_symp_was_enabled=0;
 }
+
+#if defined(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+static int physical_identification_is_finite(float value){
+  return value==value&&value<=3.402823466e+38f&&value>=-3.402823466e+38f;
+}
+static float physical_identification_authored_value(unsigned int index){
+  int profile=soraoto_grand_profile_index_for_preset_id(g_grand_preset_id);
+  if(profile<0||profile>=SORAOTO_GRAND_PROFILE_COUNT)return -1.0f;
+  const GrandHammerConfig* hammer=&soraoto_grand_profiles[profile].hammer;
+  switch(index){
+    case 0:return hammer->initial_velocity_velocity_scale;
+    case 1:return hammer->velocity_hardness_amount;
+    case 2:return hammer->stiffness_soft;
+    default:return -1.0f;
+  }
+}
+static float physical_identification_current_value(unsigned int index){
+  const GrandHammerConfig* hammer=&g_grand_config.hammer;
+  switch(index){
+    case 0:return hammer->initial_velocity_velocity_scale;
+    case 1:return hammer->velocity_hardness_amount;
+    case 2:return hammer->stiffness_soft;
+    default:return -1.0f;
+  }
+}
+int soraoto_supersynth_physical_identification_set(unsigned int index,float value){
+  if(index>2u||!physical_identification_is_finite(value))return -1;
+  if(clampi((int)(g_params[P_ENGINE]+0.5f),0,9)!=9||g_active_voice_mask!=0u)return -2;
+  const float authored=physical_identification_authored_value(index);
+  if(!(authored>0.0f)||value<authored*0.9f||value>authored*1.1f)return -3;
+  switch(index){
+    case 0:g_grand_config.hammer.initial_velocity_velocity_scale=value;break;
+    case 1:g_grand_config.hammer.velocity_hardness_amount=value;break;
+    case 2:g_grand_config.hammer.stiffness_soft=value;break;
+    default:return -1;
+  }
+  dsp_reset();
+  for(int i=0;i<PHYSICAL_IDENTIFICATION_OBSERVATION_COUNT;i++)g_physical_identification_observations[i]=0.0f;
+  return 0;
+}
+float soraoto_supersynth_physical_identification_get(unsigned int index){
+  return index<3u?physical_identification_current_value(index):-1.0f;
+}
+void soraoto_supersynth_physical_identification_observation_reset(void){
+  dsp_reset();
+  for(int i=0;i<PHYSICAL_IDENTIFICATION_OBSERVATION_COUNT;i++)g_physical_identification_observations[i]=0.0f;
+}
+float soraoto_supersynth_physical_identification_observation(unsigned int index){
+  return index<PHYSICAL_IDENTIFICATION_OBSERVATION_COUNT?g_physical_identification_observations[index]:-1.0f;
+}
+#endif
 
 #if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
 int soraoto_supersynth_stage2m_set_factor_mask(unsigned int mask){
@@ -1191,6 +1254,10 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
     float contact_noise=1.0f+(noise-q->physical_aux)*g_params[P_PIANO_HAMMER_NOISE]*(h->noise_gain_base+h->noise_gain_hardness_scale*base_hardness);
     if(contact_noise<0.0f)contact_noise=0.0f;
     force*=contact_noise;
+#if defined(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+    if(force>g_physical_identification_observations[PHYSICAL_IDENTIFICATION_PEAK_FORCE])
+      g_physical_identification_observations[PHYSICAL_IDENTIFICATION_PEAK_FORCE]=force;
+#endif
 #if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
     if(force>g_stage2m_hammer_diag[STAGE2M_PEAK_FORCE])g_stage2m_hammer_diag[STAGE2M_PEAK_FORCE]=force;
 #endif
@@ -1203,6 +1270,10 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
 #if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
     if(q->grand_hammer_compression>g_stage2m_hammer_diag[STAGE2M_MAX_COMPRESSION])
       g_stage2m_hammer_diag[STAGE2M_MAX_COMPRESSION]=q->grand_hammer_compression;
+#endif
+#if defined(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+    if(q->grand_hammer_compression>g_physical_identification_observations[PHYSICAL_IDENTIFICATION_MAX_COMPRESSION])
+      g_physical_identification_observations[PHYSICAL_IDENTIFICATION_MAX_COMPRESSION]=q->grand_hammer_compression;
 #endif
   }
   q->grand_hammer_force_prev=q->grand_hammer_force;q->grand_hammer_force=force;
@@ -1276,6 +1347,12 @@ static float grand_strings_step(Voice* q,float rate,float noise,float* bridge_ou
     q->grand_a_pos[st]=ap;q->grand_b_pos[st]=bp;
   }
   *bridge_out=bridge_force;*transverse_out=transverse;
+#if defined(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+  if(bridge_force>g_physical_identification_observations[PHYSICAL_IDENTIFICATION_MAX_BRIDGE_FORCE])
+    g_physical_identification_observations[PHYSICAL_IDENTIFICATION_MAX_BRIDGE_FORCE]=bridge_force;
+  if(transverse>g_physical_identification_observations[PHYSICAL_IDENTIFICATION_MAX_TRANSVERSE])
+    g_physical_identification_observations[PHYSICAL_IDENTIFICATION_MAX_TRANSVERSE]=transverse;
+#endif
 #if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
   if(!q->grand_hammer_contact)
     g_stage2m_hammer_diag[STAGE2M_POST_CONTACT_TRANSVERSE_ENERGY]+=transverse*transverse;
@@ -1364,6 +1441,10 @@ static void init_voice(Voice* q,int note_id,float pitch,float velocity){
     grand_stage3e_velocity_response(h,pitch,q->velocity,&launch_velocity,&hardness_amount);
     float hard=grand_effective_felt_hardness(g_params[P_PIANO_HAMMER_HARDNESS],q->velocity,hardness_amount);
     q->grand_hammer_velocity=grand_hammer_launch_velocity(h,launch_velocity,hard);
+#if defined(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+    g_physical_identification_observations[PHYSICAL_IDENTIFICATION_LAUNCH_VELOCITY]=q->grand_hammer_velocity;
+    g_physical_identification_observations[PHYSICAL_IDENTIFICATION_EFFECTIVE_HARDNESS]=hard;
+#endif
 #if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
     g_stage2m_hammer_diag[STAGE2M_EFFECTIVE_HARDNESS]=hard;
     g_stage2m_hammer_diag[STAGE2M_INITIAL_HAMMER_VELOCITY]=q->grand_hammer_velocity;
@@ -1401,6 +1482,10 @@ static void retarget_voice(Voice* q,int note_id,float pitch,float velocity,int r
     grand_stage3e_velocity_response(h,pitch,q->velocity,&launch_velocity,&hardness_amount);
     float hard=grand_effective_felt_hardness(g_params[P_PIANO_HAMMER_HARDNESS],q->velocity,hardness_amount);
     q->grand_hammer_velocity=grand_hammer_launch_velocity(h,launch_velocity,hard);
+#if defined(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+    g_physical_identification_observations[PHYSICAL_IDENTIFICATION_LAUNCH_VELOCITY]=q->grand_hammer_velocity;
+    g_physical_identification_observations[PHYSICAL_IDENTIFICATION_EFFECTIVE_HARDNESS]=hard;
+#endif
 #if defined(SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
     g_stage2m_hammer_diag[STAGE2M_EFFECTIVE_HARDNESS]=hard;
     g_stage2m_hammer_diag[STAGE2M_INITIAL_HAMMER_VELOCITY]=q->grand_hammer_velocity;

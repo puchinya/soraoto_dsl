@@ -14,6 +14,9 @@ option(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS
 option(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS
   "Build the isolated test-only Stage3E SuperSynth velocity-response mode"
   OFF)
+option(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS
+  "Build test-only bounded physical-parameter identification controls for SuperSynth"
+  OFF)
 include(cmake/wasm_plugin.cmake)
 
 set(SORAOTO_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
@@ -62,6 +65,12 @@ add_subdirectory(plugins/effects/reverb)
 add_subdirectory(plugins/effects/master-limiter)
 add_subdirectory(plugins/dsp/drum-machine)
 add_subdirectory(plugins/dsp/super-synth)
+
+if(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+  if(NOT BUILD_TESTING OR NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+    message(FATAL_ERROR "Physical-identification diagnostics require BUILD_TESTING=ON and SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON")
+  endif()
+endif()
 
 if(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS)
   if(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS OR NOT SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS)
@@ -125,7 +134,8 @@ if(BUILD_TESTING AND SORAOTO_NODE_EXECUTABLE)
     run-issue7-stage3e-current-build.test.cjs
     run-issue7-stage3-current-build.test.cjs
     run-issue7-stage4-current-build.test.cjs
-    run-issue7-current-build.test.cjs)
+    run-issue7-current-build.test.cjs
+    run-issue7-physical-identification-v1.test.cjs)
   foreach(test_file IN LISTS SORAOTO_STAGE3E_EVIDENCE_TESTS)
     string(REPLACE ".test.cjs" "" test_name "${test_file}")
     add_test(NAME "wasm.dsp.super-synth.${test_name}"

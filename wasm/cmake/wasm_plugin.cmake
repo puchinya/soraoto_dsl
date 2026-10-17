@@ -74,6 +74,12 @@ function(soraoto_add_wasm_plugin group plugin)
         -Rpass=slp-vectorizer
         -Rpass-missed=slp-vectorizer)
     endif()
+    if(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+      if(NOT BUILD_TESTING OR NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+        message(FATAL_ERROR "Physical-identification diagnostics require BUILD_TESTING=ON and SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON")
+      endif()
+      target_compile_definitions(${target} PRIVATE SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS=1)
+    endif()
     if(SORAOTO_FORCE_SCALAR_GRAND)
       target_compile_definitions(${target} PRIVATE SORAOTO_FORCE_SCALAR_GRAND=1)
       target_compile_options(${target} PRIVATE -fno-vectorize -fno-slp-vectorize)
@@ -180,6 +186,13 @@ function(soraoto_add_wasm_plugin group plugin)
         "-Wl,--export=soraoto_supersynth_treble_hardness_set_scale"
         "-Wl,--export=soraoto_supersynth_treble_hardness_get_scale")
     endif()
+  endif()
+  if(plugin STREQUAL "super-synth" AND SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+    list(APPEND link_options
+      "-Wl,--export=soraoto_supersynth_physical_identification_set"
+      "-Wl,--export=soraoto_supersynth_physical_identification_get"
+      "-Wl,--export=soraoto_supersynth_physical_identification_observation_reset"
+      "-Wl,--export=soraoto_supersynth_physical_identification_observation")
   endif()
   target_link_options(${target} PRIVATE ${link_options})
 
