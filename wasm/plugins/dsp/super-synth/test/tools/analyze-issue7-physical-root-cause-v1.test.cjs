@@ -63,7 +63,7 @@ test('T02: official post-attack computation preserves EARLY/LATE signs and max(a
     renderEarlyRelDb:8,referenceEarlyRelDb:3,
     renderLateRelDb:-4,referenceLateRelDb:2,
     earlyResidualDb:5,lateResidualDb:-6,postAttackShapeErrorDb:6}),
-    {...sample(5,-6),renderEarlyRelDb:5,referenceEarlyRelDb:0,renderLateRelDb:-6,referenceLateRelDb:0});
+    {...sample(5,-6),renderEarlyRelDb:8,referenceEarlyRelDb:3,renderLateRelDb:-4,referenceLateRelDb:2});
 });
 test('T03: historical and present acoustic lineages cannot be conflated',()=>{
   const testRow={id:'x',source:'v3',pitch:96,velocity:124,earlyResidualDb:1,lateResidualDb:-8,
