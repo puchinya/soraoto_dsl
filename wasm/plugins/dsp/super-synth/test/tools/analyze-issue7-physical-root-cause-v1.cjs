@@ -83,6 +83,9 @@ function buildResidualTable(recomputed, recorded, expectedCells) {
     seen.add(fresh.id);
     const source = fresh.source;
     if (source !== 'v3' && source !== 'v4') fail('BLOCKED_ROOT_CAUSE_SOURCE', source);
+    compareDb(fresh.officialViolation, prior.officialViolation, fresh.id + ':violation');
+    compareDb(fresh.familyLoss, prior.familyLoss, fresh.id + ':loss');
+    if (fresh.pass !== prior.pass) fail('BLOCKED_ROOT_CAUSE_INPUT_INTEGRITY', fresh.id + ':pass');
     const official = fresh.metrics.map((cell, cellIndex) => {
       const recordedCell = prior.metrics[cellIndex];
       const expected = expectedCells[cellIndex];
@@ -98,7 +101,11 @@ function buildResidualTable(recomputed, recorded, expectedCells) {
       const dominantResidual = Math.abs(signed.earlyResidualDb) > Math.abs(signed.lateResidualDb)
         ? 'EARLY' : Math.abs(signed.lateResidualDb) > Math.abs(signed.earlyResidualDb) ? 'LATE' : 'TIE';
       if (dominantResidual !== cell.dominantResidual || dominantResidual !== recordedCell.dominantResidual
-          || !equal(cell.hardFailures, recordedCell.hardFailures)) fail('BLOCKED_ROOT_CAUSE_METRIC_RECOMPUTE', 'dominant/failure');
+          || !equal(cell.hardFailures, recordedCell.hardFailures)
+          || cell.finite !== recordedCell.finite || cell.guardHits !== recordedCell.guardHits) {
+        fail('BLOCKED_ROOT_CAUSE_METRIC_RECOMPUTE', fresh.id + ':safety/dominant/failure');
+      }
+      compareDb(cell.peakDbfs, recordedCell.peakDbfs, fresh.id + ':peakDbfs');
       const row = {id: fresh.id, source, pitch: cell.pitch, velocity: cell.velocity, ...signed,
         dominantResidual, hardFailures: cell.hardFailures, finite: cell.finite,
         guardHits: cell.guardHits, peakDbfs: cell.peakDbfs,
@@ -296,7 +303,21 @@ function loadPublished(roots) {
 }
 function verifyPublished({report, markdown, roots = resolveReportRoots()} = {}) {
   const stored = loadPublished(roots);
-  if (!stored) return {decision:'NOT_PUBLISHED',writes:0};
+  if (!stored) {
+    if(reviewCore.snapshotTree(roots.primary).length || reviewCore.snapshotTree(roots.secondary).length) {
+      fail('BLOCKED_ROOT_CAUSE_UNEXPECTED_PARTIAL_FILES');
+    }
+    return {decision:'NOT_PUBLISHED',writes:0};
+  }
+  const expected = new Set(['reports/root-cause.json','reports/root-cause.md',
+    'runtime-revisions/root-cause-v1.json','evidence-manifest.json','evidence-manifest.sha256',
+    'locks/root-cause-publish.lock']);
+  const primary = reviewCore.snapshotTree(roots.primary);
+  const secondary = reviewCore.snapshotTree(roots.secondary);
+  if (primary.some(row=>!expected.has(row.path)) || secondary.some(row=>!expected.has(row.path))
+      || !equal(primary.map(({mtimeMs,...rest})=>rest),secondary.map(({mtimeMs,...rest})=>rest))) {
+    fail('BLOCKED_ROOT_CAUSE_EXTRA_OR_DIVERGENT_FILES');
+  }
   const json = jsonBytes(report), md = Buffer.from(markdown);
   if (!stored['reports/root-cause.json'].bytes.equals(json) || !stored['reports/root-cause.md'].bytes.equals(md)) {
     fail('BLOCKED_ROOT_CAUSE_PUBLISHED_DRIFT');
