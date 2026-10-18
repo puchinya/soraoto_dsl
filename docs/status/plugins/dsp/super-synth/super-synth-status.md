@@ -2,6 +2,14 @@
 
 > This document records current evidence. It is non-normative; the product specification and approved design define requirements and decisions.
 
+## Physical Fit v4 recovery — 2026-10-18
+
+- **Authorization:** Issue #7 approved contract comment [6243950617](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6243950617), SHA-256 `ca3542c678e35cffa4766d2bd056febc3e2cff5e0ee2ff2dc964ce307c10567f`. New epoch `current-build-v4/physical-fit-recovery-v1`; cumulative acoustic cap 5,213, including 3,167 immutable historical calls.
+- **v3 frozen result:** `BLOCKED_PHYSICAL_FIT_NO_ACCEPTABLE_CANDIDATE`; terminal result SHA-256 `71f72e01945c13942802c1e34dd9bc908aa441ac8f0a840bf223a1ea4e9e5908`. The existing P1 diagnostic WASM SHA-256 is `1028c5a77b533ba97066d116f77aab80e5e91b45ef043394875614ee3efab99a`. V4 will reuse these observations read-only.
+- **V4 implementation:** P3 optimizer, full-WAV `physical-feature-loss-v2`, dual-store call ledger, and negative tests are being added under the approved new tool paths. The recovery permits at most 84 candidate calls, then exactly 25 confirmation + 4 headroom calls on PASS, a two-file P4 promotion commit, 24 release-equivalence calls, fresh Stage3 486, and gated Stage4 1,423.
+- **Current acoustic state:** NOT RUN in v4. No v4 audio calls, builds, promotion, Stage3, or Stage4 have occurred. A candidate PASS is not established. Existing PR #8 remains open; Issue #7 stays in `phase:implementation` + `blocked` until the acoustic and final acceptance gates pass.
+- **Evidence boundary:** primary and secondary v4 evidence remain private at the contract-defined roots. No raw reference audio, WASM build product, or machine-local path is to be committed. Stage4 remains locked until fresh Stage3 PASS.
+
 ## R10 implementation checkpoint — 2026-10-17
 
 - **Contract and scope:** the current Issue #7 amendment authorizes the revision-5 private treble hammer-hardness profile and one resumed `--run-all` through the acceptance gate. R10 preserves the historical 2,857-call record and permits 12 T=1 equivalence calls, a 200-cell screen, then only the authorized Stage3/Stage4 phases after their gates pass.

@@ -227,6 +227,23 @@ Commit only numeric derived metrics and source provenance needed for reproducibl
 commit private Drive IDs/URLs, credentials, account identifiers, or absolute local paths. No other
 real-piano source is calibration truth for this V9 work.
 
+### Issue #7 physical-fit v4 recovery gates
+
+The approved Issue #7 physical-fit v4 recovery is an implementation-only calibration procedure. It
+does not change SuperSynth's public behavior, Plugin ABI, or any official quality threshold. It may
+evaluate only the existing `initial_velocity_velocity_scale`, `velocity_hardness_amount`, and
+`stiffness_soft` preset values inside the already approved ±10% box. Historical v3 measurements,
+WAVs, and the v3 terminal failure remain immutable; v4 reuses their audio read-only and charges only
+new captures against the approved 5,213-call cumulative ceiling.
+
+Candidate eligibility is determined by the unchanged direct-reference hard gates over the seven
+fixed MIDI stress cells. Non-finite output, output-guard activity, clipping, ambiguous capture, or
+evidence-identity drift stops the recovery. A lower research loss cannot override a failed official
+gate. Selection, the fixed 25-cell confirmation matrix, and four fixed headroom clips must pass
+before the two-file production preset promotion. Twelve instrumented-test versus distributable
+release audio pairs must meet the existing per-sample `1e-6` equivalence bound before the original
+486-cell Stage3 and 1,423-cell Stage4 acceptance runs. Stage4 is gated on fresh Stage3 PASS.
+
 ## 7. Conformance
 
 Identity, enum/model compatibility, preset/configuration selection, and runtime behavior require
