@@ -127,7 +127,9 @@ test('prepared P5 evidence is written to the dedicated v5 roots, never the impor
   assert.ok(saved.roots.primary.includes('physical-fit-v5'));
   assert.ok(core.readDual(saved.roots, runner.HISTORY_REL));
   assert.ok(core.readDual(saved.roots, runner.DIAGNOSTICS_REL));
-  assert.equal(core.readDual(saved.roots, runner.P5_REL).sha256, saved.result.p5RecordSha256);
+  const runtime = JSON.parse(core.readDual(saved.roots, runner.P5_REL).bytes.toString());
+  assert.equal(core.sha256(core.jsonBytes(runtime)), saved.result.p5RecordSha256);
+  assert.deepEqual(runtime.remoteReadback, remote);
   assert.equal(v4core.readDual(importedV4Roots, runner.HISTORY_REL), null);
   assert.equal(v4core.readDual(importedV4Roots, runner.DIAGNOSTICS_REL), null);
   assert.equal(v4core.readDual(importedV4Roots, runner.P5_REL), null);

@@ -256,6 +256,7 @@ function persistPreparedP5({root = ROOT, home, commonDirectory, preflight, remot
   core.writeImmutableDual(roots, DIAGNOSTICS_REL, diagnosticsBytes);
   const record = {schemaVersion: 1, issue: 7, epoch: core.EPOCH, lineage: core.LINEAGE.diagnostic,
     contractSha256: CONTRACT.sourceSha256, contractBytes: CONTRACT.sourceBytes,
+    remoteReadback: remote,
     commitSha: remote.head, commitParent: remote.parent, commitTree: remote.tree, branch: remote.branch,
     pullRequest: remote.pullRequest, p3RecordSha256: CONTRACT.p3RecordSha256,
     v3TerminalSha256: CONTRACT.v3TerminalSha256, p3ResultSha256: CONTRACT.p3ResultSha256,
