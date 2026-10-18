@@ -25,6 +25,18 @@ const CONTRACT = Object.freeze({
   diagnosticWasmSha256: '1028c5a77b533ba97066d116f77aab80e5e91b45ef043394875614ee3efab99a',
   knownShapeErrorDb: 10.205353
 });
+const APPROVED_PARENT_INVENTORY = Object.freeze({
+  v3: Object.freeze({fileCount: 308, bytes: 31546450,
+    primaryContentSha256: '009554853a369acdac424786977ad4c43a0084aa3b9b302e0bdcab9c780c428d',
+    secondaryContentSha256: '009554853a369acdac424786977ad4c43a0084aa3b9b302e0bdcab9c780c428d',
+    primaryMtimeSha256: '75f8474c2488dd784f9b02af334cf3eba931de832630b2e8933368dde4b3b2f7',
+    secondaryMtimeSha256: '75f8474c2488dd784f9b02af334cf3eba931de832630b2e8933368dde4b3b2f7', contentAndSizeMatch: true}),
+  v4: Object.freeze({fileCount: 274, bytes: 25475508,
+    primaryContentSha256: '860cdc3f0209f476df0ea6e6d7bb867462b90065fa1ce3624d78078896fd3a59',
+    secondaryContentSha256: '860cdc3f0209f476df0ea6e6d7bb867462b90065fa1ce3624d78078896fd3a59',
+    primaryMtimeSha256: '291a1f12f703e87f9735d186b30775e5c25e090a0367653e81552f1c4f76b589',
+    secondaryMtimeSha256: '31f2a2a3a151f89522ab14ec148d24fb3574b64214aa137ed0f2241726e85137', contentAndSizeMatch: true})
+});
 const P5_REL = 'runtime-revisions/physical-fit-P5.json';
 const DIAGNOSTICS_REL = 'p5/read-only-diagnostics.json';
 const HISTORY_REL = 'p5/observed-history.json';
@@ -148,6 +160,10 @@ function readOnlyDiagnosis() {
   if (!v4core.same(before3.before, after3.before) || !v4core.same(before4.before, after4.before)) {
     throw new Error('BLOCKED_V5_PARENT_EVIDENCE_MTIME_CHANGED_DURING_READ');
   }
+  if (!core.same(before3.summary, APPROVED_PARENT_INVENTORY.v3)
+      || !core.same(before4.summary, APPROVED_PARENT_INVENTORY.v4)) {
+    throw new Error('BLOCKED_V5_PARENT_INVENTORY_IDENTITY');
+  }
   if (!before3.summary.contentAndSizeMatch || !before4.summary.contentAndSizeMatch) throw new Error('BLOCKED_V5_PARENT_DUAL_INVENTORY_MISMATCH');
   const v3P1 = v3core.readDual(roots3, 'runtime-revisions/physical-fit-P1.json');
   if (!v3P1) throw new Error('BLOCKED_V5_V3_P1_RECORD_MISSING');
@@ -228,6 +244,30 @@ function verifyPrepared({verifyRemote = true} = {}) {
   return {...prepared, roots};
 }
 
+function persistPreparedP5({root = ROOT, home, commonDirectory, preflight, remote, sourceHashes}) {
+  const roots = core.resolveRoots(root, home, commonDirectory);
+  const history = {schemaVersion: 1, issue: 7, epoch: core.EPOCH, p3RecordSha256: CONTRACT.p3RecordSha256,
+    v3TerminalSha256: CONTRACT.v3TerminalSha256, observations: preflight.history};
+  const historyBytes = core.jsonBytes(history), historySha256 = core.sha256(historyBytes);
+  const diagnostics = {...preflight.report, p3RecordSha256: CONTRACT.p3RecordSha256,
+    historySha256, model: {...preflight.report.model, candidates: preflight.diagnostics.candidates}};
+  const diagnosticsBytes = core.jsonBytes(diagnostics), diagnosticsSha256 = core.sha256(diagnosticsBytes);
+  core.writeImmutableDual(roots, HISTORY_REL, historyBytes);
+  core.writeImmutableDual(roots, DIAGNOSTICS_REL, diagnosticsBytes);
+  const record = {schemaVersion: 1, issue: 7, epoch: core.EPOCH, lineage: core.LINEAGE.diagnostic,
+    contractSha256: CONTRACT.sourceSha256, contractBytes: CONTRACT.sourceBytes,
+    commitSha: remote.head, commitParent: remote.parent, commitTree: remote.tree, branch: remote.branch,
+    pullRequest: remote.pullRequest, p3RecordSha256: CONTRACT.p3RecordSha256,
+    v3TerminalSha256: CONTRACT.v3TerminalSha256, p3ResultSha256: CONTRACT.p3ResultSha256,
+    sourceHashes, parentInventory: {v3: preflight.report.inventory.v3, v4: preflight.report.inventory.v4},
+    historySha256, diagnosticsSha256, decision: preflight.report.decision,
+    candidateCount: preflight.diagnostics.candidates.length, acousticCallsAuthorized: 42};
+  const stored = core.writeJsonImmutableDual(roots, P5_REL, record);
+  return {roots, result: {decision: preflight.report.decision, prepared: true, p5RecordSha256: stored.sha256,
+    diagnosticsSha256, historySha256, candidateCount: preflight.diagnostics.candidates.length,
+    calls: {started: 0, complete: 0, ambiguous: 0, cumulative: core.HISTORICAL_CALLS, cap: core.MAX_CALLS},
+    builds: 0, renders: 0, writes: 3}};
+}
 function prepareP5() {
   const preflight = readOnlyDiagnosis();
   assertTrackedTreeClean();
@@ -240,28 +280,7 @@ function prepareP5() {
     'docs/specs/plugins/dsp/super-synth/physical-fit-v5-amendment.md',
     'docs/design/plugins/dsp/super-synth/physical-fit-v5-design.md'];
   const sourceHashes = hashMap(sourceFiles);
-  const history = {schemaVersion: 1, issue: 7, epoch: core.EPOCH, p3RecordSha256: CONTRACT.p3RecordSha256,
-    v3TerminalSha256: CONTRACT.v3TerminalSha256, observations: preflight.history};
-  const historyBytes = core.jsonBytes(history), historySha256 = core.sha256(historyBytes);
-  const diagnostics = {...preflight.report, p3RecordSha256: CONTRACT.p3RecordSha256,
-    historySha256, model: {...preflight.report.model, candidates: preflight.diagnostics.candidates}};
-  const diagnosticsBytes = core.jsonBytes(diagnostics), diagnosticsSha256 = core.sha256(diagnosticsBytes);
-  const roots = preflight.roots;
-  core.writeImmutableDual(roots, HISTORY_REL, historyBytes);
-  core.writeImmutableDual(roots, DIAGNOSTICS_REL, diagnosticsBytes);
-  const record = {schemaVersion: 1, issue: 7, epoch: core.EPOCH, lineage: core.LINEAGE.diagnostic,
-    contractSha256: CONTRACT.sourceSha256, contractBytes: CONTRACT.sourceBytes,
-    commitSha: remote.head, commitParent: remote.parent, commitTree: remote.tree, branch: remote.branch,
-    pullRequest: remote.pullRequest, p3RecordSha256: CONTRACT.p3RecordSha256,
-    v3TerminalSha256: CONTRACT.v3TerminalSha256, p3ResultSha256: CONTRACT.p3ResultSha256,
-    sourceHashes, parentInventory: {v3: preflight.report.inventory.v3, v4: preflight.report.inventory.v4},
-    historySha256, diagnosticsSha256, decision: preflight.report.decision,
-    candidateCount: preflight.diagnostics.candidates.length, acousticCallsAuthorized: 42};
-  const stored = core.writeJsonImmutableDual(roots, P5_REL, record);
-  return {decision: preflight.report.decision, prepared: true, p5RecordSha256: stored.sha256,
-    diagnosticsSha256, historySha256, candidateCount: preflight.diagnostics.candidates.length,
-    calls: {started: 0, complete: 0, ambiguous: 0, cumulative: core.HISTORICAL_CALLS, cap: core.MAX_CALLS},
-    builds: 0, renders: 0, writes: 3};
+  return persistPreparedP5({root: ROOT, preflight, remote, sourceHashes}).result;
 }
 
 function terminalResult(prepared) {
@@ -360,6 +379,6 @@ if (require.main === module) {
   }
 }
 
-module.exports = {ROOT, PR_URL, CONTRACT, P5_REL, DIAGNOSTICS_REL, HISTORY_REL, TERMINAL_REL,
+module.exports = {ROOT, PR_URL, CONTRACT, APPROVED_PARENT_INVENTORY, P5_REL, DIAGNOSTICS_REL, HISTORY_REL, TERMINAL_REL,
   readOnlyDiagnosis, remoteReadback, preparedPayload, verifyPrepared, prepareP5, terminalResult, runAll,
-  status, verify, dryRun, parseMode, run, main};
+  persistPreparedP5, status, verify, dryRun, parseMode, run, main};

@@ -6,7 +6,9 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const core = require('./issue7-physical-fit-v5-core.cjs');
+const v4core = require('./issue7-physical-fit-v4-core.cjs');
 const model = require('./physical-fit-v5-local-model.cjs');
+const runner = require('./run-issue7-physical-fit-v5.cjs');
 
 function vector(id, x, violation = 0.1, loss = 1, residuals = null) {
   return {id, values: model.BASELINES.map((baseline, index) => baseline * (1 + x[index] * 0.1)), violation, loss,
@@ -98,4 +100,35 @@ test('a completed call is reused only when marker, result, and audio agree', t =
   assert.deepEqual(core.callCounts(roots), {started: 1, complete: 1, ambiguous: 0, incomplete: 0,
     byStage: {candidate: 1, confirmation: 0, headroom: 0, releaseEquivalence: 0, stage3: 0, stage4: 0},
     cumulative: core.HISTORICAL_CALLS + 1, cap: core.MAX_CALLS, remaining: core.MAX_CALLS - core.HISTORICAL_CALLS - 1});
+});
+
+test('prepared P5 evidence is written to the dedicated v5 roots, never the imported v4 roots', t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'issue7-v5-prepare-roots-'));
+  t.after(() => fs.rmSync(temp, {recursive: true, force: true}));
+  const repo = path.join(temp, 'repo'), home = path.join(temp, 'home'), common = path.join(temp, 'common');
+  for (const directory of [repo, home, common]) fs.mkdirSync(directory);
+  const importedV4Roots = v4core.resolveRoots(repo, home, common);
+  const preflight = {
+    roots: importedV4Roots,
+    history: [{id: 'historical-vector'}],
+    diagnostics: {candidates: []},
+    report: {schemaVersion: 1, issue: 7, contractSha256: runner.CONTRACT.sourceSha256,
+      epoch: core.EPOCH, lineage: core.LINEAGE.diagnostic, decision: 'BLOCKED_V5_NO_PREDICTED_FEASIBLE_POINT',
+      parent: {head: 'a'.repeat(40), branch: 'codex/test'}, inventory: {v3: {}, v4: {}},
+      model: {bestId: 'baseline', bestValues: core.PARAMETERS.map(item => item.baseline), rank: 4,
+        conditionNumber: 12, looErrorDb: 0.1, candidateCount: 0, candidates: []}}
+  };
+  const remote = {pullRequest: 'https://github.com/puchinya/soraoto_dsl/pull/8', state: 'OPEN',
+    branch: 'codex/test', head: 'a'.repeat(40), parent: 'b'.repeat(40), tree: 'c'.repeat(40)};
+  const sourceHashes = {'test/source.cjs': 'd'.repeat(64)};
+  const saved = runner.persistPreparedP5({root: repo, home, commonDirectory: common, preflight, remote, sourceHashes});
+
+  assert.notEqual(saved.roots.primary, importedV4Roots.primary);
+  assert.ok(saved.roots.primary.includes('physical-fit-v5'));
+  assert.ok(core.readDual(saved.roots, runner.HISTORY_REL));
+  assert.ok(core.readDual(saved.roots, runner.DIAGNOSTICS_REL));
+  assert.equal(core.readDual(saved.roots, runner.P5_REL).sha256, saved.result.p5RecordSha256);
+  assert.equal(v4core.readDual(importedV4Roots, runner.HISTORY_REL), null);
+  assert.equal(v4core.readDual(importedV4Roots, runner.DIAGNOSTICS_REL), null);
+  assert.equal(v4core.readDual(importedV4Roots, runner.P5_REL), null);
 });
