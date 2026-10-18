@@ -354,7 +354,7 @@ function assertRemoteAndApproval(head) {
   if (issue.state !== 'OPEN' || !issue.body.includes(CONTRACT_SHA256)
       || !issue.labels.some(row=>row.name==='blocked')) fail('BLOCKED_ROOT_CAUSE_APPROVAL');
   const pr = JSON.parse(runRtk(['gh','pr','view','8','--repo',REPOSITORY,'--json','state,headRefOid,headRefName']));
-  if(pr.state!=='OPEN'||pr.headRefOid!==head)fail('BLOCKED_ROOT_CAUSE_REMOTE_HEAD');
+  if(pr.state!=='OPEN'||pr.headRefOid!==head || pr.headRefName!==runRtk(['git','branch','--show-current']))fail('BLOCKED_ROOT_CAUSE_REMOTE_HEAD');
   const remote=JSON.parse(runRtk(['gh','api','repos/'+REPOSITORY+'/commits/'+head]));
   if(remote.sha!==head || remote.commit?.tree?.sha !== runRtk(['git','rev-parse','HEAD^{tree}']))
     fail('BLOCKED_ROOT_CAUSE_REMOTE_COMMIT');
