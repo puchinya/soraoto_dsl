@@ -14,14 +14,16 @@ const NEW_SOURCE_REL = Object.freeze([
   `${REVIEW_DIR}/issue7-physical-fit-v5-review-core.cjs`,
   `${REVIEW_DIR}/run-issue7-physical-fit-v5-review.cjs`,
   `${REVIEW_DIR}/run-issue7-physical-fit-v5-review.test.cjs`,
-  'docs/specs/plugins/dsp/super-synth/physical-fit-v5-review-01-amendment.md',
-  'docs/design/plugins/dsp/super-synth/physical-fit-v5-review-01-design.md'
+  'docs/specs/plugins/dsp/super-synth/physical-fit-v5-review-02-amendment.md',
+  'docs/design/plugins/dsp/super-synth/physical-fit-v5-review-02-design.md'
 ]);
-const REVISION_REL = 'runtime-revisions/v5-review-01.json';
+const REVISION_REL = 'runtime-revisions/v5-review-02.json';
 const AUDIT_REL = 'reports/p5-audit.json';
 const TERMINAL_REL = 'p5/terminal-result.json';
 const REVIEW_DECISION = 'PHYSICAL_FIT_V5_REVIEW_PREPARED';
 const P5_BLOCKED = 'BLOCKED_V5_NO_PREDICTED_FEASIBLE_POINT';
+const PREVIOUS_EPOCH = 'current-build-v5-review/continuation-01';
+const PREVIOUS_CONTRACT_SHA256 = '951a0bad7fb12b92f9aa103e0caef8e0d689b13e61eda72640ee68376399c105';
 const PCM_TOLERANCE = 1e-6;
 const HISTORY_CALLS = 3251;
 const CALL_CAP = 5255;
@@ -40,7 +42,6 @@ const directMetrics = require('./stage3-direct-reference-metrics.cjs');
 const stage3 = require('./run-issue7-stage3-current-build.cjs');
 const stage4 = require('./run-issue7-stage4-current-build.cjs');
 const stage4Capture = require('./capture-supersynth-stage4-lifecycle.cjs');
-const stage4Evaluator = require('./stage4-full-range-evaluator.cjs');
 
 function git(args, root = ROOT) {
   return execFileSync('rtk', ['git', ...args], {cwd: root, encoding: 'utf8'}).trim();
@@ -190,15 +191,36 @@ function readReviewRevision(roots) {
   const runtime = JSON.parse(runtimeStored.bytes.toString('utf8'));
   const auditBytes = JSON.parse(auditStored.bytes.toString('utf8'));
   if (runtime.auditSha256 !== auditStored.sha256 || runtime.epoch !== core.EPOCH
+      || runtime.revision !== 'v5-review-02'
       || runtime.contractSha256 !== core.CONTRACT_SHA256 || runtime.decision !== REVIEW_DECISION) {
     throw new Error('BLOCKED_REVIEW_REVISION_IDENTITY');
   }
   return {runtime, runtimeSha256: runtimeStored.sha256, audit: auditBytes, auditSha256: auditStored.sha256};
 }
+function previousReviewIdentity({root = ROOT, home = os.homedir(), commonDirectory, currentHead = git(['rev-parse', 'HEAD'], root)} = {}) {
+  const roots = core.resolveRoots(root, home, commonDirectory, PREVIOUS_EPOCH);
+  const revisionStored = core.readDual(roots, 'runtime-revisions/v5-review-01.json');
+  const auditStored = core.readDual(roots, AUDIT_REL);
+  const terminalStored = core.readDual(roots, TERMINAL_REL);
+  if (!revisionStored || !auditStored || !terminalStored) throw new Error('BLOCKED_REVIEW_PREDECESSOR_MISSING');
+  const revision = JSON.parse(revisionStored.bytes.toString('utf8'));
+  const terminal = JSON.parse(terminalStored.bytes.toString('utf8'));
+  if (revision.epoch !== PREVIOUS_EPOCH || revision.revision !== 'v5-review-01'
+      || revision.contractSha256 !== PREVIOUS_CONTRACT_SHA256 || revision.auditSha256 !== auditStored.sha256
+      || revision.fixedParentHead !== core.FROZEN_P5_HEAD || !/^[a-f0-9]{40}$/.test(revision.commitSha)
+      || !isAncestor(revision.commitSha, currentHead, root)
+      || revision.decision !== REVIEW_DECISION || terminal.revisionSha256 !== revisionStored.sha256
+      || terminal.decision !== P5_BLOCKED || terminal.newAcousticCalls !== 0) {
+    throw new Error('BLOCKED_REVIEW_PREDECESSOR_IDENTITY');
+  }
+  return {epoch: PREVIOUS_EPOCH, revisionSha256: revisionStored.sha256,
+    auditSha256: auditStored.sha256, terminalSha256: terminalStored.sha256, commitSha: revision.commitSha};
+}
 function prepareReviewRevision({root = ROOT, home = os.homedir(), commonDirectory, verifyRemote = true} = {}) {
   const parent = verifyFrozenP5Parent({root, verifyRemote});
   if (verifyRemote) assertReviewSourcesCommitted(root, parent.head);
   const roots = core.resolveRoots(root, home, commonDirectory);
+  const previousReview = previousReviewIdentity({root, home, commonDirectory, currentHead: parent.head});
   const ownerId = `prepare-review-${crypto.randomUUID()}`;
   const lock = core.acquireLock(roots, ownerId);
   try {
@@ -208,7 +230,8 @@ function prepareReviewRevision({root = ROOT, home = os.homedir(), commonDirector
       if (!existing || !existingAudit) throw new Error('BLOCKED_REVIEW_PARTIAL_REVISION');
       const prepared = readReviewRevision(roots);
       if (prepared.runtime.commitSha !== parent.head || prepared.runtime.parentP5RuntimeSha256 !== parent.p5.runtimeSha256
-          || prepared.runtime.auditSha256 !== existingAudit.sha256) throw new Error('BLOCKED_REVIEW_REVISION_CONFLICT');
+          || prepared.runtime.auditSha256 !== existingAudit.sha256
+          || !same(prepared.runtime.previousReview, previousReview)) throw new Error('BLOCKED_REVIEW_REVISION_CONFLICT');
       return {...prepared, roots, writes: 0, reused: true, parentInventory: parent.parentSnapshots.inventory};
     }
     const sourceHashes = sourceHashMap(sourceSet(parent), root);
@@ -219,7 +242,7 @@ function prepareReviewRevision({root = ROOT, home = os.homedir(), commonDirector
     const reportBytes = core.jsonBytes(report);
     const reportWrite = core.writeImmutableDual(roots, AUDIT_REL, reportBytes);
     const revision = {schemaVersion: 1, issue: core.ISSUE, epoch: core.EPOCH,
-      revision: 'v5-review-01', contractSha256: core.CONTRACT_SHA256,
+      revision: 'v5-review-02', contractSha256: core.CONTRACT_SHA256,
       fixedParentHead: core.FROZEN_P5_HEAD, fixedParentCommitSha: core.FROZEN_P5_HEAD,
       fixedParentParentSha: git(['rev-parse', `${core.FROZEN_P5_HEAD}^`], root),
       fixedParentTreeSha: git(['rev-parse', `${core.FROZEN_P5_HEAD}^{tree}`], root),
@@ -227,6 +250,7 @@ function prepareReviewRevision({root = ROOT, home = os.homedir(), commonDirector
       commitParent: git(['rev-parse', `${parent.head}^`], root), commitTree: git(['rev-parse', `${parent.head}^{tree}`], root),
       parentP5RuntimeSha256: parent.p5.runtimeSha256, parentDiagnosticsSha256: parent.p5.diagnosticsSha256,
       parentHistorySha256: parent.p5.historySha256, parentTerminalSha256: parent.p5.terminalSha256,
+      previousReview,
       sourceHashes, auditSha256: reportWrite.sha256, auditSummary: report.summary,
       parentInventory: parent.parentSnapshots.inventory, lineage: sourceLineage,
       acousticCallsAuthorized: 0, buildsAuthorized: 0, decision: REVIEW_DECISION,
@@ -244,6 +268,8 @@ function verifyReviewRevision({root = ROOT, home = os.homedir(), commonDirectory
   if (verifyRemote) assertReviewSourcesCommitted(root, parent.head);
   const roots = core.resolveRoots(root, home, commonDirectory);
   const prepared = readReviewRevision(roots);
+  const previousReview = previousReviewIdentity({root, home, commonDirectory, currentHead: parent.head});
+  if (!same(prepared.runtime.previousReview, previousReview)) throw new Error('BLOCKED_REVIEW_PREDECESSOR_MISMATCH');
   if (prepared.runtime.commitSha !== parent.head || prepared.runtime.fixedParentHead !== core.FROZEN_P5_HEAD
       || prepared.runtime.fixedParentCommitSha !== core.FROZEN_P5_HEAD
       || prepared.runtime.fixedParentParentSha !== git(['rev-parse', `${core.FROZEN_P5_HEAD}^`], root)
@@ -288,6 +314,8 @@ function verify({root = ROOT, home = os.homedir(), commonDirectory, verifyRemote
     parent: prepared.runtime.parentInventory, builds: 0, acousticCalls: 0, writes: 0};
   const result = JSON.parse(terminal.bytes.toString('utf8'));
   if (result.revisionSha256 !== prepared.runtimeSha256 || result.parentTerminalSha256 !== prepared.runtime.parentTerminalSha256
+      || result.previousReviewRevisionSha256 !== prepared.runtime.previousReview.revisionSha256
+      || result.previousReviewTerminalSha256 !== prepared.runtime.previousReview.terminalSha256
       || result.decision !== P5_BLOCKED || result.newAcousticCalls !== 0) {
     throw new Error('BLOCKED_REVIEW_TERMINAL_IDENTITY');
   }
@@ -401,26 +429,34 @@ function runConfirmation(ctx) {
 }
 function runHeadroom(ctx) {
   core.validateWriterSession(ctx.roots, ctx.writerSession);
-  const cases = [
-    {notes: 10, build: 'baseline'}, {notes: 10, build: 'candidate'},
-    {notes: 32, build: 'baseline'}, {notes: 32, build: 'candidate'}
+  const patterns = [
+    {pattern: 'ten-note', notes: [48, 55, 60, 64, 67, 71, 74, 76, 79, 84]},
+    {pattern: 'thirty-two-note', notes: Array.from({length: 32}, (_, index) => 48 + index)}
   ];
+  const cases = patterns.flatMap(pattern => ['baseline', 'candidate'].map(build => ({...pattern,
+    velocity: 124, build, values: [...(build === 'baseline' ? model.BASELINES : ctx.values)]})));
   const plan = scenarioPlan(ctx, 'headroom', {sampleRate: 48000, blockSize: 128, durationSec: 2, noteOffSec: 1, cases});
   const rows = [];
   for (let index = 0; index < cases.length; index++) {
-    const result = recordSyntheticCall(ctx, {stage: 'headroom', index: index + 1, cell: cases[index], plan});
+    const item = cases[index];
+    const result = recordSyntheticCall(ctx, {stage: 'headroom', index: index + 1, cell: item, plan, values: item.values});
     const row = result.call.row;
     if (row.sampleRate !== 48000 || row.blockSize !== 128 || row.durationSec !== 2 || row.noteOffSec !== 1
         || !Number.isFinite(row.maxCallbackSec) || row.maxCallbackSec >= 128 / 48000
-        || row.finite !== true || row.guardHits !== 0 || !Number.isFinite(row.peak) || row.peak >= 1) {
+        || row.finite !== true || row.guardHits !== 0 || !Number.isFinite(row.peak) || row.peak >= 1
+        || row.pattern !== item.pattern || row.build !== item.build || row.velocity !== item.velocity
+        || JSON.stringify(row.notes) !== JSON.stringify(item.notes)
+        || JSON.stringify(row.values) !== JSON.stringify(item.values)) {
       return {pass: false, decision: 'BLOCKED_REVIEW_HEADROOM', failedIndex: index + 1};
     }
     rows.push(row);
   }
-  const baselinePeaks = rows.filter((row, index) => cases[index].build === 'baseline').map(row => row.peakDbfs);
-  const candidatePeaks = rows.filter((row, index) => cases[index].build === 'candidate').map(row => row.peakDbfs);
-  if (rows.some(row => !Number.isFinite(row.peakDbfs)) || Math.max(...candidatePeaks) - Math.max(...baselinePeaks) > 0.1) {
-    return {pass: false, decision: 'BLOCKED_REVIEW_HEADROOM_PEAK'};
+  for (let index = 0; index < rows.length; index += 2) {
+    const baseline = rows[index], candidate = rows[index + 1];
+    if (!Number.isFinite(baseline.peakDbfs) || !Number.isFinite(candidate.peakDbfs)
+        || candidate.peakDbfs - baseline.peakDbfs > 0.1) {
+      return {pass: false, decision: 'BLOCKED_REVIEW_HEADROOM_PEAK', failedPattern: baseline.pattern};
+    }
   }
   core.validateWriterSession(ctx.roots, ctx.writerSession);
   return {pass: true, calls: rows.length, maxCallbackLimitSec: 128 / 48000};
@@ -595,7 +631,7 @@ function runStage4(ctx) {
     if (cell.kind === 'repeat') {
       const original = lifecycle.get(`${cell.pitch}:${cell.velocity}`);
       if (!original) throw new Error('BLOCKED_REVIEW_STAGE4_REPEAT_ORDER');
-      repeats.push({...row, cell, metrics: original.metrics});
+      repeats.push({...row, cell});
     } else {
       lifecycle.set(`${cell.pitch}:${cell.velocity}`, row);
       matrix.push({...row, cell});
@@ -605,9 +641,8 @@ function runStage4(ctx) {
     resultSha256: core.sha256(core.jsonBytes(ctx.stage3Result))};
   const identity = {stage3Identity: stage3Identity.identity, stage3ResultSha256: stage3Identity.resultSha256,
     wasmSha256: ctx.builds.productionTest.wasmSha256};
-  const evaluation = stage4Evaluator.evaluate({root: ROOT, identity, stage3Identity, matrix, repeats,
-    legacyMatrixPath: path.join(os.tmpdir(), 'issue7-v5-synthetic-legacy-matrix.json'),
-    legacy: () => ({pass: true, status: 0, adjacentFailures: 0, velocityFailures: 0, synthetic: true})});
+  const evaluation = stage4.evaluate({root: ROOT, roots: ctx.roots, identity, stage3Identity, matrix, repeats,
+    stage3Rows: ctx.stage3Rows});
   const result = {decision: evaluation.decision, evaluation, synthetic: true};
   core.validateWriterSession(ctx.roots, ctx.writerSession);
   core.writeJsonImmutableDual(ctx.roots, 'stage4/result.json', result);
@@ -682,6 +717,8 @@ function runAll({root = ROOT, home = os.homedir(), commonDirectory, verifyRemote
     const saved = JSON.parse(existing.bytes.toString('utf8'));
     if (saved.revisionSha256 !== prepared.runtimeSha256 || saved.parentP5RuntimeSha256 !== parent.p5.runtimeSha256
         || saved.parentTerminalSha256 !== parent.p5.terminalSha256
+        || saved.previousReviewRevisionSha256 !== prepared.runtime.previousReview.revisionSha256
+        || saved.previousReviewTerminalSha256 !== prepared.runtime.previousReview.terminalSha256
         || saved.decision !== P5_BLOCKED || saved.newAcousticCalls !== 0) throw new Error('BLOCKED_REVIEW_TERMINAL_CONFLICT');
     return {...saved, terminalSha256: existing.sha256, writes: 0};
   }
@@ -690,7 +727,9 @@ function runAll({root = ROOT, home = os.homedir(), commonDirectory, verifyRemote
   const result = {schemaVersion: 1, issue: core.ISSUE, epoch: core.EPOCH,
     revisionSha256: prepared.runtimeSha256, auditSha256: prepared.auditSha256,
     parentP5RuntimeSha256: parent.p5.runtimeSha256, parentDiagnosticsSha256: parent.p5.diagnosticsSha256,
-    parentTerminalSha256: parent.p5.terminalSha256, decision: P5_BLOCKED,
+    parentTerminalSha256: parent.p5.terminalSha256,
+    previousReviewRevisionSha256: prepared.runtime.previousReview.revisionSha256,
+    previousReviewTerminalSha256: prepared.runtime.previousReview.terminalSha256, decision: P5_BLOCKED,
     model: {bestId: parent.report.model.bestId, bestValues: parent.report.model.bestValues,
       rank: parent.report.model.rank, conditionNumber: parent.report.model.conditionNumber,
       looErrorDb: parent.report.model.looErrorDb, candidateCount: 0},
@@ -708,6 +747,8 @@ function runAll({root = ROOT, home = os.homedir(), commonDirectory, verifyRemote
       const saved = JSON.parse(racedTerminal.bytes.toString('utf8'));
       if (saved.revisionSha256 !== prepared.runtimeSha256 || saved.parentP5RuntimeSha256 !== parent.p5.runtimeSha256
           || saved.parentTerminalSha256 !== parent.p5.terminalSha256
+          || saved.previousReviewRevisionSha256 !== prepared.runtime.previousReview.revisionSha256
+          || saved.previousReviewTerminalSha256 !== prepared.runtime.previousReview.terminalSha256
           || saved.decision !== P5_BLOCKED || saved.newAcousticCalls !== 0) throw new Error('BLOCKED_REVIEW_TERMINAL_CONFLICT');
       return {...saved, terminalSha256: racedTerminal.sha256, writes: 0};
     }

@@ -14,7 +14,6 @@ const p5 = require('./issue7-physical-fit-v5-core.cjs');
 const direct = require('./stage3-direct-reference-metrics.cjs');
 const stage3 = require('./run-issue7-stage3-current-build.cjs');
 const stage4Capture = require('./capture-supersynth-stage4-lifecycle.cjs');
-const stage4 = require('./stage4-full-range-evaluator.cjs');
 
 const REFERENCE_PATH = path.join(runner.ROOT, 'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json');
 const fixture = JSON.parse(fs.readFileSync(REFERENCE_PATH, 'utf8'));
@@ -56,17 +55,64 @@ function directMetricsFor(cell, {shapeError, guardHits = 0, finite = true} = {})
   return {pitch: cell.pitch, velocity: cell.velocity, finite, guardHits,
     peakDbfs: metrics.peakDbfs, outputGuardHits: guardHits, metrics};
 }
+function stage3MetricsFor(cell, options = {}) {
+  const row = directMetricsFor(cell, options);
+  row.metrics = {...expectedFullRangeMetrics(cell), finite: row.metrics.finite,
+    outputGuardHits: row.metrics.outputGuardHits};
+  return row;
+}
+function interpolate(a, b, mix) { return a + (b - a) * mix; }
+function interpolateArray(a, b, mix, logarithmic = false) {
+  return a.map((value, index) => logarithmic
+    ? Math.exp(interpolate(Math.log(Math.max(1e-6, value)), Math.log(Math.max(1e-6, b[index] ?? value)), mix))
+    : interpolate(value, b[index] ?? value, mix));
+}
+function rawFullRangeMetrics(cell) {
+  const centers = fixture.coverage.pitches;
+  let hiIndex = centers.findIndex(center => center >= cell.pitch);
+  if (hiIndex < 0) hiIndex = centers.length - 1;
+  const leftPitch = centers[Math.max(0, hiIndex - (centers[hiIndex] === cell.pitch ? 0 : 1))];
+  const rightPitch = centers[hiIndex];
+  const mix = leftPitch === rightPitch ? 0 : (cell.pitch - leftPitch) / (rightPitch - leftPitch);
+  const left = referenceRows.get(`${leftPitch}:${cell.velocity}`)?.metrics;
+  const right = referenceRows.get(`${rightPitch}:${cell.velocity}`)?.metrics;
+  if (!left || !right) throw new Error(`fixture missing interpolation source for ${cell.pitch}:${cell.velocity}`);
+  return {
+    onsetMs: interpolate(left.onsetMs, right.onsetMs, mix),
+    peakDbfs: interpolate(left.peakDbfs, right.peakDbfs, mix),
+    spectralCentroidHz: Math.exp(interpolate(Math.log(left.spectralCentroidHz), Math.log(right.spectralCentroidHz), mix)),
+    above2kPowerRatio: interpolate(left.above2kPowerRatio, right.above2kPowerRatio, mix),
+    envelopeDbfs: interpolateArray(left.envelopeDbfs, right.envelopeDbfs, mix),
+    envelope20msDbfs: interpolateArray(left.envelope20msDbfs, right.envelope20msDbfs, mix),
+    harmonicRatiosH2ToH6: interpolateArray(left.harmonicRatiosH2ToH6, right.harmonicRatiosH2ToH6, mix, true),
+    stereoWidth: interpolate(left.stereoWidth, right.stereoWidth, mix),
+    stereoPan: 0,
+    inharmonicityB: interpolate(left.inharmonicityB, right.inharmonicityB, mix),
+    spectralSpreadHz: Math.exp(interpolate(Math.log(left.spectralSpreadHz), Math.log(right.spectralSpreadHz), mix))
+  };
+}
+function expectedFullRangeMetrics(cell) {
+  const velocities = fixture.coverage.velocityRepresentatives;
+  const levels = velocities.map(velocity => rawFullRangeMetrics({pitch: cell.pitch, velocity}).envelopeDbfs[3]);
+  for (let index = 1; index < levels.length; index++) levels[index] = Math.max(levels[index], levels[index - 1] - 0.5);
+  const result = rawFullRangeMetrics(cell);
+  result.envelopeDbfs[3] = levels[velocities.indexOf(cell.velocity)];
+  return result;
+}
 function lifecycleMetrics(cell, {guardHits = 0} = {}) {
+  const expected = expectedFullRangeMetrics(cell);
   return {pitch: cell.pitch, velocity: cell.velocity, metrics: {
-    finite: true, finiteThroughout: true, finiteRelease: true, postReleaseFinite: true,
-    outputGuardHits: guardHits, peakDbfs: -10, fullRenderPeakDbfs: -9,
+    ...expected, finite: true, finiteThroughout: true, finiteRelease: true, postReleaseFinite: true,
+    outputGuardHits: guardHits, fullRenderPeakDbfs: expected.peakDbfs,
     pitchMeasurement: {measurement_valid: true, pitch_error_cents: 0},
     lifecycle: {postReleaseFinite: true, guardHits, noteOffProcessed: true,
       releasedWithinLimit: true, inactiveAfterNoteOffMs: 20, postReleaseProcessed: true, finalActiveVoiceCount: 0}
   }};
 }
 function syntheticBackend({failAt} = {}) {
-  return request => {
+  const requests = [];
+  const backend = request => {
+    requests.push(request);
     let row;
     if (request.stage === 'candidate' || request.stage === 'confirmation') {
       const metrics = directMetricsFor(request.cell, {
@@ -76,26 +122,55 @@ function syntheticBackend({failAt} = {}) {
       row = metrics;
     } else if (request.stage === 'headroom') {
       const clipped = failAt === 'headroom-clip' && request.index === 1;
+      let peakDbfs = -6;
+      if (failAt === 'headroom-one-pattern') {
+        peakDbfs = request.cell.pattern === 'ten-note'
+          ? (request.cell.build === 'baseline' ? -12 : -11.8)
+          : -6;
+      }
+      if (clipped) peakDbfs = 0.086;
       row = {sampleRate: 48000, blockSize: 128, durationSec: 2, noteOffSec: 1,
         maxCallbackSec: 0.001, finite: true, guardHits: 0, peak: clipped ? 1.01 : 0.5,
-        peakDbfs: clipped ? 0.086 : -6};
+        peakDbfs, pattern: request.cell.pattern, notes: [...request.cell.notes], velocity: request.cell.velocity,
+        build: request.cell.build, values: [...request.values]};
     } else if (request.stage === 'releaseEquivalence') {
       const releaseBuild = request.build?.wasmSha256 === 'b'.repeat(64);
       const drift = failAt === 'release-drift' && releaseBuild && request.index === 2 ? 1e-5 : 0;
       row = {finite: true, guardHits: 0, peak: 0.5,
         left: [0.2 + drift, -0.1], right: [0.3, 0.05]};
     } else if (request.stage === 'stage3') {
-      row = directMetricsFor(request.cell, {
+      row = stage3MetricsFor(request.cell, {
         guardHits: failAt === 'stage3-cell' && request.index === 1 ? 1 : 0,
         finite: true
       });
+      // Stage3's synthetic output uses the same controlled fixture as the Stage4 handoff.
     } else if (request.stage === 'stage4') {
       row = lifecycleMetrics(request.cell);
+      if (failAt === 'stage4-repeat-mismatch' && request.index === stage4Capture.LIFECYCLE_CELLS.length + 1) {
+        row.metrics.envelopeDbfs[3] += 0.5;
+      }
+      if (failAt === 'stage4-adjacent-violation') {
+        const stage3Keys = new Set(stage3.cells().map(cell => `${cell.pitch}:${cell.velocity}`));
+        const adjacentCell = stage4Capture.LIFECYCLE_CELLS.find(cell => !stage3Keys.has(`${cell.pitch}:${cell.velocity}`)
+          && !fixture.coverage.pitches.includes(cell.pitch) && cell.velocity === stage4Capture.VELOCITIES[0]);
+        if (!adjacentCell) throw new Error('synthetic adjacent fixture cell unavailable');
+        if (request.cell.pitch === adjacentCell.pitch && request.cell.velocity === adjacentCell.velocity) {
+          row.metrics.envelopeDbfs[3] += 20;
+        }
+      }
+      if (failAt === 'stage4-output-mismatch') {
+        const shared = stage3.cells()[0];
+        if (request.cell.pitch === shared.pitch && request.cell.velocity === shared.velocity) {
+          row.metrics.spectralCentroidHz += 0.001;
+        }
+      }
     } else {
       throw new Error(`unexpected synthetic stage ${request.stage}`);
     }
     return {row, audioBytes: request.artifactKind === 'wav' ? Buffer.from(`synthetic-${request.stage}-${request.index}`) : null};
   };
+  backend.requests = requests;
+  return backend;
 }
 async function withMockWriter(action) {
   const previous = mockWriterQueue;
@@ -282,11 +357,28 @@ test('T06: COMPLETE rejects forged audio hashes, divergent/missing copies, metri
 
 test('T07: started charges survive incomplete work, partial dual writes preserve data, and locks reject another owner', t => {
   const {roots} = makeRoots(t);
-  const {lock, request} = makeRequest({roots, id: 'crash-after-marker', artifactKind: 'metric'});
+  const first = makeRequest({roots, id: 'crash-after-marker', artifactKind: 'metric'});
+  const firstSession = core.beginWriterSession(roots, first.request.ownerId);
+  first.request.writerSession = firstSession;
+  const {request} = first;
   core.startCall(roots, request);
   const counts = core.callCounts(roots);
   assert.equal(counts.started, 1);
   assert.equal(counts.incomplete, 1);
+  core.endWriterSession(roots, firstSession);
+  core.releaseLock(roots, first.lock);
+
+  const resumed = makeRequest({roots, id: 'different-call-after-restart', artifactKind: 'metric', ownerId: 'resumed-owner'});
+  const resumedSession = core.beginWriterSession(roots, resumed.request.ownerId);
+  resumed.request.writerSession = resumedSession;
+  const beforeRejectedCall = core.callCounts(roots);
+  assert.throws(() => core.startCall(roots, resumed.request), /BLOCKED_REVIEW_UNRESOLVED_CALLS/);
+  assert.deepEqual(core.callCounts(roots), beforeRejectedCall);
+  core.endWriterSession(roots, resumedSession);
+  core.releaseLock(roots, resumed.lock);
+
+  const lock = core.acquireLock(roots, request.ownerId);
+  delete request.writerSession;
   core.markAmbiguous(roots, request.id, 'simulated process interruption');
   const ambiguous = core.callCounts(roots);
   assert.equal(ambiguous.ambiguous, 1);
@@ -306,8 +398,10 @@ test('T07: started charges survive incomplete work, partial dual writes preserve
 
 test('T08: synthetic positive path executes the fixed stage order within all call budgets', async t => {
   const {roots} = makeRoots(t);
+  const candidateValues = [1.03, 0.51, 0.018];
+  const backend = syntheticBackend();
   const result = await withMockWriter(() => runner.runAuthorizedScenario({roots, fixture,
-    candidates: [{values: [...model.BASELINES]}], backend: syntheticBackend()}));
+    candidates: [{values: candidateValues}], backend}));
   const counts = result.calls;
   assert.equal(result.decision, 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW');
   assert.equal(counts.byStage.candidate, 7);
@@ -320,8 +414,20 @@ test('T08: synthetic positive path executes the fixed stage order within all cal
   assert.ok(counts.cumulative <= counts.cap);
   assert.equal(result.stage3.decision, 'STAGE3_READY_FOR_STAGE4');
   assert.equal(result.stage4.decision, 'STAGE4_FULL_RANGE_COMPLETE');
+  assert.equal(result.stage4.result.evaluation.coverage.adjacentComparisons, 1392);
+  assert.equal(result.stage4.result.evaluation.legacyConformance.pass, true);
+  assert.equal(result.stage4.result.evaluation.outputEquivalence.pass, true);
+  assert.equal(result.stage4.result.evaluation.outputEquivalence.comparedCells, 486);
   assert.notEqual(result.builds.productionTest.wasmSha256, result.builds.productionRelease.wasmSha256);
   assert.notDeepEqual(result.builds.productionTest.exports, result.builds.productionRelease.exports);
+  const headroomRequests = backend.requests.filter(request => request.stage === 'headroom');
+  assert.equal(headroomRequests.length, 4);
+  assert.deepEqual(headroomRequests.map(request => request.cell.pattern), ['ten-note', 'ten-note', 'thirty-two-note', 'thirty-two-note']);
+  assert.deepEqual(headroomRequests.map(request => request.cell.velocity), [124, 124, 124, 124]);
+  assert.deepEqual(headroomRequests[0].values, model.BASELINES);
+  assert.deepEqual(headroomRequests[1].values, candidateValues);
+  assert.deepEqual(headroomRequests[0].cell.notes, [48, 55, 60, 64, 67, 71, 74, 76, 79, 84]);
+  assert.deepEqual(headroomRequests[2].cell.notes, Array.from({length: 32}, (_, index) => 48 + index));
 });
 
 test('T09: official shape/safety, headroom, release, and Stage3 failures stop every later stage', async t => {
@@ -344,12 +450,58 @@ test('T09: official shape/safety, headroom, release, and Stage3 failures stop ev
   const headroom = await scenario('headroom-clip');
   assert.equal(headroom.result.decision, 'BLOCKED_REVIEW_HEADROOM');
   assert.equal(headroom.counts.byStage.releaseEquivalence, 0);
+  const onePatternHeadroom = await scenario('headroom-one-pattern');
+  assert.equal(onePatternHeadroom.result.decision, 'BLOCKED_REVIEW_HEADROOM_PEAK');
+  assert.equal(onePatternHeadroom.result.headroom.failedPattern, 'ten-note');
+  assert.equal(onePatternHeadroom.counts.byStage.releaseEquivalence, 0);
   const release = await scenario('release-drift');
   assert.equal(release.result.decision, 'BLOCKED_REVIEW_RELEASE_PCM_MISMATCH');
   assert.equal(release.counts.byStage.stage3, 0);
   const failedStage3 = await scenario('stage3-cell');
   assert.match(failedStage3.result.decision, /^BLOCKED_STAGE3_/);
   assert.equal(failedStage3.counts.byStage.stage4, 0);
+});
+
+test('T13: Stage4 preserves repeats and fails on adjacent or Stage3 output mismatches', async t => {
+  async function runStage4Scenario(failAt) {
+    const {roots} = makeRoots(t);
+    return withMockWriter(() => {
+      const ownerId = `stage4-${failAt}`;
+      const writerSession = core.beginWriterSession(roots, ownerId);
+      const backend = syntheticBackend({failAt});
+      const plan = core.writePlan(roots, 'stage4', {test: true});
+      const stage3Rows = stage3.cells().map(cell => stage3MetricsFor(cell));
+      const ctx = {roots, ownerId, writerSession, stage3Result: {decision: 'STAGE3_READY_FOR_STAGE4'}, stage3Rows,
+        builds: {productionTest: {wasmSha256: BINARY_SHA}}, binarySha256: BINARY_SHA,
+        plans: {stage4: plan}, calls: {stage4: 0}, values: [...model.BASELINES],
+        sourceSha256: SOURCE_SHA, captureSha256: CAPTURE_SHA, fixtureSha256: FIXTURE_SHA,
+        scenarioId: `stage4-${failAt}`, synthetic: true, backend};
+      const result = runner.runStage4(ctx);
+      const counts = core.callCounts(roots);
+      core.endWriterSession(roots, writerSession);
+      return {roots, result, counts};
+    });
+  }
+
+  const repeat = await runStage4Scenario('stage4-repeat-mismatch');
+  assert.equal(repeat.result.decision, 'BLOCKED_STAGE4_LIFECYCLE');
+  assert.equal(repeat.counts.byStage.stage4, 1423);
+  const repeatPath = core.dualPaths(repeat.roots, 'lifecycle-capture.json').primary;
+  const repeatEvidence = JSON.parse(fs.readFileSync(repeatPath, 'utf8'));
+  const repeatedCell = stage4Capture.REPEAT_CELLS[0];
+  const original = repeatEvidence.matrix.find(row => row.pitch === repeatedCell.pitch && row.velocity === repeatedCell.velocity);
+  const repeated = repeatEvidence.repeats.find(row => row.pitch === repeatedCell.pitch && row.velocity === repeatedCell.velocity);
+  assert.equal(repeated.metrics.envelopeDbfs[3] - original.metrics.envelopeDbfs[3], 0.5);
+  assert.equal(repeat.result.result.evaluation.repeatFailures.length, 1);
+
+  const adjacent = await runStage4Scenario('stage4-adjacent-violation');
+  assert.notEqual(adjacent.result.decision, 'STAGE4_FULL_RANGE_COMPLETE');
+  assert.equal(adjacent.result.result.evaluation.legacyConformance.pass, false);
+
+  const outputMismatch = await runStage4Scenario('stage4-output-mismatch');
+  assert.equal(outputMismatch.result.decision, 'BLOCKED_STAGE4_OUTPUT_EQUIVALENCE');
+  assert.equal(outputMismatch.result.result.evaluation.outputEquivalence.pass, false);
+  assert.equal(outputMismatch.result.result.evaluation.outputEquivalence.tolerance, 1e-6);
 });
 
 test('T10: test/release builds may differ while sample equivalence uses the fixed 1e-6 tolerance', () => {
@@ -379,6 +531,16 @@ test('T12: real frozen P5 terminal zero produces a blocked review terminal with 
   try {
     const home = path.join(base, 'home'), common = path.join(base, 'common');
     fs.mkdirSync(home); fs.mkdirSync(common);
+    const previousRoots = core.resolveRoots(runner.ROOT, home, common, 'current-build-v5-review/continuation-01');
+    const previousAudit = core.writeJsonImmutableDual(previousRoots, runner.AUDIT_REL, {syntheticPredecessor: true});
+    const previousRuntime = core.writeJsonImmutableDual(previousRoots, 'runtime-revisions/v5-review-01.json', {
+      schemaVersion: 1, issue: 7, epoch: 'current-build-v5-review/continuation-01', revision: 'v5-review-01',
+      contractSha256: '951a0bad7fb12b92f9aa103e0caef8e0d689b13e61eda72640ee68376399c105',
+      fixedParentHead: core.FROZEN_P5_HEAD, auditSha256: previousAudit.sha256,
+      decision: 'PHYSICAL_FIT_V5_REVIEW_PREPARED', commitSha: core.FROZEN_P5_HEAD
+    });
+    core.writeJsonImmutableDual(previousRoots, runner.TERMINAL_REL, {revisionSha256: previousRuntime.sha256,
+      decision: 'BLOCKED_V5_NO_PREDICTED_FEASIBLE_POINT', newAcousticCalls: 0});
     const prepared = runner.prepareReviewRevision({root: runner.ROOT, home, commonDirectory: common, verifyRemote: false});
     const terminal = runner.runAll({root: runner.ROOT, home, commonDirectory: common, verifyRemote: false});
     const counts = core.callCounts(prepared.roots);

@@ -9,9 +9,9 @@ const model = require('./physical-fit-v5-local-model.cjs');
 
 const ROOT = path.resolve(__dirname, '../../../../../../');
 const ISSUE = 7;
-const EPOCH = 'current-build-v5-review/continuation-01';
+const EPOCH = 'current-build-v5-review/continuation-02';
 const FROZEN_P5_HEAD = '7ab88ce5b857423ec1d278e8741e963f4e33cd56';
-const CONTRACT_SHA256 = '951a0bad7fb12b92f9aa103e0caef8e0d689b13e61eda72640ee68376399c105';
+const CONTRACT_SHA256 = '8fff6411325c255156eb566f742dde72a0f437cffd50812e32a8d5640d09b498';
 const HISTORICAL_CALLS = 3251;
 const MAX_CALLS = 5255;
 const STAGES = Object.freeze({candidate: 42, confirmation: 25, headroom: 4,
@@ -58,17 +58,21 @@ function assertNoSymlink(base, target) {
   }
   return absolute;
 }
-function resolveRoots(root = ROOT, home = os.homedir(), commonDirectory) {
+function resolveRoots(root = ROOT, home = os.homedir(), commonDirectory, epoch = EPOCH) {
+  if (!['current-build-v5-review/continuation-01', 'current-build-v5-review/continuation-02'].includes(epoch)) {
+    throw new Error('BLOCKED_REVIEW_EPOCH');
+  }
   const repo = fs.realpathSync(path.resolve(root));
   const common = fs.realpathSync(path.resolve(commonDirectory || execFileSync('rtk',
     ['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], {cwd: repo, encoding: 'utf8'}).trim()));
   const homePath = fs.realpathSync(path.resolve(home));
   const primaryBase = path.join(common, 'soraoto-agent-state', '7', 'physical-fit-v5-review');
   const secondaryBase = path.join(homePath, '.soraoto-agent-archive', 'soraoto_dsl', '7', 'physical-fit-v5-review');
-  const primary = assertNoSymlink(common, path.join(primaryBase, 'continuation-01'));
-  const secondary = assertNoSymlink(homePath, path.join(secondaryBase, 'continuation-01'));
+  const continuation = epoch.slice(epoch.lastIndexOf('/') + 1);
+  const primary = assertNoSymlink(common, path.join(primaryBase, continuation));
+  const secondary = assertNoSymlink(homePath, path.join(secondaryBase, continuation));
   if (inside(primary, secondary) || inside(secondary, primary)) throw new Error('BLOCKED_REVIEW_ROOT_OVERLAP');
-  return {repo, commonDirectory: common, home: homePath, primaryBase, secondaryBase, primary, secondary, epoch: EPOCH};
+  return {repo, commonDirectory: common, home: homePath, primaryBase, secondaryBase, primary, secondary, epoch};
 }
 function assertRelative(relative) {
   if (typeof relative !== 'string' || !relative || path.isAbsolute(relative)
@@ -402,6 +406,7 @@ function startCall(roots, request) {
     return {reused: true, marker: existing, result: verified.result, audio: verified.audio, row: verified.row};
   }
   const counts = session ? session.counts : callCounts(roots);
+  if (counts.ambiguous > 0 || counts.incomplete > 0) throw new Error('BLOCKED_REVIEW_UNRESOLVED_CALLS');
   if (counts.cumulative + 1 > MAX_CALLS || counts.byStage[stage] + 1 > STAGES[stage]) throw new Error('BLOCKED_REVIEW_BUDGET');
   const marker = {schemaVersion: 1, issue: ISSUE, epoch: EPOCH, id, stage, planSha256,
     values: validateValues(values), normalizedValues, cell: canonical(cell), artifactKind,
