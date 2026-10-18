@@ -50,3 +50,36 @@ Synthetic success is not acoustic acceptance and cannot set the Issue to `phase:
 `--prepare-review` is the only command that creates the independent runtime revision and audit report. It requires the new source HEAD to be pushed and read back from PR #8 and appends immutable records in the new review roots. `--run-all` first verifies that revision. Because the actual frozen P5 terminal has zero eligible candidates, it appends a blocked terminal proof with zero new acoustic calls and all later phases `NOT RUN`. It must not alter the old terminal or spend reserved budgets.
 
 The review epoch uses append-only files. A source or runtime identity change cannot overwrite a prepared revision; it requires a separately authorized revision or contract.
+
+## Purpose
+
+This amendment supplies a review-only audit and independent evidence reader for the rejected Physical Fit v5 review. It makes the existing zero-candidate result reproducible and defines how the remediation records that result without changing the frozen parent.
+
+## Scope
+
+The scope is the six new review-remediation files listed in the approved Issue #7 addendum. Existing v5 implementation and evidence, v4 source-bound files, DSP behavior, public interfaces, parameter bounds, thresholds, and acoustic budgets are outside the change scope. The implementation may append records only to the independent `current-build-v5-review/continuation-01` namespace.
+
+## Normative requirements
+
+- The audit must enumerate exactly 729 points in the frozen grid order and match the frozen planner's eligible values and order.
+- Before any review record is accepted, the reader must verify the frozen P5 runtime, diagnostics, history, terminal, source hashes, ancestry, and v3/v4 inventories.
+- The append-only runtime record is `runtime-revisions/v5-review-01.json`; it binds the frozen parent identity, current commit identity, P5 record digests, source hashes, parent inventories, and audit digest.
+- Read-only commands must make zero evidence writes, builds, renders, and acoustic calls. `--prepare-review` may append the audit and runtime revision. `--run-all` may append a blocked terminal proof only when the verified parent still has zero eligible candidates and no review calls have started.
+- Real DSP calls and builds are not authorized by this amendment. The positive transition path may be exercised only with synthetic inputs in isolated temporary stores.
+- Any parent, source, identity, ledger, inventory, or dual-store inconsistency must fail closed without deleting or rewriting prior evidence.
+
+## Observable behavior
+
+The current parent audit classifies 1 point as `CENTER`, 280 as `S_ONLY`, and 448 as `NEITHER`; the other classifications contain zero points. The eligible count is zero, so `--audit` and `--dry-run` report `BLOCKED_V5_NO_PREDICTED_FEASIBLE_POINT`. After preparation, `--run-all` records that blocker with zero new calls and leaves confirmation, headroom, promotion, release comparison, Stage 3, Stage 4, Web Player acceptance, and manual listening `NOT RUN`.
+
+## Error and boundary behavior
+
+Non-finite predictions, a frozen-planner mismatch, a changed source or parent identity, missing or divergent store copies, malformed artifacts, symlinks, partial writes, stale locks, ambiguous calls, and quota overflow are errors. A call charged before interruption remains charged; the runner must not retry it automatically. The actual zero-candidate parent cannot enter acoustic evaluation.
+
+## Security and privacy
+
+The reader treats evidence files and externally supplied records as untrusted data and verifies their identity before use. Writes are confined to the independent review namespace with path validation and an owner-checked lock. Reports contain hashes and derived metrics, not private filesystem locations or raw audio. No command in this amendment uploads evidence or contacts an external service.
+
+## Verification strategy
+
+Verify the audit against the frozen planner and all 729 grid points; snapshot parent inventories before and after read-only modes; exercise dual-store tampering, interruption, locks, quotas, and each stage failure with temporary synthetic stores; run the frozen v5, v4, and physical-identification regression suites; and validate the Issue-linked specification and design documents. Real acoustic acceptance and production builds remain outside this amendment and must be reported `NOT RUN`.

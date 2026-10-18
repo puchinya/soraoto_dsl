@@ -67,3 +67,36 @@ Stage 3 and Stage 4 metric rows bind to the same instrumented test binary SHA. S
 ## Failure handling
 
 Identity drift, parent inventory changes, source changes, evidence mismatch, quota overflow, safety failures, ambiguous calls, failed official gates, release PCM mismatch, and Stage 3 failure stop the next stage. Synthetic outputs are labelled synthetic in all reports and cannot satisfy the real acoustic requirement. No threshold, cell set, parameter bound, or terminal result is relaxed to turn a failure into a pass.
+
+## Context and goals
+
+The review requested stronger evidence for the proposed Stage 3/4 control flow, independent dual-store integrity, and a complete fixed-grid audit. The existing v5 run has no eligible point, so remediation must demonstrate those properties without changing its terminal result or starting audio work. The goal is a reproducible audit and a fail-closed review reader whose positive state transitions can be tested without DSP.
+
+## Architecture
+
+The design has three layers: a pure audit module that reuses the frozen model API; an independent review core that owns immutable records, locks, verification, and accounting; and a runner that reads the frozen parent, orchestrates permitted review transitions, and exposes a synthetic-only positive control-flow harness to tests. The new modules do not import or call the old v5 writer for review records.
+
+## Alternatives considered
+
+- Editing the old v5 runner or terminal was rejected because the parent evidence and source-bound implementation must remain immutable.
+- Reusing the v5 dual-store writer was rejected because it would mix review-epoch ownership and call accounting with frozen parent evidence.
+- Running real acoustic calls to exercise later stages was rejected because the current frozen audit has zero candidates and this addendum authorizes zero new DSP calls.
+- Marking final acceptance from a synthetic Stage 4 pass was rejected because Web Player behavior and manual listening remain external acceptance gates.
+
+## Data flow and ownership
+
+The runner first verifies parent record hashes, source ancestry, the v3/v4 inventories, and the 20 preserved observations. The pure audit recomputes the model and fixed-grid classifications. `--prepare-review` stores the audit and runtime revision in the new review namespace. `--run-all` revalidates both stores and, for this parent, records only the zero-candidate blocked terminal. The review core owns every new write; the frozen v3/v4/v5 roots remain read-only. Tests may substitute a synthetic backend only while using isolated temporary roots.
+
+## Requirements traceability
+
+| Requirement | Implementation evidence |
+|---|---|
+| Enumerate all points and match frozen planner | `physical-fit-v5-review-audit.cjs`; tests T01–T03 |
+| Bind review records to frozen parent and current source identity | `run-issue7-physical-fit-v5-review.cjs`; tests T03–T04 and T12 |
+| Verify immutable dual-store calls, artifacts, and accounting | `issue7-physical-fit-v5-review-core.cjs`; tests T05–T07 |
+| Exercise ordered gates and stop after failure | Synthetic runner control flow; tests T08–T11 |
+| Keep real audio/build work blocked at zero candidates | Production `--run-all` gate; test T12 |
+
+## Verification strategy
+
+Run JavaScript syntax checks and the 12-case review suite, then rerun the frozen v5 (7), v4 (12), physical-identification v1 (11), and SuperSynth metadata regression suites. Run `--audit`, `--dry-run`, and `--verify` as read-only parent checks before preparation; after pushing and confirming the PR head, run `--prepare-review` and `--run-all` once, then use `--verify` and parent inventory comparison to confirm immutability. Run the Issue document-impact validator after linking both new documents. The synthetic positive path is control-flow evidence only; production audio, builds, Web Player behavior, and manual listening remain `NOT RUN`.
