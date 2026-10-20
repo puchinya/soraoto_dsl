@@ -13,10 +13,12 @@ const review = require('./run-issue7-physical-fit-v5-review.cjs');
 const reviewCore = require('./issue7-physical-fit-v5-review-core.cjs');
 const local = require('./physical-fit-v5-local-model.cjs');
 const {postAttackResiduals} = require('./stage3-direct-reference-metrics.cjs');
+const v4 = require('./run-issue7-physical-fit-v4.cjs');
 
 const ROOT = path.resolve(__dirname, '../../../../../../');
 const REPOSITORY = 'puchinya/soraoto_dsl';
 const PR_NUMBER = 8;
+const PR_BRANCH = 'codex/issue-7-supersynth-v9';
 const ISSUE_NUMBER = 7;
 const CONTRACT_SHA256 = '5031773c8cf3326a5b0cf495d1fa09e6561b55b03afc380e03b2073c20c785c0';
 const EPOCH = 'physical-root-cause-v1/analysis-01';
@@ -32,6 +34,12 @@ const SOURCE_PATHS = Object.freeze([
   'wasm/plugins/dsp/super-synth/test/tools/analyze-issue7-physical-root-cause-v1.cjs',
   'wasm/plugins/dsp/super-synth/test/tools/analyze-issue7-physical-root-cause-v1.test.cjs'
 ]);
+const PROVENANCE_BY_SOURCE = Object.freeze({
+  'immutable-v3-p1-baseline': 'v3',
+  'immutable-v3-p1-candidate': 'v3',
+  v4: 'v4'
+});
+const FULL_STAGE3_VELOCITIES = Object.freeze([14, 31, 36, 61, 124]);
 
 function sha(bytes) { return crypto.createHash('sha256').update(bytes).digest('hex'); }
 function jsonBytes(value) { return Buffer.from(JSON.stringify(value, null, 2) + '\n'); }
@@ -40,6 +48,45 @@ function fail(code, detail = '') { throw new Error(code + (detail ? ': ' + detai
 function finite(value, field) {
   if (typeof value !== 'number' || !Number.isFinite(value)) fail('BLOCKED_ROOT_CAUSE_NONFINITE', field);
   return value;
+}
+function provenanceFor(source) {
+  if (!Object.hasOwn(PROVENANCE_BY_SOURCE, source)) fail('BLOCKED_ROOT_CAUSE_SOURCE', source);
+  return PROVENANCE_BY_SOURCE[source];
+}
+function assertSourceIdentity({expectedHead, currentHead, committed, working} = {}) {
+  if (expectedHead !== currentHead) fail('BLOCKED_ROOT_CAUSE_STALE_HEAD');
+  if (!equal(committed, working)) fail('BLOCKED_ROOT_CAUSE_SOURCE_SHA');
+  return true;
+}
+function assertParentSnapshotMatch(expected, current, phase) {
+  if (!expected || !current || !equal(expected, current)) {
+    fail('BLOCKED_ROOT_CAUSE_PARENT_EVIDENCE_DRIFT', phase || 'snapshot');
+  }
+  return true;
+}
+function readOnlyDiagnosisWithOfficialEvaluations() {
+  const evaluations = new Map();
+  const originalHistorical = v4.loadHistoricalObservations;
+  const originalScore = v4.scoreObservation;
+  const remember = score => {
+    if (!score || typeof score.id !== 'string' || evaluations.has(score.id)) {
+      fail('BLOCKED_ROOT_CAUSE_OFFICIAL_EVALUATION', 'missing or duplicate observation');
+    }
+    evaluations.set(score.id, score);
+    return score;
+  };
+  // Observe the exact official score objects while the frozen reader remeasures
+  // stored WAVs; restore both exports even if the read-only diagnosis blocks.
+  v4.loadHistoricalObservations = (...args) => originalHistorical(...args).map(remember);
+  v4.scoreObservation = (...args) => remember(originalScore(...args));
+  try {
+    const diagnosis = frozen.readOnlyDiagnosis();
+    if (evaluations.size !== 20) fail('BLOCKED_ROOT_CAUSE_OFFICIAL_EVALUATION', 'expected 20 scores');
+    return {diagnosis, evaluations};
+  } finally {
+    v4.loadHistoricalObservations = originalHistorical;
+    v4.scoreObservation = originalScore;
+  }
 }
 function runRtk(args) { return execFileSync('rtk', args, {cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024}).trim(); }
 function commitHead() { return runRtk(['git', 'rev-parse', 'HEAD']); }
@@ -64,10 +111,11 @@ function shapeFromOfficial(cell) {
   compareDb(result.postAttackShapeErrorDb, cell.postAttackShapeErrorDb, 'official shape');
   return result;
 }
-function buildResidualTable(recomputed, recorded, expectedCells) {
+function buildResidualTable(recomputed, recorded, expectedCells, officialEvaluations) {
   if (!Array.isArray(recomputed) || recomputed.length !== 20
       || !Array.isArray(recorded) || recorded.length !== 20
-      || !Array.isArray(expectedCells) || expectedCells.length !== 7) fail('BLOCKED_ROOT_CAUSE_COVERAGE');
+      || !Array.isArray(expectedCells) || expectedCells.length !== 7
+      || !(officialEvaluations instanceof Map) || officialEvaluations.size !== 20) fail('BLOCKED_ROOT_CAUSE_COVERAGE');
   const seen = new Set(), observations = [], byCell = {};
   for (const cell of expectedCells) byCell[cell.pitch + ':' + cell.velocity] = [];
   for (let index = 0; index < 20; index++) {
@@ -82,7 +130,15 @@ function buildResidualTable(recomputed, recorded, expectedCells) {
     }
     seen.add(fresh.id);
     const source = fresh.source;
-    if (source !== 'v3' && source !== 'v4') fail('BLOCKED_ROOT_CAUSE_SOURCE', source);
+    const provenance = provenanceFor(source);
+    const officialScore = officialEvaluations.get(fresh.id);
+    if (!officialScore || officialScore.id !== fresh.id || officialScore.source !== source
+        || officialScore.sourceSha256 !== fresh.sourceSha256 || !equal(officialScore.values, fresh.values)
+        || !equal(officialScore.rows, fresh.rows) || !officialScore.official
+        || !Array.isArray(officialScore.official.cells) || officialScore.official.cells.length !== 7
+        || !Array.isArray(officialScore.official.velocity)) {
+      fail('BLOCKED_ROOT_CAUSE_OFFICIAL_EVALUATION', fresh.id);
+    }
     compareDb(fresh.officialViolation, prior.officialViolation, fresh.id + ':violation');
     compareDb(fresh.familyLoss, prior.familyLoss, fresh.id + ':loss');
     if (fresh.pass !== prior.pass) fail('BLOCKED_ROOT_CAUSE_INPUT_INTEGRITY', fresh.id + ':pass');
@@ -93,9 +149,18 @@ function buildResidualTable(recomputed, recorded, expectedCells) {
           || recordedCell.pitch !== cell.pitch || recordedCell.velocity !== cell.velocity) {
         fail('BLOCKED_ROOT_CAUSE_CELL_ORDER', fresh.id + '/' + cellIndex);
       }
+      const officialCell = officialScore.official.cells[cellIndex];
+      if (!officialCell || officialCell.pitch !== cell.pitch || officialCell.velocity !== cell.velocity
+          || !equal(officialCell.hardFailures, cell.hardFailures)
+          || officialCell.finite !== cell.finite || officialCell.guardHits !== cell.guardHits) {
+        fail('BLOCKED_ROOT_CAUSE_OFFICIAL_EVALUATION', fresh.id + '/' + cellIndex);
+      }
       const signed = {earlyResidualDb: finite(cell.earlyResidualDb, 'early'), lateResidualDb: finite(cell.lateResidualDb, 'late'),
         postAttackShapeErrorDb: finite(cell.postAttackShapeErrorDb, 'shape')};
       for (const [name, value] of Object.entries(signed)) compareDb(value, recordedCell[name], fresh.id + ':' + name);
+      compareDb(officialCell.postAttackShapeErrorDb, signed.postAttackShapeErrorDb, fresh.id + ':officialShape');
+      const directLevelErrorDb = finite(officialCell.levelErrorDb, fresh.id + ':directLevelErrorDb');
+      const directLevelViolationDb = finite(officialCell.directLevelViolationDb, fresh.id + ':directLevelViolationDb');
       const magnitude = Math.max(Math.abs(signed.earlyResidualDb), Math.abs(signed.lateResidualDb));
       compareDb(magnitude, signed.postAttackShapeErrorDb, 'max(abs) shape');
       const dominantResidual = Math.abs(signed.earlyResidualDb) > Math.abs(signed.lateResidualDb)
@@ -106,19 +171,47 @@ function buildResidualTable(recomputed, recorded, expectedCells) {
         fail('BLOCKED_ROOT_CAUSE_METRIC_RECOMPUTE', fresh.id + ':safety/dominant/failure');
       }
       compareDb(cell.peakDbfs, recordedCell.peakDbfs, fresh.id + ':peakDbfs');
-      const row = {id: fresh.id, source, pitch: cell.pitch, velocity: cell.velocity, ...signed,
+      compareDb(officialCell.peakDbfs, cell.peakDbfs, fresh.id + ':officialPeakDbfs');
+      const row = {id: fresh.id, source, provenance, pitch: cell.pitch, velocity: cell.velocity, ...signed,
+        directLevelErrorDb, directLevelViolationDb, directLevelPass: directLevelViolationDb <= 0,
         dominantResidual, hardFailures: cell.hardFailures, finite: cell.finite,
         guardHits: cell.guardHits, peakDbfs: cell.peakDbfs,
         wavSha256: fresh.rows[cellIndex].wavSha256, metadataSha256: fresh.rows[cellIndex].metadataSha256};
       byCell[cell.pitch + ':' + cell.velocity].push(row);
       return row;
     });
-    observations.push({id: fresh.id, source, sourceSha256: fresh.sourceSha256, values: fresh.values,
+    const dynamicSpanRows = officialScore.official.velocity.map(row => {
+      if (!Array.isArray(row.failures)) fail('BLOCKED_ROOT_CAUSE_OFFICIAL_EVALUATION', fresh.id + ':dynamicSpanFailures');
+      return {
+        pitch: row.pitch,
+        actualSpanDb: finite(row.actualSpanDb, fresh.id + ':actualSpanDb'),
+        referenceSpanDb: finite(row.referenceSpanDb, fresh.id + ':referenceSpanDb'),
+        errorDb: finite(row.errorDb, fresh.id + ':dynamicSpanErrorDb'),
+        violationDb: finite(row.violationDb, fresh.id + ':dynamicSpanViolationDb'),
+        failures: row.failures
+      };
+    });
+    const dynamicSpan = {
+      status: dynamicSpanRows.length ? 'STRESS_SUBSET_EVALUATED' : 'NO_COMPLETE_STRESS_LAYER',
+      fullStage3Gate: 'NOT_EVALUATED',
+      missingFullStage3VelocityLayers: FULL_STAGE3_VELOCITIES.filter(velocity =>
+        !expectedCells.some(cell => cell.pitch === 96 && cell.velocity === velocity)),
+      rows: dynamicSpanRows
+    };
+    observations.push({id: fresh.id, source, provenance, sourceSha256: fresh.sourceSha256, values: fresh.values,
       officialViolation: fresh.officialViolation, familyLoss: fresh.familyLoss, pass: fresh.pass,
+      officialGates: {
+        directLevelFailures: official.filter(row => row.hardFailures.includes('directLevel')).length,
+        postAttackShapeFailures: official.filter(row => row.hardFailures.includes('postAttackShape')).length,
+        safetyFailures: official.filter(row => !row.finite || row.guardHits !== 0 || row.peakDbfs >= 0).length,
+        jointFailingCells: official.filter(row => row.hardFailures.length > 0).length,
+        dynamicSpanFailures: dynamicSpanRows.filter(row => row.failures.includes('dynamicSpan')).length,
+        dynamicSpan
+      },
       cells: official});
   }
-  const count3 = observations.filter(item => item.source === 'v3').length;
-  const count4 = observations.filter(item => item.source === 'v4').length;
+  const count3 = observations.filter(item => item.provenance === 'v3').length;
+  const count4 = observations.filter(item => item.provenance === 'v4').length;
   if (count3 !== 8 || count4 !== 12 || Object.values(byCell).some(rows => rows.length !== 20)
       || !byCell['96:124']) fail('BLOCKED_ROOT_CAUSE_COVERAGE', 'v3/v4 totals or required cell');
   return {observations, byCell, counts: {v3: count3, v4: count4, vectors: 20, acousticCells: 140}};
@@ -189,10 +282,12 @@ function summarizeParents(snapshots) {
 function verifySourcesAndInputs() {
   const head = commitHead();
   const before = parentSnapshots();
-  let parent, recomputed;
+  let parent, recomputed, officialEvaluations;
   try {
     parent = review.verifyFrozenP5Parent({root: ROOT, verifyRemote: false, currentHead: head});
-    recomputed = frozen.readOnlyDiagnosis();
+    const captured = readOnlyDiagnosisWithOfficialEvaluations();
+    recomputed = captured.diagnosis;
+    officialEvaluations = captured.evaluations;
   } catch (error) {
     fail('BLOCKED_INPUT_UNAVAILABLE', String(error.message).replaceAll(os.homedir(), '$HOME').replaceAll(ROOT, '$REPO'));
   }
@@ -203,10 +298,10 @@ function verifySourcesAndInputs() {
   const stored = frozen.preparedPayload(frozenCore.resolveRoots(ROOT));
   const historyFile = frozenCore.readJson(frozenCore.resolveRoots(ROOT), frozen.HISTORY_REL);
   const cells = require('./issue7-physical-fit-v4-core.cjs').STRESS_CELLS;
-  const table = buildResidualTable(recomputed.history, historyFile.observations, cells);
+  const table = buildResidualTable(recomputed.history, historyFile.observations, cells, officialEvaluations);
   const after = parentSnapshots();
-  if (!equal(before, after)) fail('BLOCKED_ROOT_CAUSE_PARENT_MUTATED');
-  return {head, parent, stored, recomputed, table, parents:summarizeParents(before)};
+  assertParentSnapshotMatch(before, after, 'during-analysis');
+  return {head, parent, stored, recomputed, table, parents:summarizeParents(before), parentSnapshot:before};
 }
 function buildReport(input) {
   const {head, parent, recomputed, table, parents} = input;
@@ -233,6 +328,16 @@ function buildReport(input) {
       parentInventories:parents},
     work: {builds:0,renders:0,acousticCalls:0,sourceEdits:0},
     observationCounts:table.counts, observations:table.observations, byCell:table.byCell,
+    officialGateCoverage: {
+      directLevel: 'EVALUATED_PER_STRESS_CELL',
+      postAttackShape: 'EVALUATED_PER_STRESS_CELL',
+      safety: 'EVALUATED_PER_STRESS_CELL',
+      dynamicSpan: 'STRESS_SUBSET_ONLY',
+      fullStage3DynamicSpan: 'NOT EVALUATED',
+      fullStage3RequiredVelocities: FULL_STAGE3_VELOCITIES,
+      missingFullStage3VelocityLayers: FULL_STAGE3_VELOCITIES.filter(velocity =>
+        !require('./issue7-physical-fit-v4-core.cjs').STRESS_CELLS.some(cell => cell.pitch === 96 && cell.velocity === velocity))
+    },
     critical96v124: {bestId:ranked[0].id,values:ranked[0].values,...hypothesis},
     legacyStage3: {lineage:'historical-pre-P5-stage3', currentCandidateComparable:false,
       comparison:'NOT_COMPARABLE',entries:[
@@ -264,7 +369,15 @@ function buildReport(input) {
 }
 function renderMarkdown(report) {
   const c = report.critical96v124, rows = c.all20.map(row =>
-    '| '+[row.id,row.source,row.earlyResidualDb,row.lateResidualDb,row.postAttackShapeErrorDb,row.dominantResidual].join(' | ')+' |');
+    '| '+[row.id,row.provenance,row.source,row.earlyResidualDb,row.lateResidualDb,row.directLevelErrorDb,
+      row.postAttackShapeErrorDb,row.dominantResidual].join(' | ')+' |');
+  const gateRows=report.observations.map(observation=>{
+    const gates=observation.officialGates;
+    const span=gates.dynamicSpan.rows.map(row=>'pitch '+row.pitch+': error '+row.errorDb+
+      ' dB, violation '+row.violationDb+' dB').join('; ') || gates.dynamicSpan.status;
+    return '| '+[observation.id,observation.provenance,gates.directLevelFailures,gates.postAttackShapeFailures,
+      gates.safetyFailures,gates.dynamicSpanFailures,gates.jointFailingCells,span].join(' | ')+' |';
+  });
   return ['# Issue #7 — Physical root-cause read-only analysis','',
     'HEAD: \`'+report.currentHead+'\`  ',
     'Frozen P5: \`'+report.frozenHead+'\`  ',
@@ -272,8 +385,13 @@ function renderMarkdown(report) {
     '## MIDI 96 / velocity 124','',
     'Best measured ID: \`'+c.bestId+'\`; leading component: **'+c.dominant+'**.',
     'Hypothesis: **'+c.label+'**. Not causally confirmed.','',
-    '| Observation | Lineage | Signed EARLY dB | Signed LATE dB | Shape dB | Dominant |',
-    '|---|---|---:|---:|---:|---|', ...rows,'',
+    '| Observation | Provenance class | Source tag | Signed EARLY dB | Signed LATE dB | Direct-level error dB | Shape dB | Dominant |',
+    '|---|---|---|---:|---:|---:|---:|---|', ...rows,'',
+    '## Official seven-cell gate evidence','',
+    '| Observation | Provenance | Direct-level fails | Shape fails | Safety fails | Dynamic-span fails | Joint failing cells | Dynamic-span evidence |',
+    '|---|---|---:|---:|---:|---:|---:|---|', ...gateRows,'',
+    'Dynamic span is evaluated only on velocity layers present in the seven-cell stress subset; this is not the full Stage3 velocity gate.',
+    'Full Stage3 dynamic-span evaluation remains NOT RUN. Missing full-matrix layers: '+report.officialGateCoverage.missingFullStage3VelocityLayers.join(', ')+'.','',
     '## Attribution limits','',
     '- Historical Stage3 MIDI96 v31/v36 direct-level errors are from another lineage and are NOT COMPARABLE to the present candidate.',
     '- September 30 damping evidence: '+report.historicalDampingEvidence.status+'.',
@@ -301,7 +419,7 @@ function loadPublished(roots) {
   if (present.some(value=>!value)) fail('BLOCKED_ROOT_CAUSE_PARTIAL_PUBLISH');
   return Object.fromEntries(files.map(name=>[name,reviewCore.readDual(roots,name)]));
 }
-function verifyPublished({report, markdown, roots = resolveReportRoots()} = {}) {
+function verifyPublished({report, markdown, roots = resolveReportRoots(), lockOwner = null} = {}) {
   const stored = loadPublished(roots);
   if (!stored) {
     if(reviewCore.snapshotTree(roots.primary).length || reviewCore.snapshotTree(roots.secondary).length) {
@@ -309,28 +427,46 @@ function verifyPublished({report, markdown, roots = resolveReportRoots()} = {}) 
     }
     return {decision:'NOT_PUBLISHED',writes:0};
   }
-  const expected = new Set(['reports/root-cause.json','reports/root-cause.md',
-    'runtime-revisions/root-cause-v1.json','evidence-manifest.json','evidence-manifest.sha256',
-    'locks/root-cause-publish.lock']);
+  const requiredPaths = ['reports/root-cause.json','reports/root-cause.md',
+    'runtime-revisions/root-cause-v1.json','evidence-manifest.json','evidence-manifest.sha256'];
+  const lockPath = 'locks/root-cause-publish.lock';
+  const allowedPaths = new Set([...requiredPaths,lockPath]);
   const primary = reviewCore.snapshotTree(roots.primary);
   const secondary = reviewCore.snapshotTree(roots.secondary);
-  if (primary.some(row=>!expected.has(row.path)) || secondary.some(row=>!expected.has(row.path))
+  const primaryPaths = primary.map(row=>row.path), secondaryPaths = secondary.map(row=>row.path);
+  const completeSnapshot = paths => requiredPaths.every(name=>paths.includes(name))
+    && paths.every(name=>allowedPaths.has(name));
+  if (!completeSnapshot(primaryPaths) || !completeSnapshot(secondaryPaths)
       || !equal(primary.map(({mtimeMs,...rest})=>rest),secondary.map(({mtimeMs,...rest})=>rest))) {
     fail('BLOCKED_ROOT_CAUSE_EXTRA_OR_DIVERGENT_FILES');
+  }
+  const lockPresent = primaryPaths.includes(lockPath) || secondaryPaths.includes(lockPath);
+  if (lockPresent) {
+    const lock = lockOwner && reviewCore.readDual(roots,lockPath);
+    if (!lockOwner || !lock || !lock.bytes.equals(lockOwner.data)) fail('BLOCKED_ROOT_CAUSE_LOCKED');
   }
   const json = jsonBytes(report), md = Buffer.from(markdown);
   if (!stored['reports/root-cause.json'].bytes.equals(json) || !stored['reports/root-cause.md'].bytes.equals(md)) {
     fail('BLOCKED_ROOT_CAUSE_PUBLISHED_DRIFT');
   }
   const identity=JSON.parse(stored['runtime-revisions/root-cause-v1.json'].bytes.toString('utf8'));
-  if (identity.creatorHead !== report.currentHead || identity.contractSha256 !== CONTRACT_SHA256 ||
-      identity.reportSha256 !== sha(json) || identity.markdownSha256 !== sha(md)) {
+  if (identity.schemaVersion !== 1 || identity.epoch !== EPOCH
+      || identity.creatorHead !== report.currentHead || identity.contractSha256 !== CONTRACT_SHA256
+      || identity.reportSha256 !== sha(json) || identity.markdownSha256 !== sha(md)
+      || !equal(identity.sourceHashes,report.sourceHashes)
+      || !equal(identity.inputIdentities,report.inputIdentities)) {
     fail('BLOCKED_ROOT_CAUSE_RUNTIME_IDENTITY');
   }
   const files=JSON.parse(stored['evidence-manifest.json'].bytes.toString('utf8'));
   const manifestPath='evidence-manifest.sha256';
   if (stored[manifestPath].bytes.toString('utf8') !== stored['evidence-manifest.json'].sha256+'\n'
+      || files.schemaVersion !== 1 || files.epoch !== EPOCH || files.creatorHead !== report.currentHead
       || !Array.isArray(files.files) || files.files.length!==3) fail('BLOCKED_ROOT_CAUSE_MANIFEST');
+  const manifestPaths=files.files.map(file=>file.path);
+  const manifestSet=new Set(manifestPaths);
+  const requiredManifestPaths=['reports/root-cause.json','reports/root-cause.md','runtime-revisions/root-cause-v1.json'];
+  if (manifestSet.size!==manifestPaths.length || manifestSet.size!==requiredManifestPaths.length
+      || requiredManifestPaths.some(name=>!manifestSet.has(name))) fail('BLOCKED_ROOT_CAUSE_MANIFEST');
   for(const file of files.files) {
     const record=stored[file.path];
     if(!record || record.sha256!==file.sha256 || record.size!==file.size) fail('BLOCKED_ROOT_CAUSE_MANIFEST_ENTRY');
@@ -338,32 +474,39 @@ function verifyPublished({report, markdown, roots = resolveReportRoots()} = {}) 
   return {decision:'PUBLISHED_VERIFIED',writes:0,reportSha256:sha(json),
     manifestSha256:stored['evidence-manifest.json'].sha256};
 }
+function assertPublishLockFree(roots) {
+  const paths=reviewCore.dualPaths(roots,'locks/root-cause-publish.lock');
+  if(fs.existsSync(paths.primary)||fs.existsSync(paths.secondary)) fail('BLOCKED_ROOT_CAUSE_LOCKED');
+  return paths;
+}
+function assertPrHeadReadback({head, pr, remoteCommit, localTreeSha} = {}) {
+  if (!pr || pr.state !== 'OPEN' || pr.headRefName !== PR_BRANCH || pr.headRefOid !== head) {
+    fail('BLOCKED_ROOT_CAUSE_REMOTE_HEAD');
+  }
+  if (!remoteCommit || remoteCommit.sha !== head || remoteCommit.commit?.tree?.sha !== localTreeSha) {
+    fail('BLOCKED_ROOT_CAUSE_REMOTE_COMMIT');
+  }
+  return {pullRequest: 'https://github.com/' + REPOSITORY + '/pull/' + PR_NUMBER, head};
+}
 function assertRemoteAndApproval(head) {
+  const currentHead = commitHead();
+  const committed = {}, working = {};
   for(const relative of SOURCE_PATHS) {
     if (!runRtk(['git','ls-files',relative])) fail('BLOCKED_ROOT_CAUSE_UNCOMMITTED_SOURCE',relative);
-    runRtk(['git','diff','--quiet','HEAD','--',relative]);
-    const committed=runRtk(['git','show','HEAD:'+relative]);
-    if (sha(Buffer.from(committed+'\n')) !== hashes([relative])[relative]) {
-      // git show strips one newline; allow exact byte-compare through git hash-object instead.
-      const gitDigest=runRtk(['git','hash-object',relative]);
-      const headDigest=runRtk(['git','rev-parse','HEAD:'+relative]);
-      if(gitDigest!==headDigest)fail('BLOCKED_ROOT_CAUSE_UNCOMMITTED_SOURCE',relative);
-    }
+    committed[relative] = runRtk(['git','rev-parse','HEAD:'+relative]);
+    working[relative] = runRtk(['git','hash-object',relative]);
   }
+  assertSourceIdentity({expectedHead:head,currentHead,committed,working});
   const issue = JSON.parse(runRtk(['gh','issue','view','7','--repo',REPOSITORY,'--json','body,state,labels']));
   if (issue.state !== 'OPEN' || !issue.body.includes(CONTRACT_SHA256)
       || !issue.labels.some(row=>row.name==='blocked')) fail('BLOCKED_ROOT_CAUSE_APPROVAL');
-  const pr = JSON.parse(runRtk(['gh','pr','view','8','--repo',REPOSITORY,'--json','state,headRefOid,headRefName']));
-  if(pr.state!=='OPEN'||pr.headRefOid!==head || pr.headRefName!==runRtk(['git','branch','--show-current']))fail('BLOCKED_ROOT_CAUSE_REMOTE_HEAD');
-  const remote=JSON.parse(runRtk(['gh','api','repos/'+REPOSITORY+'/commits/'+head]));
-  if(remote.sha!==head || remote.commit?.tree?.sha !== runRtk(['git','rev-parse','HEAD^{tree}']))
-    fail('BLOCKED_ROOT_CAUSE_REMOTE_COMMIT');
-  return {pullRequest:'https://github.com/'+REPOSITORY+'/pull/8',head};
+  const pr = JSON.parse(runRtk(['gh','pr','view',String(PR_NUMBER),'--repo',REPOSITORY,'--json','state,headRefOid,headRefName']));
+  const remote = JSON.parse(runRtk(['proxy','gh','api','repos/'+REPOSITORY+'/commits/'+head]));
+  return assertPrHeadReadback({head,pr,remoteCommit:remote,
+    localTreeSha:runRtk(['git','rev-parse','HEAD^{tree}'])});
 }
 function acquireLock(roots) {
-  const relative='locks/root-cause-publish.lock';
-  const paths=reviewCore.dualPaths(roots,relative);
-  if (fs.existsSync(paths.primary) || fs.existsSync(paths.secondary)) fail('BLOCKED_ROOT_CAUSE_LOCKED');
+  const paths=assertPublishLockFree(roots);
   const owner=crypto.randomUUID();
   const data=jsonBytes({owner,epoch:EPOCH,head:commitHead()});
   try {reviewCore.writeImmutableDual(roots,relative,data);}
@@ -380,11 +523,16 @@ function publish(options = {}) {
   const {report,markdown,input}=prepareReport();
   const roots=resolveReportRoots(options);
   assertRemoteAndApproval(report.currentHead);
-  const pre=parentSnapshots();
   const lock=acquireLock(roots);
   try {
     const existing=loadPublished(roots);
-    if(existing) return {...verifyPublished({report,markdown,roots}),reused:true};
+    const pre=parentSnapshots();
+    assertParentSnapshotMatch(input.parentSnapshot,pre,'before-publication');
+    if(existing) {
+      const verified=verifyPublished({report,markdown,roots,lockOwner:lock});
+      assertParentSnapshotMatch(input.parentSnapshot,parentSnapshots(),'after-reuse');
+      return {...verified,reused:true};
+    }
     const record=jsonBytes(report), summary=Buffer.from(markdown);
     const identity={schemaVersion:1,epoch:EPOCH,creatorHead:report.currentHead,contractSha256:CONTRACT_SHA256,
       sourceHashes:report.sourceHashes, inputIdentities:report.inputIdentities,
@@ -398,8 +546,8 @@ function publish(options = {}) {
     const manifestBytes=jsonBytes(manifest);
     reviewCore.writeImmutableDual(roots,'evidence-manifest.json',manifestBytes);
     reviewCore.writeImmutableDual(roots,'evidence-manifest.sha256',Buffer.from(sha(manifestBytes)+'\n'));
-    const verified=verifyPublished({report,markdown,roots});
-    if(!equal(pre,parentSnapshots()))fail('BLOCKED_ROOT_CAUSE_PARENT_MUTATED');
+    const verified=verifyPublished({report,markdown,roots,lockOwner:lock});
+    assertParentSnapshotMatch(input.parentSnapshot,parentSnapshots(),'after-publication');
     return {...verified,reused:false,decision:'ROOT_CAUSE_HYPOTHESIS_REPORTED',acousticCalls:0,builds:0};
   } finally {releaseLock(lock);}
 }
@@ -433,5 +581,7 @@ if(require.main===module) {
   }
 }
 module.exports={ROOT,EPOCH,CONTRACT_SHA256,FROZEN_HEAD,SOURCE_PATHS,TOLERANCE_DB,
-  verifySourcesAndInputs,buildResidualTable,classifyHypothesis,buildReport,renderMarkdown,
-  resolveReportRoots,verifyPublished,publish,verify,parseMode,main,shapeFromOfficial,prepareReport};
+  verifySourcesAndInputs,readOnlyDiagnosisWithOfficialEvaluations,buildResidualTable,classifyHypothesis,
+  buildReport,renderMarkdown,resolveReportRoots,verifyPublished,assertPublishLockFree,
+  assertSourceIdentity,assertParentSnapshotMatch,assertPrHeadReadback,publish,verify,parseMode,main,
+  shapeFromOfficial,prepareReport};
