@@ -40,6 +40,7 @@ const PROVENANCE_BY_SOURCE = Object.freeze({
   v4: 'v4'
 });
 const FULL_STAGE3_VELOCITIES = Object.freeze([14, 31, 36, 61, 124]);
+const PUBLISH_LOCK_RELATIVE_PATH = 'locks/root-cause-publish.lock';
 
 function sha(bytes) { return crypto.createHash('sha256').update(bytes).digest('hex'); }
 function jsonBytes(value) { return Buffer.from(JSON.stringify(value, null, 2) + '\n'); }
@@ -429,7 +430,7 @@ function verifyPublished({report, markdown, roots = resolveReportRoots(), lockOw
   }
   const requiredPaths = ['reports/root-cause.json','reports/root-cause.md',
     'runtime-revisions/root-cause-v1.json','evidence-manifest.json','evidence-manifest.sha256'];
-  const lockPath = 'locks/root-cause-publish.lock';
+  const lockPath = PUBLISH_LOCK_RELATIVE_PATH;
   const allowedPaths = new Set([...requiredPaths,lockPath]);
   const primary = reviewCore.snapshotTree(roots.primary);
   const secondary = reviewCore.snapshotTree(roots.secondary);
@@ -475,7 +476,7 @@ function verifyPublished({report, markdown, roots = resolveReportRoots(), lockOw
     manifestSha256:stored['evidence-manifest.json'].sha256};
 }
 function assertPublishLockFree(roots) {
-  const paths=reviewCore.dualPaths(roots,'locks/root-cause-publish.lock');
+  const paths=reviewCore.dualPaths(roots,PUBLISH_LOCK_RELATIVE_PATH);
   if(fs.existsSync(paths.primary)||fs.existsSync(paths.secondary)) fail('BLOCKED_ROOT_CAUSE_LOCKED');
   return paths;
 }
@@ -505,11 +506,11 @@ function assertRemoteAndApproval(head) {
   return assertPrHeadReadback({head,pr,remoteCommit:remote,
     localTreeSha:runRtk(['git','rev-parse','HEAD^{tree}'])});
 }
-function acquireLock(roots) {
+function acquireLock(roots, writeDual = (...args)=>reviewCore.writeImmutableDual(...args)) {
   const paths=assertPublishLockFree(roots);
   const owner=crypto.randomUUID();
   const data=jsonBytes({owner,epoch:EPOCH,head:commitHead()});
-  try {reviewCore.writeImmutableDual(roots,relative,data);}
+  try {writeDual(roots,PUBLISH_LOCK_RELATIVE_PATH,data);}
   catch(e) {fail('BLOCKED_ROOT_CAUSE_LOCKED',e.message);}
   return {owner,paths,data};
 }
@@ -519,18 +520,24 @@ function releaseLock(lock) {
   }
   fs.unlinkSync(lock.paths.primary);fs.unlinkSync(lock.paths.secondary);
 }
-function publish(options = {}) {
-  const {report,markdown,input}=prepareReport();
-  const roots=resolveReportRoots(options);
-  assertRemoteAndApproval(report.currentHead);
-  const lock=acquireLock(roots);
+function publish(options = {}, adapters = {}) {
+  // The optional adapters are for deterministic orchestration tests; the CLI calls publish() without them.
+  const prepare=adapters.prepareReport || prepareReport;
+  const resolveRoots=adapters.resolveReportRoots || resolveReportRoots;
+  const assertApproval=adapters.assertRemoteAndApproval || assertRemoteAndApproval;
+  const snapshotParents=adapters.parentSnapshots || parentSnapshots;
+  const writeDual=adapters.writeImmutableDual || ((...args)=>reviewCore.writeImmutableDual(...args));
+  const {report,markdown,input}=prepare();
+  const roots=resolveRoots(options);
+  assertApproval(report.currentHead);
+  const lock=acquireLock(roots,writeDual);
   try {
     const existing=loadPublished(roots);
-    const pre=parentSnapshots();
+    const pre=snapshotParents();
     assertParentSnapshotMatch(input.parentSnapshot,pre,'before-publication');
     if(existing) {
       const verified=verifyPublished({report,markdown,roots,lockOwner:lock});
-      assertParentSnapshotMatch(input.parentSnapshot,parentSnapshots(),'after-reuse');
+      assertParentSnapshotMatch(input.parentSnapshot,snapshotParents(),'after-reuse');
       return {...verified,reused:true};
     }
     const record=jsonBytes(report), summary=Buffer.from(markdown);
@@ -540,14 +547,19 @@ function publish(options = {}) {
     const idBytes=jsonBytes(identity);
     const items=[['reports/root-cause.json',record],['reports/root-cause.md',summary],
       ['runtime-revisions/root-cause-v1.json',idBytes]];
-    for(const [name,bytes] of items)reviewCore.writeImmutableDual(roots,name,bytes);
+    for(const [name,bytes] of items) {
+      try {writeDual(roots,name,bytes);}
+      catch(error) {fail('BLOCKED_ROOT_CAUSE_PUBLISH_WRITE',name+': '+error.message);}
+    }
     const manifest={schemaVersion:1,epoch:EPOCH,creatorHead:report.currentHead,
       files:items.map(([name,bytes])=>({path:name,sha256:sha(bytes),size:bytes.length}))};
     const manifestBytes=jsonBytes(manifest);
-    reviewCore.writeImmutableDual(roots,'evidence-manifest.json',manifestBytes);
-    reviewCore.writeImmutableDual(roots,'evidence-manifest.sha256',Buffer.from(sha(manifestBytes)+'\n'));
+    try {writeDual(roots,'evidence-manifest.json',manifestBytes);}
+    catch(error) {fail('BLOCKED_ROOT_CAUSE_PUBLISH_WRITE','evidence-manifest.json: '+error.message);}
+    try {writeDual(roots,'evidence-manifest.sha256',Buffer.from(sha(manifestBytes)+'\n'));}
+    catch(error) {fail('BLOCKED_ROOT_CAUSE_PUBLISH_WRITE','evidence-manifest.sha256: '+error.message);}
     const verified=verifyPublished({report,markdown,roots,lockOwner:lock});
-    assertParentSnapshotMatch(input.parentSnapshot,parentSnapshots(),'after-publication');
+    assertParentSnapshotMatch(input.parentSnapshot,snapshotParents(),'after-publication');
     return {...verified,reused:false,decision:'ROOT_CAUSE_HYPOTHESIS_REPORTED',acousticCalls:0,builds:0};
   } finally {releaseLock(lock);}
 }
@@ -583,5 +595,5 @@ if(require.main===module) {
 module.exports={ROOT,EPOCH,CONTRACT_SHA256,FROZEN_HEAD,SOURCE_PATHS,TOLERANCE_DB,
   verifySourcesAndInputs,readOnlyDiagnosisWithOfficialEvaluations,buildResidualTable,classifyHypothesis,
   buildReport,renderMarkdown,resolveReportRoots,verifyPublished,assertPublishLockFree,
-  assertSourceIdentity,assertParentSnapshotMatch,assertPrHeadReadback,publish,verify,parseMode,main,
+  assertSourceIdentity,assertParentSnapshotMatch,assertPrHeadReadback,PUBLISH_LOCK_RELATIVE_PATH,publish,verify,parseMode,main,
   shapeFromOfficial,prepareReport};

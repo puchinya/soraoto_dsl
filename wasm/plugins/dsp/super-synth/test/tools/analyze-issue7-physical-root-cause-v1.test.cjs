@@ -53,11 +53,34 @@ function buildReport(table) {
     recomputed:{},table,parents:{v3:{},v4:{}}});
 }
 function tempRoots(t) {
-  const base=fs.mkdtempSync(path.join('/private/tmp','physical-root-cause-test-'));
+  const base=fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()),'physical-root-cause-test-'));
   const primary=path.join(base,'primary'),secondary=path.join(base,'secondary');
   fs.mkdirSync(primary);fs.mkdirSync(secondary);
   t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
   return {primary,secondary,epoch:analysis.EPOCH};
+}
+function syntheticParentSnapshot() {
+  return {v3:[{path:'parent-v3',sha256:'a'.repeat(64),size:1,mtimeMs:10}],
+    v4:[{path:'parent-v4',sha256:'b'.repeat(64),size:2,mtimeMs:20}]};
+}
+function publisherFixture(roots,{parentSnapshot=syntheticParentSnapshot(),parentSnapshots,writeImmutableDual}={}) {
+  const report={currentHead:'c'.repeat(40),sourceHashes:{analyzer:'d'.repeat(64)},
+    inputIdentities:{parentInventory:'e'.repeat(64)}};
+  const markdown='# Synthetic orchestration fixture\n';
+  const input={parentSnapshot};
+  const adapters={prepareReport:()=>({report,markdown,input}),resolveReportRoots:()=>roots,
+    assertRemoteAndApproval:head=>assert.equal(head,report.currentHead),
+    parentSnapshots:parentSnapshots||(()=>JSON.parse(JSON.stringify(parentSnapshot)))};
+  if(writeImmutableDual)adapters.writeImmutableDual=writeImmutableDual;
+  return {report,markdown,input,adapters};
+}
+function artifactIdentity(roots,paths) {
+  return paths.map(relative=>{
+    const files=reviewCore.dualPaths(roots,relative);
+    const primary=fs.readFileSync(files.primary),secondary=fs.readFileSync(files.secondary);
+    return {relative,primary:primary.toString('hex'),secondary:secondary.toString('hex'),
+      primaryMtime:fs.statSync(files.primary).mtimeMs,secondaryMtime:fs.statSync(files.secondary).mtimeMs};
+  });
 }
 function publishFixture(roots,report,markdown,{manifestPaths,identityChanges={}}={}) {
   const files=[['reports/root-cause.json',serial(report)],
@@ -180,7 +203,7 @@ test('T09: partial publication, symlink escape and stale lock fail closed',t=>{
   const locked=tempRoots(t);
   reviewCore.writeImmutableDual(locked,'locks/root-cause-publish.lock',serial({owner:'stale'}));
   assert.throws(()=>analysis.assertPublishLockFree(locked),/BLOCKED_ROOT_CAUSE_LOCKED/);
-  const base=fs.mkdtempSync(path.join('/private/tmp','physical-root-cause-symlink-'));
+  const base=fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()),'physical-root-cause-symlink-'));
   const repo=path.join(base,'repo'),home=path.join(base,'home'),common=path.join(base,'common'),outside=path.join(base,'outside');
   for(const dir of [repo,home,common,outside])fs.mkdirSync(dir);
   fs.symlinkSync(outside,path.join(common,'soraoto-agent-state'),'dir');
@@ -233,7 +256,75 @@ test('T13: runtime report postconditions remain hypothesis-only and keep downstr
   assert.equal(report.officialGateCoverage.fullStage3DynamicSpan,'NOT EVALUATED');
   assert.equal(report.officialGateCoverage.dynamicSpan,'STRESS_SUBSET_ONLY');
 });
-test('T14: private P5 140-WAV remeasurement remains isolated from synthetic fixtures',t=>{
+test('T14: real publish orchestration writes and verifies both stores, releases its lock, and reuses immutable artifacts',t=>{
+  const roots=tempRoots(t),fixture=publisherFixture(roots);let observedFreshLock=false;
+  fixture.adapters.writeImmutableDual=(target,relative,bytes)=>{
+    const result=reviewCore.writeImmutableDual(target,relative,bytes);
+    if(relative===analysis.PUBLISH_LOCK_RELATIVE_PATH){
+      const readback=reviewCore.readDual(target,analysis.PUBLISH_LOCK_RELATIVE_PATH);
+      assert.ok(readback.bytes.equals(bytes));observedFreshLock=true;
+    }
+    return result;
+  };
+  const first=analysis.publish({},fixture.adapters);
+  assert.equal(first.decision,'ROOT_CAUSE_HYPOTHESIS_REPORTED');
+  assert.equal(first.reused,false);
+  assert.ok(observedFreshLock);
+  assert.equal(analysis.assertPublishLockFree(roots).primary.endsWith(analysis.PUBLISH_LOCK_RELATIVE_PATH),true);
+  const firstSnapshot={primary:reviewCore.snapshotTree(roots.primary),secondary:reviewCore.snapshotTree(roots.secondary)};
+  const contentOnly=rows=>rows.map(({mtimeMs,...rest})=>rest);
+  assert.deepEqual(contentOnly(firstSnapshot.primary),contentOnly(firstSnapshot.secondary));
+  const second=analysis.publish({},fixture.adapters);
+  assert.equal(second.decision,'PUBLISHED_VERIFIED');
+  assert.equal(second.reused,true);
+  assert.deepEqual({primary:reviewCore.snapshotTree(roots.primary),secondary:reviewCore.snapshotTree(roots.secondary)},firstSnapshot);
+  assert.equal(analysis.assertPublishLockFree(roots).primary.endsWith(analysis.PUBLISH_LOCK_RELATIVE_PATH),true);
+});
+test('T15: changed parent SHA or mtime after analysis blocks before report writes and releases the transient lock',t=>{
+  for(const mutate of [snapshot=>{snapshot.v3[0].sha256='f'.repeat(64);},snapshot=>{snapshot.v4[0].mtimeMs+=1;}]){
+    const roots=tempRoots(t),baseline=syntheticParentSnapshot();
+    const drifted=JSON.parse(JSON.stringify(baseline));mutate(drifted);
+    const fixture=publisherFixture(roots,{parentSnapshot:baseline,parentSnapshots:()=>drifted});
+    assert.throws(()=>analysis.publish({},fixture.adapters),/BLOCKED_ROOT_CAUSE_PARENT_EVIDENCE_DRIFT/);
+    assert.deepEqual(reviewCore.snapshotTree(roots.primary),[]);
+    assert.deepEqual(reviewCore.snapshotTree(roots.secondary),[]);
+    assert.equal(fs.existsSync(reviewCore.dualPaths(roots,analysis.PUBLISH_LOCK_RELATIVE_PATH).primary),false);
+    assert.equal(fs.existsSync(reviewCore.dualPaths(roots,analysis.PUBLISH_LOCK_RELATIVE_PATH).secondary),false);
+  }
+});
+test('T16: secondary-store publication failure blocks while preserving already written immutable evidence',t=>{
+  const roots=tempRoots(t),publishedBeforeFailure=['reports/root-cause.json','reports/root-cause.md',
+    'runtime-revisions/root-cause-v1.json','evidence-manifest.json'];let protectedEvidence;
+  const fixture=publisherFixture(roots);
+  fixture.adapters.writeImmutableDual=(target,relative,bytes)=>{
+    if(relative==='evidence-manifest.sha256'){
+      protectedEvidence=artifactIdentity(target,publishedBeforeFailure);
+      const primary=reviewCore.dualPaths(target,relative).primary;
+      fs.mkdirSync(path.dirname(primary),{recursive:true});
+      fs.writeFileSync(primary,bytes,{flag:'wx'});
+      throw new Error('simulated secondary-store failure');
+    }
+    return reviewCore.writeImmutableDual(target,relative,bytes);
+  };
+  assert.throws(()=>analysis.publish({},fixture.adapters),/BLOCKED_ROOT_CAUSE_PUBLISH_WRITE: evidence-manifest\.sha256: simulated secondary-store failure/);
+  assert.deepEqual(artifactIdentity(roots,publishedBeforeFailure),protectedEvidence);
+  const sidecar=reviewCore.dualPaths(roots,'evidence-manifest.sha256');
+  assert.equal(fs.existsSync(sidecar.primary),true);
+  assert.equal(fs.existsSync(sidecar.secondary),false);
+  assert.equal(analysis.assertPublishLockFree(roots).primary.endsWith(analysis.PUBLISH_LOCK_RELATIVE_PATH),true);
+  assert.throws(()=>analysis.verifyPublished({report:fixture.report,markdown:fixture.markdown,roots}),/BLOCKED_REVIEW_PARTIAL_DUAL_COPY/);
+});
+test('T17: a stale lock blocks the real publish path without changing the lock or creating report files',t=>{
+  const roots=tempRoots(t),lockBytes=serial({owner:'stale',epoch:analysis.EPOCH});
+  reviewCore.writeImmutableDual(roots,analysis.PUBLISH_LOCK_RELATIVE_PATH,lockBytes);
+  const before=artifactIdentity(roots,[analysis.PUBLISH_LOCK_RELATIVE_PATH]);
+  const fixture=publisherFixture(roots);
+  assert.throws(()=>analysis.publish({},fixture.adapters),/BLOCKED_ROOT_CAUSE_LOCKED/);
+  assert.deepEqual(artifactIdentity(roots,[analysis.PUBLISH_LOCK_RELATIVE_PATH]),before);
+  assert.deepEqual(reviewCore.snapshotTree(roots.primary).map(row=>row.path),[analysis.PUBLISH_LOCK_RELATIVE_PATH]);
+  assert.deepEqual(reviewCore.snapshotTree(roots.secondary).map(row=>row.path),[analysis.PUBLISH_LOCK_RELATIVE_PATH]);
+});
+test('T18: private P5 140-WAV remeasurement remains isolated from synthetic fixtures',t=>{
   if(process.env.ISSUE7_ROOT_CAUSE_PRIVATE_EVIDENCE !== '1') {
     t.skip('NOT RUN: set ISSUE7_ROOT_CAUSE_PRIVATE_EVIDENCE=1 only on the authorized evidence host');
     return;
