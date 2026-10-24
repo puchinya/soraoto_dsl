@@ -26,6 +26,7 @@ Start documentation lookup at [`docs/README.md`](docs/README.md), then the relev
 
 - [`docs/specs/soraotoDSL/soraotoDSL.md`](docs/specs/soraotoDSL/soraotoDSL.md) and its `spec/*.md` modules are the complete normative DSL source. Edit the root or owning split module; no combined snapshot is maintained.
 - `docs/specs/soraotoDSL/spec/09-conformance.md` defines conformance expectations. Run a repository spec validator only if that tool exists in the checkout.
+- `docs/specs/plugins/` owns normative product contracts for individual plugins; it cannot redefine the shared DSL or Plugin ABI. `docs/design/` owns architecture decisions, and `docs/status/` is a nonnormative progress mirror.
 - Source code is the implementation, tests are executable evidence, and `web-player/README.md` plus `wasm/CMakeLists.txt` document the available build and test entry points.
 - Keep requirements, architecture decisions, implementation, and current status in documents with those responsibilities. Do not use implementation status or examples to override normative rules.
 

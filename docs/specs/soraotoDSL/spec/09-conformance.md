@@ -105,7 +105,6 @@ RemoteRepresentation page/cell/layer references valid
 ProgramList/ProgramInfo metadata valid
 bundle discovery metadata matches nested Plugin descriptor
 bus layout valid
-state size valid
 required Host capabilities satisfiable
 ```
 
@@ -142,7 +141,6 @@ Mandatory feature-specific cases:
 
 ```text
 GET/SET parameter snapshot/value
-program/unit data
 program rename/unit selection
 MIDI learn 1/2 mappings
 parameter text format/parse
@@ -159,19 +157,27 @@ initialize/configure/activate/start/process/stop/deactivate/terminate
 zero-frame process
 variable frames
 reset
-state snapshot during playback between calls
-state migration
+ABI 1.0 required exports omit plugin state snapshot/load
+PluginDescriptorV1 omits StateDescriptor
 preset load
-preset source-locator context
 program load
+DSL PluginConfigurationV1 round-trip of preset/program/unit/controller-mapping/parameter values
 program-list membership/count change
 static/string SET_PARAMETER_VALUES
 descriptor rescan
 dynamic bus assignment
 HostRequest safe-point stop/query/restart
 latency/tail change
-dirty-state set/clear
 fault recovery
+fresh Project/IR/graph construction from the same DSL produces equivalent initial Plugin config
+runtime-only preset/parameter edits disappear after unchanged-source recompilation
+source-authored preset/parameter edits are present after recompilation
+RELOAD_INSTANCE replays current compiled DSL configuration and copies no old runtime state
+all eight first-party descriptors omit state metadata and modules omit state snapshot/load exports
+Project fields remain compilable and Resolved Project IR is regenerated on each compile
+WebPlayer source convenience storage contains DSL text only
+no Project save/load path or authoritative serialized-IR runtime input exists
+SuperSynth fresh-instance physical profile is deterministic for the same DSL and preset catalog
 ```
 
 ## 67.6 Audio/event tests
@@ -421,23 +427,21 @@ Host integration:
     Unit/Bus change
     bus activation request
     restart/rescan notifications
-    dirty-state set/clear
+    source-authored Plugin configuration application
     Progress
     Data Exchange
 
-State / program:
-    project state snapshot/load
-    StateLoadContext
+DSL configuration / preset / program:
+    DSL PluginConfigurationV1 parse/compile
     PresetMetaV1
     .soraotopreset
     factory presets
     Program Lists
     ProgramInfo metadata/attributes
     Pitch Names
-    per-program binary data
-    per-unit binary data
     Unit selection
-    Plugin-version state migration
+    explicit parameter values after preset/program selection
+    no opaque plugin/program/unit payload
 
 Realtime robustness:
     asset streaming
@@ -496,7 +500,7 @@ RemoteRepresentationV1
 PhysicalUIMapV1
 ```
 
-Audio/Event/State/Automation/Controller functionality does not require a custom Plugin GUI。
+Audio/Event/Automation/Controller functionality does not require a custom Plugin GUI。
 
 Completeness rule:
 

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "reference": {
+    "archiveSha256": "b7760e168494cf095344e217b0af013fc449ad033abbbdf1c65211cf11dc038b",
+    "sampleCells": 480
+  },
+  "measured": {
+    "sourceRevision": "28113fa0a6ee33a5366b8da8a8851d2d35d2d5ac",
+    "sourceTreeDirty": true,
+    "sourcePluginSha256": "cb815db3d9fe57698d654670dd76dcd8164b7a28e1ef373a5778af82d243c70e",
+    "fitHeaderSha256": "ceb8f7b9e6aadd8647e28654fd9a1d2c895eb0a338ef87f5e1eb8b1255bd39ed",
+    "wasmSha256": "f5905961fceec037d4beced104ecac00d4472a9212ab49899f16d6d0b32345f7",
+    "preset": "concert_grand",
+    "parameterOverrides": {}
+  },
+  "comparisons": {
+    "peakDbfs": {
+      "mean": -16.153419,
+      "medianAbs": 15.217269,
+      "p90Abs": 31.026166,
+      "maxAbs": 44.750208
+    },
+    "envelopeDbfs": {
+      "mean": -32.50383,
+      "medianAbs": 31.783461,
+      "p90Abs": 63.273461,
+      "maxAbs": 85.396473
+    },
+    "normalizedSpectralBandPowerDb": {
+      "mean": -19.318708,
+      "medianAbs": 30.004341,
+      "p90Abs": 61.47058,
+      "maxAbs": 89.760426
+    },
+    "centroidRatioDb": {
+      "mean": -5.498844,
+      "medianAbs": 7.493059,
+      "p90Abs": 15.344156,
+      "maxAbs": 26.46547
+    },
+    "onsetMs": {
+      "mean": -7.1,
+      "medianAbs": 8,
+      "p90Abs": 12,
+      "maxAbs": 28
+    }
+  }
+}
