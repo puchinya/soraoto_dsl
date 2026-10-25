@@ -14,9 +14,9 @@ function tempState() {
   for (const directory of [root, home, commonDirectory]) fs.mkdirSync(directory, {recursive: true});
   return {base, root, home, commonDirectory, roots: core.resolveInputRoots({root, home, commonDirectory})};
 }
-function verifiedReport(head, roots, sourceSnapshot = core.snapshotSources(roots)) {
+function verifiedReport(head, roots, sourceSnapshot = core.snapshotSources(roots), epoch = core.EPOCH) {
   const snapshotSha = cli.sha(core.jsonBytes(core.stable(sourceSnapshot)));
-  return core.buildReport({outcome: 'GATE0_2_VERIFIED_AND_PUBLISHED',
+  return core.buildReport({epoch, outcome: 'GATE0_2_VERIFIED_AND_PUBLISHED',
     gate1: {status: 'PASS', predicate: 'RECOVERED_IDENTICAL', historicExecutableIdentity: 'VERIFIED_ORIGINAL',
       fileStatus: 'MATCH', p1RecordStatus: 'MATCH', wasmSha256: core.DIAGNOSTIC_WASM_SHA256,
       wasmExists: true, wasmSize: 437260, p1RuntimeRecordSha256: core.P1_RECORD_SHA256, p1RuntimeWasmSha256: core.DIAGNOSTIC_WASM_SHA256,
@@ -140,10 +140,14 @@ test('authority verifier fails closed on stale PR head, wrong branch, and unappr
   assert.throws(() => cli.verifyPublicationAuthority({head: pr.headRefOid, issue: {state: 'CLOSED', labels: []}, pr, approval}), /ISSUE_APPROVAL_MISSING/);
   assert.throws(() => cli.verifyPublicationAuthority({head: pr.headRefOid, issue, pr,
     approval: {...approval, id: 42}}), /APPROVAL_COMMENT_MISMATCH/);
+  assert.throws(() => cli.verifyPublicationAuthority({head: pr.headRefOid, issue, pr, approval,
+    epoch: core.offlineEpoch(2)}), /CONTINUATION_APPROVAL_MISSING/);
+  assert.throws(() => cli.verifyPublicationAuthority({head: pr.headRefOid,
+    issue: {...issue, body: cli.CONTINUATION_APPROVAL_MARKER}, pr, approval, epoch: core.offlineEpoch(2)}), /WORKTREE_NOT_CLEAN/);
 });
 
 test('publication authority queries use rtk gh subcommands without duplicating the gh prefix', () => {
-  const issue = {state: 'OPEN', labels: [{name: 'phase:implementation'}]};
+  const issue = {state: 'OPEN', labels: [{name: 'phase:implementation'}], body: 'approved'};
   const pr = {state: 'OPEN', headRefName: cli.PR_BRANCH, headRefOid: 'd'.repeat(40), baseRefName: 'main', number: 8,
     body: 'Closes #7'};
   const approval = {id: Number(cli.APPROVAL_COMMENT_ID), user: {login: 'puchinya'}, body: '6ファイルを実装し、条件付きdual-store保存、commit/push/既存PR #8のHEAD確認・最終レビューまで進めること'};
@@ -154,11 +158,45 @@ test('publication authority queries use rtk gh subcommands without duplicating t
     verifyPublicationAuthority: value => checks.push(value)
   });
   assert.deepEqual(calls, [
-    ['issue', 'view', '7', '--json', 'state,labels'],
+    ['issue', 'view', '7', '--json', 'state,labels,body'],
     ['pr', 'view', '8', '--json', 'state,headRefName,headRefOid,baseRefName,number,body,url']
   ]);
   assert.equal(checks.length, 1);
   assert.equal(result.approval, approval);
+});
+
+test('HEAD continuation appends analysis-02, verifies the latest epoch, and preserves analysis-01 bytes and mtimes', t => {
+  const state = tempState(); t.after(() => fs.rmSync(state.base, {recursive: true, force: true}));
+  const sourceSnapshot = core.snapshotSources(state.roots), head1 = '1'.repeat(40), head2 = '2'.repeat(40), head3 = '3'.repeat(40);
+  const baseText = verifiedReport(head1, state.roots, sourceSnapshot);
+  cli.publishReport({reportText: baseText, roots: state.roots, head: head1,
+    expectedSourceSnapshot: sourceSnapshot, authorityVerifier: () => true});
+  const basePair = state.roots.offline;
+  const originalIdentity = {
+    head: head1,
+    reportSha256: cli.sha(fs.readFileSync(path.join(basePair.primary, 'report.json'))),
+    manifestSha256: cli.sha(fs.readFileSync(path.join(basePair.primary, 'manifest.json')))
+  };
+  const prior = cli.publicationSequence(state.roots, {originalIdentity});
+  const beforeBase = cli.priorPublicationSnapshot(prior);
+  const selected = cli.selectPublicationForHead(state.roots, head2, {originalIdentity});
+  assert.equal(selected.epoch, core.offlineEpoch(2));
+  const continuationText = verifiedReport(head2, state.roots, sourceSnapshot, selected.epoch);
+  const published = cli.publishReport({reportText: continuationText, roots: state.roots,
+    publication: selected.publication, epoch: selected.epoch, head: head2,
+    expectedSourceSnapshot: sourceSnapshot,
+    expectedPriorPublicationSnapshot: {sequence: prior, snapshot: beforeBase}, authorityVerifier: () => true});
+  assert.equal(published.status, 'PUBLISHED');
+  const continuation = cli.publicationSequence(state.roots, {originalIdentity});
+  assert.deepEqual(continuation.map(item => item.epoch), [core.EPOCH, core.offlineEpoch(2)]);
+  assert.deepEqual(cli.priorPublicationSnapshot(continuation.slice(0, 1)), beforeBase);
+  assert.equal(cli.latestPublication(state.roots, {originalIdentity}).manifestValue.head, head2);
+  assert.equal(cli.verifyPublishedReport(state.roots, {
+    ...verifyOptions(head2, freshReport(continuationText, head2)),
+    publication: selected.publication, epoch: selected.epoch
+  }).status, 'PASS');
+  assert.equal(cli.selectPublicationForHead(state.roots, head2, {originalIdentity}).epoch, selected.epoch);
+  assert.equal(cli.selectPublicationForHead(state.roots, head3, {originalIdentity}).epoch, core.offlineEpoch(3));
 });
 
 test('publisher immutably writes both copies, reads back exact bytes, and reuses without mtime changes', t => {

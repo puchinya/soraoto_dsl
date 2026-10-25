@@ -5,7 +5,7 @@
 
 - **Status:** approved implementation contract, Gate 0–2 only.
 - **Issue / PR:** [Issue #7](https://github.com/puchinya/soraoto_dsl/issues/7) / [PR #8](https://github.com/puchinya/soraoto_dsl/pull/8).
-- **Authority:** the approved Gate 0–2 contract and the 2026-10-25 end-to-end execution review addendum.
+- **Authority:** the approved Gate 0–2 contract, the 2026-10-25 end-to-end execution review addendum, and the Issue #7 HEAD-bound continuation authorization.
 - **Scope:** historical P1 executable forensics, independent recomputation of stored PCM evidence, synthetic validation, and conditional immutable publication.
 - **Out of scope:** Gate 3–6, new builds/renders/audio calls, DSP or preset changes, budget changes, PR splitting, merge, and Issue closure.
 
@@ -35,10 +35,16 @@ The only accepted archive is SHA-256 `b7760e168494cf095344e217b0af013fc449ad033a
 
 ## Finite outcomes
 
-The offline command terminates with one of `GATE0_2_VERIFIED_AND_PUBLISHED`, `GATE0_2_IMPLEMENTED_BUT_PRIVATE_EVIDENCE_BLOCKED`, `EVIDENCE_UNVERIFIABLE`, or `BLOCKED_DELIVERY`. A failed or unavailable historical chain remains failed or unavailable; no fallback WASM, evidence repair, or suppressed exception is permitted. Only a fully verified report with unchanged parent snapshots, exact approved Issue and PR identity, clean commit, and matching PR HEAD may be immutably appended to the new epoch:
+The offline command terminates with one of `GATE0_2_VERIFIED_AND_PUBLISHED`, `GATE0_2_IMPLEMENTED_BUT_PRIVATE_EVIDENCE_BLOCKED`, `EVIDENCE_UNVERIFIABLE`, or `BLOCKED_DELIVERY`. A failed or unavailable historical chain remains failed or unavailable; no fallback WASM, evidence repair, or suppressed exception is permitted. Only a fully verified report with unchanged parent snapshots, exact approved Issue and PR identity, clean commit, and matching PR HEAD may be immutably appended. The original publication namespace remains fixed:
 
 - primary: `<git-common-dir>/soraoto-agent-state/7/physical-root-cause-offline-v1/analysis-01/`
 - secondary: `$HOME/.soraoto-agent-archive/soraoto_dsl/7/physical-root-cause-offline-v1/analysis-01/`
 
-Publication is write-once, lock-protected, dual-copy, fsynced, and read back. Partial state is retained and blocks retry; it is never deleted, repaired, or overwritten automatically. A read-only or publication failure must not change any older store.
+The analysis-01 report and manifest are immutable historical records and MUST NOT be rewritten, retagged, or have their mtimes changed to follow a later commit. The Issue-authorized HEAD-bound continuation uses sibling numbered epochs `analysis-02`, `analysis-03`, and so on. Each distinct pushed PR HEAD gets at most one new epoch; a retry at the same HEAD reuses that epoch only when every byte and source identity matches. Gaps, partial directories, lock residue, or mismatched prior reports block instead of being skipped.
+
+Before publishing a continuation, the verifier MUST authenticate the existing analysis-01 report/manifest pair and compare its Gate 1 result, Gate 2 metrics, reference identity, and source snapshots with the fresh read-only analysis. It MUST preserve all earlier numbered epochs. `--verify` selects the newest complete numbered epoch and requires its recorded HEAD to equal the current clean PR HEAD; with no continuation it verifies analysis-01 and reports stale HEAD honestly. Every continuation repeats the same 20 × 7 saved-PCM evaluation and fixed reference checks. It adds zero builds, renders, acoustic calls, or budget changes and does not authorize Gate 3–6.
+
+Continuation publication is authorized only when Issue #7 contains `HEAD_BOUND_APPEND_ONLY_CONTINUATION_APPROVED: physical-root-cause-offline-v1/analysis-02`. The marker authorizes the monotonically numbered continuation sequence for later distinct pushed HEADs while the fixed inputs and zero-acoustic boundary remain unchanged.
+
+Each epoch is write-once, lock-protected, dual-copy, fsynced, and read back. Partial state is retained and blocks retry; it is never deleted, repaired, or overwritten automatically. A read-only or publication failure must not change any older store.
 

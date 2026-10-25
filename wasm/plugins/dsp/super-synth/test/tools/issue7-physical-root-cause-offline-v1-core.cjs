@@ -11,6 +11,10 @@ const direct = require('./stage3-direct-reference-metrics.cjs');
 
 const ISSUE = 7;
 const EPOCH = 'physical-root-cause-offline-v1/analysis-01';
+const EPOCH_PREFIX = 'physical-root-cause-offline-v1/analysis-';
+const ORIGINAL_OFFLINE_HEAD = '09fa69ddf715649f3fe1b7a802e0e753a02501f1';
+const ORIGINAL_OFFLINE_REPORT_SHA256 = 'e819d9b18561b0ac78bc610377245ef8d34c072dcd0375a609b0aa04bdcf06b4';
+const ORIGINAL_OFFLINE_MANIFEST_SHA256 = '8bb3e31ed4813b4536cbe717dd284ac27d7a463dde67295da10a7b2b5ef021aa';
 const ARCHIVE_SHA256 = 'b7760e168494cf095344e217b0af013fc449ad033abbbdf1c65211cf11dc038b';
 const SFZ_MEMBER = 'SalamanderGrandPiano-SFZ+FLAC-V3+20200602/SalamanderGrandPiano-V3+20200602.sfz';
 const DIAGNOSTIC_WASM_SHA256 = '1028c5a77b533ba97066d116f77aab80e5e91b45ef043394875614ee3efab99a';
@@ -85,6 +89,18 @@ function assertSafe(base, candidate) {
 function pair(primary, secondary, epoch) {
   return {primary, secondary, epoch};
 }
+function offlineEpoch(number) {
+  if (!Number.isSafeInteger(number) || number < 1) throw new Error('BLOCKED_PUBLICATION:INVALID_OFFLINE_EPOCH');
+  return `${EPOCH_PREFIX}${String(number).padStart(2, '0')}`;
+}
+function resolveOfflinePair(roots, number) {
+  const suffix = `analysis-${String(number).padStart(2, '0')}`;
+  const primary = path.join(roots.offlineBase.primaryRoot, suffix);
+  const secondary = path.join(roots.offlineBase.secondaryRoot, suffix);
+  assertSafe(roots.commonDirectory, primary);
+  assertSafe(roots.home, secondary);
+  return pair(primary, secondary, offlineEpoch(number));
+}
 function resolveInputRoots({root = path.resolve(__dirname, '../../../../../../'), home = os.homedir(), commonDirectory} = {}) {
   const repo = fs.realpathSync(path.resolve(root)), homePath = fs.realpathSync(path.resolve(home));
   const common = fs.realpathSync(path.resolve(commonDirectory || execFileSync('rtk', ['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], {cwd: repo, encoding: 'utf8'}).trim()));
@@ -103,7 +119,11 @@ function resolveInputRoots({root = path.resolve(__dirname, '../../../../../../')
     review02: pair(path.join(common, 'soraoto-agent-state/7/physical-fit-v5-review/continuation-02'),
       path.join(homePath, '.soraoto-agent-archive/soraoto_dsl/7/physical-fit-v5-review/continuation-02'), 'review-02'),
     offline: pair(path.join(common, 'soraoto-agent-state/7/physical-root-cause-offline-v1/analysis-01'),
-      path.join(homePath, '.soraoto-agent-archive/soraoto_dsl/7/physical-root-cause-offline-v1/analysis-01'), EPOCH)
+      path.join(homePath, '.soraoto-agent-archive/soraoto_dsl/7/physical-root-cause-offline-v1/analysis-01'), EPOCH),
+    offlineBase: {
+      primaryRoot: path.join(common, 'soraoto-agent-state/7/physical-root-cause-offline-v1'),
+      secondaryRoot: path.join(homePath, '.soraoto-agent-archive/soraoto_dsl/7/physical-root-cause-offline-v1')
+    }
   };
   for (const [name, rootsPair] of Object.entries(roots)) {
     if (!rootsPair || typeof rootsPair !== 'object' || !rootsPair.primary) continue;
@@ -577,7 +597,7 @@ function sanitizeReportValue(value, key = '') {
 }
 function buildReport(input) {
   const report = {
-    schemaVersion: 1, issue: ISSUE, epoch: EPOCH, createdAt: null,
+    schemaVersion: 1, issue: ISSUE, epoch: input.epoch || EPOCH, createdAt: null,
     delivery: sanitizeReportValue(input.delivery || {repository: 'puchinya/soraoto_dsl', issue: ISSUE,
       prUrl: 'https://github.com/puchinya/soraoto_dsl/pull/8', prBranch: null, currentHead: null, upstreamBranch: null}),
     outcome: input.outcome || 'GATE0_2_IMPLEMENTED_BUT_PRIVATE_EVIDENCE_BLOCKED',
@@ -594,7 +614,8 @@ function buildReport(input) {
   return JSON.stringify(stable(report), null, 2) + '\n';
 }
 
-module.exports = {ISSUE, EPOCH, ARCHIVE_SHA256, SFZ_MEMBER, DIAGNOSTIC_WASM_SHA256, P1_RECORD_SHA256,
+module.exports = {ISSUE, EPOCH, EPOCH_PREFIX, ORIGINAL_OFFLINE_HEAD, ORIGINAL_OFFLINE_REPORT_SHA256,
+  ORIGINAL_OFFLINE_MANIFEST_SHA256, offlineEpoch, resolveOfflinePair, ARCHIVE_SHA256, SFZ_MEMBER, DIAGNOSTIC_WASM_SHA256, P1_RECORD_SHA256,
   V3_TERMINAL_SHA256, P3_RECORD_SHA256, P3_RESULT_SHA256, P3_SOURCE_MANIFEST_SHA256, P5_RUNTIME_SHA256,
   P5_TERMINAL_SHA256, P5_DIAGNOSTICS_SHA256, P5_HISTORY_SHA256, ROOT_CAUSE_REPORT_SHA256,
   ROOT_CAUSE_MANIFEST_SHA256, ROOT_CAUSE_RUNTIME_SHA256, P1_WASM_REL, P1_REL, V3_TERMINAL_REL, P3_REL,
