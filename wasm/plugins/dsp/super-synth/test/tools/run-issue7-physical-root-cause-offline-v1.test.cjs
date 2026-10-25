@@ -111,6 +111,25 @@ test('authority verifier fails closed on stale PR head, wrong branch, and unappr
     approval: {...approval, id: 42}}), /APPROVAL_COMMENT_MISMATCH/);
 });
 
+test('publication authority queries use rtk gh subcommands without duplicating the gh prefix', () => {
+  const issue = {state: 'OPEN', labels: [{name: 'phase:implementation'}]};
+  const pr = {state: 'OPEN', headRefName: cli.PR_BRANCH, headRefOid: 'd'.repeat(40), baseRefName: 'main', number: 8,
+    body: 'Closes #7'};
+  const approval = {id: Number(cli.APPROVAL_COMMENT_ID), user: {login: 'puchinya'}, body: '実装・テスト・push・既存PR #8を指示'};
+  const calls = [], checks = [];
+  const result = cli.collectAuthority(pr.headRefOid, {
+    readGhJson: args => { calls.push(args); return args[0] === 'issue' ? issue : pr; },
+    readApproval: () => approval,
+    verifyPublicationAuthority: value => checks.push(value)
+  });
+  assert.deepEqual(calls, [
+    ['issue', 'view', '7', '--json', 'state,labels'],
+    ['pr', 'view', '8', '--json', 'state,headRefName,headRefOid,baseRefName,number,body,url']
+  ]);
+  assert.equal(checks.length, 1);
+  assert.equal(result.approval, approval);
+});
+
 test('publisher immutably writes both copies, reads back exact bytes, and reuses without mtime changes', t => {
   const state = tempState(); t.after(() => fs.rmSync(state.base, {recursive: true, force: true}));
   const reportText = verifiedReport(), head = 'f'.repeat(40);

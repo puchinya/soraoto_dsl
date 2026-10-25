@@ -288,12 +288,15 @@ function publishReport({reportText, roots, head, branch = PR_BRANCH, issue, pr, 
     throw error;
   }
 }
-function collectAuthority(head) {
-  const issue = readGhJson(['gh', 'issue', 'view', '7', '--json', 'state,labels']);
-  const pr = readGhJson(['gh', 'pr', 'view', '8', '--json', 'state,headRefName,headRefOid,baseRefName,number,body,url']);
-  const approval = JSON.parse(rtk(['gh', 'api', `repos/${REPOSITORY}/issues/comments/${APPROVAL_COMMENT_ID}`]));
+function collectAuthority(head, adapters = {}) {
+  const query = adapters.readGhJson || readGhJson;
+  const readApproval = adapters.readApproval || (() => JSON.parse(rtk(['gh', 'api', `repos/${REPOSITORY}/issues/comments/${APPROVAL_COMMENT_ID}`])));
+  const verify = adapters.verifyPublicationAuthority || verifyPublicationAuthority;
+  const issue = query(['issue', 'view', '7', '--json', 'state,labels']);
+  const pr = query(['pr', 'view', '8', '--json', 'state,headRefName,headRefOid,baseRefName,number,body,url']);
+  const approval = readApproval();
   if (!pr.body?.includes('Closes #7')) throw new Error('BLOCKED_PUBLICATION:PR_ISSUE_ATTRIBUTION_MISSING');
-  verifyPublicationAuthority({head, issue, pr, approval});
+  verify({head, issue, pr, approval});
   return {issue, pr, approval};
 }
 function runPublish(options = {}) {
