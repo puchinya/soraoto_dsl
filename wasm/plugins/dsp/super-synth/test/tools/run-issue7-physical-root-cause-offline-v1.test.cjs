@@ -103,7 +103,7 @@ test('analyze terminates on missing private records with zero writes and explici
 test('authority verifier fails closed on stale PR head, wrong branch, and unapproved Issue state', () => {
   const issue = {state: 'OPEN', labels: [{name: 'phase:implementation'}]};
   const pr = {state: 'OPEN', headRefName: cli.PR_BRANCH, headRefOid: 'b'.repeat(40), baseRefName: 'main', number: 8};
-  const approval = {id: Number(cli.APPROVAL_COMMENT_ID), user: {login: 'puchinya'}, body: '実装・テスト・push・既存PR #8を指示'};
+  const approval = {id: Number(cli.APPROVAL_COMMENT_ID), user: {login: 'puchinya'}, body: '6ファイルを実装し、条件付きdual-store保存、commit/push/既存PR #8のHEAD確認・最終レビューまで進めること'};
   assert.throws(() => cli.verifyPublicationAuthority({head: 'a'.repeat(40), issue, pr, approval}), /PR_HEAD_OR_BRANCH_MISMATCH/);
   assert.throws(() => cli.verifyPublicationAuthority({head: pr.headRefOid, branch: 'unexpected', issue, pr, approval}), /PR_HEAD_OR_BRANCH_MISMATCH/);
   assert.throws(() => cli.verifyPublicationAuthority({head: pr.headRefOid, issue: {state: 'CLOSED', labels: []}, pr, approval}), /ISSUE_APPROVAL_MISSING/);
@@ -115,7 +115,7 @@ test('publication authority queries use rtk gh subcommands without duplicating t
   const issue = {state: 'OPEN', labels: [{name: 'phase:implementation'}]};
   const pr = {state: 'OPEN', headRefName: cli.PR_BRANCH, headRefOid: 'd'.repeat(40), baseRefName: 'main', number: 8,
     body: 'Closes #7'};
-  const approval = {id: Number(cli.APPROVAL_COMMENT_ID), user: {login: 'puchinya'}, body: '実装・テスト・push・既存PR #8を指示'};
+  const approval = {id: Number(cli.APPROVAL_COMMENT_ID), user: {login: 'puchinya'}, body: '6ファイルを実装し、条件付きdual-store保存、commit/push/既存PR #8のHEAD確認・最終レビューまで進めること'};
   const calls = [], checks = [];
   const result = cli.collectAuthority(pr.headRefOid, {
     readGhJson: args => { calls.push(args); return args[0] === 'issue' ? issue : pr; },

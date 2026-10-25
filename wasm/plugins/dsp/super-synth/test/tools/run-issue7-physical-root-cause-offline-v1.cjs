@@ -168,8 +168,10 @@ function verifyPublicationAuthority({head, branch = PR_BRANCH, issue, pr, approv
   if (!head || branch !== PR_BRANCH || !pr || pr.state !== 'OPEN' || pr.headRefName !== PR_BRANCH || pr.headRefOid !== head
       || pr.baseRefName !== 'main' || pr.number !== PR_NUMBER) throw new Error('BLOCKED_PUBLICATION:PR_HEAD_OR_BRANCH_MISMATCH');
   if (!issue || issue.state !== 'OPEN' || !issue.labels?.some(label => label.name === 'phase:implementation')) throw new Error('BLOCKED_PUBLICATION:ISSUE_APPROVAL_MISSING');
+  const approvalBody = approval?.body || '';
   if (String(approval?.id) !== APPROVAL_COMMENT_ID || approval?.user?.login !== 'puchinya'
-      || !approval?.body?.includes('実装・テスト・push・既存PR #8')) {
+      || !approvalBody.includes('6ファイルを実装し') || !approvalBody.includes('条件付きdual-store保存')
+      || !approvalBody.includes('commit/push/既存PR #8のHEAD確認') || !approvalBody.includes('最終レビューまで進めること')) {
     throw new Error('BLOCKED_PUBLICATION:APPROVAL_COMMENT_MISMATCH');
   }
   const upstreamBranch = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
