@@ -14,15 +14,46 @@ function tempState() {
   for (const directory of [root, home, commonDirectory]) fs.mkdirSync(directory, {recursive: true});
   return {base, root, home, commonDirectory, roots: core.resolveInputRoots({root, home, commonDirectory})};
 }
-function verifiedReport(head = 'f'.repeat(40)) {
+function verifiedReport(head, roots, sourceSnapshot = core.snapshotSources(roots)) {
+  const snapshotSha = cli.sha(core.jsonBytes(core.stable(sourceSnapshot)));
   return core.buildReport({outcome: 'GATE0_2_VERIFIED_AND_PUBLISHED',
-    gate1: {status: 'PASS', predicate: 'RECOVERED_IDENTICAL'},
-    gate2: {status: 'PASS', cellCount: 140, comparison: {result: 'PCM_METRICS_RECOMPUTED_AND_MATCHED'}},
+    gate1: {status: 'PASS', predicate: 'RECOVERED_IDENTICAL', historicExecutableIdentity: 'VERIFIED_ORIGINAL',
+      fileStatus: 'MATCH', p1RecordStatus: 'MATCH', wasmSha256: core.DIAGNOSTIC_WASM_SHA256,
+      wasmExists: true, wasmSize: 437260, p1RuntimeRecordSha256: core.P1_RECORD_SHA256, p1RuntimeWasmSha256: core.DIAGNOSTIC_WASM_SHA256,
+      exports: {status: 'MATCH', requiredCount: core.EXPORTS.length, matchedCount: core.EXPORTS.length}},
+    gate2: {status: 'PASS', observationCount: 20, cellCount: 140,
+      comparison: {result: 'PCM_METRICS_RECOMPUTED_AND_MATCHED', observationCount: 20, cellCount: 140},
+      reference: {archiveSha256: core.ARCHIVE_SHA256, archiveSize: 741757374, archiveMtimeMs: 1234,
+        sfzSha256: 'd'.repeat(64), sampleCount: 25}},
     historicExecutableIdentity: 'VERIFIED_ORIGINAL', storedPcmEvaluation: 'PCM_METRICS_RECOMPUTED_AND_MATCHED',
-    publication: 'IMMUTABLE_MANIFEST_REQUIRED', sourceSnapshots: {unchanged: true, beforeSha256: 'c'.repeat(64), afterSha256: 'c'.repeat(64)},
+    publication: 'IMMUTABLE_MANIFEST_REQUIRED', sourceSnapshots: {unchanged: true, beforeSha256: snapshotSha,
+      afterSha256: snapshotSha, stores: core.summarizeSources(sourceSnapshot)},
     delivery: {repository: 'puchinya/soraoto_dsl', issue: 7, prUrl: 'https://github.com/puchinya/soraoto_dsl/pull/8',
       prBranch: cli.PR_BRANCH, currentHead: head, worktreeBranch: 'codex/issue-7-pr8-root-cause-review',
       upstreamBranch: `origin/${cli.PR_BRANCH}`}});
+}
+function freshReport(reportText, head) {
+  const value = JSON.parse(reportText);
+  value.outcome = 'GATE0_2_VERIFIED_AWAITING_PUBLICATION';
+  value.publication = 'NOT ATTEMPTED';
+  value.delivery.currentHead = head;
+  return JSON.parse(core.buildReport(value));
+}
+function verifyOptions(head, value) {
+  return {freshReport: value, readHead: () => head, readWorktreeStatus: () => ''};
+}
+function seedSourceEvidence(roots) {
+  const relative = 'analysis-anchor.json';
+  for (const root of [roots.v3.primary, roots.v3.secondary]) {
+    fs.mkdirSync(root, {recursive: true});
+    fs.writeFileSync(path.join(root, relative), '{"anchor":"original"}\n');
+  }
+  return [path.join(roots.v3.primary, relative), path.join(roots.v3.secondary, relative)];
+}
+function changedReportText(reportText, mutate) {
+  const value = JSON.parse(reportText);
+  mutate(value);
+  return `${JSON.stringify(core.stable(value), null, 2)}\n`;
 }
 function statTree(paths) {
   return paths.flatMap(root => {
@@ -132,38 +163,84 @@ test('publication authority queries use rtk gh subcommands without duplicating t
 
 test('publisher immutably writes both copies, reads back exact bytes, and reuses without mtime changes', t => {
   const state = tempState(); t.after(() => fs.rmSync(state.base, {recursive: true, force: true}));
-  const reportText = verifiedReport(), head = 'f'.repeat(40);
+  const head = 'f'.repeat(40), sourceSnapshot = core.snapshotSources(state.roots);
+  const reportText = verifiedReport(head, state.roots, sourceSnapshot);
   const authorityVerifier = () => true;
-  const first = cli.publishReport({reportText, roots: state.roots, head, authorityVerifier, ownerId: 'fixture-owner'});
+  const first = cli.publishReport({reportText, roots: state.roots, head, expectedSourceSnapshot: sourceSnapshot,
+    authorityVerifier, ownerId: 'fixture-owner'});
   assert.equal(first.status, 'PUBLISHED');
   assert.equal(first.readback, 'MATCHED_BOTH_COPIES');
-  assert.equal(cli.verifyPublishedReport(state.roots).status, 'PASS');
+  assert.equal(cli.verifyPublishedReport(state.roots, verifyOptions(head, freshReport(reportText, head))).status, 'PASS');
   const primary = state.roots.offline.primary, secondary = state.roots.offline.secondary;
   for (const name of ['report.json', 'manifest.json']) {
     assert.deepEqual(fs.readFileSync(path.join(primary, name)), fs.readFileSync(path.join(secondary, name)));
   }
   const beforeMtime = statTree([primary, secondary]);
-  const retry = cli.publishReport({reportText, roots: state.roots, head, authorityVerifier, ownerId: 'fixture-owner-2'});
+  const retry = cli.publishReport({reportText, roots: state.roots, head, expectedSourceSnapshot: sourceSnapshot,
+    authorityVerifier, ownerId: 'fixture-owner-2'});
   assert.equal(retry.status, 'REUSED');
   assert.equal(retry.unchangedMtime, true);
   assert.deepEqual(statTree([primary, secondary]), beforeMtime);
 });
 
+test('published verification rejects a newer executing HEAD and changed reference archive identity', t => {
+  const state = tempState(); t.after(() => fs.rmSync(state.base, {recursive: true, force: true}));
+  const head = 'f'.repeat(40), sourceSnapshot = core.snapshotSources(state.roots);
+  const reportText = verifiedReport(head, state.roots, sourceSnapshot);
+  cli.publishReport({reportText, roots: state.roots, head, expectedSourceSnapshot: sourceSnapshot, authorityVerifier: () => true});
+  const fresh = freshReport(reportText, head);
+  assert.equal(cli.verifyPublishedReport(state.roots, verifyOptions(head, fresh)).status, 'PASS');
+
+  const newerHead = 'e'.repeat(40), headDrift = freshReport(reportText, newerHead);
+  assert.throws(() => cli.verifyPublishedReport(state.roots, verifyOptions(newerHead, headDrift)), /STALE_PUBLISHED_REPORT_HEAD_DRIFT/);
+
+  const archiveDrift = structuredClone(fresh);
+  archiveDrift.gate2.reference.archiveSha256 = '0'.repeat(64);
+  assert.throws(() => cli.verifyPublishedReport(state.roots, verifyOptions(head, archiveDrift)), /STALE_PUBLISHED_REPORT_REFERENCE_DRIFT/);
+});
+
+test('published verification rejects one-sided and two-sided residual locks without mutation', t => {
+  const state = tempState(); t.after(() => fs.rmSync(state.base, {recursive: true, force: true}));
+  const head = 'f'.repeat(40), sourceSnapshot = core.snapshotSources(state.roots);
+  const reportText = verifiedReport(head, state.roots, sourceSnapshot);
+  cli.publishReport({reportText, roots: state.roots, head, expectedSourceSnapshot: sourceSnapshot, authorityVerifier: () => true});
+  const primary = state.roots.offline.primary, secondary = state.roots.offline.secondary;
+  const fresh = freshReport(reportText, head), options = verifyOptions(head, fresh);
+  for (const rootsWithLock of [[primary], [primary, secondary]]) {
+    const lockBytes = Buffer.from('unknown owner; preserve');
+    for (const root of rootsWithLock) fs.writeFileSync(path.join(root, 'publish.lock'), lockBytes, {flag: 'wx'});
+    const before = statTree([primary, secondary]);
+    assert.throws(() => cli.verifyPublishedReport(state.roots, options), /RESIDUAL_PUBLISH_LOCK/);
+    assert.throws(() => cli.publishReport({reportText, roots: state.roots, head, expectedSourceSnapshot: sourceSnapshot,
+      authorityVerifier: () => true}), /RESIDUAL_PUBLISH_LOCK/);
+    assert.deepEqual(statTree([primary, secondary]), before);
+    for (const root of rootsWithLock) fs.unlinkSync(path.join(root, 'publish.lock'));
+  }
+  fs.writeFileSync(path.join(secondary, 'unexpected.bin'), 'preserve');
+  const before = statTree([primary, secondary]);
+  assert.throws(() => cli.verifyPublishedReport(state.roots, options), /UNEXPECTED_PUBLICATION_FILE/);
+  assert.throws(() => cli.publishReport({reportText, roots: state.roots, head, expectedSourceSnapshot: sourceSnapshot,
+    authorityVerifier: () => true}), /UNEXPECTED_PUBLICATION_FILE/);
+  assert.deepEqual(statTree([primary, secondary]), before);
+});
+
 test('publisher preserves partial output and never overwrites an unknown competing lock', t => {
   const state = tempState(); t.after(() => fs.rmSync(state.base, {recursive: true, force: true}));
   const primary = state.roots.offline.primary, secondary = state.roots.offline.secondary;
+  const head = 'a'.repeat(40), sourceSnapshot = core.snapshotSources(state.roots);
+  const reportText = verifiedReport(head, state.roots, sourceSnapshot);
   fs.mkdirSync(primary, {recursive: true}); fs.mkdirSync(secondary, {recursive: true});
   const partial = Buffer.from('partial report evidence');
   fs.writeFileSync(path.join(primary, 'report.json'), partial, {flag: 'wx'});
-  assert.throws(() => cli.publishReport({reportText: verifiedReport('a'.repeat(40)), roots: state.roots, head: 'a'.repeat(40),
+  assert.throws(() => cli.publishReport({reportText, roots: state.roots, head, expectedSourceSnapshot: sourceSnapshot,
     authorityVerifier: () => true}), /PARTIAL_PUBLICATION_PRESERVED/);
-  assert.throws(() => cli.verifyPublishedReport(state.roots), /PARTIAL_PUBLICATION_PRESERVED/);
+  assert.throws(() => cli.verifyPublishedReport(state.roots, verifyOptions(head, freshReport(reportText, head))), /PARTIAL_PUBLICATION_PRESERVED/);
   assert.deepEqual(fs.readFileSync(path.join(primary, 'report.json')), partial);
   fs.unlinkSync(path.join(primary, 'report.json'));
   const lock = Buffer.from('unknown owner lock');
   fs.writeFileSync(path.join(primary, 'publish.lock'), lock, {flag: 'wx'});
-  assert.throws(() => cli.publishReport({reportText: verifiedReport('a'.repeat(40)), roots: state.roots, head: 'a'.repeat(40),
-    authorityVerifier: () => true}), /EEXIST/);
+  assert.throws(() => cli.publishReport({reportText, roots: state.roots, head, expectedSourceSnapshot: sourceSnapshot,
+    authorityVerifier: () => true}), /RESIDUAL_PUBLISH_LOCK/);
   assert.deepEqual(fs.readFileSync(path.join(primary, 'publish.lock')), lock);
   assert.deepEqual(fs.readdirSync(secondary), []);
 });
@@ -171,7 +248,8 @@ test('publisher preserves partial output and never overwrites an unknown competi
 test('publisher keeps partial dual-copy bytes and owned locks after a simulated secondary write failure', t => {
   const state = tempState(); t.after(() => fs.rmSync(state.base, {recursive: true, force: true}));
   const primary = state.roots.offline.primary, secondary = state.roots.offline.secondary;
-  assert.throws(() => cli.publishReport({reportText: verifiedReport('b'.repeat(40)), roots: state.roots, head: 'b'.repeat(40),
+  const head = 'b'.repeat(40), sourceSnapshot = core.snapshotSources(state.roots), reportText = verifiedReport(head, state.roots, sourceSnapshot);
+  assert.throws(() => cli.publishReport({reportText, roots: state.roots, head, expectedSourceSnapshot: sourceSnapshot,
     authorityVerifier: () => true, ownerId: 'partial-owner', beforeImmutableWrite: operation => {
       if (operation === 'secondary:report.json') throw new Error('simulated second-copy failure');
     }}), /simulated second-copy failure/);
@@ -183,10 +261,73 @@ test('publisher keeps partial dual-copy bytes and owned locks after a simulated 
   }
 });
 
+test('publisher compares the analysis snapshot before any output write after SHA or mtime drift', t => {
+  for (const mutation of ['sha256', 'mtime']) {
+    const state = tempState(); t.after(() => fs.rmSync(state.base, {recursive: true, force: true}));
+    const sourceFiles = seedSourceEvidence(state.roots), sourceSnapshot = core.snapshotSources(state.roots);
+    const head = mutation === 'sha256' ? 'c'.repeat(40) : 'd'.repeat(40);
+    const reportText = verifiedReport(head, state.roots, sourceSnapshot);
+    let inventoryAfterAuthorityReadback;
+    const authorityVerifier = () => {
+      if (mutation === 'sha256') {
+        for (const file of sourceFiles) fs.writeFileSync(file, '{"anchor":"changed!!"}\n');
+      } else {
+        for (const file of sourceFiles) {
+          const stat = fs.statSync(file), changed = new Date(Date.now() + 10000);
+          fs.utimesSync(file, stat.atime, changed);
+        }
+      }
+      inventoryAfterAuthorityReadback = statTree([state.commonDirectory, state.home]);
+      return true;
+    };
+    assert.throws(() => cli.publishReport({reportText, roots: state.roots, head,
+      expectedSourceSnapshot: sourceSnapshot, authorityVerifier}), /ANALYSIS_SOURCE_SNAPSHOT_DRIFT/);
+    assert.equal(fs.existsSync(state.roots.offline.primary), false);
+    assert.equal(fs.existsSync(state.roots.offline.secondary), false);
+    assert.deepEqual(statTree([state.commonDirectory, state.home]), inventoryAfterAuthorityReadback);
+  }
+});
+
+test('publisher detects input inventory drift after writing and preserves locked evidence', t => {
+  const state = tempState(); t.after(() => fs.rmSync(state.base, {recursive: true, force: true}));
+  const sourceFiles = seedSourceEvidence(state.roots), sourceSnapshot = core.snapshotSources(state.roots);
+  const head = 'e'.repeat(40), reportText = verifiedReport(head, state.roots, sourceSnapshot);
+  assert.throws(() => cli.publishReport({reportText, roots: state.roots, head,
+    expectedSourceSnapshot: sourceSnapshot, authorityVerifier: () => true, ownerId: 'inventory-drift-owner',
+    beforeImmutableWrite: operation => {
+      if (operation === 'secondary:manifest.json') {
+        for (const file of sourceFiles) fs.writeFileSync(file, '{"anchor":"changed!!"}\n');
+      }
+    }}), /ANALYSIS_SOURCE_SNAPSHOT_DRIFT/);
+  for (const root of [state.roots.offline.primary, state.roots.offline.secondary]) {
+    assert.equal(fs.existsSync(path.join(root, 'report.json')), true);
+    assert.equal(fs.existsSync(path.join(root, 'manifest.json')), true);
+    assert.equal(fs.existsSync(path.join(root, 'publish.lock')), true);
+  }
+});
+
+test('publisher rejects incomplete Gate1, Gate2, and source identities before any write', t => {
+  const state = tempState(); t.after(() => fs.rmSync(state.base, {recursive: true, force: true}));
+  const head = '9'.repeat(40), sourceSnapshot = core.snapshotSources(state.roots);
+  const reportText = verifiedReport(head, state.roots, sourceSnapshot);
+  const incomplete = [
+    text => changedReportText(text, value => { value.gate1.predicate = 'MISSING'; }),
+    text => changedReportText(text, value => { value.gate2.cellCount = 139; }),
+    text => changedReportText(text, value => { value.sourceSnapshots.beforeSha256 = '0'.repeat(64); })
+  ];
+  for (const mutate of incomplete) {
+    const candidate = mutate(reportText);
+    assert.throws(() => cli.publishReport({reportText: candidate, roots: state.roots, head,
+      expectedSourceSnapshot: sourceSnapshot, authorityVerifier: () => true}), /REPORT_(?:POSTCONDITION|SOURCE_SNAPSHOT)_MISMATCH/);
+    assert.equal(fs.existsSync(state.roots.offline.primary), false);
+    assert.equal(fs.existsSync(state.roots.offline.secondary), false);
+  }
+});
+
 test('publisher rejects an incomplete report before creating output roots', t => {
   const state = tempState(); t.after(() => fs.rmSync(state.base, {recursive: true, force: true}));
   const blocked = core.buildReport({outcome: 'EVIDENCE_UNVERIFIABLE'});
-  assert.throws(() => cli.publishReport({reportText: blocked, roots: state.roots, head: 'a'.repeat(40), authorityVerifier: () => true}), /REPORT_INCOMPLETE/);
+  assert.throws(() => cli.publishReport({reportText: blocked, roots: state.roots, head: 'a'.repeat(40), authorityVerifier: () => true}), /REPORT_POSTCONDITION_MISMATCH/);
   assert.equal(fs.existsSync(state.roots.offline.primary), false);
   assert.equal(fs.existsSync(state.roots.offline.secondary), false);
 });

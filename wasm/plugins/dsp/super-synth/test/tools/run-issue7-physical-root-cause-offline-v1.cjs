@@ -72,6 +72,62 @@ function locateArchive({home = os.homedir()} = {}) {
   return located || null;
 }
 function sameSnapshots(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+function sourceSnapshotDigest(snapshot) { return sha(core.jsonBytes(core.stable(snapshot))); }
+function publicationEntries(root) {
+  let stat;
+  try { stat = fs.lstatSync(root); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('BLOCKED_PUBLICATION:UNSAFE_EXISTING_DIRECTORY');
+  const entries = fs.readdirSync(root).sort();
+  if (entries.includes('publish.lock')) throw new Error('BLOCKED_PUBLICATION:RESIDUAL_PUBLISH_LOCK');
+  if (entries.some(name => !PUBLISH_FILES.includes(name))) throw new Error('BLOCKED_PUBLICATION:UNEXPECTED_PUBLICATION_FILE');
+  return entries;
+}
+function validateReportPostconditions(report, {head, branch = PR_BRANCH, published = true} = {}) {
+  if (!report || report.schemaVersion !== 1 || report.issue !== 7 || report.epoch !== core.EPOCH
+      || report.outcome !== (published ? 'GATE0_2_VERIFIED_AND_PUBLISHED' : 'GATE0_2_VERIFIED_AWAITING_PUBLICATION')
+      || report.gate0?.status !== 'PASS' || report.gate0?.acousticCalls !== 0
+      || report.gate0?.builds !== 0 || report.gate0?.renders !== 0 || report.gate0?.budgetsChanged !== false
+      || report.gate1?.status !== 'PASS' || report.gate1?.predicate !== 'RECOVERED_IDENTICAL'
+      || report.gate1?.historicExecutableIdentity !== 'VERIFIED_ORIGINAL'
+      || report.gate1?.fileStatus !== 'MATCH' || report.gate1?.p1RecordStatus !== 'MATCH'
+      || report.gate1?.wasmExists !== true || report.gate1?.wasmSize !== 437260
+      || report.gate1?.exports?.status !== 'MATCH' || report.gate1?.exports?.requiredCount !== core.EXPORTS.length
+      || report.gate1?.exports?.matchedCount !== core.EXPORTS.length
+      || report.gate1?.wasmSha256 !== core.DIAGNOSTIC_WASM_SHA256
+      || report.gate1?.p1RuntimeRecordSha256 !== core.P1_RECORD_SHA256
+      || report.gate1?.p1RuntimeWasmSha256 !== core.DIAGNOSTIC_WASM_SHA256
+      || report.gate2?.status !== 'PASS' || report.gate2?.observationCount !== 20 || report.gate2?.cellCount !== 140
+      || report.gate2?.comparison?.result !== 'PCM_METRICS_RECOMPUTED_AND_MATCHED'
+      || report.gate2?.comparison?.observationCount !== 20 || report.gate2?.comparison?.cellCount !== 140
+      || report.gate2?.reference?.archiveSha256 !== core.ARCHIVE_SHA256
+      || report.gate2?.reference?.sampleCount !== 25
+      || report.historicExecutableIdentity !== 'VERIFIED_ORIGINAL'
+      || report.storedPcmEvaluation !== 'PCM_METRICS_RECOMPUTED_AND_MATCHED'
+      || report.publication !== (published ? 'IMMUTABLE_MANIFEST_REQUIRED' : 'NOT ATTEMPTED')
+      || report.delivery?.currentHead !== head || report.delivery?.prBranch !== branch
+      || report.delivery?.repository !== REPOSITORY || report.delivery?.issue !== 7
+      || report.delivery?.prUrl !== `https://github.com/${REPOSITORY}/pull/${PR_NUMBER}`
+      || report.productAcousticAcceptance !== 'BLOCKED' || report.stage3 !== 'NOT EVALUATED'
+      || report.stage4 !== 'NOT EVALUATED') throw new Error('BLOCKED_PUBLICATION:REPORT_POSTCONDITION_MISMATCH');
+  const snapshots = report.sourceSnapshots;
+  if (!snapshots || snapshots.unchanged !== true || !/^[a-f0-9]{64}$/.test(snapshots.beforeSha256 || '')
+      || snapshots.beforeSha256 !== snapshots.afterSha256 || !snapshots.stores || typeof snapshots.stores !== 'object') {
+    throw new Error('BLOCKED_PUBLICATION:REPORT_SOURCE_SNAPSHOT_MISMATCH');
+  }
+  return true;
+}
+function validatePublishableReport(report, {head, branch = PR_BRANCH, expectedSourceSnapshot} = {}) {
+  validateReportPostconditions(report, {head, branch, published: true});
+  const snapshots = report.sourceSnapshots;
+  if (!expectedSourceSnapshot || !snapshots || snapshots.unchanged !== true
+      || !/^[a-f0-9]{64}$/.test(snapshots.beforeSha256 || '')
+      || snapshots.beforeSha256 !== snapshots.afterSha256
+      || snapshots.beforeSha256 !== sourceSnapshotDigest(expectedSourceSnapshot)
+      || !core.same(snapshots.stores, core.summarizeSources(expectedSourceSnapshot))) {
+    throw new Error('BLOCKED_PUBLICATION:REPORT_SOURCE_SNAPSHOT_MISMATCH');
+  }
+  return true;
+}
 function deliveryIdentity(repoRoot) {
   try {
     return {repository: REPOSITORY, issue: 7, prUrl: `https://github.com/${REPOSITORY}/pull/${PR_NUMBER}`,
@@ -126,7 +182,9 @@ function runAnalysis({root = ROOT, home = os.homedir(), commonDirectory, archive
       rootCauseBaseline: parentAnchor, stores: core.summarizeSources(before)}, delivery: deliveryIdentity(roots.repo)});
   return {status: result.status, result, forensic, reportText, roots, snapshots: {before, after}};
 }
-function verifyPublishedReport(roots) {
+function verifyPublishedReport(roots, {freshReport, readHead = repo => git(['rev-parse', 'HEAD'], repo),
+  readWorktreeStatus = repo => git(['status', '--porcelain', '--untracked-files=all'], repo)} = {}) {
+  const primaryEntries = publicationEntries(roots.offline.primary), secondaryEntries = publicationEntries(roots.offline.secondary);
   let report, manifest;
   try {
     report = core.readDual(roots.offline, 'report.json');
@@ -138,6 +196,9 @@ function verifyPublishedReport(roots) {
   }
   if (!report && !manifest) return {status: 'NOT_PUBLISHED'};
   if (!report || !manifest) throw new Error('BLOCKED_PUBLICATION:PARTIAL_PUBLICATION_PRESERVED');
+  if (!core.same(primaryEntries, PUBLISH_FILES.slice().sort()) || !core.same(secondaryEntries, PUBLISH_FILES.slice().sort())) {
+    throw new Error('BLOCKED_PUBLICATION:PUBLICATION_FILE_SET_MISMATCH');
+  }
   let reportValue, manifestValue;
   try { reportValue = JSON.parse(report.bytes.toString('utf8')); manifestValue = JSON.parse(manifest.bytes.toString('utf8')); }
   catch { throw new Error('BLOCKED_PUBLICATION:INVALID_PUBLISHED_JSON'); }
@@ -146,18 +207,34 @@ function verifyPublishedReport(roots) {
       || manifestValue.reportSha256 !== report.sha256 || !Array.isArray(manifestValue.files)
       || JSON.stringify(manifestValue.files) !== JSON.stringify(PUBLISH_FILES)
       || !/^[a-f0-9]{40}$/.test(manifestValue.head)) throw new Error('BLOCKED_PUBLICATION:MANIFEST_IDENTITY_MISMATCH');
-  if (reportValue.outcome !== 'GATE0_2_VERIFIED_AND_PUBLISHED' || reportValue.issue !== 7 || reportValue.epoch !== core.EPOCH
-      || reportValue.delivery?.repository !== REPOSITORY || reportValue.delivery?.issue !== 7
-      || reportValue.delivery?.prUrl !== `https://github.com/${REPOSITORY}/pull/${PR_NUMBER}`
-      || reportValue.delivery?.prBranch !== PR_BRANCH || reportValue.delivery?.currentHead !== manifestValue.head
-      || reportValue.gate1?.status !== 'PASS' || reportValue.gate2?.status !== 'PASS'
-      || reportValue.historicExecutableIdentity !== 'VERIFIED_ORIGINAL'
-      || reportValue.storedPcmEvaluation !== 'PCM_METRICS_RECOMPUTED_AND_MATCHED'
-      || reportValue.publication !== 'IMMUTABLE_MANIFEST_REQUIRED'
-      || reportValue.gate0?.acousticCalls !== 0 || reportValue.gate0?.builds !== 0 || reportValue.gate0?.renders !== 0
-      || reportValue.sourceSnapshots?.unchanged !== true || reportValue.sourceSnapshots?.beforeSha256 !== reportValue.sourceSnapshots?.afterSha256
-      || reportValue.productAcousticAcceptance !== 'BLOCKED' || reportValue.stage3 !== 'NOT EVALUATED'
-      || reportValue.stage4 !== 'NOT EVALUATED') throw new Error('BLOCKED_PUBLICATION:REPORT_POSTCONDITION_MISMATCH');
+  if (!freshReport || freshReport.gate1?.status !== 'PASS'
+      || freshReport.historicExecutableIdentity !== 'VERIFIED_ORIGINAL'
+      || freshReport.storedPcmEvaluation !== 'PCM_METRICS_RECOMPUTED_AND_MATCHED') {
+    throw new Error('BLOCKED_PUBLICATION:FRESH_ANALYSIS_REQUIRED');
+  }
+  const currentHead = readHead(roots.repo);
+  if (readWorktreeStatus(roots.repo)) throw new Error('BLOCKED_PUBLICATION:WORKTREE_NOT_CLEAN');
+  if (freshReport.delivery?.currentHead !== currentHead || reportValue.delivery?.currentHead !== currentHead
+      || manifestValue.head !== currentHead) throw new Error('BLOCKED_PUBLICATION:STALE_PUBLISHED_REPORT_HEAD_DRIFT');
+  if (reportValue.gate2?.reference?.archiveSha256 !== freshReport.gate2?.reference?.archiveSha256
+      || reportValue.gate2?.reference?.archiveSize !== freshReport.gate2?.reference?.archiveSize
+      || reportValue.gate2?.reference?.archiveMtimeMs !== freshReport.gate2?.reference?.archiveMtimeMs) {
+    throw new Error('BLOCKED_PUBLICATION:STALE_PUBLISHED_REPORT_REFERENCE_DRIFT');
+  }
+  validateReportPostconditions(reportValue, {head: currentHead, published: true});
+  validateReportPostconditions(freshReport, {head: currentHead, published: false});
+  if (!core.same(reportValue.gate1, freshReport.gate1) || !core.same(reportValue.gate2, freshReport.gate2)
+      || !core.same(reportValue.sourceSnapshots, freshReport.sourceSnapshots)
+      || reportValue.historicExecutableIdentity !== freshReport.historicExecutableIdentity
+      || reportValue.storedPcmEvaluation !== freshReport.storedPcmEvaluation
+      || reportValue.delivery?.repository !== freshReport.delivery?.repository
+      || reportValue.delivery?.issue !== freshReport.delivery?.issue
+      || reportValue.delivery?.prUrl !== freshReport.delivery?.prUrl
+      || reportValue.delivery?.prBranch !== freshReport.delivery?.prBranch) {
+    throw new Error('BLOCKED_PUBLICATION:STALE_PUBLISHED_REPORT_SOURCE_IDENTITY_DRIFT');
+  }
+  const headAfterRead = readHead(roots.repo);
+  if (headAfterRead !== currentHead || readWorktreeStatus(roots.repo)) throw new Error('BLOCKED_PUBLICATION:WORKTREE_CHANGED_DURING_VERIFY');
   return {status: 'PASS', reportSha256: report.sha256, manifestSha256: manifest.sha256,
     primarySecondaryBytesMatch: true, head: manifestValue.head};
 }
@@ -219,6 +296,7 @@ function releaseOwnLock(lock) {
 }
 function existingPublication(roots, reportBytes, manifestBytes) {
   const files = ['report.json', 'manifest.json'];
+  const primaryEntries = publicationEntries(roots.primary), secondaryEntries = publicationEntries(roots.secondary);
   const readAt = root => Object.fromEntries(files.map(name => {
     const file = path.join(root, name);
     if (!fs.existsSync(file)) return [name, null];
@@ -228,31 +306,61 @@ function existingPublication(roots, reportBytes, manifestBytes) {
   }));
   const primary = readAt(roots.primary), secondary = readAt(roots.secondary);
   if (files.every(name => primary[name] && secondary[name]) && files.every(name => primary[name].equals(secondary[name]))) {
-    if (primary['report.json'].equals(reportBytes) && primary['manifest.json'].equals(manifestBytes)) return 'REUSED';
+    if (core.same(primaryEntries, files.slice().sort()) && core.same(secondaryEntries, files.slice().sort())
+        && primary['report.json'].equals(reportBytes) && primary['manifest.json'].equals(manifestBytes)) return 'REUSED';
     throw new Error('BLOCKED_PUBLICATION:IMMUTABLE_CONTENT_CONFLICT');
   }
   if (files.some(name => primary[name] || secondary[name])) throw new Error('BLOCKED_PUBLICATION:PARTIAL_PUBLICATION_PRESERVED');
   return null;
 }
-function publishReport({reportText, roots, head, branch = PR_BRANCH, issue, pr, approval,
-  ownerId = crypto.randomUUID(), authorityVerifier = verifyPublicationAuthority, beforeImmutableWrite = () => {}} = {}) {
-  authorityVerifier({head, branch, issue, pr, approval});
-  const report = JSON.parse(reportText);
-  if (report.outcome !== 'GATE0_2_VERIFIED_AND_PUBLISHED'
-      || report.gate0?.acousticCalls !== 0 || report.gate0?.builds !== 0 || report.gate0?.renders !== 0
-      || report.productAcousticAcceptance !== 'BLOCKED' || report.stage3 !== 'NOT EVALUATED' || report.stage4 !== 'NOT EVALUATED') {
-    throw new Error('BLOCKED_PUBLICATION:REPORT_INCOMPLETE');
+function verifyLockedPublicationDirectory(root, ownerId, reportBytes, manifestBytes) {
+  const entries = fs.readdirSync(root).sort();
+  if (!core.same(entries, [...PUBLISH_FILES, 'publish.lock'].sort())) throw new Error('BLOCKED_PUBLICATION:PUBLICATION_FILE_SET_MISMATCH');
+  const lock = JSON.parse(fs.readFileSync(path.join(root, 'publish.lock'), 'utf8'));
+  if (lock.ownerId !== ownerId) throw new Error('BLOCKED_PUBLICATION:LOCK_OWNER_CHANGED');
+  if (!fs.readFileSync(path.join(root, 'report.json')).equals(reportBytes)
+      || !fs.readFileSync(path.join(root, 'manifest.json')).equals(manifestBytes)) throw new Error('BLOCKED_PUBLICATION:READBACK_MISMATCH');
+}
+function verifyFinalPublication(rootsPair, reportBytes, manifestBytes) {
+  for (const root of [rootsPair.primary, rootsPair.secondary]) {
+    const entries = publicationEntries(root);
+    if (!core.same(entries, PUBLISH_FILES.slice().sort())) throw new Error('BLOCKED_PUBLICATION:FINAL_FILE_SET_MISMATCH');
+    for (const [name, expected] of [['report.json', reportBytes], ['manifest.json', manifestBytes]]) {
+      const stat = fs.lstatSync(path.join(root, name));
+      if (!stat.isFile() || stat.isSymbolicLink() || !fs.readFileSync(path.join(root, name)).equals(expected)) {
+        throw new Error('BLOCKED_PUBLICATION:FINAL_READBACK_MISMATCH');
+      }
+    }
   }
-  if (report.delivery?.currentHead !== head || report.delivery?.prBranch !== branch
-      || report.delivery?.repository !== REPOSITORY || report.delivery?.issue !== 7) throw new Error('BLOCKED_PUBLICATION:REPORT_HEAD_OR_BRANCH_MISMATCH');
+  if (!fs.readFileSync(path.join(rootsPair.primary, 'report.json')).equals(fs.readFileSync(path.join(rootsPair.secondary, 'report.json')))
+      || !fs.readFileSync(path.join(rootsPair.primary, 'manifest.json')).equals(fs.readFileSync(path.join(rootsPair.secondary, 'manifest.json')))) {
+    throw new Error('BLOCKED_PUBLICATION:FINAL_DUAL_COPY_DIVERGED');
+  }
+}
+function publishReport({reportText, roots, head, branch = PR_BRANCH, issue, pr, approval, expectedSourceSnapshot,
+  ownerId = crypto.randomUUID(), authorityVerifier = verifyPublicationAuthority, beforeImmutableWrite = () => {}} = {}) {
+  let report;
+  try { report = JSON.parse(reportText); } catch { throw new Error('BLOCKED_PUBLICATION:INVALID_REPORT_JSON'); }
+  if (!core.jsonBytes(core.stable(report)).equals(Buffer.from(reportText))) throw new Error('BLOCKED_PUBLICATION:NONCANONICAL_REPORT');
+  validatePublishableReport(report, {head, branch, expectedSourceSnapshot});
+  authorityVerifier({head, branch, issue, pr, approval});
   const before = core.snapshotSources(roots);
-  const primary = safeDir(roots.commonDirectory, roots.offline.primary), secondary = safeDir(roots.home, roots.offline.secondary);
-  if (primary === secondary || core.inside(primary, secondary) || core.inside(secondary, primary)) throw new Error('BLOCKED_PUBLICATION:ROOTS_OVERLAP');
+  if (!sameSnapshots(before, expectedSourceSnapshot)) throw new Error('BLOCKED_PUBLICATION:ANALYSIS_SOURCE_SNAPSHOT_DRIFT');
+  const primaryPath = path.resolve(roots.offline.primary), secondaryPath = path.resolve(roots.offline.secondary);
+  if (primaryPath === secondaryPath || core.inside(primaryPath, secondaryPath) || core.inside(secondaryPath, primaryPath)) throw new Error('BLOCKED_PUBLICATION:ROOTS_OVERLAP');
   const reportBytes = Buffer.from(reportText), reportSha256 = sha(reportBytes);
   const manifestBytes = Buffer.from(`${JSON.stringify({schemaVersion: 1, issue: 7, epoch: core.EPOCH, head, reportSha256,
     files: PUBLISH_FILES}, null, 2)}\n`);
   const prior = existingPublication(roots.offline, reportBytes, manifestBytes);
-  if (prior) return {status: prior, reportSha256, unchangedMtime: true};
+  if (prior) {
+    verifyFinalPublication(roots.offline, reportBytes, manifestBytes);
+    if (!sameSnapshots(core.snapshotSources(roots), expectedSourceSnapshot)) throw new Error('BLOCKED_PUBLICATION:ANALYSIS_SOURCE_SNAPSHOT_DRIFT');
+    const fresh = {...report, outcome: 'GATE0_2_VERIFIED_AWAITING_PUBLICATION', publication: 'NOT ATTEMPTED'};
+    verifyPublishedReport(roots, {freshReport: fresh, readHead: () => head, readWorktreeStatus: () => ''});
+    return {status: prior, reportSha256, unchangedMtime: true};
+  }
+  const primary = safeDir(roots.commonDirectory, roots.offline.primary), secondary = safeDir(roots.home, roots.offline.secondary);
+  if (primary === secondary || core.inside(primary, secondary) || core.inside(secondary, primary)) throw new Error('BLOCKED_PUBLICATION:ROOTS_OVERLAP');
   let lockPrimary = null, lockSecondary = null, writeStarted = false;
   try {
     lockPrimary = ownLock(primary, ownerId);
@@ -268,16 +376,17 @@ function publishReport({reportText, roots, head, branch = PR_BRANCH, issue, pr, 
     beforeImmutableWrite('secondary:manifest.json');
     fsyncFile(path.join(secondary, 'manifest.json'), manifestBytes);
     for (const root of [primary, secondary]) {
-      for (const name of PUBLISH_FILES) {
-        const expected = name === 'report.json' ? reportBytes : manifestBytes;
-        if (!fs.readFileSync(path.join(root, name)).equals(expected)) throw new Error('BLOCKED_PUBLICATION:READBACK_MISMATCH');
-      }
+      verifyLockedPublicationDirectory(root, ownerId, reportBytes, manifestBytes);
       fsyncDirectory(root);
     }
     const after = core.snapshotSources(roots);
-    if (!sameSnapshots(before, after)) throw new Error('BLOCKED_PUBLICATION:PARENT_CHANGED_DURING_PUBLICATION');
+    if (!sameSnapshots(expectedSourceSnapshot, after)) throw new Error('BLOCKED_PUBLICATION:ANALYSIS_SOURCE_SNAPSHOT_DRIFT');
     releaseOwnLock(lockPrimary); lockPrimary = null;
     releaseOwnLock(lockSecondary); lockSecondary = null;
+    verifyFinalPublication(roots.offline, reportBytes, manifestBytes);
+    if (!sameSnapshots(core.snapshotSources(roots), expectedSourceSnapshot)) throw new Error('BLOCKED_PUBLICATION:ANALYSIS_SOURCE_SNAPSHOT_DRIFT');
+    const fresh = {...report, outcome: 'GATE0_2_VERIFIED_AWAITING_PUBLICATION', publication: 'NOT ATTEMPTED'};
+    verifyPublishedReport(roots, {freshReport: fresh, readHead: () => head, readWorktreeStatus: () => ''});
     return {status: 'PUBLISHED', reportSha256, manifestSha256: sha(manifestBytes), readback: 'MATCHED_BOTH_COPIES'};
   } catch (error) {
     // Before any immutable report byte is written, release only locks whose
@@ -310,8 +419,11 @@ function runPublish(options = {}) {
   prePublishReport.outcome = 'GATE0_2_VERIFIED_AND_PUBLISHED';
   prePublishReport.publication = 'IMMUTABLE_MANIFEST_REQUIRED';
   analysisRun.reportText = `${JSON.stringify(core.stable(prePublishReport), null, 2)}\n`;
-  const head = git(['rev-parse', 'HEAD'], options.root || ROOT), authority = collectAuthority(head);
-  const publish = publishReport({...authority, head, reportText: analysisRun.reportText, roots: analysisRun.roots});
+  const head = git(['rev-parse', 'HEAD'], options.root || ROOT);
+  if (prePublishReport.delivery?.currentHead !== head) throw new Error('BLOCKED_PUBLICATION:ANALYSIS_HEAD_DRIFT');
+  const authority = collectAuthority(head);
+  const publish = publishReport({...authority, head, reportText: analysisRun.reportText, roots: analysisRun.roots,
+    expectedSourceSnapshot: analysisRun.snapshots.after});
   return {status: publish.status, publish, reportText: analysisRun.reportText};
 }
 function run() {
@@ -328,10 +440,18 @@ function run() {
       if (result.status !== 'PASS') process.exitCode = 2;
     } else if (mode === '--verify') {
       const result = runAnalysis();
-      const publication = verifyPublishedReport(result.roots);
-      if (publication.status === 'PASS') process.stdout.write(`${JSON.stringify({verification: publication, report: JSON.parse(core.readDual(result.roots.offline, 'report.json').bytes.toString('utf8'))}, null, 2)}\n`);
-      else process.stdout.write(result.reportText);
-      if (result.status !== 'PASS' || publication.status === 'BLOCKED') process.exitCode = 2;
+      if (result.status !== 'PASS' || result.forensic?.historicExecutableIdentity !== 'VERIFIED_ORIGINAL') {
+        process.stdout.write(`${JSON.stringify({status: 'BLOCKED', code: 'BLOCKED_PUBLICATION:FRESH_ANALYSIS_NOT_VERIFIED', analysis: JSON.parse(result.reportText)}, null, 2)}\n`);
+        process.exitCode = 2;
+      } else {
+        const freshReport = JSON.parse(result.reportText);
+        const publication = verifyPublishedReport(result.roots, {freshReport});
+        if (publication.status === 'PASS') process.stdout.write(`${JSON.stringify({verification: publication, report: JSON.parse(core.readDual(result.roots.offline, 'report.json').bytes.toString('utf8'))}, null, 2)}\n`);
+        else {
+          process.stdout.write(`${JSON.stringify({status: 'BLOCKED', code: 'BLOCKED_PUBLICATION:REPORT_NOT_PUBLISHED', analysis: freshReport}, null, 2)}\n`);
+          process.exitCode = 2;
+        }
+      }
     } else {
       const result = runPublish();
       process.stdout.write(result.reportText || `${JSON.stringify(result, null, 2)}\n`);
@@ -345,5 +465,6 @@ function run() {
 if (require.main === module) run();
 
 module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, APPROVAL_COMMENT_ID, PUBLISH_FILES,
-  sha, redact, classifyBinaryIdentity, classifyForensic, locateArchive, runAnalysis, verifyPublicationAuthority, publishReport,
+  sha, redact, classifyBinaryIdentity, classifyForensic, locateArchive, runAnalysis, verifyPublicationAuthority,
+  validatePublishableReport, publishReport,
   verifyPublishedReport, collectAuthority, runPublish, run};
