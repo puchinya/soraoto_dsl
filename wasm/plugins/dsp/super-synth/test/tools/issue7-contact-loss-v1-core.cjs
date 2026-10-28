@@ -66,13 +66,15 @@ function assertOfficialMatrix(official) {
     seen.add(key);
     invariant(Array.isArray(cell.hardFailures) && typeof cell.finite === 'boolean'
       && Number.isFinite(cell.peakDbfs) && Number.isFinite(cell.guardHits)
-      && Number.isFinite(cell.postAttackShapeErrorDb) && Number.isFinite(cell.levelErrorDb),
+      && Number.isFinite(cell.postAttackShapeErrorDb) && Number.isFinite(cell.levelErrorDb)
+      && Number.isFinite(cell.centroidRatio) && Number.isFinite(cell.above2kDelta)
+      && typeof cell.centroidComparable === 'boolean',
     'OFFICIAL_METRIC_INVALID');
   }
   // The seven-cell matrix has four velocity layers only at MIDI96.
   const dynamic = official.velocity.find(row => row.pitch === 96);
   invariant(dynamic && Array.isArray(dynamic.failures) && Number.isFinite(dynamic.errorDb)
-    && dynamic.actualSpanDb !== undefined && dynamic.referenceSpanDb !== undefined,
+    && Number.isFinite(dynamic.actualSpanDb) && Number.isFinite(dynamic.referenceSpanDb),
     'OFFICIAL_VELOCITY_SPAN_MISSING');
   return true;
 }
@@ -88,8 +90,15 @@ function classifyCandidate({alpha, official, familyLoss}) {
     if (cell.peakDbfs >= 0) failures.add('peak');
     if (cell.postAttackShapeErrorDb > 10) failures.add('postAttackShape');
     if (Math.abs(cell.levelErrorDb) > 20) failures.add('directLevel');
+    if (cell.centroidComparable && cell.centroidRatio > 8) failures.add('centroid');
+    if (cell.above2kDelta > 1) failures.add('above2k');
   }
-  for (const row of official.velocity) for (const failure of row.failures || []) failures.add(failure);
+  for (const row of official.velocity) {
+    invariant(Number.isFinite(row.errorDb) && Array.isArray(row.failures),
+      'OFFICIAL_VELOCITY_ROW_INVALID');
+    for (const failure of row.failures) failures.add(failure);
+    if (row.errorDb > 8) failures.add('dynamicSpan');
+  }
   const m = official.metrics;
   if (m.finite !== true) failures.add('finite');
   if (!Number.isFinite(m.peakWorstDbfs) || m.peakWorstDbfs >= 0) failures.add('peak');
@@ -100,7 +109,7 @@ function classifyCandidate({alpha, official, familyLoss}) {
   const hardViolation = Math.max(0,
     ...official.cells.map(cell => Math.max(0, Math.abs(cell.levelErrorDb) - 20, cell.postAttackShapeErrorDb - 10)),
     ...official.velocity.map(row => Math.max(0, row.errorDb - 8)));
-  return {alpha: ALPHAS[index], alphaOrder: index, pass: failures.size === 0,
+  return {alpha: ALPHAS[index], alphaOrder: index, pass: failures.size === 0 && hardViolation === 0,
     hardFailures: [...failures].sort(), hardViolation, familyLoss};
 }
 function assertBaselineSafe(baseline) {
