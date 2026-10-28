@@ -67,7 +67,7 @@ test('overbudget, completion ahead of start, negative and fractional counters ar
 });
 
 test('diagnostic alpha domain is only the six authorized finite canonical values', () => {
-  for (const [index, alpha] of core.ALPAS?.entries?.() || core.ALPHAS.entries()) assert.equal(core.alphaIndex(alpha), index);
+  for (const [index, alpha] of core.ALPHAS.entries()) assert.equal(core.alphaIndex(alpha), index);
   for (const alpha of [NaN, Infinity, -Infinity, 0.7, 2, -1]) {
     assert.throws(() => core.alphaIndex(alpha), /BLOCKED_CONTACT_LOSS/);
   }
