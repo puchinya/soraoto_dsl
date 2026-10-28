@@ -1,0 +1,581 @@
+{
+  "schemaVersion": 1,
+  "method": "deterministic positive-gain log-band transfer fit; effective bridge-to-radiation proxy only",
+  "reference": {
+    "archiveSha256": "b7760e168494cf095344e217b0af013fc449ad033abbbdf1c65211cf11dc038b",
+    "sfzSha256": "91a273d53390c84a855437b4f37a734afac5cb0e4063b3ef59ccf0e63d909506",
+    "fileHashesManifest": "salamander-grand-piano-v3-file-hashes.json",
+    "metricSchemaVersion": 3
+  },
+  "dryMatrix": {
+    "matchedCells": 480,
+    "sourceRevision": "6f4ab32bf20f9267eeb368aa4d7809e0fe846329",
+    "sourceTreeDirty": true,
+    "sourcePluginSha256": "0daaa511f9a4dbd2e79a0a48a544f0a601adc7805015b5b611bc75a2f8c259d1",
+    "presetConfigSha256": "dd40bf1aa378106a3a3a5fb4e519a58ad0c9f389906cd66080e35359b950ba75",
+    "wasmSha256": "b706cf003dd373826660bb95943afd9531dfe0517822a368bb0b356a10d3395a",
+    "soundboardBypassed": true,
+    "preset": "concert_grand"
+  },
+  "fitConstraints": {
+    "modes": 24,
+    "bands": 64,
+    "frequencyRangeHz": [
+      40,
+      16000
+    ],
+    "nonNegativeRadiationGain": true,
+    "maximumModeGain": 0.88,
+    "stringInharmonicityBRange": [
+      0,
+      0.02
+    ],
+    "peakHeadroomDbfs": -3,
+    "radiationScaleFit": "median peak correction limited by exact dry-plus-board component headroom"
+  },
+  "board": {
+    "modes": [
+      {
+        "frequencyHz": 41.917,
+        "q": 4.8565,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0,
+          0.0672341,
+          0.9327659
+        ],
+        "pan": 0.139027,
+        "fitBand": 0
+      },
+      {
+        "frequencyHz": 46.031,
+        "q": 5.3331,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0,
+          0.0875478,
+          0.9124522
+        ],
+        "pan": 0.140005,
+        "fitBand": 1
+      },
+      {
+        "frequencyHz": 50.548,
+        "q": 5.8565,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0,
+          0.1364313,
+          0.8635687
+        ],
+        "pan": 0.142356,
+        "fitBand": 2
+      },
+      {
+        "frequencyHz": 55.509,
+        "q": 4.084,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0,
+          0.1948392,
+          0.8051608
+        ],
+        "pan": 0.145166,
+        "fitBand": 3
+      },
+      {
+        "frequencyHz": 60.956,
+        "q": 2,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0,
+          0,
+          1
+        ],
+        "pan": 0.135793,
+        "fitBand": 4
+      },
+      {
+        "frequencyHz": 66.938,
+        "q": 2,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0,
+          0,
+          1
+        ],
+        "pan": 0.135793,
+        "fitBand": 5
+      },
+      {
+        "frequencyHz": 73.508,
+        "q": 2,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0.0085009,
+          0,
+          0.9914991
+        ],
+        "pan": 0.131839,
+        "fitBand": 6
+      },
+      {
+        "frequencyHz": 80.721,
+        "q": 2,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0.0053971,
+          0,
+          0.9946029
+        ],
+        "pan": 0.133283,
+        "fitBand": 7
+      },
+      {
+        "frequencyHz": 88.643,
+        "q": 2,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0.0044979,
+          0,
+          0.9955021
+        ],
+        "pan": 0.133701,
+        "fitBand": 8
+      },
+      {
+        "frequencyHz": 97.343,
+        "q": 2,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0.0026587,
+          0,
+          0.9973413
+        ],
+        "pan": 0.134557,
+        "fitBand": 9
+      },
+      {
+        "frequencyHz": 106.896,
+        "q": 2,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0.004787,
+          0,
+          0.995213
+        ],
+        "pan": 0.133567,
+        "fitBand": 10
+      },
+      {
+        "frequencyHz": 117.386,
+        "q": 2,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0.0039294,
+          0,
+          0.9960706
+        ],
+        "pan": 0.133965,
+        "fitBand": 11
+      },
+      {
+        "frequencyHz": 128.907,
+        "q": 2.1189,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0.0028994,
+          0.0025943,
+          0.9945063
+        ],
+        "pan": 0.134569,
+        "fitBand": 12
+      },
+      {
+        "frequencyHz": 141.557,
+        "q": 2,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0.0018116,
+          0.0052368,
+          0.9929516
+        ],
+        "pan": 0.135202,
+        "fitBand": 13
+      },
+      {
+        "frequencyHz": 360.997,
+        "q": 5.3331,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0,
+          1,
+          0
+        ],
+        "pan": 0.183896,
+        "fitBand": 23
+      },
+      {
+        "frequencyHz": 576.487,
+        "q": 2,
+        "gain": 0.88,
+        "zoneCoupling": [
+          0.0047542,
+          0,
+          0.9952458
+        ],
+        "pan": 0.133582,
+        "fitBand": 28
+      },
+      {
+        "frequencyHz": 1010.958,
+        "q": 2,
+        "gain": 0.1940429,
+        "zoneCoupling": [
+          0,
+          0,
+          1
+        ],
+        "pan": 0.135793,
+        "fitBand": 34
+      },
+      {
+        "frequencyHz": 1470.15,
+        "q": 5.3331,
+        "gain": 0.6340323,
+        "zoneCoupling": [
+          0,
+          0,
+          1
+        ],
+        "pan": 0.135793,
+        "fitBand": 38
+      },
+      {
+        "frequencyHz": 2137.915,
+        "q": 2,
+        "gain": 0.4133486,
+        "zoneCoupling": [
+          0,
+          0.8942319,
+          0.1057681
+        ],
+        "pan": 0.178808,
+        "fitBand": 42
+      },
+      {
+        "frequencyHz": 3749.157,
+        "q": 5.3331,
+        "gain": 0.5159086,
+        "zoneCoupling": [
+          0,
+          0.931008,
+          0.068992
+        ],
+        "pan": 0.180577,
+        "fitBand": 48
+      },
+      {
+        "frequencyHz": 5987.141,
+        "q": 5.3331,
+        "gain": 0.6004892,
+        "zoneCoupling": [
+          0,
+          1,
+          0
+        ],
+        "pan": 0.183896,
+        "fitBand": 53
+      },
+      {
+        "frequencyHz": 9561.047,
+        "q": 2,
+        "gain": 0,
+        "zoneCoupling": [
+          0.3333333,
+          0.3333333,
+          0.3333333
+        ],
+        "pan": -0.003224,
+        "fitBand": 58
+      },
+      {
+        "frequencyHz": 11529.748,
+        "q": 2,
+        "gain": 0,
+        "zoneCoupling": [
+          0.3333333,
+          0.3333333,
+          0.3333333
+        ],
+        "pan": -0.003224,
+        "fitBand": 60
+      },
+      {
+        "frequencyHz": 13903.822,
+        "q": 2,
+        "gain": 0,
+        "zoneCoupling": [
+          0.3333333,
+          0.3333333,
+          0.3333333
+        ],
+        "pan": -0.003224,
+        "fitBand": 62
+      }
+    ],
+    "zonePan": [
+      -0.329361,
+      0.183896,
+      0.135793
+    ],
+    "residualAlpha": [
+      0.000020008,
+      0.000040852,
+      0.000138262
+    ],
+    "residualGain": [
+      0.8,
+      0.8,
+      0.111488
+    ],
+    "feedbackScale": [
+      0.01193785,
+      0.03719504,
+      0.03979066
+    ],
+    "radiationScale": 0.0750281,
+    "radiationScaleRequested": 0.0750281,
+    "radiationScaleHeadroomLimit": 0.2013871,
+    "radiationScaleCurrent": 0.017752,
+    "radiationScaleLimitedByHeadroom": false,
+    "maxMeasuredPeakDbfs": -10.389697
+  },
+  "stringInharmonicity": {
+    "pitches": [
+      21,
+      24,
+      27,
+      30,
+      33,
+      36,
+      39,
+      42,
+      45,
+      48,
+      51,
+      54,
+      57,
+      60,
+      63,
+      66,
+      69,
+      72,
+      75,
+      78,
+      81,
+      84,
+      87,
+      90,
+      93,
+      96,
+      99,
+      102,
+      105,
+      108
+    ],
+    "b": [
+      0.02,
+      0.010676,
+      0,
+      0.007602,
+      0,
+      0.001068,
+      0.002133,
+      0.000197,
+      0.001588,
+      0.002157,
+      0,
+      0.004337,
+      0.000042,
+      0.001231,
+      0.000417,
+      0.000718,
+      0.000102,
+      0.000857,
+      0.000856,
+      0.000898,
+      0.001449,
+      0.002918,
+      0.002117,
+      0.003149,
+      0.006155,
+      0.005295,
+      0.003064,
+      0.005965,
+      0,
+      0.017716
+    ]
+  },
+  "sympathetic": {
+    "qUndamped": [
+      220,
+      220
+    ],
+    "qDamped": [
+      14.8324,
+      14.8324
+    ],
+    "gain": [
+      0.425719,
+      0.2780049
+    ],
+    "dampedGain": [
+      0.06741999,
+      0.06741999
+    ],
+    "excitationGain": 0.508452,
+    "returnGain": 0.02964118
+  },
+  "longitudinal": {
+    "pitches": [
+      21,
+      24,
+      27,
+      30,
+      33,
+      36,
+      39,
+      42,
+      45
+    ],
+    "modes": [
+      [
+        {
+          "frequencyHz": 665.0391,
+          "q": 80,
+          "gain": 1,
+          "observations": 4
+        },
+        {
+          "frequencyHz": 896.4844,
+          "q": 80,
+          "gain": 0.8340641,
+          "observations": 3
+        }
+      ],
+      [
+        {
+          "frequencyHz": 706.0547,
+          "q": 80,
+          "gain": 1,
+          "observations": 8
+        },
+        {
+          "frequencyHz": 987.5262,
+          "q": 80,
+          "gain": 1,
+          "observations": 14
+        }
+      ],
+      [
+        {
+          "frequencyHz": 671.113,
+          "q": 80,
+          "gain": 0.3112832,
+          "observations": 6
+        },
+        {
+          "frequencyHz": 711.9141,
+          "q": 80,
+          "gain": 0.679589,
+          "observations": 3
+        }
+      ],
+      [
+        {
+          "frequencyHz": 650.3906,
+          "q": 80,
+          "gain": 0.8799497,
+          "observations": 10
+        },
+        {
+          "frequencyHz": 697.2656,
+          "q": 80,
+          "gain": 0.6330596,
+          "observations": 8
+        }
+      ],
+      [
+        {
+          "frequencyHz": 662.1094,
+          "q": 80,
+          "gain": 1,
+          "observations": 4
+        },
+        {
+          "frequencyHz": 828.2669,
+          "q": 80,
+          "gain": 0.3068732,
+          "observations": 17
+        }
+      ],
+      [
+        {
+          "frequencyHz": 850.9271,
+          "q": 80,
+          "gain": 0.5047455,
+          "observations": 15
+        },
+        {
+          "frequencyHz": 919.9219,
+          "q": 80,
+          "gain": 0.738124,
+          "observations": 7
+        }
+      ],
+      [
+        {
+          "frequencyHz": 858.3984,
+          "q": 80,
+          "gain": 0.1335799,
+          "observations": 7
+        },
+        {
+          "frequencyHz": 1016.6016,
+          "q": 80,
+          "gain": 0.1111585,
+          "observations": 16
+        }
+      ],
+      [
+        {
+          "frequencyHz": 1968.75,
+          "q": 80,
+          "gain": 0.0182176,
+          "observations": 9
+        },
+        {
+          "frequencyHz": 2066.8945,
+          "q": 80,
+          "gain": 0.0419658,
+          "observations": 4
+        }
+      ],
+      [
+        {
+          "frequencyHz": 1552.7344,
+          "q": 80,
+          "gain": 0.0812967,
+          "observations": 15
+        },
+        {
+          "frequencyHz": 1664.0625,
+          "q": 80,
+          "gain": 0.0582653,
+          "observations": 14
+        }
+      ]
+    ]
+  }
+}

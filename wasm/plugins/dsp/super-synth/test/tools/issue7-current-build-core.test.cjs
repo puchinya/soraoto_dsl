@@ -1,0 +1,428 @@
+'use strict';
+
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const crypto=require('node:crypto');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const {execFileSync}=require('node:child_process');
+const core=require('./issue7-current-build-core.cjs');
+
+const IDENTITY=JSON.parse(fs.readFileSync(path.join(core.ROOT,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json'),'utf8'));
+const hash=value=>crypto.createHash('sha256').update(value).digest('hex');
+function approvedExecutionIdentity({stage='stage3e',phase='baseline',cells=['a','b'],prHeadSha='1'.repeat(40),identity={
+  sourceCommit:'2'.repeat(40),productionWasmSha256:'3'.repeat(64),runnerSha256:'4'.repeat(64),fixtureSha256:'5'.repeat(64)}}={}){
+  return core.makeExecutionIdentity({stage,phase,cells,renderBudget:cells.length,prHeadSha,identity});
+}
+
+function workspace(t){
+  const base=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-current-build-core-'));
+  const repo=path.join(base,'repo'),home=path.join(base,'home'),common=path.join(base,'common');
+  fs.mkdirSync(repo,{recursive:true});fs.mkdirSync(home);fs.mkdirSync(common);
+  t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  return {base,repo,home,common,roots:core.resolveRoots(repo,'stage3e',core.EPOCH,{home,commonDirectory:common})};
+}
+function manifest(roots,phase='baseline',identity={source:'synthetic'}){
+  return {schemaVersion:1,issue:7,epoch:core.EPOCH,stage:roots.stage,phase,candidateId:'synthetic-candidate',creatorCommit:'test-commit',identity,
+    authorizationSha256:'a'.repeat(64),runnerSha256:'b'.repeat(64),captureHelperSha256:'c'.repeat(64),primaryWasmSha256:'d'.repeat(64),createdAt:'2026-10-13T00:00:00.000Z'};
+}
+function startPhase(t,{phase='baseline',keys=['production-36-14'],identity={source:'synthetic'}}={}){
+  const w=workspace(t),m=manifest(w.roots,phase,identity),cells=keys.map(key=>({key,pitch:36,velocity:14}));
+  core.initializePhase({roots:w.roots,phase,manifest:m,cells,renderBudget:keys.length,now:()=>m.createdAt});
+  return {...w,phase,manifest:m,identity,cells};
+}
+function statInventory(root){
+  if(!fs.existsSync(root))return [];
+  const out=[];
+  function visit(dir){for(const e of fs.readdirSync(dir,{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name))){const file=path.join(dir,e.name);if(e.isDirectory())visit(file);else{const s=fs.statSync(file);out.push({file:path.relative(root,file),size:s.size,mtime:s.mtimeMs,sha256:hash(fs.readFileSync(file))});}}}
+  visit(root);return out;
+}
+function copyIdentityWorkspace(target){
+  fs.mkdirSync(target,{recursive:true});
+  const files=[...Object.values(IDENTITY.inputs).map(entry=>entry.path),
+    IDENTITY.toolchain.toolchainFile,
+    'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json'];
+  for(const build of Object.values(IDENTITY.builds)){
+    files.push(`${build.buildDirectory}/CMakeCache.txt`,`${build.buildDirectory}/${build.wasm.path}`,
+      `${build.buildDirectory}/generated/super-synth_descriptor.cbor`,`${build.buildDirectory}/generated/super-synth_descriptor.h`);
+  }
+  for(const relative of files){
+    const dest=path.join(target,relative);fs.mkdirSync(path.dirname(dest),{recursive:true});
+    const input=Object.values(IDENTITY.inputs).some(entry=>entry.path===relative);
+    const bytes=input?execFileSync('rtk',['proxy','git','show',`${IDENTITY.sourceCommit}:${relative}`],{cwd:core.ROOT,maxBuffer:16*1024*1024}):fs.readFileSync(path.join(core.ROOT,relative));
+    fs.writeFileSync(dest,bytes);
+  }
+  const fixture=structuredClone(IDENTITY);
+  fixture.toolchain.toolchainFileSha256=hash(fs.readFileSync(path.join(target,fixture.toolchain.toolchainFile)));
+  for(const entry of Object.values(fixture.inputs))entry.sha256=hash(fs.readFileSync(path.join(target,entry.path)));
+  for(const build of Object.values(fixture.builds)){
+    build.cmakeCacheSha256=hash(fs.readFileSync(path.join(target,`${build.buildDirectory}/CMakeCache.txt`)));
+    build.wasm.sha256=hash(fs.readFileSync(path.join(target,`${build.buildDirectory}/${build.wasm.path}`)));
+  }
+  const productionBuild=fixture.builds.production.buildDirectory;
+  fixture.metadataOutputs.descriptorCborSha256=hash(fs.readFileSync(path.join(target,`${productionBuild}/generated/super-synth_descriptor.cbor`)));
+  fixture.metadataOutputs.descriptorHeaderSha256=hash(fs.readFileSync(path.join(target,`${productionBuild}/generated/super-synth_descriptor.h`)));
+  fs.writeFileSync(path.join(target,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json'),`${JSON.stringify(fixture,null,2)}\n`);
+  return fixture;
+}
+
+test('root resolver accepts only the current Issue #7 stage roots and rejects symlink escapes',t=>{
+  const w=workspace(t);
+  assert.equal(w.roots.primary,path.join(fs.realpathSync(w.common),'soraoto-agent-state','7','stage3e',core.EPOCH));
+  assert.equal(w.roots.secondary,path.join(fs.realpathSync(w.home),'.soraoto-agent-archive','repo','7','stage3e',core.EPOCH));
+  assert.throws(()=>core.resolveRoots(w.repo,'stage3e','generation-2',{home:w.home,commonDirectory:w.common}),/BLOCKED_EPOCH/);
+  assert.throws(()=>core.resolveRoots(w.repo,'stage3e/../../stage3','current-build-v1',{home:w.home,commonDirectory:w.common}),/invalid Issue #7 stage/);
+
+  const linked=path.join(w.home,'.soraoto-agent-archive'),outside=path.join(w.base,'outside');
+  fs.mkdirSync(outside);fs.symlinkSync(outside,linked);
+  assert.throws(()=>core.resolveRoots(w.repo,'stage3e',core.EPOCH,{home:w.home,commonDirectory:w.common}),/BLOCKED_EVIDENCE_SYMLINK/);
+});
+
+test('Gate 1 identity hashes every declared source, cache, WASM, and generated metadata output',t=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-identity-baseline-'));
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const fixture=copyIdentityWorkspace(dir);
+  const current=core.hashInputs(dir,fixture);
+  assert.equal(current.issue,7);assert.equal(current.epoch,'current-build-v1');
+  assert.equal(Object.keys(current.inputs).length,16);
+  assert.deepEqual(Object.keys(current.builds).sort(),['production','stage3e','stage4']);
+  assert.equal(current.builds.production.wasmSha256,fixture.builds.production.wasm.sha256);
+  assert.equal(current.builds.stage3e.flags.SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS,'ON');
+  assert.equal(current.builds.stage4.cmakeCacheSha256,fixture.builds.stage4.cmakeCacheSha256);
+});
+
+test('frozen identity rejects a one-byte change in each acoustic-critical input',t=>{
+  const targets=[
+    IDENTITY.inputs.pluginC.path,
+    IDENTITY.inputs.presets.path,
+    IDENTITY.inputs.generatedProfile.path,
+    IDENTITY.toolchain.toolchainFile,
+    `${IDENTITY.builds.production.buildDirectory}/CMakeCache.txt`,
+    IDENTITY.inputs.captureHelper.path,
+    IDENTITY.inputs.stage3Evaluator.path
+  ];
+  for(const relative of targets){
+    const dir=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-identity-drift-'));
+    t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+    const fixture=copyIdentityWorkspace(dir);
+    const file=path.join(dir,relative),bytes=fs.readFileSync(file);
+    const changed=Buffer.from(bytes);changed[0]^=1;fs.writeFileSync(file,changed);
+    assert.throws(()=>core.hashInputs(dir,fixture),/BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT/,relative);
+  }
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'issue7-identity-record-drift-'));
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const fixture=copyIdentityWorkspace(dir);
+  const report=path.join(dir,'docs/status/plugins/dsp/super-synth/current-build-v1/build-identity.json');
+  const expected=core.hashInputs(dir,fixture);
+  fs.appendFileSync(report,' ');
+  const actual=core.hashInputs(dir,fixture);
+  assert.throws(()=>core.checkFrozenIdentity(expected,actual),/BLOCKED_CURRENT_BUILD_IDENTITY_DRIFT/);
+});
+
+test('dual-copy immutable writes preserve exact bytes and refuse replacement',t=>{
+  const w=workspace(t),first=Buffer.from('first immutable payload\n');
+  const written=core.writeImmutableDual(w.roots,'phases/baseline/test.txt',first);
+  assert.equal(written.sha256,hash(first));
+  assert.equal(core.writeImmutableDual(w.roots,'phases/baseline/test.txt',first).sha256,written.sha256);
+  assert.throws(()=>core.writeImmutableDual(w.roots,'phases/baseline/test.txt',Buffer.from('different')),/BLOCKED_EVIDENCE_IMMUTABLE/);
+  const read=core.readDualBytes(w.roots,'phases/baseline/test.txt');
+  assert.equal(read.sha256,written.sha256);assert.deepEqual(read.bytes,first);
+  const replacement=Buffer.from('mutable ledger\n');core.writeMutableDual(w.roots,'phases/baseline/ledger.json',replacement);
+  assert.deepEqual(core.readDualBytes(w.roots,'phases/baseline/ledger.json').bytes,replacement);
+});
+
+test('cell marker, observed row, and completed ledger are dual-copied; completed cells skip',t=>{
+  const phase=startPhase(t),key='production-36-14',time=()=> '2026-10-13T00:01:00.000Z';
+  const started=core.startCell({roots:phase.roots,phase:phase.phase,cellKey:key,cell:phase.cells[0],identity:phase.identity,identityNow:()=>phase.identity,now:time});
+  assert.equal(started.state,'IN_PROGRESS');
+  assert.equal(core.readCell(phase.roots,phase.phase,key).cell.state,'IN_PROGRESS');
+  const observation={metrics:{finite:true,peakDbfs:-2,outputGuardHits:0},syntheticTest:true,label:'SYNTHETIC TEST'};
+  const completed=core.completeCell({roots:phase.roots,phase:phase.phase,cellKey:key,observation,now:time});
+  assert.equal(completed.decision,'PASS');
+  const read=core.readCell(phase.roots,phase.phase,key);
+  assert.equal(read.cell.state,'COMPLETE');assert.equal(read.observation.syntheticTest,true);
+  assert.equal(core.completeCell({roots:phase.roots,phase:phase.phase,cellKey:key,observation,now:time}).skipped,true);
+  assert.equal(core.startCell({roots:phase.roots,phase:phase.phase,cellKey:key,cell:phase.cells[0],identity:phase.identity,identityNow:()=>phase.identity,now:time}).skipped,true);
+  assert.equal(core.readPhaseLedger(phase.roots,phase.phase).ledger.renderCount,1);
+});
+
+test('unsafe and non-finite observations are stored in both copies before FAIL',async t=>{
+  const cases=[
+    {name:'peak',metrics:{finite:true,peakDbfs:0.1,outputGuardHits:0}},
+    {name:'guard',metrics:{finite:true,peakDbfs:-2,outputGuardHits:1}},
+    {name:'NaN',metrics:{finite:true,peakDbfs:NaN,outputGuardHits:0}},
+    {name:'finite false',metrics:{finite:false,peakDbfs:-2,outputGuardHits:0}}
+  ];
+  for(const item of cases){
+    await t.test(item.name,sub=>{
+      const phase=startPhase(sub),key='production-36-14';
+      core.startCell({roots:phase.roots,phase:phase.phase,cellKey:key,cell:phase.cells[0],identity:phase.identity,identityNow:()=>phase.identity});
+      const result=core.completeCell({roots:phase.roots,phase:phase.phase,cellKey:key,observation:{...item,syntheticTest:true,label:'SYNTHETIC TEST'}});
+      assert.equal(result.decision,'FAIL');
+      const saved=core.readCell(phase.roots,phase.phase,key);
+      assert.equal(saved.cell.decision,'FAIL');
+      assert.deepEqual(fs.readFileSync(path.join(phase.roots.primary,'phases',phase.phase,'cells',key,'observation.json')),
+        fs.readFileSync(path.join(phase.roots.secondary,'phases',phase.phase,'cells',key,'observation.json')));
+      assert.equal(saved.observation.syntheticTest,true);
+    });
+  }
+});
+
+test('primary-only marker after secondary failure is ambiguous and is never rerendered',t=>{
+  const phase=startPhase(t),key='production-36-14';let calls=0;
+  const write=(file,bytes,base)=>{
+    if(file.startsWith(phase.roots.secondary))throw new Error('injected secondary failure');
+    return core.writeImmutableFile(file,bytes,base);
+  };
+  assert.throws(()=>core.startCell({roots:phase.roots,phase:phase.phase,cellKey:key,cell:phase.cells[0],identity:phase.identity,identityNow:()=>phase.identity,writeImmutable:write}),/injected secondary failure/);
+  calls+=core.readPhaseLedger(phase.roots,phase.phase).ledger.renderCount;
+  assert.equal(calls,0);
+  assert.throws(()=>core.readCell(phase.roots,phase.phase,key),/BLOCKED_CELL_AMBIGUOUS/);
+});
+
+test('identity drift after a durable marker is ambiguous and blocks retry',t=>{
+  const phase=startPhase(t),key='production-36-14';let checks=0;
+  const identityNow=()=>++checks===1?phase.identity:{...phase.identity,source:'changed'};
+  assert.throws(()=>core.startCell({roots:phase.roots,phase:phase.phase,cellKey:key,cell:phase.cells[0],identity:phase.identity,identityNow}),/BLOCKED_POST_MARKER_IDENTITY_DRIFT/);
+  assert.equal(core.readCell(phase.roots,phase.phase,key).cell.state,'AMBIGUOUS');
+  assert.throws(()=>core.startCell({roots:phase.roots,phase:phase.phase,cellKey:key,cell:phase.cells[0],identity:phase.identity,identityNow:()=>phase.identity}),/rerender is forbidden/);
+  assert.equal(core.readPhaseLedger(phase.roots,phase.phase).ledger.renderCount,0);
+});
+
+test('writer lock rejects another worktree and only removes its own lock',t=>{
+  const w=workspace(t);let entered=0;
+  const result=core.withWriterLock({commonDirectory:w.common,ownerId:'worktree-a'},()=>{
+    entered+=1;
+    assert.throws(()=>core.withWriterLock({commonDirectory:w.common,ownerId:'worktree-b'},()=>{entered+=100;}),/BLOCKED_WRITER_LOCK/);
+    return 'one phase only';
+  });
+  assert.equal(result,'one phase only');assert.equal(entered,1);
+  assert.equal(fs.existsSync(core.lockPath(w.common)),false);
+});
+
+test('run-all master lock is distinct, process-owned, and rejects external phase access',t=>{
+  const w=workspace(t);let seenOwner,nestedPhaseAction=false;
+  const result=core.withRunAllLock({commonDirectory:w.common,ownerId:'run-all-a'},owner=>{
+    seenOwner=owner;
+    assert.equal(core.assertRunAllLockAccess(w.common,owner),true);
+    assert.throws(()=>core.assertRunAllLockAccess(w.common,null),/BLOCKED_ISSUE7_RUN_ALL_LOCK/);
+    assert.throws(()=>core.withRunAllLock({commonDirectory:w.common,ownerId:'run-all-b'},()=>{}),/BLOCKED_ISSUE7_RUN_ALL_LOCK/);
+    core.withWriterLock({commonDirectory:w.common},()=>{nestedPhaseAction=true;});
+    assert.equal(nestedPhaseAction,true,'run-all owner may dispatch a phase without reacquiring the phase lock');
+    assert.equal(fs.existsSync(core.lockPath(w.common)),false,'master lock does not reuse a phase writer lock');
+    return 'single run';
+  });
+  assert.equal(result,'single run');assert.equal(seenOwner.pid,process.pid);
+  assert.equal(fs.existsSync(core.runAllLockPath(w.common)),false);
+});
+
+test('run-all journal appends verified canonical events to both stores and rejects divergence',t=>{
+  const w=workspace(t),first=core.appendDualJournal(w.roots,{type:'RUN_STARTED',ownerId:'one'}),
+    second=core.appendDualJournal(w.roots,{type:'PHASE_FINISHED',ownerId:'one',phase:'baseline'});
+  const journal=core.readDualJournal(w.roots);
+  assert.equal(journal.events.length,2);assert.equal(journal.events[0].sequence,1);assert.equal(journal.events[1].sequence,2);
+  assert.equal(first.events,1);assert.equal(second.events,2);
+  assert.deepEqual(fs.readFileSync(core.dualPaths(w.roots,'run-all/events.jsonl').primary),
+    fs.readFileSync(core.dualPaths(w.roots,'run-all/events.jsonl').secondary));
+  fs.appendFileSync(core.dualPaths(w.roots,'run-all/events.jsonl').secondary,'{}\n');
+  assert.throws(()=>core.readDualJournal(w.roots),/BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE|BLOCKED_ISSUE7_RUN_ALL_JOURNAL/);
+});
+
+test('authorization is exact to Issue #7, epoch, phase, cell set, and budget',()=>{
+  const cells=['a','b'],identity=approvedExecutionIdentity({cells}),identitySha=core.executionIdentitySha256(identity),
+    planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}; executionIdentitySha256=${identitySha}\n${core.executionIdentityMarker(identity)}`,
+    approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2,
+      planCommentId:'12344',executionIdentitySha256:identitySha});
+  const base={issue:7,epoch:core.EPOCH,contractSha256:core.CONTRACT_SHA256,stage:'stage3e',phase:'baseline',
+    planCommentUrl:'https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344',planCommentSha256:hash(planBody),
+    approvalCommentUrl:'https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345',approvalCommentSha256:hash(approvalBody),
+    executionIdentitySha256:identitySha,authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse('2026-10-13T00:00:00.000Z')};
+  assert.throws(()=>core.validateAuthorization(null,{stage:'stage3e',phase:'baseline',cells:['a','b'],renderBudget:2}),/AUTHORIZATION_REQUIRED/);
+  assert.equal(core.validateAuthorization(base,{stage:'stage3e',phase:'baseline',cells:['a','b'],renderBudget:2}).syntheticTest,false);
+  assert.throws(()=>core.validateAuthorization({...base,maxCalls:3},{stage:'stage3e',phase:'baseline',cells:['a','b'],renderBudget:2}),/AUTHORIZATION_REQUIRED/);
+  assert.throws(()=>core.validateAuthorization({...base,phase:'screen'},{stage:'stage3e',phase:'baseline',cells:['a','b'],renderBudget:2}),/AUTHORIZATION_REQUIRED/);
+  const synthetic={synthetic:true,label:'SYNTHETIC TEST',issue:7,epoch:core.EPOCH,stage:'stage3e',phase:'baseline'};
+  assert.throws(()=>core.validateAuthorization(synthetic,{stage:'stage3e',phase:'baseline',cells:['a'],renderBudget:1}),/AUTHORIZATION_REQUIRED/);
+  assert.equal(core.validateAuthorization(synthetic,{stage:'stage3e',phase:'baseline',cells:['a'],renderBudget:1,allowSynthetic:true}).syntheticTest,true);
+});
+
+test('execution identity retains build hashes and excludes machine-specific build flags',()=>{
+  const machinePath=path.join(os.homedir(),'issue7-build-cache');
+  const identity=approvedExecutionIdentity({identity:{builds:{production:{cmakeCacheSha256:'a'.repeat(64),wasmSha256:'b'.repeat(64),
+    flags:{CMAKE_CACHEFILE_DIR:machinePath,SORAOTO_FORCE_SCALAR_GRAND:'OFF'}}}}});
+  const serialized=core.canonicalBytes(identity).toString('utf8');
+  assert.equal(identity.identity.builds.production.cmakeCacheSha256,'a'.repeat(64));
+  assert.equal(identity.identity.builds.production.wasmSha256,'b'.repeat(64));
+  assert.equal('flags' in identity.identity.builds.production,false);
+  assert.equal(serialized.includes(machinePath),false);
+});
+
+test('GitHub approval readback attests immutable plan and approval comments to both stores before execution',t=>{
+  const phase=workspace(t),cells=['a','b'],planUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344';
+  const approvalUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345';
+  const executionIdentity=approvedExecutionIdentity({cells}),executionIdentityDigest=core.executionIdentitySha256(executionIdentity);
+  const planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}; executionIdentitySha256=${executionIdentityDigest}\n${core.executionIdentityMarker(executionIdentity)}`;
+  const approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2,planCommentId:'12344',executionIdentitySha256:executionIdentityDigest});
+  const planTime='2026-10-12T23:00:00Z',approvalTime='2026-10-13T00:00:00Z';
+  const authorization={issue:7,epoch:core.EPOCH,contractSha256:core.CONTRACT_SHA256,stage:'stage3e',phase:'baseline',
+    planCommentUrl:planUrl,planCommentSha256:hash(planBody),approvalCommentUrl:approvalUrl,approvalCommentSha256:hash(approvalBody),
+    executionIdentitySha256:executionIdentityDigest,authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse(approvalTime)};
+  const comment=(id,url,body,created_at)=>({id:String(id),html_url:url,issue_url:'https://api.github.com/repos/puchinya/soraoto_dsl/issues/7',
+    body,created_at,updated_at:created_at,user:{login:'puchinya'}});
+  const readback=()=>({authenticatedLogin:'puchinya',comments:{
+    '12344':comment('12344',planUrl,planBody,planTime),'12345':comment('12345',approvalUrl,approvalBody,approvalTime)}});
+  let renders=0;
+  const verified=core.verifyAndPersistAuthorization(authorization,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,
+    executionIdentity,executionIdentityNow:()=>executionIdentity,readback,
+    now:()=> '2026-10-13T00:01:00.000Z'});
+  assert.equal(verified.syntheticTest,false);
+  assert.match(verified.sha256,/^[a-f0-9]{64}$/);
+  const relative='authorizations/stage3e-baseline.attestation.json';
+  const stored=core.readDualBytes(phase.roots,relative);
+  assert.equal(stored.sha256,verified.sha256);
+  assert.equal(fs.readFileSync(core.dualPaths(phase.roots,relative).primary,'utf8'),fs.readFileSync(core.dualPaths(phase.roots,relative).secondary,'utf8'));
+  const attestation=JSON.parse(stored.bytes.toString('utf8'));
+  assert.equal(attestation.approverLogin,'puchinya');
+  assert.equal(attestation.cellSetSha256,core.cellSetSha256(cells));
+  assert.equal(attestation.planCommentId,'12344');
+  assert.equal(attestation.executionIdentitySha256,executionIdentityDigest);
+  assert.deepEqual(attestation.executionIdentity,executionIdentity);
+  assert.equal(attestation.renderBudget,2);
+  assert.equal(renders,0);
+  const phaseManifestPaths=core.dualPaths(phase.roots,'phases/baseline/manifest.json');
+  assert.equal(fs.existsSync(phaseManifestPaths.primary),false);
+  assert.equal(fs.existsSync(phaseManifestPaths.secondary),false);
+  const repeated=core.verifyAndPersistAuthorization(authorization,{roots:phase.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,
+    executionIdentity,executionIdentityNow:()=>executionIdentity,readback,
+    now:()=> '2026-10-13T01:00:00.000Z'});
+  assert.equal(repeated.sha256,verified.sha256);
+});
+
+test('invalid or edited GitHub approval evidence fails closed without writing an attestation',t=>{
+  const cells=['a','b'],executionIdentity=approvedExecutionIdentity({cells}),executionIdentityDigest=core.executionIdentitySha256(executionIdentity),
+    planUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12344';
+  const approvalUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12345';
+  const planBody=`Plan cellSetSha256=${core.cellSetSha256(cells)}; executionIdentitySha256=${executionIdentityDigest}\n${core.executionIdentityMarker(executionIdentity)}`;
+  const approvalBody=core.expectedApprovalStatement({stage:'stage3e',phase:'baseline',cells,renderBudget:2,
+    planCommentId:'12344',executionIdentitySha256:executionIdentityDigest});
+  const planTime='2026-10-12T23:00:00Z',approvalTime='2026-10-13T00:00:00Z';
+  const authorization={issue:7,epoch:core.EPOCH,contractSha256:core.CONTRACT_SHA256,stage:'stage3e',phase:'baseline',
+    planCommentUrl:planUrl,planCommentSha256:hash(planBody),approvalCommentUrl:approvalUrl,approvalCommentSha256:hash(approvalBody),
+    executionIdentitySha256:executionIdentityDigest,authorizedCellKeys:cells,maxCalls:2,approvedAtEpochMs:Date.parse(approvalTime)};
+  const comment=(url,body,created_at,overrides={})=>({html_url:url,issue_url:'https://api.github.com/repos/puchinya/soraoto_dsl/issues/7',
+    body,created_at,updated_at:created_at,user:{login:'puchinya'},...overrides});
+  const valid={authenticatedLogin:'puchinya',comments:{
+    '12344':comment(planUrl,planBody,planTime),'12345':comment(approvalUrl,approvalBody,approvalTime)}};
+  const changedRunner=approvedExecutionIdentity({cells,identity:{...executionIdentity.identity,runnerSha256:'6'.repeat(64)}});
+  const changedWasm=approvedExecutionIdentity({cells,identity:{...executionIdentity.identity,productionWasmSha256:'7'.repeat(64)}});
+  const changedHead=approvedExecutionIdentity({cells,prHeadSha:'8'.repeat(40)});
+  const alternatePlanUrl='https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-12346';
+  const cases=[
+    ['fake approval URL', {...authorization,approvalCommentUrl:'https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-99999'},valid],
+    ['wrong raw body SHA', {...authorization,approvalCommentSha256:'a'.repeat(64)},valid],
+    ['different authenticated author', authorization,{...valid,authenticatedLogin:'someone-else'}],
+    ['different comment author',authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],user:{login:'someone-else'}}}}],
+    ['edited approval comment', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],updated_at:'2026-10-13T00:02:00Z'}}}],
+    ['wrong approval wording', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],body:'approved, go ahead'}}}],
+    ['quoted exact approval statement', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],body:`Please review this example: “${approvalBody}”`}}}],
+    ['approval statement with extra explanation', authorization,{...valid,comments:{...valid.comments,'12345':{...valid.comments['12345'],body:`${approvalBody}\nI am only quoting the requested wording.`}}}],
+    ['plan for a different cell set', authorization,{...valid,comments:{...valid.comments,'12344':{...valid.comments['12344'],body:'Plan cellSetSha256='+core.cellSetSha256(['a','c'])}}}],
+    ['budget mismatch', {...authorization,maxCalls:3},valid],
+    ['same cell set with changed runner SHA',authorization,valid,changedRunner],
+    ['same cell set with changed production WASM SHA',authorization,valid,changedWasm],
+    ['same cell set with changed plan HEAD',authorization,valid,changedHead],
+    ['alternate same-cell plan comment', {...authorization,planCommentUrl:alternatePlanUrl},
+      {...valid,comments:{...valid.comments,'12346':comment(alternatePlanUrl,planBody,planTime)}}]
+  ];
+  for(const [name,auth,data,currentIdentity=executionIdentity] of cases){
+    const w=workspace(t);let renders=0;
+    const before=[statInventory(w.roots.primary),statInventory(w.roots.secondary)];
+    assert.throws(()=>{
+      core.verifyAndPersistAuthorization(auth,{roots:w.roots,stage:'stage3e',phase:'baseline',cells,renderBudget:2,
+        executionIdentity,executionIdentityNow:()=>currentIdentity,readback:()=>data});
+      renders+=1;
+    },/AUTHORIZATION_REQUIRED/,name);
+    assert.equal(renders,0,name);
+    assert.deepEqual([statInventory(w.roots.primary),statInventory(w.roots.secondary)],before,name);
+  }
+});
+
+test('execution plans are deterministic, immutable, dual-stored, budget-bound, and pinned to an ancestor revision',t=>{
+  const w=workspace(t),revision='1'.repeat(40),cells=Array.from({length:24},(_,index)=>({key:`cell-${index}`}));
+  const options={roots:w.roots,root:w.repo,stage:'stage3e',phase:'baseline',cells,renderBudget:24,
+    identity:{sourceSha256:'a'.repeat(64),runnerSha256:'b'.repeat(64),nested:{wasmSha256:'c'.repeat(64)}},prerequisites:[],
+    nowRevision:()=>revision,isAncestor:(_root,ancestor)=>ancestor===revision};
+  const first=core.verifyAndPersistExecutionPlan(options);
+  const second=core.verifyAndPersistExecutionPlan({...options,nowRevision:()=> '2'.repeat(40)});
+  assert.equal(first.sha256,second.sha256);
+  assert.deepEqual(first.plan.cellKeys,cells.map(cell=>cell.key));
+  assert.equal(first.plan.renderBudget,24);
+  assert.equal(first.plan.maxCalls,24);
+  assert.equal(first.plan.budgetCap,24);
+  assert.equal(first.bytes.equals(fs.readFileSync(core.dualPaths(w.roots,first.relative).primary)),true);
+  assert.equal(first.bytes.equals(fs.readFileSync(core.dualPaths(w.roots,first.relative).secondary)),true);
+  const phaseManifest={...manifest(w.roots,'baseline',options.identity),creatorCommit:revision,executionPlanSha256:first.sha256};
+  core.initializePhase({roots:w.roots,phase:'baseline',manifest:phaseManifest,cells,renderBudget:24,now:()=>phaseManifest.createdAt});
+  const marker=core.startCell({roots:w.roots,phase:'baseline',cellKey:cells[0].key,cell:cells[0],identity:options.identity,
+    identityNow:()=>options.identity,now:()=>phaseManifest.createdAt});
+  assert.equal(marker.marker.executionPlanSha256,first.sha256);
+  assert.throws(()=>core.verifyAndPersistExecutionPlan({...options,identity:{sourceSha256:'f'.repeat(64)}}),/deterministic phase plan changed/);
+  assert.throws(()=>core.deriveExecutionPlan({...options,cells:cells.slice(1),renderBudget:23,creatorRevision:revision}),/fixed Issue #7 cap/);
+  assert.throws(()=>core.deriveExecutionPlan({...options,prerequisites:[{stage:'stage3e',phase:'baseline'}],creatorRevision:revision}),/prerequisite evidence is incomplete/);
+});
+
+test('Stage3 accepts only the typed adaptive terminal result without an archive while ordinary prerequisites require archives',()=>{
+  const revision='1'.repeat(40),hashes=Array.from({length:3},(_,index)=>String(index+1).repeat(64));
+  const adaptive={stage:'stage3e',phase:'adaptive-mid-01',decision:'ADAPTIVE_MID_FULL_PASS',resultSha256:hashes[0],
+    creatorRevision:revision,selectionSchema:'issue7-stage3e-extension-selection/v1',selectionSha256:hashes[1],
+    parentManifestSha256:hashes[2],executionPlanSha256:'4'.repeat(64),probeResultSha256:['5'.repeat(64)],
+    screenResultSha256:'6'.repeat(64),fullResultSha256:'7'.repeat(64)};
+  const options={stage:'stage3',phase:'stage3',cells:Array.from({length:486},(_,index)=>({key:`s3-${index}`})),renderBudget:486,
+    identity:{productionWasmSha256:'8'.repeat(64)},prerequisites:[adaptive],creatorRevision:revision};
+  const plan=core.deriveExecutionPlan(options);
+  assert.equal(plan.prerequisites[0].resultSha256,hashes[0]);
+  assert.equal(plan.prerequisites[0].fullResultSha256,'7'.repeat(64));
+  assert.equal(Object.hasOwn(plan.prerequisites[0],'archiveSha256'),false);
+  assert.throws(()=>core.deriveExecutionPlan({...options,stage:'stage3e',phase:'baseline',cells:Array.from({length:24},(_,index)=>({key:`base-${index}`})),
+    renderBudget:24}),/adaptive Stage3 prerequisite provenance/);
+  assert.throws(()=>core.deriveExecutionPlan({...options,prerequisites:[{...adaptive,decision:'STAGE3E_MID_FULL_PASS'}]}),/adaptive Stage3 prerequisite provenance/);
+  assert.throws(()=>core.deriveExecutionPlan({...options,prerequisites:[{...adaptive,archiveSha256:'9'.repeat(64)}]}),/adaptive Stage3 prerequisite provenance/);
+  assert.throws(()=>core.deriveExecutionPlan({...options,prerequisites:[{stage:'stage3e',phase:'mid-full',decision:'STAGE3E_MID_FULL_PASS',
+    resultSha256:hashes[0],creatorRevision:revision}]}),/prerequisite evidence is incomplete/);
+});
+
+test('execution plans reject damaged dual stores and manifests cannot start without a matching plan',t=>{
+  const w=workspace(t),revision='a'.repeat(40),cells=Array.from({length:24},(_,index)=>({key:`cell-${index}`}));
+  const plan=core.verifyAndPersistExecutionPlan({roots:w.roots,root:w.repo,stage:'stage3e',phase:'baseline',cells,renderBudget:24,
+    identity:{source:'fixed'},prerequisites:[],nowRevision:()=>revision,isAncestor:()=>true});
+  const secondary=core.dualPaths(w.roots,plan.relative).secondary;fs.writeFileSync(secondary,'damaged');
+  assert.throws(()=>core.readDualBytes(w.roots,plan.relative),/BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE/);
+  const roots=workspace(t).roots,legacy=manifest(roots,'baseline',{source:'unbound'});legacy.executionPlanSha256='f'.repeat(64);delete legacy.authorizationSha256;
+  assert.throws(()=>core.initializePhase({roots,phase:'baseline',manifest:legacy,cells,renderBudget:24}),/BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE|missing durable copy/);
+});
+
+test('finalization preserves failures and is byte-stable on repeated verification',t=>{
+  const phase=startPhase(t),key='production-36-14';
+  core.startCell({roots:phase.roots,phase:phase.phase,cellKey:key,cell:phase.cells[0],identity:phase.identity,identityNow:()=>phase.identity});
+  core.completeCell({roots:phase.roots,phase:phase.phase,cellKey:key,observation:{metrics:{finite:true,peakDbfs:-2,outputGuardHits:0},syntheticTest:true,label:'SYNTHETIC TEST'}});
+  const first=core.finalizePhase({roots:phase.roots,phase:phase.phase,decision:'PASS',summary:{label:'SYNTHETIC TEST'},now:()=> '2026-10-13T00:02:00.000Z'});
+  const before=[statInventory(phase.roots.primary),statInventory(phase.roots.secondary)];
+  const second=core.finalizePhase({roots:phase.roots,phase:phase.phase,decision:'PASS',summary:{label:'SYNTHETIC TEST'},now:()=> '2026-10-13T01:02:00.000Z'});
+  assert.equal(first.sha256,second.sha256);assert.equal(first.archiveSha256,second.archiveSha256);
+  assert.deepEqual([statInventory(phase.roots.primary),statInventory(phase.roots.secondary)],before);
+  assert.equal(core.readFinal(phase.roots,phase.phase).result.decision,'PASS');
+});
+
+test('a failed observation cannot be finalized as PASS',t=>{
+  const phase=startPhase(t),key='production-36-14';
+  core.startCell({roots:phase.roots,phase:phase.phase,cellKey:key,cell:phase.cells[0],identity:phase.identity,identityNow:()=>phase.identity});
+  core.completeCell({roots:phase.roots,phase:phase.phase,cellKey:key,observation:{metrics:{finite:true,peakDbfs:0.1,outputGuardHits:0},syntheticTest:true,label:'SYNTHETIC TEST'}});
+  assert.throws(()=>core.finalizePhase({roots:phase.roots,phase:phase.phase,decision:'PASS'}),/failed observations cannot finalize as PASS/);
+});
+
+test('read-only dual-copy verification does not change size, SHA, or mtime',t=>{
+  const phase=startPhase(t),key='production-36-14';
+  core.startCell({roots:phase.roots,phase:phase.phase,cellKey:key,cell:phase.cells[0],identity:phase.identity,identityNow:()=>phase.identity});
+  const before=[statInventory(phase.roots.primary),statInventory(phase.roots.secondary)];
+  core.readPhaseLedger(phase.roots,phase.phase);core.readCell(phase.roots,phase.phase,key);core.readDualBytes(phase.roots,'phases/baseline/manifest.json');
+  assert.deepEqual([statInventory(phase.roots.primary),statInventory(phase.roots.secondary)],before);
+});

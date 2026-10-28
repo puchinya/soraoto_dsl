@@ -2,8 +2,8 @@
 "use strict";
 const ABI=0x00010000;
 const SECTION="soraoto.plugin.v1",INTERFACE_SECTION="soraoto.interface";
-const REQUIRED_DESCRIPTOR=["abi_major","abi_minor","id","vendor","name","version","kinds","max_instances","compatible_plugin_ids","required_wasm_features","required_host_features","optional_host_features","process_context_requirements","supports_f64","supports_in_place","deterministic_dsp","distributable","process_modes","io_modes","units","audio_buses","event_buses","routing_hints","parameters","controllers","note_expressions","articulations","key_switches","physical_ui_mappings","orchestral_articulations","controller_mappings","remote_representations","data_exchange_queues","parameter_aliases","factory_presets","program_lists","state","prefetch_support","max_event_output_per_block","max_host_requests_per_block","max_asset_requests_per_block","max_data_exchange_packets_per_block"];
-const REQUIRED_EXPORTS=["memory","soraoto_plugin_abi_version","soraoto_plugin_init","soraoto_plugin_terminate","soraoto_alloc","soraoto_free","soraoto_plugin_control","soraoto_plugin_activate","soraoto_plugin_deactivate","soraoto_plugin_start_processing","soraoto_plugin_stop_processing","soraoto_plugin_process","soraoto_plugin_reset","soraoto_plugin_state_snapshot","soraoto_plugin_state_load","soraoto_plugin_latency_samples","soraoto_plugin_tail_samples"];
+const REQUIRED_DESCRIPTOR=["abi_major","abi_minor","id","vendor","name","version","kinds","max_instances","compatible_plugin_ids","required_wasm_features","required_host_features","optional_host_features","process_context_requirements","supports_f64","supports_in_place","deterministic_dsp","distributable","process_modes","io_modes","units","audio_buses","event_buses","routing_hints","parameters","controllers","note_expressions","articulations","key_switches","physical_ui_mappings","orchestral_articulations","controller_mappings","remote_representations","data_exchange_queues","parameter_aliases","factory_presets","program_lists","prefetch_support","max_event_output_per_block","max_host_requests_per_block","max_asset_requests_per_block","max_data_exchange_packets_per_block"];
+const REQUIRED_EXPORTS=["memory","soraoto_plugin_abi_version","soraoto_plugin_init","soraoto_plugin_terminate","soraoto_alloc","soraoto_free","soraoto_plugin_control","soraoto_plugin_activate","soraoto_plugin_deactivate","soraoto_plugin_start_processing","soraoto_plugin_stop_processing","soraoto_plugin_process","soraoto_plugin_reset","soraoto_plugin_latency_samples","soraoto_plugin_tail_samples"];
 const LEGACY_EXPORTS=new Set(["init","reset","set_parameter","process","note_on","note_off","note_expression"]);
 const workletPromises=new WeakMap(),pluginCache=new Map();
 function versioned(url){const s=String(url),sep=s.includes("?")?"&":"?";return `${s}${sep}v=${encodeURIComponent(window.SORAOTO_BUILD_ID||"dev")}`;}
@@ -16,7 +16,7 @@ function validateDescriptor(d){
   const units=d.units.filter(x=>Number(x.id)===0&&x.parent_id==null);if(units.length!==1)throw new Error("Plugin descriptor requires exactly one root unit id 0");
   const pids=new Set(),paths=new Set();for(const p of d.parameters){const id=Number(p.id);if(!Number.isInteger(id)||id<1||id>0xfffffffe)throw new Error(`Invalid Plugin parameter id ${p.id}`);if(pids.has(id))throw new Error(`Duplicate Plugin parameter id ${id}`);if(paths.has(p.path))throw new Error(`Duplicate Plugin parameter path ${p.path}`);pids.add(id);paths.add(p.path);}
   const bids=new Set();for(const b of [...d.audio_buses,...d.event_buses]){const id=Number(b.id);if(!Number.isInteger(id)||id<1||id>0xfffffffe)throw new Error(`Invalid Plugin bus id ${b.id}`);if(bids.has(id))throw new Error(`Duplicate Plugin-global bus id ${id}`);bids.add(id);}
-  if(!d.state||typeof d.state.schema_id!=="string"||!Number.isInteger(Number(d.state.schema_version))||!Number.isInteger(Number(d.state.max_snapshot_bytes))||Number(d.state.max_snapshot_bytes)<0)throw new Error("Invalid Plugin StateDescriptor");
+  if("state" in d)throw new Error("Plugin state metadata is forbidden; configure the instance from DSL");
   if(!["never","supported","state_dependent"].includes(d.prefetch_support))throw new Error(`Invalid prefetch_support ${d.prefetch_support}`);
   return d;
 }
@@ -95,7 +95,7 @@ function initialParameters(descriptor,props,explicit=[]){
   const formal=factoryPreset(descriptor,preset);
   return parametersFromProps(descriptor,props,explicit,{includeDefaults:!formal,legacyPreset:!formal});
 }
-function initialState(descriptor,props,explicit=[]){
+function initialConfiguration(descriptor,props,explicit=[]){
   const preset=props?.preset!=null?String(raw(props.preset)):null;
   const formal=factoryPreset(descriptor,preset);
   let parameters=parametersFromProps(descriptor,props,explicit,{includeDefaults:!formal,legacyPreset:!formal});
@@ -117,7 +117,7 @@ let liveNodeCount=0;
 async function makeNode(ctx,url,{kind=null,initialPlain=[],parameterProps=null}={}){
   await ensureWorklet(ctx);
   const plugin=await fetchPlugin(url),descriptor=plugin.descriptor,actualKind=kind||descriptor.kinds[0];
-  const init=initialState(descriptor,parameterProps,initialPlain);
+  const init=initialConfiguration(descriptor,parameterProps,initialPlain);
   const inputs=(descriptor.audio_buses||[]).filter(x=>x.direction==="input"&&x.default_active).length,maxFrames=128,configBytes=SoraotoPluginCBOR.encode(configFor(ctx,descriptor,maxFrames));
   const node=new AudioWorkletNode(ctx,"soraoto-plugin-v1",{numberOfInputs:inputs,numberOfOutputs:1,outputChannelCount:[2],channelCount:2,processorOptions:{wasmBytes:plugin.bytes,descriptor,descriptorBytes:plugin.descriptorBytes,configBytes,maxFrames,initialParameters:init.parameters,factoryPresetId:init.factoryPresetId,factoryPresetRequest:init.factoryPresetRequest}});
   liveNodeCount++;
@@ -184,5 +184,5 @@ async function makeNode(ctx,url,{kind=null,initialPlain=[],parameterProps=null}=
 }
 async function createEffect(ctx,url,initialPlain=[],parameterProps=null){return makeNode(ctx,url,{kind:"effect",initialPlain,parameterProps});}
 async function createInstrument(ctx,url,parameterProps={}){return makeNode(ctx,url,{kind:"instrument",parameterProps});}
-window.SoraotoPluginHost={ABI,SECTION,INTERFACE_SECTION,validateModule,validateDescriptor,validateInterfaceSection,fetchPlugin,createEffect,createInstrument,ensureWorklet,initialParameters,initialState,factoryPreset,normalize,stats:()=>({liveNodeCount,pluginCacheEntries:pluginCache.size})};
+window.SoraotoPluginHost={ABI,SECTION,INTERFACE_SECTION,validateModule,validateDescriptor,validateInterfaceSection,fetchPlugin,createEffect,createInstrument,ensureWorklet,initialParameters,initialConfiguration,factoryPreset,normalize,stats:()=>({liveNodeCount,pluginCacheEntries:pluginCache.size})};
 })();

@@ -1,0 +1,138 @@
+{
+  "schemaVersion": 1,
+  "studyNamePrefix": "issue-7-grand-v9-stage2d-velocity-hardness-v1",
+  "seed": 7,
+  "sampler": {
+    "library": "optuna",
+    "class": "GPSampler",
+    "deterministicObjective": true,
+    "startupTrials": 10,
+    "parallelJobs": 1
+  },
+  "preset": "concert_grand",
+  "oatAmounts": [0.0, 0.25, 0.5, 0.75, 1.0],
+  "oatCenters": [
+    {
+      "key": "center-a",
+      "candidateId": "split-v3-s2-0002",
+      "parameters": {
+        "effective_strike_position_c4": 0.15290501330575818,
+        "hammer.compression_scale": 0.0009709920158189933,
+        "piano_hammer_hardness": 0.7686475065195093,
+        "piano_inharmonicity": 0.3529783659443947,
+        "piano_string_damping": 0.2760490483306951,
+        "piano_string_unison": 0.4528429325464004
+      },
+      "historicalSourceIdentity": {
+        "sourceRevision": "6f4ab32bf20f9267eeb368aa4d7809e0fe846329",
+        "sourceTreeSha256": "1bb4f74eaa2f507c36a9342a551c093784a6c5fe300394f947ff9b94489bee4c",
+        "evaluatorSha256": "1284545a1a151f1819355f35d5c0e62ed88064d76f5678d1b9993918638872f1",
+        "configSha256": "02c6623eb18e80de4690e618c60ab0dd0b5f3aa1690a1204d896807927b14764",
+        "wasmSha256": "8b6c486fec05489bdfe10d595e99759ef61a692c46ab2592e8f411a4e642c38d"
+      }
+    },
+    {
+      "key": "center-b",
+      "candidateId": "split-v3-s2-0001",
+      "resolvedFromCandidateId": "stage2b-v1-0001",
+      "parameterVectorResolution": "Exact match of all six numeric parameters between stage2b-v1-0001/candidates and split-v3-s2-0001/candidates; split-v3-s2-0001 is the stored Stage-2 PASS candidate in the current Stage-2 generation.",
+      "parameters": {
+        "effective_strike_position_c4": 0.1371616458287008,
+        "hammer.compression_scale": 0.0005,
+        "piano_hammer_hardness": 0.3355742390520672,
+        "piano_inharmonicity": 0.08366831614182263,
+        "piano_string_damping": 1.0,
+        "piano_string_unison": 1.0
+      },
+      "historicalSourceIdentity": {
+        "sourceRevision": "6f4ab32bf20f9267eeb368aa4d7809e0fe846329",
+        "sourceTreeSha256": "1bb4f74eaa2f507c36a9342a551c093784a6c5fe300394f947ff9b94489bee4c",
+        "evaluatorSha256": "1284545a1a151f1819355f35d5c0e62ed88064d76f5678d1b9993918638872f1",
+        "configSha256": "5fc09ca57c06462ddc3272881de6f3fb0aab00c766224eb42fb7228068b6a89f",
+        "wasmSha256": "a6372633a3c43007a37baebfb6344a6107fcd0d67dcd2f18eb9b9ee70ef43c25"
+      }
+    }
+  ],
+  "dimensions": [
+    {
+      "name": "effective_strike_position_c4",
+      "type": "float",
+      "min": 0.13,
+      "max": 0.17,
+      "scale": "linear",
+      "baseline": 0.14958620689655173
+    },
+    {
+      "name": "hammer.compression_scale",
+      "type": "float",
+      "min": 0.0005,
+      "max": 0.002,
+      "scale": "linear",
+      "baseline": 0.001
+    },
+    {
+      "name": "piano_hammer_hardness",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.85
+    },
+    {
+      "name": "piano_inharmonicity",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.2
+    },
+    {
+      "name": "piano_string_damping",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.0
+    },
+    {
+      "name": "piano_string_unison",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.58
+    },
+    {
+      "name": "hammer.velocity_hardness_amount",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.0,
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbol": "concert_grand.engine_config.hammer.velocity_hardness_amount",
+      "applyTo": "preset.engine_config.hammer.velocity_hardness_amount"
+    }
+  ],
+  "screening": {
+    "pitches": [21, 48, 60, 84, 108],
+    "velocities": [14, 61, 124],
+    "pitchAuthority": "wasm/plugins/dsp/super-synth/test/tools/piano-pitch-estimator.cjs",
+    "acousticMetrics": "wasm/plugins/dsp/super-synth/test/tools/salamander-metrics.cjs",
+    "referenceFixture": "wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json",
+    "stage2bSubset": ".agent-state/issues/7/calibration-optuna/stage2b/diagnostic-subset.json",
+    "retainContinuousMetrics": true,
+    "acousticPassFailReduction": false
+  },
+  "blockModeBudget": {
+    "maxPhysicalCandidates": 25,
+    "oatCandidates": 10,
+    "maxGpCandidates": 15,
+    "stopAfterFeasible": 3
+  },
+  "authority": {
+    "postAttackRequiredImprovementDb": 2.5,
+    "dynamicSpanRequiredImprovementDb": 2.0,
+    "brightnessDirectionFeasibleViolation": 0.0
+  }
+}
