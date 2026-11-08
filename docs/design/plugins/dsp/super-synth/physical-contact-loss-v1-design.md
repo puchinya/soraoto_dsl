@@ -34,7 +34,13 @@ hardCap   = 42 calls
 
 Choose a single immutable reference source (the authenticated Salamander V3 archive) and existing official evaluator `stage3-direct-reference-metrics.cjs`. Preserve signed EARLY/LATE, shape, level, finite/guard, peak, centroid/above2k, velocity span and brightness tests. A lower weighted research loss cannot rank a hard-gate-FAIL candidate ahead of a PASS. For eligible candidates rank official violation → family loss → |alpha−1| → alpha. A candidate counts as measured only with all seven readback-valid WAV/metadata pairs; no partial promotion. Baseline unsafe/unverified stops before any nonbaseline render. An entirely unsuccessful family stops with `PHYSICAL_CONTACT_LOSS_FAMILY_INSUFFICIENT` and leaves 1,962 acceptance calls untouched.
 
+The acceptance-producing `selectCandidate` API accepts all six reports in canonical alpha order and a `VERIFIED_DUAL_STORE` receipt for the complete 42-call plan. The receipt must show 42 started, 42 complete, zero ambiguous calls, every canonical call ID/state with valid WAV and metadata SHA-256, matching verified source-head and WASM identities for every call, and a `VERIFIED_SOURCE_BOUND_NEW_BUILD` alpha=1 baseline identity. Each report must contain the exact seven canonical cells in canonical order. Missing or reordered vectors, missing/unsafe baseline identity, or incomplete/ambiguous ledger returns `BLOCKED_INCOMPLETE_EXPERIMENT` or `BLOCKED_BASELINE_UNSAFE`; neither the finite family-failure terminal nor PASS can be produced from a subset. A failed result is a finite family terminal only after all 42 calls and all six complete reports have been verified.
+
+For each official velocity row, derive span error as `abs(actualSpanDb - referenceSpanDb)` and compare the stored `errorDb`, `violationDb`, row failure flag, and aggregate `dynamicSpan` summary/per-pitch values to that derivation with an arithmetic tolerance of `1e-9 dB`. The official row and aggregate direct-pitch failure counts must match the row flags. Apply the official `LIMITS.dynamicSpanErrorDb` value (8 dB) to the derived error. Reject missing rows, inconsistent flags, or inconsistent aggregate counts before candidate ranking.
+
 The starting conjecture is **`HAMMER_CONTACT_DISSIPATION_HYPOTHESIS`**, not confirmed physics. Gate3 input is the accepted 20×7 offline evidence plus separate v3/v4 tags; the logged MIDI96 velocity124 EARLY dominance is not a causal identification. Explicit negative predictions include no EARLY improvement, LATE deterioration, peak/guard violation, or new failure elsewhere. Historical Stage3 MIDI96 v31/v36 errors remain separate unless their capture lineage is authenticated.
+
+`--analyze` remains read-only. `--prepare` stores its complete deterministic Gate3 report as `gate3-analysis.json` in both new-epoch stores and binds its SHA-256 into `prepare.json`. Candidate selection and all acceptance summaries are recomputed from the stored WAV/metadata pairs on every continuation; an existing summary cannot substitute for its source rows. After the two approved promotion files are committed, a restart validates the exact parent, tree, changed-path set, parameter values, and remote PR HEAD before writing the promotion receipt. It never rerenders completed calls to repair a missing receipt.
 
 ## Evidence identity, repeat and cancellation
 
@@ -76,6 +82,8 @@ ACOUSTIC_PASS_AWAITING_FINAL_REVIEW
 ```
 
 Cumulative `3251 + 42 + (25+4+24+486+1423) = 5255`; no borrowing or broadening. No stage after a failed predecessor. Existing production/release artifacts are allowed different SHA and export sets if the accepted per-sample PCM equivalence proof passes; both must be source-bound, and the diagnostic setter cannot appear in the release export list.
+
+Before the first approved render, the runner estimates both evidence stores' maximum WAV and metadata footprint plus the two promoted build trees; it blocks before charging if either store lacks space. It rechecks the remaining Stage4 footprint before the 1,423-cell lifecycle sequence. Stage3 writes all 486 direct/sentinel WAV and metadata pairs before applying the official 480-cell direct-reference evaluation and six deterministic sentinel comparisons. Stage4 writes all 1,408 lifecycle plus 15 repeat WAV/metadata pairs, checks their source-bound identities, then invokes the existing adjacent/velocity conformance evaluator against a temporary read-only serialization of those stored rows.
 
 ## Concrete failure-mode tests and review checkpoints
 

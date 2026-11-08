@@ -250,6 +250,9 @@ static float g_wt[WT_FRAMES][WT_MIPS][WT_SIZE];
 static float g_params[PARAM_COUNT];
 static GrandEngineConfig g_grand_config;
 static uint32_t g_grand_preset_id=SORAOTO_GRAND_DEFAULT_PRESET_ID;
+#if defined(SORAOTO_SUPERSYNTH_CONTACT_LOSS_DIAGNOSTICS)
+static float g_contact_loss_diagnostic_alpha=1.0f;
+#endif
 static float g_cutoff_smooth = 7200.0f;
 static float g_master_smooth = 0.12f;
 static float g_lfo1_phase = 0.0f;
@@ -656,7 +659,12 @@ static void grand_reset_profile_runtime(void){
 static void grand_select_profile(uint16_t profile_index){
   if(profile_index>=SORAOTO_GRAND_PROFILE_COUNT)return;
   uint32_t next_id=soraoto_grand_profile_preset_ids[profile_index];
-  if(next_id!=g_grand_preset_id)grand_reset_profile_runtime();
+  if(next_id!=g_grand_preset_id){
+    grand_reset_profile_runtime();
+#if defined(SORAOTO_SUPERSYNTH_CONTACT_LOSS_DIAGNOSTICS)
+    g_contact_loss_diagnostic_alpha=1.0f;
+#endif
+  }
   g_grand_config=soraoto_grand_profiles[profile_index];g_grand_preset_id=next_id;
 #if defined(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS)
   g_stage3e_velocity_launch_scale_low=g_grand_config.hammer.velocity_launch_scale_low;
@@ -740,6 +748,9 @@ void dsp_init(int sample_rate,int max_block_size){
   (void)max_block_size;
   g_sr=sample_rate>8000?sample_rate:48000;
   defaults();
+#if defined(SORAOTO_SUPERSYNTH_CONTACT_LOSS_DIAGNOSTICS)
+  g_contact_loss_diagnostic_alpha=1.0f;
+#endif
   int default_profile=soraoto_grand_profile_index_for_preset_id(SORAOTO_GRAND_DEFAULT_PRESET_ID);
   if(default_profile>=0){g_grand_config=soraoto_grand_profiles[default_profile];g_grand_preset_id=SORAOTO_GRAND_DEFAULT_PRESET_ID;}
 #if defined(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS)
@@ -818,6 +829,45 @@ void soraoto_supersynth_physical_identification_observation_reset(void){
 }
 float soraoto_supersynth_physical_identification_observation(unsigned int index){
   return index<PHYSICAL_IDENTIFICATION_OBSERVATION_COUNT?g_physical_identification_observations[index]:-1.0f;
+}
+#endif
+
+#if defined(SORAOTO_SUPERSYNTH_CONTACT_LOSS_DIAGNOSTICS)
+static int contact_loss_diagnostic_is_finite(float value){
+  return value==value&&value<=3.402823466e+38f&&value>=-3.402823466e+38f;
+}
+static int contact_loss_diagnostic_profile(void){
+  int profile=soraoto_grand_profile_index_for_preset_id(g_grand_preset_id);
+  return profile>=0&&profile<SORAOTO_GRAND_PROFILE_COUNT?profile:-1;
+}
+static int contact_loss_diagnostic_engine_ready(void){
+  return clampi((int)(g_params[P_ENGINE]+0.5f),0,9)==9&&g_active_voice_mask==0u;
+}
+int soraoto_supersynth_contact_loss_set(float value){
+  static const float canonical_alpha[]={1.00f,0.50f,0.65f,0.80f,1.20f,1.40f};
+  if(!contact_loss_diagnostic_is_finite(value))return -1;
+  int selected=-1;
+  for(int i=0;i<(int)(sizeof(canonical_alpha)/sizeof(canonical_alpha[0]));i++)
+    if(value-canonical_alpha[i]<=1.0e-6f&&canonical_alpha[i]-value<=1.0e-6f){selected=i;break;}
+  if(selected<0)return -1;
+  if(!contact_loss_diagnostic_engine_ready())return -2;
+  int profile=contact_loss_diagnostic_profile();
+  if(profile<0)return -3;
+  const GrandHammerConfig* base=&soraoto_grand_profiles[profile].hammer;
+  float soft=base->contact_loss_soft*canonical_alpha[selected];
+  float hard=base->contact_loss_hard*canonical_alpha[selected];
+  if(!contact_loss_diagnostic_is_finite(base->contact_loss_soft)
+      ||!contact_loss_diagnostic_is_finite(base->contact_loss_hard)
+      ||!contact_loss_diagnostic_is_finite(soft)||!contact_loss_diagnostic_is_finite(hard))return -3;
+  g_grand_config.hammer.contact_loss_soft=soft;
+  g_grand_config.hammer.contact_loss_hard=hard;
+  g_contact_loss_diagnostic_alpha=canonical_alpha[selected];
+  dsp_reset();
+  return 0;
+}
+float soraoto_supersynth_contact_loss_get(void){
+  if(!contact_loss_diagnostic_engine_ready()||contact_loss_diagnostic_profile()<0)return -1.0f;
+  return g_contact_loss_diagnostic_alpha;
 }
 #endif
 

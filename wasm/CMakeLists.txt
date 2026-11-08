@@ -17,6 +17,9 @@ option(SORAOTO_SUPERSYNTH_STAGE3E_DIAGNOSTICS
 option(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS
   "Build test-only bounded physical-parameter identification controls for SuperSynth"
   OFF)
+option(SORAOTO_SUPERSYNTH_CONTACT_LOSS_DIAGNOSTICS
+  "Build test-only bounded hammer contact-loss controls for SuperSynth"
+  OFF)
 include(cmake/wasm_plugin.cmake)
 
 set(SORAOTO_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
@@ -69,6 +72,15 @@ add_subdirectory(plugins/dsp/super-synth)
 if(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
   if(NOT BUILD_TESTING OR NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
     message(FATAL_ERROR "Physical-identification diagnostics require BUILD_TESTING=ON and SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON")
+  endif()
+endif()
+
+if(SORAOTO_SUPERSYNTH_CONTACT_LOSS_DIAGNOSTICS)
+  if(NOT BUILD_TESTING OR NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS)
+    message(FATAL_ERROR "Contact-loss diagnostics require BUILD_TESTING=ON and SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS=ON")
+  endif()
+  if(SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS)
+    message(FATAL_ERROR "Contact-loss and physical-identification diagnostics are mutually exclusive")
   endif()
 endif()
 
@@ -135,7 +147,9 @@ if(BUILD_TESTING AND SORAOTO_NODE_EXECUTABLE)
     run-issue7-stage3-current-build.test.cjs
     run-issue7-stage4-current-build.test.cjs
     run-issue7-current-build.test.cjs
-    run-issue7-physical-identification-v1.test.cjs)
+    run-issue7-physical-identification-v1.test.cjs
+    issue7-contact-loss-v1-core.test.cjs
+    run-issue7-contact-loss-v1.test.cjs)
   foreach(test_file IN LISTS SORAOTO_STAGE3E_EVIDENCE_TESTS)
     string(REPLACE ".test.cjs" "" test_name "${test_file}")
     add_test(NAME "wasm.dsp.super-synth.${test_name}"
