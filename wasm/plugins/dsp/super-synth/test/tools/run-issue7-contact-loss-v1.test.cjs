@@ -127,6 +127,18 @@ test('read-only status reports exact counters and creates no epoch files', () =>
   assert.equal(fs.existsSync(context.roots.secondary), beforeSecondary);
 });
 
+test('frozen-snapshot binding derives an omitted legacy digest without rewriting evidence', () => {
+  const snapshot = {parent: [{path: 'ledger.json', sha256: 'a'.repeat(64), size: 17, mtimeMs: 1}]};
+  const legacy = {frozenEvidenceSnapshot: snapshot, gate3: {}};
+  assert.equal(runner.assertFrozenSnapshotMatches(snapshot, legacy), true);
+  assert.throws(() => runner.assertFrozenSnapshotMatches({parent: []}, legacy), /FROZEN_EVIDENCE_DRIFT/);
+  const forgedDigest = {frozenEvidenceSnapshot: snapshot, gate3: {frozenSnapshotSha256: 'b'.repeat(64)}};
+  assert.throws(() => runner.assertFrozenSnapshotMatches(snapshot, forgedDigest), /FROZEN_EVIDENCE_DRIFT/);
+  const current = {frozenEvidenceSnapshot: snapshot,
+    gate3: {frozenSnapshotSha256: runner.frozenSnapshotSha256(snapshot)}};
+  assert.equal(runner.assertFrozenSnapshotMatches(snapshot, current), true);
+});
+
 test('read-only CLI modes are mutually exclusive and unknown flags are rejected', () => {
   assert.equal(runner.parseMode(['--status']), 'status');
   assert.throws(() => runner.parseMode(['--status', '--verify']), /Usage:/);

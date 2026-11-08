@@ -312,6 +312,15 @@ function frozenSourceSnapshot({root = ROOT, home = os.homedir(), commonDirectory
   return {parentEvidence: offline.snapshotSources(roots), offlineEpochs};
 }
 function frozenSnapshotSha256(snapshot) { return sha256(Buffer.from(JSON.stringify(stable(snapshot)))); }
+function assertFrozenSnapshotMatches(actual, prepare) {
+  const expected = prepare?.frozenEvidenceSnapshot;
+  if (!expected || !sameJson(actual, expected)) throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_DRIFT');
+  // Older immutable prepare records bind the full snapshot directly; derive
+  // this redundant digest instead of rewriting those records.
+  const expectedSha256 = prepare.gate3?.frozenSnapshotSha256 || frozenSnapshotSha256(expected);
+  if (frozenSnapshotSha256(actual) !== expectedSha256) throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_DRIFT');
+  return true;
+}
 function gate3Analysis({root = ROOT, home = os.homedir(), commonDirectory} = {}) {
   const identity = currentIdentity(root), pr = verifiedPullRequest(root, identity.head);
   const offline = latestOfflineReport(root, home, commonDirectory, identity.head);
@@ -387,7 +396,8 @@ function prepareExperiment({root = ROOT, home = os.homedir(), commonDirectory, b
     contractSha256: CONTRACT_SHA256, approvalMarker: ISSUE_APPROVAL_MARKER,
     gate3: {status: analysis.status, offlineEpoch: analysis.offlineEpoch, offlineReportSha256: analysis.offlineReportSha256,
       archiveSha256: analysis.archiveSha256, observationCount: analysis.observationCount, cellCount: analysis.cellCount,
-      causalStatus: analysis.causalStatus, hypothesis: analysis.hypothesis},
+      causalStatus: analysis.causalStatus, hypothesis: analysis.hypothesis,
+      frozenSnapshotSha256: analysis.frozenSnapshotSha256},
     source, build, frozenEvidenceSnapshot, plan: core.plan(), startedCalls: 0, completedCalls: 0, ambiguousCalls: 0,
     budget: core.accounting(), createdAt: new Date().toISOString()};
   const lock = acquireLock(roots);
@@ -600,10 +610,7 @@ function verifyPreparedCurrent(roots, state, {root = ROOT, home = os.homedir(), 
     throw new Error('BLOCKED_CONTACT_LOSS_GATE3_REPORT_IDENTITY');
   }
   const frozenNow = frozenSourceSnapshot({root, home, commonDirectory});
-  if (!sameJson(frozenNow, state.prepare.frozenEvidenceSnapshot)
-      || frozenSnapshotSha256(frozenNow) !== state.prepare.gate3.frozenSnapshotSha256) {
-    throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_DRIFT');
-  }
+  assertFrozenSnapshotMatches(frozenNow, state.prepare);
   const currentBuild = verifyDiagnosticBuild(root, identity.head, {buildDirectory});
   if (currentBuild.wasm.sha256 !== state.prepare.build.wasm.sha256 || !sameJson(currentBuild.source, state.prepare.source)) {
     throw new Error('BLOCKED_CONTACT_LOSS_BUILD_DRIFT');
@@ -763,10 +770,7 @@ function verifyStoredAlphaResults(roots, state, {root = ROOT, home = os.homedir(
       throw new Error('BLOCKED_CONTACT_LOSS_PREPARE_EVIDENCE_DRIFT');
     }
     const frozen = frozenSourceSnapshot({root, home, commonDirectory});
-    if (!sameJson(frozen, state.prepare.frozenEvidenceSnapshot)
-        || frozenSnapshotSha256(frozen) !== state.prepare.gate3.frozenSnapshotSha256) {
-      throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_DRIFT');
-    }
+    assertFrozenSnapshotMatches(frozen, state.prepare);
     const offline = latestOfflineReport(root, home, commonDirectory, state.prepare.head);
     if (offline.reportSha256 !== state.prepare.gate3.offlineReportSha256) throw new Error('BLOCKED_CONTACT_LOSS_OFFLINE_EVIDENCE_DRIFT');
     const directory = path.resolve(root, buildDirectory || state.prepare.build.diagnosticBuildDirectory);
@@ -1081,10 +1085,7 @@ function verifyPromotedAuthority({roots, state, root = ROOT, home = os.homedir()
   const priorOffline = latestOfflineReport(root, home, commonDirectory, state.prepare.head);
   if (priorOffline.reportSha256 !== state.prepare.gate3.offlineReportSha256) throw new Error('BLOCKED_CONTACT_LOSS_OFFLINE_EVIDENCE_DRIFT');
   const frozen = frozenSourceSnapshot({root, home, commonDirectory});
-  if (!sameJson(frozen, state.prepare.frozenEvidenceSnapshot)
-      || frozenSnapshotSha256(frozen) !== state.prepare.gate3.frozenSnapshotSha256) {
-    throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_DRIFT');
-  }
+  assertFrozenSnapshotMatches(frozen, state.prepare);
   return {...identity, promotion: record, promotionSha256: promotion.sha256};
 }
 function promoteSelected({roots, state, selection, root = ROOT} = {}) {
@@ -1669,7 +1670,7 @@ if (require.main === module) {
 module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA256, SOURCE_FILES,
   resolveRoots, readDual, readJsonDual, writeDualImmutable, currentIdentity, verifiedPullRequest,
   verifyIssueApproval, latestOfflineReport, gate3Analysis, verifyDiagnosticBuild, prepareExperiment,
-  frozenSourceSnapshot, frozenSnapshotSha256, readExperimentState, writeFloatWav, renderCall, referenceRows,
+  frozenSourceSnapshot, frozenSnapshotSha256, assertFrozenSnapshotMatches, readExperimentState, writeFloatWav, renderCall, referenceRows,
   scoreAlpha, scoreCompletedAlpha, verifiedReceipt, runBounded, verifyStoredAlphaResults, verifyExperiment,
   buildPromotedPair, renderPromotedCell, renderReleaseCell, releaseEquivalenceReport, estimateDualEvidenceBytes,
   assertEvidenceCapacity, stage3Cells,
