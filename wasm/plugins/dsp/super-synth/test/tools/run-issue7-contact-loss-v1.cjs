@@ -462,6 +462,9 @@ function readExperimentState(roots) {
     if (!complete) { ambiguous++; calls.push({cell: item, status: 'AMBIGUOUS'}); gap = true; continue; }
     const audio = readDual(roots, `${base}/audio.wav`, {required: true});
     const metadata = readJsonDual(roots, `${base}/metadata.json`, {required: true});
+    let normalizedMetrics;
+    try { normalizedMetrics = normalizeAnalyzerMetrics(metadata.value.metrics, metadata.value.guardHits); }
+    catch { throw new Error('BLOCKED_CONTACT_LOSS_COMPLETE_IDENTITY'); }
     if (complete.value.schemaVersion !== 1 || complete.value.state !== 'COMPLETE' || complete.value.id !== item.id
         || complete.value.audioSha256 !== audio.sha256
         || complete.value.metadataSha256 !== metadata.sha256 || metadata.value.id !== item.id
@@ -469,7 +472,7 @@ function readExperimentState(roots) {
         || metadata.value.pitch !== item.pitch || metadata.value.velocity !== item.velocity
         || metadata.value.cellOrder !== item.cellOrder
         || metadata.value.sourceHead !== prepared.value.head || metadata.value.wasmSha256 !== prepared.value.build.wasm.sha256
-        || metadata.value.audioSha256 !== audio.sha256 || typeof metadata.value.finite !== 'boolean'
+        || metadata.value.audioSha256 !== audio.sha256 || metadata.value.finite !== normalizedMetrics.official.finite
         || !Number.isSafeInteger(metadata.value.guardHits) || metadata.value.guardHits < 0) {
       throw new Error('BLOCKED_CONTACT_LOSS_COMPLETE_IDENTITY');
     }
@@ -499,13 +502,55 @@ function writeFloatWav(left, right) {
   return out;
 }
 
-function renderCall({root = ROOT, buildDirectory, cell}) {
+function officialMetricPayload(metrics) {
+  const official = metrics?.official || metrics;
+  if (!official || typeof official !== 'object' || typeof official.finite !== 'boolean'
+      || !Array.isArray(official.envelopeDbfs) || official.envelopeDbfs.length < 5
+      || !official.envelopeDbfs.every(Number.isFinite)
+      || !Number.isFinite(official.peakDbfs) || !Number.isFinite(official.spectralCentroidHz)
+      || official.spectralCentroidHz <= 0 || !Number.isFinite(official.above2kPowerRatio)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_ANALYZER_METRICS');
+  }
+  return official;
+}
+function normalizeAnalyzerMetrics(metrics, guardHits = metrics?.outputGuardHits ?? metrics?.official?.outputGuardHits ?? 0) {
+  if (!metrics || typeof metrics !== 'object' || !metrics.official || typeof metrics.official !== 'object'
+      || !Number.isSafeInteger(guardHits) || guardHits < 0) throw new Error('BLOCKED_CONTACT_LOSS_ANALYZER_METRICS');
+  const official = officialMetricPayload(metrics);
+  return {...metrics, outputGuardHits: guardHits, official: {...official, outputGuardHits: guardHits}};
+}
+function analyzerFixture(pitch = 69) {
+  const left = new Float32Array(RENDER_FRAMES), right = new Float32Array(RENDER_FRAMES);
+  const frequency = 440 * 2 ** ((pitch - 69) / 12);
+  for (let index = 0; index < left.length; index++) {
+    const phase = 2 * Math.PI * frequency * index / SAMPLE_RATE;
+    left[index] = 0.12 * (Math.sin(phase) + 0.17 * Math.sin(phase * 2));
+    right[index] = 0.115 * (Math.sin(phase) + 0.15 * Math.sin(phase * 2));
+  }
+  return {left, right};
+}
+function assertAnalyzerContract() {
+  const analyzer = require('./analyze-issue7-physical-identification.cjs');
+  const {left, right} = analyzerFixture(96);
+  normalizeAnalyzerMetrics(analyzer.analyze(left, right, 96, SAMPLE_RATE), 0);
+  return {status: 'ANALYZER_SHAPE_PASS', fixtureFrames: left.length};
+}
+function captureMetadata({cell, sourceHead, wasmSha256, guardHits, metrics}) {
+  const normalizedMetrics = normalizeAnalyzerMetrics(metrics, guardHits);
+  return {id: cell.id, alpha: cell.alpha, alphaOrder: cell.alphaOrder, pitch: cell.pitch,
+    velocity: cell.velocity, cellOrder: cell.cellOrder, sourceHead, wasmSha256,
+    finite: normalizedMetrics.official.finite, guardHits, metrics: normalizedMetrics};
+}
+
+function renderCall({root = ROOT, buildDirectory, cell, harnessFactory}) {
   const {PluginHarness} = require('../../../../../test/helpers/plugin-harness.cjs');
   const oldBuild = process.env.SORAOTO_WASM_BUILD_DIR;
   process.env.SORAOTO_WASM_BUILD_DIR = path.resolve(root, buildDirectory || DIAGNOSTIC_BUILD_REL);
   let harness;
   try {
-    harness = new PluginHarness(root, WASM_REL, {sampleRate: SAMPLE_RATE, maxFrames: BLOCK_FRAMES});
+    harness = harnessFactory
+      ? harnessFactory(root, WASM_REL, {sampleRate: SAMPLE_RATE, maxFrames: BLOCK_FRAMES})
+      : new PluginHarness(root, WASM_REL, {sampleRate: SAMPLE_RATE, maxFrames: BLOCK_FRAMES});
     harness.applyPreset('concert_grand');
     for (const [name, value] of [['engine_model', 'concert_grand'], ['voice_drift', 0], ['lfo1_pitch', 0], ['chorus_mix', 0]]) harness.setPlain(name, value);
     const setter = harness.e.soraoto_supersynth_contact_loss_set, getter = harness.e.soraoto_supersynth_contact_loss_get;
@@ -520,13 +565,11 @@ function renderCall({root = ROOT, buildDirectory, cell}) {
       left.set(output[0][0], position); right.set(output[0][1], position);
     }
     const guardHits = harness.e.soraoto_supersynth_guard_hit_count() - guardStart;
-    const audio = writeFloatWav(left, right), metrics = require('./analyze-issue7-physical-identification.cjs')
+    const audio = writeFloatWav(left, right), analyzed = require('./analyze-issue7-physical-identification.cjs')
       .analyze(left, right, cell.pitch, SAMPLE_RATE);
-    metrics.outputGuardHits = guardHits;
-    return {audio, metadata: {id: cell.id, alpha: cell.alpha, alphaOrder: cell.alphaOrder,
-      pitch: cell.pitch, velocity: cell.velocity, cellOrder: cell.cellOrder,
-      sourceHead: git(root, ['rev-parse', 'HEAD']), wasmSha256: sha256(harness.bytes),
-      finite: metrics.finite, guardHits, metrics}};
+    const metadata = captureMetadata({cell, sourceHead: git(root, ['rev-parse', 'HEAD']),
+      wasmSha256: sha256(harness.bytes), guardHits, metrics: analyzed});
+    return {audio, metadata};
   } finally {
     try { harness?.close(); } finally {
       if (oldBuild === undefined) delete process.env.SORAOTO_WASM_BUILD_DIR;
@@ -554,27 +597,32 @@ function scoreAlpha({alphaOrder, rows, refs, gainDb, sourceHead, wasmSha256}) {
     if (!source) throw new Error('BLOCKED_CONTACT_LOSS_ALPHA_CELL_MISSING');
     const ref = refs.find(row => row.pitch === pitch && row.velocity === velocity);
     if (!ref) throw new Error('BLOCKED_CONTACT_LOSS_REFERENCE_CELL_MISSING');
-    const audio = decodeAudio(source.audio.bytes), actualMetrics = require('./analyze-issue7-physical-identification.cjs')
+    const audio = decodeAudio(source.audio.bytes), analyzed = require('./analyze-issue7-physical-identification.cjs')
       .analyze(audio.left, audio.right, pitch, SAMPLE_RATE);
-    actualMetrics.outputGuardHits = source.metadata.value.guardHits;
-    return {cell: {pitch, velocity, cellOrder}, actual: {pitch, velocity, metrics: actualMetrics}, ref, audio};
+    const actualMetrics = normalizeAnalyzerMetrics(analyzed, source.metadata.value.guardHits);
+    const referenceMetrics = officialMetricPayload(ref.metrics);
+    return {cell: {pitch, velocity, cellOrder}, actual: {pitch, velocity, metrics: actualMetrics},
+      referenceMetrics, ref, audio};
   });
-  const evaluation = direct.evaluateDirectReferenceMatrix(cellRows.map(row => ({pitch: row.cell.pitch, velocity: row.cell.velocity, metrics: row.ref.metrics})),
-    cellRows.map(row => row.actual));
+  const evaluation = direct.evaluateDirectReferenceMatrix(cellRows.map(row => ({pitch: row.cell.pitch,
+    velocity: row.cell.velocity, metrics: row.referenceMetrics})),
+  cellRows.map(row => ({...row.actual, metrics: row.actual.metrics.official})));
   const effectiveGainDb = alphaOrder === 0
     ? loss.sharedGainDb(cellRows.map(row => row.ref.metrics), cellRows.map(row => row.actual.metrics))
     : gainDb;
   if (!Number.isFinite(effectiveGainDb)) throw new Error('BLOCKED_CONTACT_LOSS_SHARED_GAIN');
   const familyLoss = loss.candidateLoss(cellRows.map(row => ({pitch: row.cell.pitch, reference: row.ref.audio, model: row.audio})), effectiveGainDb).total;
   const result = {alpha: core.ALPHAS[alphaOrder], alphaOrder, familyLoss, official: evaluation, sharedGainDb: effectiveGainDb,
-    sourceHead, wasmSha256, cells: cellRows.map(({cell, actual, audio}, index) => ({...cell,
-      finite: actual.metrics.finite, guardHits: actual.metrics.outputGuardHits, peakDbfs: actual.metrics.peakDbfs,
+    sourceHead, wasmSha256, cells: cellRows.map(({cell, actual}, index) => ({...cell,
+      finite: actual.metrics.official.finite, guardHits: actual.metrics.official.outputGuardHits,
+      peakDbfs: actual.metrics.official.peakDbfs,
       wavSha256: rows.find(row => row.cell.pitch === cell.pitch && row.cell.velocity === cell.velocity).audio.sha256,
       metadataSha256: rows.find(row => row.cell.pitch === cell.pitch && row.cell.velocity === cell.velocity).metadata.sha256,
       measuredIndex: index}))};
   if (alphaOrder !== 0) core.classifyCandidate(result);
   return result;
 }
+
 function scoreCompletedAlpha({alphaOrder, calls, refs, gainDb, sourceHead, wasmSha256, evaluator = scoreAlpha}) {
   if (!Array.isArray(calls) || calls.length !== 7 || calls.some(row => row.status !== 'COMPLETE')) {
     throw new Error('BLOCKED_CONTACT_LOSS_ALPHA_INCOMPLETE');
@@ -659,6 +707,7 @@ function verifySelectionAfterPromotion({roots, state, selectionStored, root = RO
 
 function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDirectory,
   renderer = renderCall, evaluator = scoreAlpha, archivePath} = {}) {
+  assertAnalyzerContract();
   const roots = resolveRoots({root, home, commonDirectory}), state = readExperimentState(roots);
   if (!state.prepare) throw new Error('BLOCKED_CONTACT_LOSS_NOT_PREPARED');
   const priorTerminal = readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`);
@@ -1670,7 +1719,8 @@ if (require.main === module) {
 module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA256, SOURCE_FILES,
   resolveRoots, readDual, readJsonDual, writeDualImmutable, currentIdentity, verifiedPullRequest,
   verifyIssueApproval, latestOfflineReport, gate3Analysis, verifyDiagnosticBuild, prepareExperiment,
-  frozenSourceSnapshot, frozenSnapshotSha256, assertFrozenSnapshotMatches, readExperimentState, writeFloatWav, renderCall, referenceRows,
+  frozenSourceSnapshot, frozenSnapshotSha256, assertFrozenSnapshotMatches, readExperimentState, writeFloatWav,
+  officialMetricPayload, normalizeAnalyzerMetrics, analyzerFixture, assertAnalyzerContract, captureMetadata, renderCall, referenceRows,
   scoreAlpha, scoreCompletedAlpha, verifiedReceipt, runBounded, verifyStoredAlphaResults, verifyExperiment,
   buildPromotedPair, renderPromotedCell, renderReleaseCell, releaseEquivalenceReport, estimateDualEvidenceBytes,
   assertEvidenceCapacity, stage3Cells,
