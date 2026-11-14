@@ -1030,10 +1030,23 @@ function verifyStoredAlphaResults(roots, state, {root = ROOT, home = os.homedir(
   let baselineScore = null, baselineUnsafe = false, terminalMetricFailure = false;
   const terminalAlphaOrder = expectedTerminal?.status === 'BLOCKED_METRIC_RECOMPUTATION'
     ? (expectedTerminal.charged / 7) - 1 : -1;
+  const unsafeTerminalAlphaOrder = expectedTerminal?.status === 'BLOCKED_UNSAFE_CAPTURE'
+      && Number.isSafeInteger(expectedTerminal.charged) && expectedTerminal.charged % 7 === 0
+    ? (expectedTerminal.charged / 7) - 1 : -1;
+  let verifiedAlphaCount = 0;
+  if (expectedTerminal?.status === 'BLOCKED_UNSAFE_CAPTURE'
+      && (expectedTerminal.charged !== state.charged || expectedTerminal.completed !== state.completed
+        || expectedTerminal.ambiguous !== state.ambiguous)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
+  }
   for (let alphaOrder = 0; alphaOrder < core.ALPHAS.length; alphaOrder++) {
     const calls = state.calls.slice(alphaOrder * 7, alphaOrder * 7 + 7);
     if (calls.length !== 7 || calls.some(row => row.status !== 'COMPLETE')) break;
     const stored = readJsonDual(roots, `${EXPERIMENT_REL}/alpha-${String(alphaOrder).padStart(2, '0')}.json`);
+    if (alphaOrder === unsafeTerminalAlphaOrder) {
+      if (stored) throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_REPORT_UNEXPECTED');
+      break;
+    }
     if (expectedTerminal?.status === 'BLOCKED_METRIC_RECOMPUTATION' && alphaOrder === terminalAlphaOrder && stored) {
       throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_REPORT_UNEXPECTED');
     }
@@ -1062,11 +1075,12 @@ function verifyStoredAlphaResults(roots, state, {root = ROOT, home = os.homedir(
     if (!stored && createMissingReports) writeDualImmutable(roots, relative, jsonBytes(recomputed));
     else if (!stored) throw new Error(`BLOCKED_CONTACT_LOSS_ALPHA_REPORT_MISSING:alpha-${alphaOrder}`);
     else if (!sameJson(stored.value, recomputed)) throw new Error(`BLOCKED_CONTACT_LOSS_STORED_METRIC_MISMATCH:alpha-${alphaOrder}`);
+    verifiedAlphaCount++;
   }
   if (expectedTerminal?.status === 'BLOCKED_METRIC_RECOMPUTATION' && !terminalMetricFailure) {
     throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_FAILURE_NOT_REPRODUCED');
   }
-  return {status: 'PASS', verifiedAlphaCount: Math.min(6, Math.floor(state.completed / 7)),
+  return {status: 'PASS', verifiedAlphaCount,
     charged: state.charged, completed: state.completed, ambiguous: state.ambiguous, baselineUnsafe,
     terminalMetricFailure};
 }
@@ -1137,7 +1151,8 @@ function verifyExperiment(options = {}) {
     completed: state.completed, ambiguous: state.ambiguous, writes: 0, renders: 0, acousticCalls: 0};
   const before = snapshotReader({root, home, commonDirectory});
   const identity = preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory});
-  let alphaVerification = {baselineUnsafe: false, terminalMetricFailure: false};
+  let alphaVerification = {baselineUnsafe: false, terminalMetricFailure: false, verifiedAlphaCount: 0};
+  if (terminal) terminalExpectedRecord(terminal.value, state);
   const hasCompleteAlpha = Array.from({length: core.ALPHAS.length}, (_, alphaOrder) =>
     state.calls.slice(alphaOrder * 7, alphaOrder * 7 + 7)).some(calls =>
     calls.length === 7 && calls.every(row => row.status === 'COMPLETE'));
@@ -1146,7 +1161,6 @@ function verifyExperiment(options = {}) {
     alphaVerification = verifyStoredAlphaResults(roots, state, {root, home, commonDirectory,
       buildDirectory, refs, evaluator, expectedTerminal: terminal?.value, preparedVerifier});
   }
-  if (terminal) terminalExpectedRecord(terminal.value, state);
   if (terminal?.value.status === 'BLOCKED_METRIC_RECOMPUTATION' && !alphaVerification.terminalMetricFailure) {
     throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_FAILURE_NOT_REPRODUCED');
   }
@@ -1157,7 +1171,7 @@ function verifyExperiment(options = {}) {
     throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_SELECTION_CONFLICT');
   }
   let selection = null;
-  if (state.completed === 42 && state.charged === 42) {
+  if (state.completed === 42 && state.charged === 42 && !terminal) {
     if (state.candidateResults.length !== 6) throw new Error('BLOCKED_CONTACT_LOSS_CANDIDATE_REPORT_COUNT');
     const receipt = verifiedReceipt(state, identity), decision = core.selectCandidate(state.candidateResults, {receipt});
     const stored = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true}).value;
@@ -1173,7 +1187,7 @@ function verifyExperiment(options = {}) {
   if (!sameJson(before, after)) throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_CHANGED_DURING_VERIFY');
   return {status: terminal?.value.status || selection?.status || 'VERIFIED_IN_PROGRESS', epoch: ACTIVE_EPOCH,
     charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
-    verifiedAlphaCount: Math.min(6, Math.floor(state.completed / 7)), selection,
+    verifiedAlphaCount: alphaVerification.verifiedAlphaCount, selection,
     frozenEvidenceUnchanged: true, writes: 0, renders: 0, acousticCalls: 0};
 }
 
@@ -2012,7 +2026,9 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
       selection: 'NOT RUN', stage3: 'NOT RUN', stage4: 'NOT RUN', finalReport: 'NOT RUN',
       reports: {}, writes: 0, renders: 0, acousticCalls: 0};
   }
-  const selection = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`), reports = {};
+  const selection = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`);
+  const terminal = readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`);
+  const final = readJsonDual(roots, `${ACCEPTANCE_ROOT}/final-report.json`), reports = {};
   if (selection && (selection.value.epoch !== ACTIVE_EPOCH
       || selection.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) {
     return {status: 'BLOCKED_CONTACT_LOSS_SELECTION_IDENTITY', epoch: ACTIVE_EPOCH,
@@ -2023,6 +2039,57 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
       combinedCharged: null, cumulative: null, lifetimeCap: core.MAX_CALLS,
       selection: 'UNVERIFIED', stage3: 'NOT RUN', stage4: 'NOT RUN', finalReport: 'NOT RUN',
       reports: {}, writes: 0, renders: 0, acousticCalls: 0};
+  }
+  let executionBlocker = null, verifiedExecution = null, verifiedSelection = null;
+  if (state.prepare) {
+    try {
+      const identity = currentIdentity(root);
+      if (identity.head !== state.prepare.head || identity.head !== currentHead) {
+        throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
+      }
+      if (![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)) throw new Error('BLOCKED_CONTACT_LOSS_BRANCH');
+      if (!sameJson(sourceSnapshot(root), state.prepare.source)) throw new Error('BLOCKED_CONTACT_LOSS_SOURCE_DRIFT');
+      preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory});
+    } catch (error) { executionBlocker = blockerForStatus(error); }
+  }
+  if (selection || terminal || final) {
+    if (!state.prepare) executionBlocker ||= 'BLOCKED_CONTACT_LOSS_SELECTION_WITHOUT_PREPARE';
+    else if (selection && (state.charged !== 42 || state.completed !== 42 || state.ambiguous !== 0)) {
+      executionBlocker ||= 'BLOCKED_CONTACT_LOSS_SELECTION_LEDGER_INCOMPLETE';
+    } else if (!executionBlocker) {
+      try {
+        verifiedExecution = terminalVerifier({root, home, commonDirectory, buildDirectory,
+          parentVerifier, preparedVerifier, snapshotReader, referenceReader});
+        if (verifiedExecution.charged !== state.charged || verifiedExecution.completed !== state.completed
+            || verifiedExecution.ambiguous !== state.ambiguous) {
+          throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
+        }
+        if (terminal && verifiedExecution.status !== terminal.value.status) {
+          throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
+        }
+        if (selection) {
+          if (!verifiedExecution.selection || verifiedExecution.selection.status !== selection.value.status) {
+            throw new Error('BLOCKED_CONTACT_LOSS_SELECTION_MISMATCH');
+          }
+          verifiedSelection = verifiedExecution.selection;
+        } else if (verifiedExecution.selection) {
+          throw new Error('BLOCKED_CONTACT_LOSS_SELECTION_MISSING');
+        }
+        if (final && !verifiedSelection) throw new Error('BLOCKED_CONTACT_LOSS_FINAL_SELECTION_UNVERIFIED');
+      } catch (error) { executionBlocker = blockerForStatus(error); }
+    }
+  }
+  if (executionBlocker && (selection || terminal || final)) {
+    const parentCharged = parent.state.charged, combinedCharged = parentCharged + state.charged;
+    return {status: executionBlocker, epoch: ACTIVE_EPOCH,
+      activeLedgerStatus: 'VERIFIED', parentStatus: 'VERIFIED', parentHead: parent.proof.head,
+      parentCharged, parentPrepareSha256: parent.proof.prepareSha256,
+      preparedHead: state.prepare?.head || null, currentHead,
+      charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
+      acceptanceCharged: null, callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
+      combinedCharged, cumulative: null, lifetimeCap: core.MAX_CALLS,
+      selection: selection ? 'UNVERIFIED' : 'NOT RUN', stage3: 'NOT RUN', stage4: 'NOT RUN',
+      finalReport: final ? 'UNVERIFIED' : 'NOT RUN', reports: {}, writes: 0, renders: 0, acousticCalls: 0};
   }
   let acceptanceCharged = 0;
   const report = stage => {
@@ -2035,8 +2102,8 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
     acceptanceCharged += calls.charged;
     return calls;
   };
-  if (selection?.value.status === 'GATE4_STRESS_PASS') {
-    const alpha = selection.value.selected?.alpha;
+  if (verifiedSelection?.status === 'GATE4_STRESS_PASS') {
+    const alpha = verifiedSelection.selected?.alpha;
     if (!Number.isFinite(alpha)) throw new Error('BLOCKED_CONTACT_LOSS_SELECTED_ALPHA');
     count('confirmation', core.CONFIRMATION_CELLS.map((cell, index) => ({kind: 'confirmation', ...cell,
       cellOrder: index, alpha, alphaOrder: core.alphaIndex(alpha)})));
@@ -2050,32 +2117,11 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
       ...require('./capture-supersynth-stage4-lifecycle.cjs').REPEAT_CELLS];
     count('stage4', lifecycleCells); report('stage4');
   }
-  const final = readJsonDual(roots, `${ACCEPTANCE_ROOT}/final-report.json`);
   if (final && (final.value.epoch !== ACTIVE_EPOCH
       || final.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) throw new Error('BLOCKED_CONTACT_LOSS_FINAL_REPORT_IDENTITY');
-  let executionBlocker = null;
-  if (state.prepare) {
-    try {
-      const identity = currentIdentity(root);
-      if (identity.head !== state.prepare.head || identity.head !== currentHead) {
-        throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
-      }
-      if (![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)) throw new Error('BLOCKED_CONTACT_LOSS_BRANCH');
-      if (!sameJson(sourceSnapshot(root), state.prepare.source)) throw new Error('BLOCKED_CONTACT_LOSS_SOURCE_DRIFT');
-      preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory});
-      if (readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`)) {
-        const verified = terminalVerifier({root, home, commonDirectory, buildDirectory,
-          parentVerifier, preparedVerifier, snapshotReader, referenceReader});
-        if (verified.status !== readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`).value.status
-            || verified.charged !== state.charged || verified.completed !== state.completed
-            || verified.ambiguous !== state.ambiguous) throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
-      }
-    } catch (error) { executionBlocker = blockerForStatus(error); }
-  }
   const parentCharged = parent.state.charged, combinedCharged = parentCharged + state.charged;
   return {status: executionBlocker || final?.value?.decision
-        || readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`)?.value.status
-        || selection?.value.status || (state.prepare ? state.status : 'NOT_PREPARED'), epoch: ACTIVE_EPOCH,
+        || terminal?.value.status || verifiedSelection?.status || (state.prepare ? state.status : 'NOT_PREPARED'), epoch: ACTIVE_EPOCH,
     activeLedgerStatus: 'VERIFIED',
     parentStatus: 'VERIFIED', parentHead: parent.proof.head, parentCharged,
     parentPrepareSha256: parent.proof.prepareSha256,
@@ -2083,7 +2129,8 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
     charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
     acceptanceCharged, callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
     combinedCharged, cumulative: core.HISTORICAL_CALLS + combinedCharged + acceptanceCharged, lifetimeCap: core.MAX_CALLS,
-    selection: selection?.value.status || 'NOT RUN', stage3: reports.stage3 || 'NOT RUN', stage4: reports.stage4 || 'NOT RUN',
+    selection: verifiedSelection?.status || (selection ? 'UNVERIFIED' : 'NOT RUN'),
+    stage3: reports.stage3 || 'NOT RUN', stage4: reports.stage4 || 'NOT RUN',
     finalReport: final?.value.decision || 'NOT RUN', reports, writes: 0, renders: 0, acousticCalls: 0};
 }
 

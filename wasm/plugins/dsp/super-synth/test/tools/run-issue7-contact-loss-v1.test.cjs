@@ -35,6 +35,32 @@ function initFixtureRepo(root, branch = runner.PR_BRANCH) {
   return execFileSync('rtk', ['git', 'rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim();
 }
 function bytesSha(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
+function decodeAudio(wav) {
+  return require('./physical-fit-v4-loss.cjs').decodeFloat32StereoWav(wav);
+}
+function dualTreeInventory(roots) {
+  const inventory = {};
+  for (const copy of ['primary', 'secondary']) {
+    const entries = [];
+    const walk = (directory, relative = '') => {
+      if (!fs.existsSync(directory)) return;
+      for (const entry of fs.readdirSync(directory, {withFileTypes: true}).sort((a, b) => a.name.localeCompare(b.name))) {
+        const childRelative = path.join(relative, entry.name), child = path.join(directory, entry.name);
+        const stat = fs.statSync(child);
+        if (entry.isDirectory()) {
+          entries.push({path: childRelative, type: 'directory', mtimeMs: stat.mtimeMs});
+          walk(child, childRelative);
+        } else {
+          const bytes = fs.readFileSync(child);
+          entries.push({path: childRelative, type: 'file', size: bytes.length, sha256: bytesSha(bytes), mtimeMs: stat.mtimeMs});
+        }
+      }
+    };
+    walk(roots[copy]);
+    inventory[copy] = entries;
+  }
+  return inventory;
+}
 function setupPrepared({roots, head = '1'.repeat(40), wasmSha256 = '2'.repeat(64), source = {}, parentProof = null}) {
   const gate3 = {status: 'GATE3_ANALYSIS_PASS', head};
   const gate3Bytes = Buffer.from(`${JSON.stringify(stable(gate3), null, 2)}\n`), gate3Sha256 = bytesSha(gate3Bytes);
@@ -403,14 +429,77 @@ test('read-only status reports exact counters and creates no epoch files', () =>
   assert.equal(fs.existsSync(context.roots.secondary), beforeSecondary);
 });
 
-function fixtureStatus(context) {
-  return runner.status({...context,
-    parentVerifier: options => verifyFixtureParent(context, options),
-    preparedVerifier: (roots, state, {root}) => {
-      const identity = runner.currentIdentity(root);
-      if (identity.head !== state.prepare.head) throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
-      return identity;
-    }});
+function fixtureStatus(context, {referenceReader = () => [], snapshotReader = () => ({fixtureSnapshot: 'unchanged'})} = {}) {
+  const parentVerifier = options => verifyFixtureParent(context, options);
+  const preparedVerifier = (roots, state, {root}) => {
+    const identity = runner.currentIdentity(root);
+    if (identity.head !== state.prepare.head) throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
+    return identity;
+  };
+  const terminalVerifier = options => runner.verifyExperiment({...options, parentVerifier,
+    preparedVerifier, snapshotReader, referenceReader});
+  return runner.status({...context, parentVerifier, preparedVerifier, terminalVerifier,
+    snapshotReader, referenceReader});
+}
+
+function fixtureReferences(state) {
+  return state.calls.slice(0, 7).map(row => ({pitch: row.cell.pitch, velocity: row.cell.velocity,
+    metrics: row.metadata.value.metrics, audio: decodeAudio(row.audio.bytes)}));
+}
+function writeScoredFixtureSelection(context, {reference124OffsetDb = 0} = {}) {
+  for (const cell of core.plan()) {
+    writeCompletedCall(context.roots, cell, context.prepared);
+  }
+  let state = runner.readExperimentState(context.roots), gainDb = null;
+  const refs = fixtureReferences(state);
+  if (reference124OffsetDb !== 0) {
+    const ref = refs.find(row => row.pitch === 96 && row.velocity === 124);
+    const shifted = ref.metrics.envelopeDbfs.map(value => value + reference124OffsetDb);
+    ref.metrics.envelopeDbfs = shifted;
+    ref.metrics.official.envelopeDbfs = [...shifted];
+  }
+  for (let alphaOrder = 0; alphaOrder < core.ALPHAS.length; alphaOrder++) {
+    const result = runner.scoreCompletedAlpha({alphaOrder,
+      calls: state.calls.slice(alphaOrder * 7, alphaOrder * 7 + 7), refs, gainDb,
+      sourceHead: context.prepared.head, wasmSha256: context.prepared.wasmSha256});
+    if (alphaOrder === 0) gainDb = result.sharedGainDb;
+    runner.writeDualImmutable(context.roots, `experiment/alpha-${String(alphaOrder).padStart(2, '0')}.json`,
+      Buffer.from(`${JSON.stringify(stable(result), null, 2)}\n`));
+    state = runner.readExperimentState(context.roots);
+  }
+  const receipt = runner.verifiedReceipt(state, {head: context.prepared.head});
+  const decision = core.selectCandidate(state.candidateResults, {receipt});
+  const record = {schemaVersion: 1, epoch: runner.ACTIVE_EPOCH,
+    contractSha256: runner.SUCCESSOR_CONTRACT_SHA256, ...decision, receipt,
+    charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
+    stage3: 'NOT RUN', stage4: 'NOT RUN'};
+  runner.writeDualImmutable(context.roots, 'experiment/selection.json',
+    Buffer.from(`${JSON.stringify(stable(record), null, 2)}\n`));
+  return {refs, decision, record, candidates: state.candidateResults};
+}
+function writeUnsafeBoundaryFixture(completedCount) {
+  const context = preparedStatusFixture(), cells = core.plan().slice(0, completedCount);
+  for (const [index, cell] of cells.entries()) {
+    writeCompletedCall(context.roots, cell, context.prepared,
+      {scale: index === cells.length - 1 ? 20 : 1});
+  }
+  let state = runner.readExperimentState(context.roots), gainDb = null;
+  const refs = fixtureReferences(state), fullAlphaCount = Math.floor(completedCount / 7);
+  const terminalAlphaOrder = completedCount % 7 === 0 ? fullAlphaCount - 1 : -1;
+  for (let alphaOrder = 0; alphaOrder < fullAlphaCount; alphaOrder++) {
+    if (alphaOrder === terminalAlphaOrder) break;
+    const result = runner.scoreCompletedAlpha({alphaOrder,
+      calls: state.calls.slice(alphaOrder * 7, alphaOrder * 7 + 7), refs, gainDb,
+      sourceHead: context.prepared.head, wasmSha256: context.prepared.wasmSha256});
+    if (alphaOrder === 0) gainDb = result.sharedGainDb;
+    runner.writeDualImmutable(context.roots, `experiment/alpha-${String(alphaOrder).padStart(2, '0')}.json`,
+      Buffer.from(`${JSON.stringify(stable(result), null, 2)}\n`));
+    state = runner.readExperimentState(context.roots);
+  }
+  writeTerminal(context, {epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
+    status: 'BLOCKED_UNSAFE_CAPTURE', reason: 'FINITE_GUARD_OR_PEAK_GATE', charged: completedCount,
+    completed: completedCount, ambiguous: 0, stage3: 'NOT RUN', stage4: 'NOT RUN'});
+  return {...context, refs};
 }
 
 test('prepared status reports READY only at the exact clean source HEAD and remains read-only', () => {
@@ -419,8 +508,71 @@ test('prepared status reports READY only at the exact clean source HEAD and rema
   const result = fixtureStatus(context);
   assert.equal(result.status, 'READY');
   assert.equal(result.charged, 0);
+  assert.equal(result.selection, 'NOT RUN');
   assert.equal(result.activeLedgerStatus, 'VERIFIED');
   assert.deepEqual(runner.parentInventory(context.roots), before);
+});
+
+test('status refuses a forged stress-pass selection before the exact 42-call ledger is complete', () => {
+  for (const charged of [0, 41]) {
+    const context = preparedStatusFixture();
+    for (const cell of core.plan().slice(0, charged)) writeCompletedCall(context.roots, cell, context.prepared);
+    writeSelection(context, {schemaVersion: 1, epoch: runner.ACTIVE_EPOCH,
+      contractSha256: runner.SUCCESSOR_CONTRACT_SHA256, status: 'GATE4_STRESS_PASS',
+      selected: {alpha: 0.65}, charged: 42, completed: 42, ambiguous: 0});
+    const before = dualTreeInventory(context.roots);
+    const result = fixtureStatus(context);
+    assert.equal(result.status, 'BLOCKED_CONTACT_LOSS_SELECTION_LEDGER_INCOMPLETE');
+    assert.equal(result.selection, 'UNVERIFIED');
+    assert.equal(result.charged, charged);
+    assert.equal(result.completed, charged);
+    assert.equal(result.acceptanceCharged, null);
+    assert.equal(result.cumulative, null);
+    assert.equal(result.writes, 0);
+    assert.equal(result.renders, 0);
+    assert.equal(result.acousticCalls, 0);
+    assert.deepEqual(dualTreeInventory(context.roots), before);
+  }
+});
+
+test('status recomputes canonical 42-call PASS and FAIL selections from stored rows', () => {
+  for (const reference124OffsetDb of [0, 30]) {
+    const context = preparedStatusFixture();
+    const fixture = writeScoredFixtureSelection(context, {reference124OffsetDb});
+    const before = dualTreeInventory(context.roots);
+    const result = fixtureStatus(context, {referenceReader: () => fixture.refs});
+    assert.equal(fixture.decision.status, reference124OffsetDb === 0 ? 'GATE4_STRESS_PASS' : core.TERMINAL);
+    assert.equal(result.status, fixture.decision.status);
+    assert.equal(result.selection, fixture.decision.status);
+    assert.equal(result.charged, 42);
+    assert.equal(result.completed, 42);
+    assert.equal(result.ambiguous, 0);
+    assert.equal(result.writes, 0);
+    assert.equal(result.renders, 0);
+    assert.equal(result.acousticCalls, 0);
+    assert.deepEqual(dualTreeInventory(context.roots), before);
+  }
+});
+
+test('status blocks a forged selection even with a complete 42-call receipt and leaves both copies untouched', () => {
+  const context = preparedStatusFixture(), fixture = writeScoredFixtureSelection(context);
+  assert.equal(fixture.decision.status, 'GATE4_STRESS_PASS');
+  for (const copy of [context.roots.primary, context.roots.secondary]) {
+    const file = path.join(copy, 'experiment', 'selection.json');
+    const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+    value.selected.alpha = 0.55;
+    fs.writeFileSync(file, Buffer.from(`${JSON.stringify(stable(value), null, 2)}\n`));
+  }
+  const before = dualTreeInventory(context.roots);
+  const result = fixtureStatus(context, {referenceReader: () => fixture.refs});
+  assert.equal(result.status, 'BLOCKED_CONTACT_LOSS_SELECTION_MISMATCH');
+  assert.equal(result.selection, 'UNVERIFIED');
+  assert.equal(result.acceptanceCharged, null);
+  assert.equal(result.cumulative, null);
+  assert.equal(result.writes, 0);
+  assert.equal(result.renders, 0);
+  assert.equal(result.acousticCalls, 0);
+  assert.deepEqual(dualTreeInventory(context.roots), before);
 });
 
 test('prepared status blocks a doc-only HEAD change even after one completed cell', () => {
@@ -490,16 +642,19 @@ test('parent failure reports active accounting as unknown when the active ledger
   assert.equal(result.cumulative, null);
 });
 
-function terminalVerificationOptions(context) {
+function terminalVerificationOptions(context, {referenceReader = () => []} = {}) {
   return {parentVerifier: options => verifyFixtureParent(context, options),
     preparedVerifier: (roots, state, {root}) => {
       const identity = runner.currentIdentity(root);
       if (identity.head !== state.prepare.head) throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
       return identity;
-    }, snapshotReader: () => ({fixtureSnapshot: 'unchanged'}), referenceReader: () => []};
+    }, snapshotReader: () => ({fixtureSnapshot: 'unchanged'}), referenceReader};
 }
 function writeTerminal(context, value) {
   runner.writeDualImmutable(context.roots, 'experiment/terminal.json', Buffer.from(`${JSON.stringify(stable(value), null, 2)}\n`));
+}
+function writeSelection(context, value) {
+  runner.writeDualImmutable(context.roots, 'experiment/selection.json', Buffer.from(`${JSON.stringify(stable(value), null, 2)}\n`));
 }
 
 test('run-bounded rejects a forged pass terminal when the ledger has zero calls', () => {
@@ -567,6 +722,27 @@ test('run-bounded verifies parent and current HEAD before reusing an existing bl
   execFileSync('rtk', ['git', 'add', 'later-note.md'], {cwd: changedHead.root, stdio: 'ignore'});
   execFileSync('rtk', ['git', 'commit', '--quiet', '-m', 'fixture terminal HEAD drift'], {cwd: changedHead.root, stdio: 'ignore'});
   assert.throws(() => reuse(changedHead), /HEAD_DRIFT/);
+});
+
+test('unsafe alpha-boundary terminals at calls 7, 14, and 42 verify and replay without writes or renders', () => {
+  for (const completedCount of [7, 14, 42]) {
+    const context = writeUnsafeBoundaryFixture(completedCount), verification = terminalVerificationOptions(context,
+      {referenceReader: () => context.refs});
+    const before = dualTreeInventory(context.roots);
+    const verified = runner.verifyExperiment({...context, ...verification});
+    assert.equal(verified.status, 'BLOCKED_UNSAFE_CAPTURE');
+    assert.equal(verified.charged, completedCount);
+    assert.equal(verified.completed, completedCount);
+    assert.equal(verified.verifiedAlphaCount, completedCount / 7 - 1);
+    let renders = 0;
+    const reused = runner.runBounded({...context, renderer: () => { renders++; },
+      terminalVerifier: options => runner.verifyExperiment({...options, ...verification})});
+    assert.equal(reused.status, 'BLOCKED_UNSAFE_CAPTURE');
+    assert.equal(reused.terminalEvidence, 'VERIFIED');
+    assert.equal(reused.charged, completedCount);
+    assert.equal(renders, 0);
+    assert.deepEqual(dualTreeInventory(context.roots), before);
+  }
 });
 
 test('frozen-snapshot binding derives an omitted legacy digest without rewriting evidence', () => {
