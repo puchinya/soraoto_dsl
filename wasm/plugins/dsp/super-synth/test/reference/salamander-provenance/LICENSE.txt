@@ -1,0 +1,6 @@
+Salamander Grand Piano V3 is licensed under the Creative Commons Attribution 3.0 Unported License (CC BY 3.0).
+
+License deed: https://creativecommons.org/licenses/by/3.0/
+Full legal code: https://creativecommons.org/licenses/by/3.0/legalcode
+
+The official FreePats package includes its own readme.txt with the original license notice. This file preserves the applicable license identification and links for the private reference copy.

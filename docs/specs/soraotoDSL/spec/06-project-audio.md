@@ -60,6 +60,13 @@ tempo > 0
 `allow_plugin_transport_control=false` が default。
 true の場合も Plugin transport request は project bounds / loop validity を満たす必要がある。
 
+The DSL source and its explicitly imported modules/assets are the authoritative Project inputs.
+Compilation creates `ProjectConfigV1`, arrangement data, and `Resolved Project IR` in memory; those
+values are ephemeral and are regenerated from source. There is no Project save/load or restore
+operation, and serialized IR is not a supported runtime-construction input. Loading source means
+parse, compile, resolve assets, and build a fresh runtime graph. Diagnostic IR dumps, if produced,
+are disposable inspection output only.
+
 ## 32.1 Timeline origin
 
 Canonical arrangement origin:
@@ -860,12 +867,12 @@ PluginNodeV1 {
         event_effect
         hybrid
 
-    persistent_instance_key: String
+    configuration: PluginConfigurationV1
 }
 ```
 
-`persistent_instance_key` is the lookup key for stored Plugin state。
-It equals node `id` unless an explicit Project migration preserves an older key。
+The graph node's stable `id` identifies the Plugin instance. The Host configures the instance only
+from `configuration`; no plugin-owned state key or opaque state payload exists.
 
 ### StandardProcessorNodeV1
 
@@ -2327,7 +2334,7 @@ Lossy decoder sample-level identity across independent libraries is not required
 
 ## 51.5 Asset integrity
 
-On Project load:
+While compiling DSL and resolving referenced assets:
 
 ```text
 actual SHA-256 != AssetRef.sha256
@@ -2337,7 +2344,7 @@ actual SHA-256 != AssetRef.sha256
 Missing asset:
 
 ```text
-compile/load error
+compile error
 ```
 
 Host may relink a missing source path only when candidate bytes match the required hash。

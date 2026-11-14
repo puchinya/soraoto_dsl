@@ -1,8 +1,8 @@
 # Lifecycle and quality design
 
-## Project reload ordering
+## DSL source reload ordering
 
-Replacing the current project follows this order:
+Replacing the current compiled runtime from DSL source follows this order:
 
 1. stop transport scheduling/timers;
 2. dispose scheduled WebAudio fallback voices;

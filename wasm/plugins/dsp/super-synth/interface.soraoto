@@ -1,8 +1,8 @@
-plugin interface SuperSynthV8 {
+plugin interface SuperSynthV9 {
   abi: "1.0"
   id: "net.puchinya.soraotodsl.super-synth-v8"
-  name: "SuperSynth v8"
-  version: "8.0.0"
+  name: "SuperSynth v9"
+  version: "9.0.0"
   kind: instrument
   control_modulation_max_quantum: 64
 

@@ -1,0 +1,573 @@
+'use strict';
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const validator=require('./stage3e-evidence-validator.cjs');
+const search=require('./stage3e-search-core.cjs');
+const verifierV12=require('./stage3e-performance-verifier-continuation-v12.cjs');
+const verifierV14=require('./stage3e-performance-verifier-continuation-v14.cjs');
+
+function write(file,bytes){fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,bytes);}
+function inventory(root){return validator.walkFiles(root);}
+function makeRoots(){
+  const base=fs.mkdtempSync(path.join(os.tmpdir(),'stage3e-evidence-'));
+  const primary=path.join(base,'primary'),secondary=path.join(base,'secondary');
+  for(const root of [primary,secondary])for(let index=0;index<35;index++)write(path.join(root,`frozen/${String(index).padStart(2,'0')}.json`),Buffer.from(`frozen-${index}`));
+  return {base,primary,secondary};
+}
+function auditFor(primary,secondary){return {immutablePreexistingFileInventory:{primary:{files:inventory(primary)},secondary:{files:inventory(secondary)}}};}
+
+{
+  const roots=makeRoots();
+  try{
+    const expected=['low-cell-a'];
+    const audit=auditFor(roots.primary,roots.secondary);
+    write(path.join(roots.primary,'generation-2/search-v1/generation-2-manifest.json'),Buffer.from('manifest'));
+    write(path.join(roots.secondary,'generation-2/search-v1/generation-2-manifest.json'),Buffer.from('manifest'));
+    write(path.join(roots.primary,'generation-2/search-v1/low/low-ledger.json'),Buffer.from('ledger'));
+    write(path.join(roots.secondary,'generation-2/search-v1/low/low-ledger.json'),Buffer.from('ledger'));
+    write(path.join(roots.primary,'generation-2/search-v1/low/cells/low-cell-a.json'),Buffer.from('cell'));
+    write(path.join(roots.secondary,'generation-2/search-v1/low/cells/low-cell-a.json'),Buffer.from('cell'));
+    for(const name of ['verifier-compatibility-v10.json','verifier-compatibility-v10-2.json','verifier-compatibility-v10-3.json','verifier-compatibility-v10-4.json','verifier-compatibility-v10-5.json','verifier-compatibility-v10-6.json','verifier-compatibility-v10-7.json','verifier-compatibility-v10-8.json','verifier-compatibility-v10-9.json','verifier-compatibility-v10-10.json','verifier-compatibility-v10-11.json','verifier-compatibility-v10-12.json']){
+      write(path.join(roots.primary,'generation-2/search-v1/recovery-reconciliation-v2',name),Buffer.from(name));
+      write(path.join(roots.secondary,'generation-2/search-v1/recovery-reconciliation-v2',name),Buffer.from(name));
+    }
+    const compatibilityRecord={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBILITY',
+      decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',primarySecondaryIntegrity:'PASS',
+      originalLocalCommit:'1'.repeat(40),acceptedCommit:'2'.repeat(40),
+      parentV10_9AttestationSha256:'3'.repeat(64),baselineV10_12AttestationSha256:'4'.repeat(64),
+      originalSearchManifestSha256:'5'.repeat(64),originalSearchCompatibilityV3Sha256:'6'.repeat(64),
+      allowedVerifierOnlyDiffSha256:'7'.repeat(64),testResultsSha256:'8'.repeat(64),
+      allowedVerifierOnlyPaths:[],testResults:[]};
+    const compatibilityBytes=Buffer.from(JSON.stringify(compatibilityRecord));
+    const compatibilityPath='generation-2/search-v1/performance-verifier-compatibility-v1.json';
+    write(path.join(roots.primary,compatibilityPath),compatibilityBytes);
+    write(path.join(roots.secondary,compatibilityPath),compatibilityBytes);
+    const continuationRecord={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_CONTINUATION',
+      decision:'STAGE3E_PERFORMANCE_VERIFIER_CONTINUATION_COMPATIBLE',parentRelative:'performance-verifier-compatibility-v1.json',
+      parentSha256:'9'.repeat(64),parentAcceptedCommit:'96a23a01977f2a58213f2b207f700264bf43171e',
+      acceptedCommit:'a'.repeat(40),allowedChangedPaths:['stage3e-preflight.cjs'],allowedVerifierOnlyDiffSha256:'8'.repeat(64),
+      runtimeVerifierHashes:{'stage3e-preflight.cjs':'7'.repeat(64)},currentPinnedExecutorHashes:{captureHelper:'6'.repeat(64)},
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      captureHelperSha256:'6'.repeat(64),testResults:[{command:'zero-render.test.cjs',status:'PASS'}],testResultsSha256:'5'.repeat(64),
+      primarySecondaryIntegrity:'PASS'};
+    const continuationPath='generation-2/search-v1/performance-verifier-compatibility-v2.json';
+    const continuationBytes=Buffer.from(JSON.stringify(continuationRecord));
+    write(path.join(roots.primary,continuationPath),continuationBytes);
+    write(path.join(roots.secondary,continuationPath),continuationBytes);
+    const followupRecord={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_FOLLOWUP',decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',
+      parentRelative:'performance-verifier-compatibility-v2.json',parentSha256:'9'.repeat(64),
+      parentAcceptedCommit:'d1ced58e0f1a80e10a0269f7e5b489de1b79e2b3',acceptedCommit:'b'.repeat(40),
+      allowedChangedPaths:['stage3e-incremental-verification.cjs'],allowedVerifierOnlyDiffSha256:'8'.repeat(64),
+      changedFileSha256:{'stage3e-incremental-verification.cjs':'7'.repeat(64)},
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:[{command:'incremental-verification.test.cjs',status:'PASS'}],testResultsSha256:'5'.repeat(64),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const followupPath='generation-2/search-v1/performance-verifier-compatibility-v3.json';
+    const followupBytes=Buffer.from(JSON.stringify(followupRecord));
+    write(path.join(roots.primary,followupPath),followupBytes);write(path.join(roots.secondary,followupPath),followupBytes);
+    const v4Results=[{command:'continuation-v4.test.cjs',status:'PASS',outputSha256:'a'.repeat(64)}];
+    const v4Record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_FOLLOWUP',decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',
+      parentRelative:'performance-verifier-compatibility-v3.json',parentSha256:'f1425e17e25b0338b504cedacf54e45be703581fc87277ede47540e39a02a487',
+      parentAcceptedCommit:'d055c8c3a21b020a89f0a19de8fad1b7055c192e',acceptedCommit:'c'.repeat(40),
+      allowedChangedPaths:['stage3e-recovery-reconciliation-v2.cjs'],allowedVerifierOnlyDiffSha256:'b'.repeat(64),
+      changedFileSha256:{'stage3e-recovery-reconciliation-v2.cjs':'c'.repeat(64)},
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:v4Results,testResultsSha256:validator.sha256(validator.jsonBytes(v4Results)),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const v4Path='generation-2/search-v1/performance-verifier-compatibility-v4.json';
+    const v4Bytes=Buffer.from(JSON.stringify(v4Record));
+    write(path.join(roots.primary,v4Path),v4Bytes);write(path.join(roots.secondary,v4Path),v4Bytes);
+    const before=inventory(roots.primary),result=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(result.frozenCount,35);assert.equal(result.additionCount,19);
+    assert.deepEqual(inventory(roots.primary).filter(item=>item.path.startsWith('frozen/')),before.filter(item=>item.path.startsWith('frozen/')));
+    write(path.join(roots.primary,continuationPath),Buffer.from(JSON.stringify({...continuationRecord,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,continuationPath),Buffer.from(JSON.stringify({...continuationRecord,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier continuation schema mismatch/);
+    write(path.join(roots.primary,continuationPath),continuationBytes);write(path.join(roots.secondary,continuationPath),continuationBytes);
+    write(path.join(roots.primary,followupPath),Buffer.from(JSON.stringify({...followupRecord,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,followupPath),Buffer.from(JSON.stringify({...followupRecord,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier follow-up schema mismatch/);
+    write(path.join(roots.primary,followupPath),followupBytes);write(path.join(roots.secondary,followupPath),followupBytes);
+    write(path.join(roots.primary,v4Path),Buffer.from(JSON.stringify({...v4Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v4Path),Buffer.from(JSON.stringify({...v4Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v4 follow-up schema mismatch/);
+    write(path.join(roots.primary,v4Path),v4Bytes);write(path.join(roots.secondary,v4Path),v4Bytes);
+    const v5Record={...v4Record,parentRelative:'performance-verifier-compatibility-v4.json',
+      parentSha256:'2dbc65caef3ea70d9293cf32aec9a043d533e43423f7024daa263b73a835cc28',
+      parentAcceptedCommit:'f3caae588228cd535ba71aea23ccb4e6138d8147'};
+    const v5Path='generation-2/search-v1/performance-verifier-compatibility-v5.json';
+    const v5Bytes=Buffer.from(JSON.stringify(v5Record));
+    write(path.join(roots.primary,v5Path),v5Bytes);write(path.join(roots.secondary,v5Path),v5Bytes);
+    const withV5=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV5.additionCount,20);
+    write(path.join(roots.primary,v5Path),Buffer.from(JSON.stringify({...v5Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v5Path),Buffer.from(JSON.stringify({...v5Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v5 follow-up schema mismatch/);
+    write(path.join(roots.primary,v5Path),v5Bytes);write(path.join(roots.secondary,v5Path),v5Bytes);
+    const v6Record={...v5Record,parentRelative:'performance-verifier-compatibility-v5.json',
+      parentSha256:'bdfdb267f38dcc5b7430ec96d1f4a19176f80fcd5238c27aae7f7e0adc30307f',
+      parentAcceptedCommit:'672dcd1e18770247af9a924760072a87bf3b4a83',acceptedCommit:'d'.repeat(40)};
+    const v6Path='generation-2/search-v1/performance-verifier-compatibility-v6.json';
+    const v6Bytes=Buffer.from(JSON.stringify(v6Record));
+    write(path.join(roots.primary,v6Path),v6Bytes);write(path.join(roots.secondary,v6Path),v6Bytes);
+    const withV6=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV6.additionCount,21);
+    write(path.join(roots.primary,v6Path),Buffer.from(JSON.stringify({...v6Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v6Path),Buffer.from(JSON.stringify({...v6Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v6 follow-up schema mismatch/);
+    write(path.join(roots.primary,v6Path),v6Bytes);write(path.join(roots.secondary,v6Path),v6Bytes);
+    const v7Record={...v6Record,parentRelative:'performance-verifier-compatibility-v6.json',
+      parentSha256:'963cc8a52a9c8a24eb90f89dbbf393b7dda94ca3ec64560d106f56414be8cf39',
+      parentAcceptedCommit:'3a2e8487ae51ab1952b76e18e65ffca8a51c74b3',acceptedCommit:'e'.repeat(40)};
+    const v7Path='generation-2/search-v1/performance-verifier-compatibility-v7.json';
+    const v7Bytes=Buffer.from(JSON.stringify(v7Record));
+    write(path.join(roots.primary,v7Path),v7Bytes);write(path.join(roots.secondary,v7Path),v7Bytes);
+    const withV7=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV7.additionCount,22);
+    write(path.join(roots.primary,v7Path),Buffer.from(JSON.stringify({...v7Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v7Path),Buffer.from(JSON.stringify({...v7Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v7 follow-up schema mismatch/);
+    write(path.join(roots.primary,v7Path),v7Bytes);write(path.join(roots.secondary,v7Path),v7Bytes);
+    const v8Record={...v7Record,parentRelative:'performance-verifier-compatibility-v7.json',
+      parentSha256:'e055f44c632b5eea57b4a4e1f12fbb9ff09f3d267687cba1c86882e6e587dba1',
+      parentAcceptedCommit:'1f88603e14176e2931afdbd96b29ddfd6b28a27a',acceptedCommit:'f'.repeat(40)};
+    const v8Path='generation-2/search-v1/performance-verifier-compatibility-v8.json';
+    const v8Bytes=Buffer.from(JSON.stringify(v8Record));
+    write(path.join(roots.primary,v8Path),v8Bytes);write(path.join(roots.secondary,v8Path),v8Bytes);
+    const withV8=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV8.additionCount,23);
+    write(path.join(roots.primary,v8Path),Buffer.from(JSON.stringify({...v8Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v8Path),Buffer.from(JSON.stringify({...v8Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v8 follow-up schema mismatch/);
+    write(path.join(roots.primary,v8Path),v8Bytes);write(path.join(roots.secondary,v8Path),v8Bytes);
+    const v9Results=[{command:'continuation-v9.test.cjs',status:'PASS',outputSha256:'1'.repeat(64)}];
+    const v9RequiredPaths=[
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-incremental-verification.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v9.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v9.test.cjs'
+    ].sort();
+    const v9Record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_FOLLOWUP',decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',
+      parentRelative:'performance-verifier-compatibility-v8.json',parentSha256:'1073fc1b2095a5e0668728f0a707aa4d21518e116a722fdf23a5bf5b82d1155d',
+      parentAcceptedCommit:'0d4a2454b79f78a8ccd4144fffd9ede154229c0f',acceptedCommit:'0'.repeat(40),
+      allowedChangedPaths:v9RequiredPaths,allowedVerifierOnlyDiffSha256:'2'.repeat(64),
+      changedFileSha256:Object.fromEntries(v9RequiredPaths.map(item=>[item,'3'.repeat(64)])),
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:v9Results,testResultsSha256:validator.sha256(validator.jsonBytes(v9Results)),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const v9Path='generation-2/search-v1/performance-verifier-compatibility-v9.json';
+    const v9Bytes=Buffer.from(JSON.stringify(v9Record));
+    write(path.join(roots.primary,v9Path),v9Bytes);write(path.join(roots.secondary,v9Path),v9Bytes);
+    const withV9=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV9.additionCount,24);
+    write(path.join(roots.primary,v9Path),Buffer.from(JSON.stringify({...v9Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v9Path),Buffer.from(JSON.stringify({...v9Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v9 follow-up schema mismatch/);
+    write(path.join(roots.primary,v9Path),v9Bytes);write(path.join(roots.secondary,v9Path),v9Bytes);
+    const v10RequiredPaths=[
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v10.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v10.test.cjs'
+    ].sort();
+    const v10Record={...v9Record,parentRelative:'performance-verifier-compatibility-v9.json',
+      parentSha256:'e3de969f8a33f2cb42743f8de5ac4cefeae94261d374d4ebf874f9fc16463754',
+      parentAcceptedCommit:'88d111b3fb43a459e5daf23c141d0d837c2a2ebf',acceptedCommit:'4'.repeat(40),
+      allowedChangedPaths:v10RequiredPaths,changedFileSha256:Object.fromEntries(v10RequiredPaths.map(item=>[item,'5'.repeat(64)])),
+      testResults:[{command:'continuation-v10.test.cjs',status:'PASS',outputSha256:'6'.repeat(64)}]};
+    v10Record.testResultsSha256=validator.sha256(validator.jsonBytes(v10Record.testResults));
+    const v10Path='generation-2/search-v1/performance-verifier-compatibility-v10.json';
+    const v10Bytes=Buffer.from(JSON.stringify(v10Record));
+    write(path.join(roots.primary,v10Path),v10Bytes);write(path.join(roots.secondary,v10Path),v10Bytes);
+    const withV10=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV10.additionCount,25);
+    write(path.join(roots.primary,v10Path),Buffer.from(JSON.stringify({...v10Record,decision:'BLOCKED'})));
+    write(path.join(roots.secondary,v10Path),Buffer.from(JSON.stringify({...v10Record,decision:'BLOCKED'})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v10 follow-up schema mismatch/);
+    write(path.join(roots.primary,v10Path),v10Bytes);write(path.join(roots.secondary,v10Path),v10Bytes);
+    const v11RequiredPaths=[
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v10.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v11.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v11.test.cjs'
+    ].sort();
+    const v11Results=[{command:'continuation-v11.test.cjs',status:'PASS',outputSha256:'7'.repeat(64)}];
+    const v11Record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_SOURCE_COMPATIBILITY',
+      decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',parentRelative:'performance-verifier-compatibility-v10.json',
+      parentSha256:'2784426827df766629cee9dad975d512f5c33be271ba5baf270568a5b5476b45',
+      parentAcceptedCommit:'acffcba3f0810f3f8c9fb589523e01f6d18b8797',
+      checkpointFixCommit:'b40cc7c67c16370b2bcecafb67061a1e254848ca',
+      incrementalVerifierPath:'wasm/plugins/dsp/super-synth/test/tools/stage3e-incremental-verification.cjs',
+      incrementalVerifierSha256:'dcf2f297cc3e197df4d84ec7f9acc671aeae80b330ede76618eef2451a1341ca',
+      acceptedCommit:'9'.repeat(40),allowedChangedPaths:v11RequiredPaths,
+      allowedVerifierOnlyDiffSha256:'a'.repeat(64),verifierFileSha256:Object.fromEntries(v11RequiredPaths.map(item=>[item,'b'.repeat(64)])),
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:v11Results,testResultsSha256:validator.sha256(Buffer.from(JSON.stringify(v11Results)+'\n')),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const v11Path='generation-2/search-v1/performance-verifier-compatibility-v11.json';
+    const v11Bytes=Buffer.from(JSON.stringify(v11Record));
+    write(path.join(roots.primary,v11Path),v11Bytes);write(path.join(roots.secondary,v11Path),v11Bytes);
+    const withV11=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV11.additionCount,26);
+    const mismatchedV11=Buffer.from(JSON.stringify({...v11Record,incrementalVerifierSha256:'0'.repeat(64)}));
+    write(path.join(roots.primary,v11Path),mismatchedV11);write(path.join(roots.secondary,v11Path),mismatchedV11);
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v11 source compatibility schema mismatch/);
+    write(path.join(roots.primary,v11Path),v11Bytes);write(path.join(roots.secondary,v11Path),v11Bytes);
+    const v12Results=[{command:'continuation-v12.test.cjs',status:'PASS',outputSha256:'c'.repeat(64)}];
+    const v12Record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_SOURCE_COMPATIBILITY_V12',
+      decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',parentRelative:'performance-verifier-compatibility-v11.json',
+      parentSha256:'e35a9dfa984419e892a6f408c6709f236fee79d273865da5904147d351ccb77d',
+      parentAcceptedCommit:'424b7b3552b566b5e7a78140c3f3819575414cc5',
+      checkpointFixCommit:'b40cc7c67c16370b2bcecafb67061a1e254848ca',
+      incrementalVerifierPath:'wasm/plugins/dsp/super-synth/test/tools/stage3e-incremental-verification.cjs',
+      incrementalVerifierSha256:'dcf2f297cc3e197df4d84ec7f9acc671aeae80b330ede76618eef2451a1341ca',
+      acceptedCommit:'8'.repeat(40),allowedChangedPaths:verifierV12.REQUIRED_CHANGED_PATHS,
+      allowedVerifierOnlyDiffSha256:'d'.repeat(64),verifierFileSha256:Object.fromEntries(verifierV12.REQUIRED_CHANGED_PATHS.map(item=>[item,'e'.repeat(64)])),
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:v12Results,testResultsSha256:validator.sha256(validator.jsonBytes(v12Results)),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const v12Path='generation-2/search-v1/performance-verifier-compatibility-v12.json';
+    const v12Bytes=Buffer.from(JSON.stringify(v12Record));
+    write(path.join(roots.primary,v12Path),v12Bytes);write(path.join(roots.secondary,v12Path),v12Bytes);
+    const withV12=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV12.additionCount,27);
+    const mismatchedV12=Buffer.from(JSON.stringify({...v12Record,parentSha256:'0'.repeat(64)}));
+    write(path.join(roots.primary,v12Path),mismatchedV12);write(path.join(roots.secondary,v12Path),mismatchedV12);
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v12 source compatibility schema mismatch/);
+    write(path.join(roots.primary,v12Path),v12Bytes);write(path.join(roots.secondary,v12Path),v12Bytes);
+    const v13RequiredPaths=[
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v11.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v12.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v12.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v13.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v13.test.cjs'
+    ].sort();
+    const effectivePaths=[
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v10.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-evidence-validator.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-preflight.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-recovery-reconciliation-v2.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v11.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v11.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v12.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v12.test.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v13.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v13.test.cjs'
+    ].sort();
+    const v13Results=[{command:'continuation-v13.test.cjs',status:'PASS',outputSha256:'2'.repeat(64)}];
+    const v13Record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_SOURCE_COMPATIBILITY_V13',
+      decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',parentRelative:'performance-verifier-compatibility-v12.json',
+      parentSha256:'295be44b3b7da844f7f581abcf64d304d1663b24025c004c9c6ffc0400055f2c',
+      parentAcceptedCommit:'2a311bc44f581fc2b11678f9d135bbea2f4d29fb',acceptedCommit:'9'.repeat(40),
+      allowedChangedPaths:v13RequiredPaths,allowedVerifierOnlyDiffSha256:'3'.repeat(64),
+      verifierFileSha256:Object.fromEntries(effectivePaths.map(item=>[item,'4'.repeat(64)])),
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:v13Results,testResultsSha256:validator.sha256(validator.jsonBytes(v13Results)),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const v13Path='generation-2/search-v1/performance-verifier-compatibility-v13.json';
+    const v13Bytes=Buffer.from(JSON.stringify(v13Record));
+    write(path.join(roots.primary,v13Path),v13Bytes);write(path.join(roots.secondary,v13Path),v13Bytes);
+    const withV13=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV13.additionCount,28);
+    write(path.join(roots.primary,v13Path),Buffer.from(JSON.stringify({...v13Record,parentSha256:'0'.repeat(64)})));
+    write(path.join(roots.secondary,v13Path),Buffer.from(JSON.stringify({...v13Record,parentSha256:'0'.repeat(64)})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v13 source compatibility schema mismatch/);
+    write(path.join(roots.primary,v13Path),v13Bytes);write(path.join(roots.secondary,v13Path),v13Bytes);
+    const v14Results=[{command:'continuation-v14.test.cjs',status:'PASS',outputSha256:'3'.repeat(64)}];
+    const v14EffectivePaths=[...effectivePaths,
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v14.cjs',
+      'wasm/plugins/dsp/super-synth/test/tools/stage3e-performance-verifier-continuation-v14.test.cjs'].sort();
+    const v14Record={schemaVersion:1,kind:'STAGE3E_PERFORMANCE_VERIFIER_SOURCE_COMPATIBILITY_V14',
+      decision:'STAGE3E_PERFORMANCE_VERIFIER_COMPATIBLE',parentRelative:'performance-verifier-compatibility-v13.json',
+      parentSha256:'56b62b07daf4e29e3f5405f2dc26ace4aab6936b30e309fde1973ab7c7244dc2',
+      parentAcceptedCommit:'100c59457dfbb28f17d334f99f848e851339a6b5',acceptedCommit:'a'.repeat(40),
+      allowedChangedPaths:verifierV14.REQUIRED_CHANGED_PATHS,allowedVerifierOnlyDiffSha256:'5'.repeat(64),
+      verifierFileSha256:Object.fromEntries(v14EffectivePaths.map(item=>[item,'6'.repeat(64)])),
+      stage3eAcousticIdentity:{diagnosticWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221'},
+      stage3eWasmSha256:'6d8763661f3cf08dbb30b188cfd7a34e043606c7fa09f3bd16b7cebb89c66221',
+      testResults:v14Results,testResultsSha256:validator.sha256(validator.jsonBytes(v14Results)),
+      acousticRenders:0,builds:0,primarySecondaryIntegrity:'PASS'};
+    const v14Path='generation-2/search-v1/performance-verifier-compatibility-v14.json';
+    const v14Bytes=Buffer.from(JSON.stringify(v14Record));
+    write(path.join(roots.primary,v14Path),v14Bytes);write(path.join(roots.secondary,v14Path),v14Bytes);
+    const withV14=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected});
+    assert.equal(withV14.additionCount,29);
+    write(path.join(roots.primary,v14Path),Buffer.from(JSON.stringify({...v14Record,parentSha256:'0'.repeat(64)})));
+    write(path.join(roots.secondary,v14Path),Buffer.from(JSON.stringify({...v14Record,parentSha256:'0'.repeat(64)})));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier v14 source compatibility schema mismatch/);
+    write(path.join(roots.primary,v14Path),v14Bytes);write(path.join(roots.secondary,v14Path),v14Bytes);
+    assert.equal(validator.isSearchAddition(v13Path),true);
+    assert.equal(validator.isSearchAddition(v14Path),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/low/cells/unauthorized.json',{authorizedKeys:expected}),false);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/low/validations/low-full-x/cells/unauthorized.json',{authorizedKeys:expected}),false);
+    const lowFullValidation='generation-2/search-v1/low/validations/low-full-0.35-0.5/';
+    assert.equal(validator.isSearchAddition(`${lowFullValidation}low-full-0.35-0.5-ledger.json`,{authorizedKeys:expected}),true);
+    assert.equal(validator.isSearchAddition(`${lowFullValidation}low-full-0.35-0.5-result.json`,{authorizedKeys:expected}),true);
+    assert.equal(validator.isSearchAddition(`${lowFullValidation}low-full-0.35-0.5-validation.json`,{authorizedKeys:expected}),true);
+    assert.equal(validator.isSearchAddition(`${lowFullValidation}low-full-0.35-0.5-rogue-ledger.json`,{authorizedKeys:expected}),false);
+    assert.equal(validator.isSearchAddition(`${lowFullValidation}unregistered-result.json`,{authorizedKeys:expected}),false);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/performance-verifier-compatibility-v1.json'),true);
+    assert.equal(validator.isSearchAddition(continuationPath),true);
+    assert.equal(validator.isSearchAddition(followupPath),true);
+    assert.equal(validator.isSearchAddition(v4Path),true);
+    assert.equal(validator.isSearchAddition(v5Path),true);
+    assert.equal(validator.isSearchAddition(v6Path),true);
+    assert.equal(validator.isSearchAddition(v7Path),true);
+    assert.equal(validator.isSearchAddition(v8Path),true);
+    assert.equal(validator.isSearchAddition(v9Path),true);
+    assert.equal(validator.isSearchAddition(v10Path),true);
+    assert.equal(validator.isSearchAddition(v11Path),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/verifier-compatibility-v2.sha256'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/archives/verifier-compatibility-v2.tar.gz'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-2.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-3.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-4.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-5.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-6.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-7.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-8.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-9.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-10.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-11.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-12.json'),true);
+    assert.equal(validator.isSearchAddition('generation-2/search-v1/recovery-reconciliation-v2/verifier-compatibility-v10-13.json'),false);
+    write(path.join(roots.primary,compatibilityPath),Buffer.from('{"schemaVersion":1}'));
+    write(path.join(roots.secondary,compatibilityPath),Buffer.from('{"schemaVersion":1}'));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),
+      /performance verifier sidecar schema mismatch/);
+    write(path.join(roots.primary,compatibilityPath),compatibilityBytes);
+    write(path.join(roots.secondary,compatibilityPath),compatibilityBytes);
+    write(path.join(roots.primary,'random/unowned.json'),Buffer.from('unexpected'));
+    write(path.join(roots.secondary,'random/unowned.json'),Buffer.from('unexpected'));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,authorizedKeys:expected}),/BLOCKED_STAGE3E_UNAUTHORIZED_EVIDENCE_NAMESPACE/);
+  }finally{fs.rmSync(roots.base,{recursive:true,force:true});}
+}
+
+{
+  const roots=makeRoots();
+  try{
+    const audit=auditFor(roots.primary,roots.secondary);
+    const phase='mid-full-0.6';
+    const key='mid-full-0.6-L0.35-M0.6-H0.5-midi-048-v014';
+    const cellBytes=Buffer.from('authorized completed mid-validation cell');
+    const cellSha=validator.sha256(cellBytes);
+    const manifest={schemaVersion:1,state:'ACTIVE',generation:2,searchEpoch:'search-v1',identity:{candidateId:'fixture'}};
+    const manifestBytes=Buffer.from(JSON.stringify(manifest)),manifestSha256=validator.sha256(manifestBytes);
+    const ledger={schemaVersion:1,generation:2,executionId:'generation-2',phase,
+      identity:{candidateId:'fixture',response:{low:0.35,mid:0.6,bassHardness:0.5},midScreenResultSha256:'b'.repeat(64)},
+      authorizedCellCount:1,accounting:{renderCalls:1},cells:{
+        [key]:{identity:{key},relativePath:`cells/${key}.json`,state:'COMPLETE',sha256:cellSha}
+      }};
+    const ledgerBytes=Buffer.from(JSON.stringify(ledger));
+    const cellRelative=`generation-2/search-v1/mid/validations/${phase}/cells/${key}.json`;
+    const ledgerRelative=`generation-2/search-v1/mid/validations/${phase}/${phase}-ledger.json`;
+    for(const root of [roots.primary,roots.secondary]){
+      write(path.join(root,'generation-2/search-v1/generation-2-manifest.json'),manifestBytes);
+      write(path.join(root,cellRelative),cellBytes);
+      write(path.join(root,ledgerRelative),ledgerBytes);
+    }
+    const valid=validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,manifestSha256});
+    assert.equal(valid.additionCount,3,'mid-full evidence binds to the mid screen result SHA field');
+    const invalidLedger={...ledger,identity:{...ledger.identity,midScreenResultSha256:'c'}};
+    const invalidBytes=Buffer.from(JSON.stringify(invalidLedger));
+    write(path.join(roots.primary,ledgerRelative),invalidBytes);write(path.join(roots.secondary,ledgerRelative),invalidBytes);
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,manifestSha256}),
+      /full-validation ledger identity differs from immutable search manifest/);
+  }finally{fs.rmSync(roots.base,{recursive:true,force:true});}
+}
+
+{
+  const roots=makeRoots();
+  try{
+    const audit=auditFor(roots.primary,roots.secondary);
+    const lowSelection={low:0.35,mid:1,bassHardness:0.5,rank:{rankMaxError:1,rankSumSquares:2}};
+    const authorizedGrid=search.midGridTuples(lowSelection),screenCoordinates=search.midScreenCells();
+    const expected=authorizedGrid.flatMap(response=>screenCoordinates.map(cell=>{
+      const identity={...cell,phase:'mid-screen',response};
+      return {...identity,key:search.cellId(identity)};
+    }));
+    const target=expected[0],cellBytes=Buffer.from('authorized mid-screen cell'),cellSha=validator.sha256(cellBytes);
+    const manifest={schemaVersion:1,state:'ACTIVE',generation:2,searchEpoch:'search-v1',identity:{candidateId:'fixture'}};
+    const manifestBytes=Buffer.from(JSON.stringify(manifest)),manifestSha256=validator.sha256(manifestBytes);
+    const ledger={schemaVersion:1,generation:2,executionId:'generation-2',phase:'mid',
+      identity:{...manifest.identity,phase:'mid',authorizedGrid,screenCoordinates,lowSelection},
+      authorizedCellCount:expected.length,accounting:{renderCalls:1},cells:{}};
+    for(const cell of expected)ledger.cells[cell.key]={state:cell.key===target.key?'COMPLETE':'PENDING',identity:cell,
+      relativePath:`cells/${cell.key}.json`,sha256:cell.key===target.key?cellSha:null};
+    const ledgerBytes=Buffer.from(JSON.stringify(ledger));
+    const cellRelative=`generation-2/search-v1/mid/cells/${target.key}.json`;
+    const ledgerRelative='generation-2/search-v1/mid/mid-ledger.json';
+    for(const root of [roots.primary,roots.secondary]){
+      write(path.join(root,'generation-2/search-v1/generation-2-manifest.json'),manifestBytes);
+      write(path.join(root,cellRelative),cellBytes);
+      write(path.join(root,ledgerRelative),ledgerBytes);
+    }
+    const validate=()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,manifestSha256});
+    assert.equal(validate().additionCount,3,'a mid-screen cell is authorized only by its matching COMPLETE ledger row');
+    const rogueKey='mid-screen-L0.35-M0.75-H0.5-midi-099-v110';
+    const rogueRelative=`generation-2/search-v1/mid/cells/${rogueKey}.json`;
+    write(path.join(roots.primary,rogueRelative),cellBytes);write(path.join(roots.secondary,rogueRelative),cellBytes);
+    assert.throws(validate,/mid-screen cell is not a matching COMPLETE ledger row/);
+    fs.rmSync(path.join(roots.primary,rogueRelative));fs.rmSync(path.join(roots.secondary,rogueRelative));
+    const wrongLedgerBytes=Buffer.from(JSON.stringify({...ledger,cells:{...ledger.cells,[target.key]:{...ledger.cells[target.key],sha256:'0'.repeat(64)}}}));
+    write(path.join(roots.primary,ledgerRelative),wrongLedgerBytes);write(path.join(roots.secondary,ledgerRelative),wrongLedgerBytes);
+    assert.throws(validate,/COMPLETE mid-screen ledger row has no matching dual-saved cell/);
+  }finally{fs.rmSync(roots.base,{recursive:true,force:true});}
+}
+
+{
+  const roots=makeRoots();
+  try{
+    const audit=auditFor(roots.primary,roots.secondary);
+    const phase='low-full-0.35-0.5';
+    const key='low-full-0.35-0.5-L0.35-M1-H0.5-midi-033-v110';
+    const pendingKey='low-full-0.35-0.5-L0.35-M1-H0.5-midi-036-v150';
+    const cellBytes=Buffer.from('authorized completed validation cell');
+    const cellSha=validator.sha256(cellBytes);
+    const manifest={schemaVersion:1,state:'ACTIVE',generation:2,searchEpoch:'search-v1',identity:{candidateId:'fixture'}};
+    const manifestBytes=Buffer.from(JSON.stringify(manifest));
+    const manifestSha256=validator.sha256(manifestBytes);
+    const ledger={schemaVersion:1,generation:2,executionId:'generation-2',phase,
+      identity:{candidateId:'fixture',response:{low:0.35,mid:1,bassHardness:0.5},lowScreenResultSha256:'a'.repeat(64)},
+      authorizedCellCount:2,accounting:{renderCalls:1},cells:{
+        [key]:{identity:{key},relativePath:`cells/${key}.json`,state:'COMPLETE',sha256:cellSha},
+        [pendingKey]:{identity:{key:pendingKey},relativePath:`cells/${pendingKey}.json`,state:'PENDING',sha256:null}
+      }};
+    const ledgerBytes=Buffer.from(JSON.stringify(ledger));
+    const cellRelative=`generation-2/search-v1/low/validations/${phase}/cells/${key}.json`;
+    const ledgerRelative=`generation-2/search-v1/low/validations/${phase}/${phase}-ledger.json`;
+    for(const root of [roots.primary,roots.secondary]){
+      write(path.join(root,'generation-2/search-v1/generation-2-manifest.json'),manifestBytes);
+      write(path.join(root,cellRelative),cellBytes);
+      write(path.join(root,ledgerRelative),ledgerBytes);
+    }
+    const validate=()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit,manifestSha256});
+    const valid=validate();
+    assert.equal(valid.additionCount,3,'a cell authorized by its dual-saved full-validation ledger is accepted');
+
+    const rogueRelative=`generation-2/search-v1/low/validations/${phase}/cells/rogue-cell.json`;
+    write(path.join(roots.primary,rogueRelative),cellBytes);write(path.join(roots.secondary,rogueRelative),cellBytes);
+    assert.throws(validate,/not a matching COMPLETE ledger row/);
+    fs.rmSync(path.join(roots.primary,rogueRelative));fs.rmSync(path.join(roots.secondary,rogueRelative));
+
+    const wrongLedgerBytes=Buffer.from(JSON.stringify({...ledger,cells:{...ledger.cells,[key]:{...ledger.cells[key],sha256:'0'.repeat(64)}}}));
+    write(path.join(roots.primary,ledgerRelative),wrongLedgerBytes);write(path.join(roots.secondary,ledgerRelative),wrongLedgerBytes);
+    assert.throws(validate,
+      /COMPLETE validation ledger row has no matching dual-saved cell/);
+  }finally{fs.rmSync(roots.base,{recursive:true,force:true});}
+}
+
+{
+  const roots=makeRoots();
+  try{
+    const audit=auditFor(roots.primary,roots.secondary),frozen=inventory(roots.primary)[0];
+    write(path.join(roots.primary,frozen.path),Buffer.from('tampered'));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit}),/BLOCKED_STAGE3E_AMENDMENT_EVIDENCE/);
+  }finally{fs.rmSync(roots.base,{recursive:true,force:true});}
+}
+
+{
+  const roots=makeRoots();
+  try{
+    const audit=auditFor(roots.primary,roots.secondary);
+    write(path.join(roots.primary,'generation-2/search-v1/low/low-ledger.json'),Buffer.from('primary'));
+    write(path.join(roots.secondary,'generation-2/search-v1/low/low-ledger.json'),Buffer.from('secondary'));
+    assert.throws(()=>validator.validateNamespaceAdditions({primaryRoot:roots.primary,secondaryRoot:roots.secondary,audit}),/BLOCKED_EVIDENCE_SECONDARY_PERSISTENCE/);
+  }finally{fs.rmSync(roots.base,{recursive:true,force:true});}
+}
+
+{
+  const expectedCells=[{key:'cell-a',pitch:36},{key:'cell-b',pitch:39}];
+  const genesis={generation:2,executionId:'generation-2',phase:'low-screen',authorizedCellCount:2,identity:{id:'fixed'},accounting:{renderCalls:0},
+    cells:Object.fromEntries(expectedCells.map(cell=>[cell.key,{state:'PENDING',identity:cell,relativePath:`cells/${cell.key}.json`,sha256:null}]))};
+  const genesisBytes=Buffer.from(JSON.stringify(genesis));
+  const current=JSON.parse(JSON.stringify(genesis));current.cells['cell-a'].state='COMPLETE';current.cells['cell-a'].sha256='f'.repeat(64);current.accounting.renderCalls=1;
+  const currentBytes=Buffer.from(JSON.stringify(current)),genesisSha=validator.sha256(genesisBytes),currentSha=validator.sha256(currentBytes);
+  const bindings={manifestSha256:'a'.repeat(64),proofSha256:'b'.repeat(64),compatibilitySha256:'c'.repeat(64)};
+  const first={sequence:1,previousLedgerSha256:genesisSha,nextLedgerSha256:'d'.repeat(64),cellKey:'cell-a',cellIdentity:expectedCells[0],oldState:'PENDING',newState:'IN_PROGRESS',previousRenderCount:0,newRenderCount:0,capturedCellSha256:null,...bindings};
+  const second={sequence:2,previousLedgerSha256:first.nextLedgerSha256,nextLedgerSha256:currentSha,cellKey:'cell-a',cellIdentity:expectedCells[0],oldState:'IN_PROGRESS',newState:'COMPLETE',previousRenderCount:0,newRenderCount:1,capturedCellSha256:'f'.repeat(64),...bindings};
+  second.renderStartMarkerSha256='9'.repeat(64);
+  const marker={schemaVersion:1,kind:'STAGE3E_RENDER_START',sequence:1,cellKey:'cell-a',cellIdentity:expectedCells[0],
+    ledgerSha256:first.nextLedgerSha256,transitionSequence:1,transitionSha256:validator.sha256(validator.jsonBytes(first)),
+    manifestSha256:bindings.manifestSha256,proofSha256:bindings.proofSha256,compatibilitySha256:bindings.compatibilitySha256,
+    renderCallIndex:1,_sha256:second.renderStartMarkerSha256};
+  const accepted=validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:currentBytes,transitionEntries:[first,second],renderStartEntries:[marker],expectedCells,bindings});
+  assert.deepEqual({pending:accepted.pending,inProgress:accepted.inProgress,complete:accepted.complete,renderCalls:accepted.renderCalls},{pending:1,inProgress:0,complete:1,renderCalls:1});
+  assert.throws(()=>validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:currentBytes,transitionEntries:[first,{...second,newRenderCount:2}],renderStartEntries:[marker],expectedCells,bindings}),/BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE/);
+  assert.throws(()=>validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:currentBytes,transitionEntries:[first,second],expectedCells,bindings}),/missing or mismatched durable render-start marker/);
+  assert.throws(()=>validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:currentBytes,transitionEntries:[first,second],renderStartEntries:[marker],expectedCells,bindings:{...bindings,proofSha256:'e'.repeat(64)}}),/BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE/);
+}
+
+{
+  const cell={key:'low-screen-L1-M1-H0-midi-036-v110',pitch:36,velocity:14,response:{low:1,mid:1,bassHardness:0}};
+  const genesis={generation:2,executionId:'generation-2',phase:'low',authorizedCellCount:1,identity:{id:'fixed'},accounting:{renderCalls:0},
+    cells:{[cell.key]:{state:'PENDING',identity:cell,relativePath:`cells/${cell.key}.json`,sha256:null}}};
+  const genesisBytes=Buffer.from(JSON.stringify(genesis)),genesisSha=validator.sha256(genesisBytes);
+  const inProgress=JSON.parse(JSON.stringify(genesis));inProgress.cells[cell.key].state='IN_PROGRESS';inProgress.cells[cell.key].startedAt='old-run';
+  const inProgressBytes=Buffer.from(JSON.stringify(inProgress)),inProgressSha=validator.sha256(inProgressBytes);
+  const requeued=JSON.parse(JSON.stringify(inProgress));requeued.cells[cell.key].state='PENDING';delete requeued.cells[cell.key].startedAt;
+  const requeuedBytes=Buffer.from(JSON.stringify(requeued)),requeuedSha=validator.sha256(requeuedBytes);
+  const v2='2'.repeat(64),v3='3'.repeat(64),abort='4'.repeat(64),authorization='5'.repeat(64),recoveryResult='8'.repeat(64),oldCode='6'.repeat(64),newCode='7'.repeat(64);
+  const common={manifestSha256:'a'.repeat(64),proofSha256:'b'.repeat(64)};
+  const first={sequence:1,previousLedgerSha256:genesisSha,nextLedgerSha256:inProgressSha,cellKey:cell.key,cellIdentity:cell,
+    oldState:'PENDING',newState:'IN_PROGRESS',previousRenderCount:0,newRenderCount:0,capturedCellSha256:null,compatibilitySha256:v2,...common};
+  const aborted={sequence:2,previousLedgerSha256:inProgressSha,nextLedgerSha256:inProgressSha,cellKey:cell.key,cellIdentity:cell,
+    oldState:'IN_PROGRESS',newState:'IN_PROGRESS',previousRenderCount:0,newRenderCount:0,capturedCellSha256:null,
+    eventType:'ABORTED_BEFORE_RENDER',compatibilitySha256:v3,recoveryAuthorizationSha256:authorization,recoveryResultSha256:recoveryResult,abortEvidenceSha256:abort,
+    attemptIndex:1,abortedBeforeRenderCalls:0,oldCodeSha256:oldCode,newCodeSha256:newCode,...common};
+  const requeue={sequence:3,previousLedgerSha256:inProgressSha,nextLedgerSha256:requeuedSha,cellKey:cell.key,cellIdentity:cell,
+    oldState:'IN_PROGRESS',newState:'PENDING',previousRenderCount:0,newRenderCount:0,capturedCellSha256:null,
+    eventType:'REQUEUE_AUTHORIZED',compatibilitySha256:v3,recoveryAuthorizationSha256:authorization,recoveryResultSha256:recoveryResult,abortEvidenceSha256:abort,
+    attemptIndex:1,abortedBeforeRenderCalls:0,oldCodeSha256:oldCode,newCodeSha256:newCode,...common};
+  const accepted=validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:requeuedBytes,
+    transitionEntries:[first,aborted,requeue],expectedCells:[cell],bindings:{...common,compatibilitySha256:v3,
+      acceptedCompatibilitySha256s:[v2],recoveryCompatibilitySha256:v3}});
+  assert.deepEqual({pending:accepted.pending,inProgress:accepted.inProgress,complete:accepted.complete,renderCalls:accepted.renderCalls},
+    {pending:1,inProgress:0,complete:0,renderCalls:0});
+  assert.throws(()=>validator.validateLedgerTransitions({genesisLedgerBytes:genesisBytes,currentLedgerBytes:requeuedBytes,
+    transitionEntries:[first,aborted,requeue,requeue],expectedCells:[cell],bindings:{...common,compatibilitySha256:v3,
+      acceptedCompatibilitySha256s:[v2],recoveryCompatibilitySha256:v3}}),/BLOCKED_STAGE3E_DIAGNOSTIC_EVIDENCE/);
+}
+console.log('PASS Stage3E frozen inventory, append-only namespace, dual-copy, and ledger transition validation');

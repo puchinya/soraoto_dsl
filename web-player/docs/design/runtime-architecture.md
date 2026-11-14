@@ -45,7 +45,7 @@ The UI exposes a single transport state at a time: stopped, busy/preparing, play
 exporting. Playback controls must not permit overlapping graph construction or two active transport
 sessions.
 
-Stop and project reload invalidate pending scheduler work before a replacement graph becomes active.
+Stop and DSL source reload/recompile invalidate pending scheduler work before a replacement graph becomes active.
 
 ## Offline render
 

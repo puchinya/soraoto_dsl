@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "studyName": "issue-7-concert-grand-v9-level1-qmc",
+  "seed": 7,
+  "sampler": {
+    "library": "optuna",
+    "class": "QMCSampler",
+    "qmcType": "sobol",
+    "scramble": true,
+    "points": 64
+  },
+  "preset": "concert_grand",
+  "dimensions": [
+    {
+      "name": "piano_hammer_hardness",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.85,
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbol": "concert_grand.piano_hammer_hardness",
+      "applyTo": "preset.piano_hammer_hardness"
+    },
+    {
+      "name": "hammer.compression_scale",
+      "type": "float",
+      "min": 0.0005,
+      "max": 0.002,
+      "scale": "linear",
+      "baseline": 0.001,
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbol": "concert_grand.engine_config.hammer.compression_scale",
+      "applyTo": "preset.engine_config.hammer.compression_scale"
+    },
+    {
+      "name": "effective_strike_position_c4",
+      "type": "float",
+      "min": 0.13,
+      "max": 0.17,
+      "scale": "linear",
+      "baseline": 0.14958620689655173,
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbols": [
+        "concert_grand.engine_config.string.strike_position_bass",
+        "concert_grand.engine_config.string.strike_position_treble"
+      ],
+      "applyTo": "derived common offset to string strike endpoints",
+      "mapping": {
+        "midiPitch": 60,
+        "midiMinimum": 21,
+        "midiMaximum": 108,
+        "interpolation": "bass + (treble - bass) * ((midi - 21) / 87)",
+        "endpointRule": "candidate endpoint = baseline endpoint + (sampled C4 strike - baseline interpolated C4 strike)"
+      }
+    },
+    {
+      "name": "piano_string_damping",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.0,
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbol": "concert_grand.piano_string_damping",
+      "applyTo": "preset.piano_string_damping"
+    },
+    {
+      "name": "piano_string_unison",
+      "type": "float",
+      "min": 0.4,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.58,
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbol": "concert_grand.piano_string_unison",
+      "applyTo": "preset.piano_string_unison"
+    },
+    {
+      "name": "piano_inharmonicity",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.2,
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbol": "concert_grand.piano_inharmonicity",
+      "applyTo": "preset.piano_inharmonicity"
+    }
+  ],
+  "screening": {
+    "pitches": [21, 48, 60, 84, 108],
+    "velocities": [14, 61, 124],
+    "pitchAuthority": "wasm/plugins/dsp/super-synth/test/tools/piano-pitch-estimator.cjs",
+    "acousticMetrics": "wasm/plugins/dsp/super-synth/test/tools/salamander-metrics.cjs",
+    "referenceFixture": "wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json",
+    "retainContinuousMetrics": true,
+    "acousticPassFailReduction": false
+  }
+}

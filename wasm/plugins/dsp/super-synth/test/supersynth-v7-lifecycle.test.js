@@ -13,4 +13,4 @@ for(let cycle=0;cycle<120;cycle++){
   maxPages=Math.max(maxPages,h.e.memory.buffer.byteLength/65536);h.close();
 }
 check(maxPages<=512,`unexpected wasm pages ${maxPages}`);
-console.log('PASS SuperSynth v8 lifecycle',{cycles:120,maxPages});
+console.log('PASS SuperSynth v9 lifecycle regression',{cycles:120,maxPages});

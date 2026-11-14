@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "studyNamePrefix": "issue-7-grand-v9-stage2e-termination-joint-v3",
+  "seed": 7,
+  "sampler": {
+    "library": "optuna",
+    "class": "GPSampler",
+    "deterministicObjective": true,
+    "startupTrials": 10,
+    "parallelJobs": 1
+  },
+  "preset": "concert_grand",
+  "dimensions": [
+    {"name": "effective_strike_position_c4", "type": "float", "min": 0.13, "max": 0.17, "scale": "linear", "baseline": 0.14958620689655173},
+    {"name": "hammer.compression_scale", "type": "float", "min": 0.0005, "max": 0.002, "scale": "linear", "baseline": 0.001},
+    {"name": "piano_hammer_hardness", "type": "float", "min": 0.0, "max": 1.0, "scale": "linear", "baseline": 0.85},
+    {"name": "piano_inharmonicity", "type": "float", "min": 0.0, "max": 1.0, "scale": "linear", "baseline": 0.2},
+    {"name": "piano_string_damping", "type": "float", "min": 0.0, "max": 1.0, "scale": "linear", "baseline": 0.0},
+    {"name": "piano_string_unison", "type": "float", "min": 0.0, "max": 1.0, "scale": "linear", "baseline": 0.58},
+    {"name": "hammer.velocity_hardness_amount", "type": "float", "min": 0.0, "max": 1.0, "scale": "linear", "baseline": 0.0,
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json", "sourceSymbol": "concert_grand.engine_config.hammer.velocity_hardness_amount",
+      "applyTo": "preset.engine_config.hammer.velocity_hardness_amount"},
+    {"name": "termination_loss_floor_scale", "type": "float", "min": 0.0, "max": 1.0, "scale": "linear", "baseline": 1.0,
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json", "sourceSymbols": [
+        "concert_grand.engine_config.string.agraffe.damping_base",
+        "concert_grand.engine_config.string.bridge_termination.damping_base"
+      ], "applyTo": "scratch overlay only; multiply both zero-damping floor fields equally"}
+  ],
+  "screening": {
+    "pitches": [21, 48, 60, 84, 108],
+    "velocities": [14, 61, 124],
+    "pitchAuthority": "wasm/plugins/dsp/super-synth/test/tools/piano-pitch-estimator.cjs",
+    "acousticMetrics": "wasm/plugins/dsp/super-synth/test/tools/salamander-metrics.cjs",
+    "referenceFixture": "wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json",
+    "stage2bSubset": ".agent-state/issues/7/calibration-optuna/stage2b/diagnostic-subset.json",
+    "retainContinuousMetrics": true,
+    "acousticPassFailReduction": false
+  },
+  "physicalCandidateBudget": {
+    "maximumTotal": 25,
+    "completedOatCandidates": 5,
+    "maximumNewJointCandidates": 20,
+    "stopAfterFeasible": 3
+  },
+  "terminationLossFloorOat": ".agent-state/issues/7/termination-loss-floor/oat-results.json"
+}

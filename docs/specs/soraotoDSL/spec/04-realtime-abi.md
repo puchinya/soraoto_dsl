@@ -1366,7 +1366,7 @@ kind:
 1   RESCAN_DESCRIPTOR
 2   LATENCY_CHANGED
 3   TAIL_CHANGED
-4   STATE_DIRTY
+4   reserved
 
 10  TRANSPORT_START
 11  TRANSPORT_STOP
@@ -1410,10 +1410,6 @@ BUS_INFO_CHANGED:
 ROUTING_INFO_CHANGED:
 RELOAD_INSTANCE:
     arg0..2 = 0
-
-STATE_DIRTY:
-    arg0 = 1 dirty / 0 clean
-    arg1..2 = 0
 
 TRANSPORT_START:
     arg0..2 = 0
@@ -1460,7 +1456,6 @@ Because `soraoto_plugin_control` is forbidden while lifecycle state is `Processi
 
 ```text
 host-only:
-    STATE_DIRTY
     UNIT_SELECTION_CHANGED
     TRANSPORT_START
     TRANSPORT_STOP
@@ -1528,15 +1523,6 @@ LATENCY_CHANGED:
 
 TAIL_CHANGED:
     query soraoto_plugin_tail_samples()
-
-STATE_DIRTY:
-    arg0=1:
-        mark project/plugin state dirty
-        schedule a new state snapshot outside the current process call
-
-    arg0=0:
-        clear Plugin-reported dirty flag after the Host has persisted the current state
-        or when the Plugin explicitly reports that its non-parameter state matches the last persisted snapshot
 
 PREFETCH_SUPPORT_CHANGED:
     GET_DESCRIPTOR
@@ -1606,13 +1592,12 @@ ROUTING_INFO_CHANGED:
 RELOAD_INSTANCE:
     current instance is first brought to Active by the HostRequest safe-point rule
 
-    1. capture last valid state snapshot
-    2. create fresh module instance
-    3. init/configure
-    4. load snapshot with StateLoadContextV1(source=project)
-    5. refresh descriptor/parameters/unit assignments/latency/tail
-    6. atomically swap at graph safe point
-    7. destroy old instance after swap
+    1. create fresh module instance
+    2. init/configure
+    3. apply the current DSL PluginConfigurationV1
+    4. refresh descriptor/parameters/unit assignments/latency/tail
+    5. atomically swap at graph safe point
+    6. destroy old instance after swap
 ```
 
 `RELOAD_INSTANCE` failure leaves the old instance active if it is still valid。
@@ -1875,7 +1860,8 @@ Data Exchange は FFT / waveform / analyzer metadata / large processor telemetry
 
 # 61. Deterministic CBOR Wire Schema
 
-Component payload、Plugin control plane、preset/state context で使用する CBOR をここで固定する。
+Component payload, Plugin control-plane payloads, and declarative `.soraotopreset` configuration
+use the CBOR encoding fixed here.
 
 ## 61.1 Encoding profile
 
@@ -2280,7 +2266,6 @@ data_exchange_queues
 parameter_aliases
 factory_presets
 program_lists
-state
 prefetch_support
 max_event_output_per_block
 max_host_requests_per_block

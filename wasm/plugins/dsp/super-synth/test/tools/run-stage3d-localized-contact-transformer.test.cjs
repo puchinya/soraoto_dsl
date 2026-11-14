@@ -1,0 +1,168 @@
+#!/usr/bin/env node
+'use strict';
+
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const os=require('node:os');
+const stage3d=require('./run-stage3d-localized-contact-transformer.cjs');
+
+assert.equal(stage3d.EQUIVALENCE_CELLS.length,10);
+assert.equal(stage3d.CORRECTION_CELLS.length,9);
+assert.equal(stage3d.SELECTION_CELLS.length,261);
+assert.equal(new Set(stage3d.SELECTION_CELLS.map(stage3d.key)).size,261);
+assert.deepEqual([...new Set(stage3d.SELECTION_CELLS.map(x=>x.stage3dVariant))],[1,2,3]);
+assert.equal(stage3d.EQUIVALENCE_CELLS.every(x=>x.stage3dVariant===0),true);
+assert.throws(()=>stage3d.mode([]),/explicit mode required/);
+assert.equal(stage3d.mode(['--dry-run']),'--dry-run');
+assert.equal(stage3d.mode(['--correct-equivalence']),'--correct-equivalence');
+assert.throws(()=>stage3d.mode(['--execute','--finalize']),/explicit mode required/);
+assert.throws(()=>stage3d.assertAuthorized([...stage3d.SELECTION_CELLS,{kind:'dynamic',pitch:49,velocity:14,stage3dVariant:4}],stage3d.SELECTION_CELLS,'selection'),/authorization mismatch/);
+
+const gate=stage3d.gateValue;
+assert.equal(gate(48),0);assert.equal(gate(51),1);assert.equal(gate(54),1);assert.equal(gate(57),0);
+assert.ok(0<gate(49)&&gate(49)<gate(50)&&gate(50)<1);
+assert.ok(0<gate(56)&&gate(56)<gate(55)&&gate(55)<1);
+assert.equal(gate(51),gate(54));assert.equal(gate(49),gate(56));assert.equal(gate(50),gate(55));
+
+const z=[1,.965,1.035],ratios=[1,2,3].map(v=>stage3d.plateauRatio(v,z));
+assert.ok(1>ratios[0]&&ratios[0]>ratios[1]&&ratios[1]>ratios[2]&&ratios[2]>0);
+assert.equal(ratios[0],Math.sqrt((z[0]+z[1])/(z[0]+z[1]+z[2])));
+assert.equal(ratios[1],Math.sqrt(z[0]/(z[0]+z[1]+z[2])));
+assert.equal(ratios[2],z[0]/(z[0]+z[1]+z[2]));
+const terms=stage3d.transformerTerms(.25,12,ratios[1],3.5);
+assert.ok(Math.abs(12*terms.vContact-terms.fString*.25)<1e-12);
+assert.equal(terms.deltaV,terms.fString/(2*3.5));
+assert.deepEqual(stage3d.transformerTerms(.25,12,1,3.5),{vContact:.25,fString:12,deltaV:12/7});
+assert.equal(stage3d.selectCandidate([{variant:3,eligible:true},{variant:2,eligible:true},{variant:1,eligible:true}]).variant,1);
+assert.equal(stage3d.selectCandidate([{variant:1,eligible:false},{variant:2,eligible:true},{variant:3,eligible:true}]).variant,2);
+assert.equal(stage3d.selectCandidate([{variant:1,eligible:false},{variant:2,eligible:false},{variant:3,eligible:false}]),null);
+assert.equal(stage3d.isNoOp({pitch:48}),true);assert.equal(stage3d.isNoOp({pitch:57}),true);
+assert.equal(stage3d.isNoOp({pitch:96}),true);assert.equal(stage3d.isNoOp({pitch:41}),true);
+assert.equal(stage3d.isNoOp({pitch:51}),false);
+assert.deepEqual(stage3d.CORRECTION_CELLS.map(c=>[c.pitch,c.velocity]),[[36,124],[39,124],[45,69],[48,69],[51,14],[51,124],[54,124],[57,124],[96,31]]);
+assert.ok(stage3d.CORRECTION_CELLS.every(c=>c.stage3dVariant===0&&c.velocityDerivativeStartMs===0&&c.velocityDerivativeEndMs===160));
+assert.deepEqual(stage3d.SELECTION_CELLS.reduce((counts,c)=>{const k=`${c.velocityDerivativeStartMs}-${c.velocityDerivativeEndMs}`;counts[k]=(counts[k]||0)+1;return counts;},{}),{'0-160':132,'30-180':129});
+for(const pitch of [48,57,93,96,99])assert.deepEqual(stage3d.SELECTION_CELLS.filter(c=>c.pitch===pitch).map(c=>[c.velocityDerivativeStartMs,c.velocityDerivativeEndMs]),Array.from({length:pitch>=93?12:48},()=>[0,160]));
+for(const pitch of [51,54,49,50,55,56,41])assert.ok(stage3d.SELECTION_CELLS.filter(c=>c.pitch===pitch).every(c=>c.velocityDerivativeStartMs===30&&c.velocityDerivativeEndMs===180));
+
+const root=fs.mkdtempSync(path.join(os.tmpdir(),'stage3d-ledger-'));
+try {
+  const isolatedPaths=stage3d.paths(root);
+  assert.equal(path.basename(isolatedPaths.identity),'build-identity.json');
+  assert.equal(stage3d.hasAcousticEvidence(isolatedPaths),false);
+  fs.mkdirSync(isolatedPaths.eqCells,{recursive:true});
+  fs.writeFileSync(path.join(isolatedPaths.eqCells,'pending.json'),'{}');
+  assert.equal(stage3d.hasAcousticEvidence(isolatedPaths),true);
+  fs.rmSync(isolatedPaths.eqCells,{recursive:true,force:true});
+  const ident={sourceRevision:'synthetic',stage3dDiagnosticWasmSha256:'a'.repeat(64)};
+  const ledger=stage3d.makeLedger(ident,stage3d.EQUIVALENCE_CELLS,'equivalence');
+  assert.deepEqual(stage3d.counts(ledger),{PENDING:10,IN_PROGRESS:0,COMPLETE:0});
+  assert.equal(ledger.accounting.newRenderCalls,0);
+  ledger.cells[stage3d.key(stage3d.EQUIVALENCE_CELLS[0])].state='IN_PROGRESS';
+  const pp=stage3d.paths(root);fs.mkdirSync(pp.eqDir,{recursive:true});fs.writeFileSync(pp.eqLedger,JSON.stringify(ledger));
+  assert.throws(()=>stage3d.inspectLedger(pp,ident,'equivalence'),/ambiguous IN_PROGRESS/);
+  ledger.cells[stage3d.key(stage3d.EQUIVALENCE_CELLS[0])].state='COMPLETE';
+  ledger.accounting.newRenderCalls=1;fs.writeFileSync(pp.eqLedger,JSON.stringify(ledger));
+  assert.throws(()=>stage3d.inspectLedger(pp,ident,'equivalence'),/complete cell absent\/corrupt/);
+  const correctionIdentity={schemaVersion:1,candidateId:stage3d.CANDIDATE,executionSourceRevision:'synthetic',runnerSha256:'b'.repeat(64)};
+  const correctionLedger=stage3d.loadCorrectionLedger(pp,correctionIdentity,{create:true});
+  assert.equal(correctionLedger.authorizedRenderCount,9);
+  assert.deepEqual(stage3d.counts(correctionLedger),{PENDING:9,IN_PROGRESS:0,COMPLETE:0});
+  correctionLedger.cells[stage3d.key(stage3d.CORRECTION_CELLS[0])].state='IN_PROGRESS';
+  fs.writeFileSync(pp.correctionLedger,JSON.stringify(correctionLedger));
+  assert.throws(()=>stage3d.inspectCorrection(pp,correctionIdentity),/ambiguous IN_PROGRESS/);
+} finally {fs.rmSync(root,{recursive:true,force:true});}
+
+const historical=stage3d.loadHistoricalEquivalence();
+assert.equal(historical.result.decision,'BLOCKED_STAGE3D_EQUIVALENCE');
+assert.equal(historical.rows.length,10);
+assert.ok(fs.existsSync(stage3d.paths().eqResult));
+const persistedCorrection=stage3d.validatePersistedCorrection();
+assert.equal(persistedCorrection.state.counts.COMPLETE,9);
+assert.equal(persistedCorrection.state.counts.PENDING,0);
+assert.equal(persistedCorrection.state.counts.IN_PROGRESS,0);
+assert.equal(persistedCorrection.resultSha256,stage3d.EXPECTED.stage3dCorrectedEquivalenceResult);
+const completedSelection=stage3d.validateCompletedSelection();
+assert.equal(fs.existsSync(stage3d.paths().selLedger),true);
+assert.equal(fs.existsSync(stage3d.paths().selResult),true);
+assert.equal(completedSelection.ledgerSha256,stage3d.EXPECTED.stage3dSelectionFinalLedger);
+assert.equal(completedSelection.resultSha256,stage3d.EXPECTED.stage3dSelectionResult);
+assert.equal(completedSelection.rows.length,261);
+assert.equal(stage3d.counts(completedSelection.ledger).COMPLETE,261);
+assert.equal(stage3d.counts(completedSelection.ledger).PENDING,0);
+assert.equal(stage3d.counts(completedSelection.ledger).IN_PROGRESS,0);
+assert.equal(completedSelection.ledger.finalResultSha256,completedSelection.resultSha256);
+assert.match(completedSelection.preFinalizationLedgerSha256,/^[0-9a-f]{64}$/);
+assert.notEqual(completedSelection.preFinalizationLedgerSha256,completedSelection.ledgerSha256);
+
+const currentIdentity=stage3d.buildIdentity();
+const savedIdentity=JSON.parse(fs.readFileSync(stage3d.paths().identity,'utf8'));
+const verifierDrift=stage3d.compareStrictCoreIdentity(savedIdentity,currentIdentity);
+for(const field of stage3d.VERIFIER_ONLY_FIELDS){
+  assert.equal(verifierDrift[field].historical,savedIdentity[field]);
+  assert.equal(verifierDrift[field].current,currentIdentity[field]);
+}
+const strictMutation={...currentIdentity,stage3dDiagnosticWasmSha256:'f'.repeat(64)};
+assert.throws(()=>stage3d.compareStrictCoreIdentity(savedIdentity,strictMutation),/BLOCKED_STAGE3D_DIAGNOSTIC_BUILD_IDENTITY/);
+const persistedCorrectionIdentity=JSON.parse(fs.readFileSync(stage3d.paths().correctionIdentity,'utf8'));
+const expectedCorrectionIdentity=stage3d.correctionIdentity(currentIdentity,historical);
+assert.doesNotThrow(()=>stage3d.compareStrictCoreIdentity(persistedCorrectionIdentity,expectedCorrectionIdentity,stage3d.CORRECTION_VERIFIER_FIELD_MAP));
+assert.throws(()=>stage3d.compareStrictCoreIdentity(persistedCorrectionIdentity,
+  {...expectedCorrectionIdentity,stage3cAuthoritativeResultSha256:'f'.repeat(64)},stage3d.CORRECTION_VERIFIER_FIELD_MAP),
+  /BLOCKED_STAGE3D_DIAGNOSTIC_BUILD_IDENTITY/);
+const tamperedLedger=structuredClone(completedSelection.ledger);
+tamperedLedger.finalResultSha256='0'.repeat(64);
+assert.throws(()=>stage3d.assertSelectionCompletionShape(tamperedLedger,completedSelection.result,completedSelection.resultSha256),
+  /BLOCKED_STAGE3D_DIAGNOSTIC_EVIDENCE/);
+const tamperedResult=structuredClone(completedSelection.result);
+tamperedResult.accounting.totalCumulativeCalls=1459;
+assert.throws(()=>stage3d.assertSelectionCompletionShape(completedSelection.ledger,tamperedResult,completedSelection.resultSha256),
+  /BLOCKED_STAGE3D_DIAGNOSTIC_EVIDENCE/);
+const evidencePaths=stage3d.paths();
+const correctionCellEntry=Object.values(persistedCorrection.state.ledger.cells).find(entry=>entry.state==='COMPLETE');
+const selectionCellEntry=Object.values(completedSelection.ledger.cells).find(entry=>entry.state==='COMPLETE');
+const aggregateEntry=Object.values(completedSelection.ledger.aggregates)[0];
+const snapshotFiles=[evidencePaths.identity,evidencePaths.correctionIdentity,evidencePaths.correctionLedger,evidencePaths.correctionResult,
+  path.join(evidencePaths.correctionDir,correctionCellEntry.path),evidencePaths.selLedger,evidencePaths.selResult,
+  path.join(evidencePaths.selDir,selectionCellEntry.path),path.resolve(path.dirname(evidencePaths.selLedger),aggregateEntry.path)];
+const snapshot=()=>snapshotFiles.map(file=>({file,sha256:require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+  mtimeMs:fs.statSync(file).mtimeMs}));
+const beforeDryRun=snapshot();
+const dryRun=stage3d.run({mode:'--dry-run'});
+assert.equal(dryRun.builds,0);assert.equal(dryRun.renders,0);assert.equal(dryRun.acousticRenders,0);
+assert.equal(dryRun.correctionComplete,9);assert.equal(dryRun.selectionComplete,261);
+assert.equal(dryRun.selectionDecision,'BLOCKED_STAGE3D_CONTACT_TRANSFORMER_FAMILY');
+assert.deepEqual(dryRun.selectionWindowCounts,{'0-160':132,'30-180':129});
+assert.deepEqual(snapshot(),beforeDryRun);
+
+const plugin=fs.readFileSync(path.join(__dirname,'../../src/plugin.c'),'utf8');
+const stage3dPlugin=fs.readFileSync(path.join(__dirname,'../../src/plugin_stage3d.c'),'utf8');
+const cmake=fs.readFileSync(path.join(__dirname,'../../../../../../wasm/cmake/wasm_plugin.cmake'),'utf8');
+const stage3dCmake=fs.readFileSync(path.join(__dirname,'../../../../../../wasm/CMakeLists.txt'),'utf8');
+const historicalCapturePath=path.join(__dirname,'capture-supersynth-matrix.cjs');
+const historicalCapture=fs.readFileSync(historicalCapturePath,'utf8');
+const historicalCaptureSha= require('node:crypto').createHash('sha256').update(historicalCapture).digest('hex');
+const stage3dCapture=fs.readFileSync(path.join(__dirname,'capture-supersynth-stage3d-matrix.cjs'),'utf8');
+const stage3dRunner=fs.readFileSync(path.join(__dirname,'run-stage3d-localized-contact-transformer.cjs'),'utf8');
+assert.doesNotMatch(plugin,/SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS|soraoto_supersynth_stage3d_set_variant/);
+assert.match(stage3dPlugin,/#if defined\(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS\)\s+static unsigned int g_stage3d_variant=0u;/);
+assert.match(stage3dPlugin,/int soraoto_supersynth_stage3d_set_variant\(unsigned int variant\)\{\s*if\(variant>3u\)return -1;/);
+assert.match(stage3dPlugin,/float grand_stage3d_gate\(float pitch\)/);
+assert.match(stage3dPlugin,/float grand_stage3d_plateau_ratio\(unsigned int variant,const float\* impedance\)/);
+assert.match(stage3dPlugin,/v_string\/stage3d_ratio/);
+assert.match(stage3dPlugin,/force\/stage3d_ratio/);
+assert.match(stage3dPlugin,/bridge_impedance\[4\].*=\{s->characteristic_impedance\[0\],s->characteristic_impedance\[1\],s->characteristic_impedance\[2\],0\.0f\}/);
+assert.match(stage3dPlugin,/#elif defined\(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS\)\s+for\(int st=count;st<4;st\+\+\)\{contact_impedance\[st\]=0\.0f;bridge_impedance\[st\]=0\.0f;\}/);
+assert.doesNotMatch(cmake,/SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS/);
+assert.match(stage3dCmake,/option\(SORAOTO_SUPERSYNTH_STAGE3D_DIAGNOSTICS[\s\S]*?\n\s*OFF\)/);
+assert.match(stage3dCmake,/if\(NOT SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS OR NOT SORAOTO_SUPERSYNTH_STAGE2M_DIAGNOSTICS\)[\s\S]*?Stage3D diagnostics require/);
+assert.match(stage3dCmake,/SORAOTO_SUPERSYNTH_STAGE3B_DIAGNOSTICS OR SORAOTO_SUPERSYNTH_STAGE3C_DIAGNOSTICS/);
+assert.match(stage3dCmake,/plugin_stage3d\.c/);
+assert.equal(historicalCaptureSha,'780087c6fd91cc431127e740f909f4c62202f46c21e0bb788856d999093064d8');
+assert.doesNotMatch(historicalCapture,/stage3dVariant|soraoto_supersynth_stage3d_set_variant/);
+assert.match(stage3dCapture,/stage3dVariant/);assert.match(stage3dCapture,/soraoto_supersynth_stage3d_set_variant/);
+assert.match(stage3dRunner,/capture-supersynth-stage3d-matrix\.cjs/);
+assert.match(stage3dRunner,/stage3cCaptureEvaluatorSha256/);assert.match(stage3dRunner,/stage3dCaptureEvaluatorSha256/);
+assert.match(stage3dRunner,/build-identity-superseded-/);
+console.log('PASS Stage3D gate/ratio/power identity, fixed render authorization, resume invariants, and diagnostic build boundary');
