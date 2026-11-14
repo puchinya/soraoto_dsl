@@ -18,12 +18,25 @@ const PR_BRANCH = 'codex/issue-7-supersynth-v9';
 const LOCAL_WORKTREE_BRANCH = 'codex/issue-7-pr8-root-cause-review';
 const PR_URL = `https://github.com/${REPOSITORY}/pull/${PR_NUMBER}`;
 const ISSUE_APPROVAL_MARKER = 'ISSUE7_CONTACT_LOSS_V1_GATE3_6_APPROVED';
+const SUCCESSOR_APPROVAL_MARKER = 'ISSUE7_CONTACT_LOSS_V1_EXPERIMENT_02_APPROVED';
 const CONTRACT_SHA256 = '54838dfea9832f6da358a1c620567b09246a54fdd26fb807bc74d4ceeb6dc4aa';
+const SUCCESSOR_CONTRACT_SHA256 = '211ff6c120647ef59de6977c1d753c5078fcd04ec70cec754ac2c0d680e894ca';
+const ACTIVE_EPOCH = 'experiment-02';
+const PARENT_EPOCH = 'experiment-01';
+const PARENT_PREPARE_SHA256 = 'c49362c8db61ec223f78e7a326fb34eb6c49dd24f06bf48ea90bcc6d4624a24e';
+const PARENT_PLAN_SHA256 = '7d80f490439baa0ca022c2372c1bcbb8236ba5315d8dd31784cd7673cb9f639b';
+const PARENT_GATE3_SHA256 = '5b406ba0921e87fa8df3c0177fb2f8fc0f239eb611ed37f47c650d7220d39636';
+const PARENT_HEAD = 'ebc63ea6a32fa20ed531fa5cc9a517dd7693b38c';
+const PARENT_ROOT_MEMBERS = Object.freeze(['gate3-analysis.json', 'plan.json', 'prepare.json']);
+const SUCCESSOR_CONTRACT_REL = 'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-contract.md';
 const OFFLINE_EPOCH_PREFIX = 'physical-root-cause-offline-v1/analysis-';
 const OFFLINE_FILES = Object.freeze(['report.json', 'manifest.json']);
 const SOURCE_FILES = Object.freeze([
   'docs/specs/plugins/dsp/super-synth/physical-contact-loss-v1-amendment.md',
+  'docs/specs/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-amendment.md',
   'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-design.md',
+  'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-design.md',
+  'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-contract.md',
   'wasm/CMakeLists.txt',
   'wasm/cmake/wasm_plugin.cmake',
   'wasm/cmake/wasm32-clang.cmake',
@@ -94,13 +107,14 @@ function assertSafe(base, candidate) {
   }
   return absolute;
 }
-function resolveRoots({root = ROOT, home = os.homedir(), commonDirectory} = {}) {
+function resolveRoots({root = ROOT, home = os.homedir(), commonDirectory, epoch = ACTIVE_EPOCH} = {}) {
+  if (![PARENT_EPOCH, ACTIVE_EPOCH].includes(epoch)) throw new Error('BLOCKED_CONTACT_LOSS_EPOCH');
   const repo = fs.realpathSync(path.resolve(root)), homePath = fs.realpathSync(path.resolve(home));
   const common = fs.realpathSync(path.resolve(commonDirectory || execFileSync('rtk',
     ['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'], {cwd: repo, encoding: 'utf8'}).trim()));
-  const suffix = path.join('soraoto-agent-state', '7', 'physical-contact-loss-v1', 'experiment-01');
-  const archiveSuffix = path.join('.soraoto-agent-archive', 'soraoto_dsl', '7', 'physical-contact-loss-v1', 'experiment-01');
-  const roots = {repo, home: homePath, commonDirectory: common,
+  const suffix = path.join('soraoto-agent-state', '7', 'physical-contact-loss-v1', epoch);
+  const archiveSuffix = path.join('.soraoto-agent-archive', 'soraoto_dsl', '7', 'physical-contact-loss-v1', epoch);
+  const roots = {repo, home: homePath, commonDirectory: common, epoch,
     primary: path.join(common, suffix), secondary: path.join(homePath, archiveSuffix)};
   assertSafe(common, roots.primary);
   assertSafe(homePath, roots.secondary);
@@ -218,7 +232,13 @@ function verifyIssueApproval(root = ROOT) {
   if (issue.state !== 'OPEN') throw new Error('BLOCKED_CONTACT_LOSS_ISSUE_CLOSED');
   const labels = (issue.labels || []).map(row => row.name);
   if (!labels.includes('phase:implementation')) throw new Error('BLOCKED_CONTACT_LOSS_ISSUE_PHASE');
-  if (String(issue.body || '').includes(ISSUE_APPROVAL_MARKER)) return true;
+  const body = String(issue.body || '');
+  if (!body.includes(SUCCESSOR_APPROVAL_MARKER) || !body.includes(SUCCESSOR_CONTRACT_SHA256)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_SUCCESSOR_APPROVAL_MISSING');
+  }
+  const contractBytes = fs.readFileSync(path.join(root, SUCCESSOR_CONTRACT_REL));
+  if (sha256(contractBytes) !== SUCCESSOR_CONTRACT_SHA256) throw new Error('BLOCKED_CONTACT_LOSS_SUCCESSOR_CONTRACT_SHA');
+  if (body.includes(ISSUE_APPROVAL_MARKER)) return true;
   const comments = JSON.parse(github(['api', `repos/${REPOSITORY}/issues/7/comments?per_page=100`], {cwd: root}));
   if (!Array.isArray(comments) || !comments.some(row => String(row.body || '').includes(ISSUE_APPROVAL_MARKER))) {
     throw new Error('BLOCKED_CONTACT_LOSS_ISSUE_APPROVAL_MISSING');
@@ -233,6 +253,105 @@ function sourceSnapshot(root) {
   return Object.fromEntries(SOURCE_FILES.map(relative => [relative, fileSnapshot(root, relative)]));
 }
 function sameJson(a, b) { return JSON.stringify(stable(a)) === JSON.stringify(stable(b)); }
+function parentInventory(roots, expectedMembers = PARENT_ROOT_MEMBERS) {
+  const copies = {};
+  for (const [name, base] of [['primary', roots.primary], ['secondary', roots.secondary]]) {
+    let stat;
+    try { stat = fs.lstatSync(base); } catch (error) {
+      if (error.code === 'ENOENT') throw new Error('BLOCKED_CONTACT_LOSS_PARENT_ROOT_MISSING');
+      throw error;
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(base) !== base) {
+      throw new Error('BLOCKED_CONTACT_LOSS_PARENT_ROOT_UNSAFE');
+    }
+    const members = fs.readdirSync(base).sort();
+    if (!sameJson(members, [...expectedMembers].sort())) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_MEMBERS');
+    const files = {};
+    for (const relative of members) files[relative] = fileSnapshot(base, relative);
+    copies[name] = {directoryMtimeMs: stat.mtimeMs, members, files};
+  }
+  if (!sameJson(copies.primary.members, copies.secondary.members)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_MEMBERS');
+  for (const relative of expectedMembers) {
+    if (copies.primary.files[relative].sha256 !== copies.secondary.files[relative].sha256
+        || copies.primary.files[relative].size !== copies.secondary.files[relative].size) {
+      throw new Error(`BLOCKED_CONTACT_LOSS_PARENT_COPY_DRIFT:${relative}`);
+    }
+  }
+  return copies;
+}
+function verifyParentExperiment01({root = ROOT, home = os.homedir(), commonDirectory} = {},
+  {expected = {prepareSha256: PARENT_PREPARE_SHA256, planSha256: PARENT_PLAN_SHA256,
+    gate3Sha256: PARENT_GATE3_SHA256, head: PARENT_HEAD, members: PARENT_ROOT_MEMBERS}} = {}) {
+  const roots = resolveRoots({root, home, commonDirectory, epoch: PARENT_EPOCH});
+  const inventory = parentInventory(roots, expected.members);
+  const prepare = readJsonDual(roots, 'prepare.json', {required: true});
+  const plan = readJsonDual(roots, 'plan.json', {required: true});
+  const gate3 = readJsonDual(roots, 'gate3-analysis.json', {required: true});
+  if (prepare.sha256 !== expected.prepareSha256 || plan.sha256 !== expected.planSha256
+      || gate3.sha256 !== expected.gate3Sha256) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_DIGEST');
+  const value = prepare.value;
+  if (value.schemaVersion !== 1 || value.issue !== 7 || value.pr !== 8 || value.branch !== PR_BRANCH
+      || value.head !== expected.head || value.contractSha256 !== CONTRACT_SHA256
+      || value.approvalMarker !== ISSUE_APPROVAL_MARKER || value.startedCalls !== 0
+      || value.completedCalls !== 0 || value.ambiguousCalls !== 0
+      || !sameJson(value.plan, core.plan()) || !sameJson(value.budget, core.accounting())
+      || value.gate3?.analysisSha256 !== gate3.sha256 || value.gate3?.status !== 'GATE3_ANALYSIS_PASS'
+      || value.gate3?.cellCount !== 140 || value.gate3?.observationCount !== 20) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PREPARE_IDENTITY');
+  }
+  const expectedPlan = jsonBytes({schemaVersion: 1, plan: core.plan(), callCap: 42,
+    historicalCalls: 3251, lifetimeCap: 5255, downstreamReserve: 1962});
+  if (!plan.bytes.equals(expectedPlan)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PLAN_IDENTITY');
+  if (gate3.value.status !== 'GATE3_ANALYSIS_PASS' || gate3.value.head !== expected.head
+      || gate3.value.contractSha256 !== CONTRACT_SHA256 || gate3.value.cellCount !== 140
+      || gate3.value.observationCount !== 20 || gate3.value.causalStatus !== 'NOT_CONFIRMED'
+      || gate3.value.archiveSha256 !== value.gate3.archiveSha256
+      || gate3.value.offlineReportSha256 !== value.gate3.offlineReportSha256) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PARENT_GATE3_IDENTITY');
+  }
+  const state = readExperimentState(roots);
+  if (state.charged !== 0 || state.completed !== 0 || state.ambiguous !== 0 || state.candidateResults.length !== 0) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PARENT_NONZERO_CALLS');
+  }
+  const proof = {epoch: PARENT_EPOCH, head: expected.head, prepareSha256: prepare.sha256,
+    planSha256: plan.sha256, gate3Sha256: gate3.sha256, charged: 0, completed: 0, ambiguous: 0,
+    rootMembers: [...expected.members].sort(), copies: inventory};
+  return {roots, proof, inventory, state, expected};
+}
+function verifyParentInventoryUnchanged(before, options) {
+  const after = verifyParentExperiment01(options, {expected: before.expected});
+  if (!sameJson(before.inventory, after.inventory)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_CHANGED_DURING_PREPARE');
+  return after;
+}
+function epochRootMembers(roots) {
+  const present = [roots.primary, roots.secondary].map(directory => {
+    try {
+      const stat = fs.lstatSync(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(directory) !== directory) {
+        throw new Error('BLOCKED_CONTACT_LOSS_EPOCH_ROOT_UNSAFE');
+      }
+      return fs.readdirSync(directory).sort();
+    } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  });
+  if ((present[0] === null) !== (present[1] === null)) throw new Error('BLOCKED_CONTACT_LOSS_EPOCH_ROOT_DUAL_MISSING');
+  if (present[0] === null) return [];
+  if (!sameJson(present[0], present[1])) throw new Error('BLOCKED_CONTACT_LOSS_EPOCH_ROOT_DIVERGED');
+  const allowed = ['acceptance', 'experiment', 'gate3-analysis.json', 'plan.json', 'prepare.json', 'writer.lock'];
+  if (present[0].some(name => !allowed.includes(name))) throw new Error('BLOCKED_CONTACT_LOSS_EPOCH_ROOT_MEMBERS');
+  return present[0];
+}
+function combinedExperimentCharge(parentCalls, currentCalls) {
+  if (!Number.isSafeInteger(parentCalls) || parentCalls < 0
+      || !Number.isSafeInteger(currentCalls) || currentCalls < 0) throw new Error('BLOCKED_CONTACT_LOSS_CALL_ACCOUNTING');
+  const combined = parentCalls + currentCalls;
+  core.accounting({startedExperimentCalls: combined});
+  return combined;
+}
+function combinedExperimentCalls(roots) {
+  const parent = verifyParentExperiment01({root: roots.repo, home: roots.home, commonDirectory: roots.commonDirectory});
+  const current = readExperimentState(roots);
+  return combinedExperimentCharge(parent.state.charged, current.charged);
+}
 function latestOfflineReport(root, home, commonDirectory, expectedHead) {
   const offlineCore = require('./issue7-physical-root-cause-offline-v1-core.cjs');
   const roots = offlineCore.resolveInputRoots({root, home, commonDirectory});
@@ -387,13 +506,16 @@ function prepareExperiment({root = ROOT, home = os.homedir(), commonDirectory, b
   if (![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)) throw new Error('BLOCKED_CONTACT_LOSS_BRANCH');
   verifiedPullRequest(root, identity.head);
   verifyIssueApproval(root);
+  const parent = verifyParentExperiment01({root, home, commonDirectory});
   const analysis = gate3Analysis({root, home, commonDirectory});
   if (analysis.status !== 'GATE3_ANALYSIS_PASS' || analysis.cellCount !== 140) throw new Error('BLOCKED_CONTACT_LOSS_GATE3');
   const frozenEvidenceSnapshot = frozenSourceSnapshot({root, home, commonDirectory});
   if (frozenSnapshotSha256(frozenEvidenceSnapshot) !== analysis.frozenSnapshotSha256) throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_CHANGED');
   const source = sourceSnapshot(root), build = verifyDiagnosticBuild(root, identity.head, {buildDirectory});
-  const record = {schemaVersion: 1, issue: 7, pr: 8, prUrl: PR_URL, branch: PR_BRANCH, head: identity.head,
-    contractSha256: CONTRACT_SHA256, approvalMarker: ISSUE_APPROVAL_MARKER,
+  const record = {schemaVersion: 2, issue: 7, pr: 8, prUrl: PR_URL, branch: PR_BRANCH, head: identity.head,
+    epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+    approvalMarker: ISSUE_APPROVAL_MARKER, successorApprovalMarker: SUCCESSOR_APPROVAL_MARKER,
+    parentEpoch: parent.proof,
     gate3: {status: analysis.status, offlineEpoch: analysis.offlineEpoch, offlineReportSha256: analysis.offlineReportSha256,
       archiveSha256: analysis.archiveSha256, observationCount: analysis.observationCount, cellCount: analysis.cellCount,
       causalStatus: analysis.causalStatus, hypothesis: analysis.hypothesis,
@@ -404,11 +526,12 @@ function prepareExperiment({root = ROOT, home = os.homedir(), commonDirectory, b
   try {
     const existing = readJsonDual(roots, 'prepare.json');
     const gate3Stored = readDual(roots, 'gate3-analysis.json');
-    const expectedPlan = jsonBytes({schemaVersion: 1, plan: core.plan(), callCap: 42,
+    const expectedPlan = jsonBytes({schemaVersion: 2, epoch: ACTIVE_EPOCH,
+      contractSha256: SUCCESSOR_CONTRACT_SHA256, plan: core.plan(), callCap: 42,
       historicalCalls: 3251, lifetimeCap: 5255, downstreamReserve: 1962});
     const storedPlan = readDual(roots, 'plan.json');
     if (existing && !gate3Stored) throw new Error('BLOCKED_CONTACT_LOSS_GATE3_REPORT_MISSING');
-    if (!existing && storedPlan) throw new Error('BLOCKED_CONTACT_LOSS_ORPHAN_PLAN');
+    if (!existing && (storedPlan || gate3Stored)) throw new Error('BLOCKED_CONTACT_LOSS_ORPHAN_PREPARE_INPUT');
     if (gate3Stored && !gate3Stored.bytes.equals(jsonBytes(analysis))) throw new Error('BLOCKED_CONTACT_LOSS_GATE3_REPORT_CONFLICT');
     if (!gate3Stored) writeDualImmutable(roots, 'gate3-analysis.json', jsonBytes(analysis));
     record.gate3.analysisSha256 = sha256(jsonBytes(analysis));
@@ -416,10 +539,12 @@ function prepareExperiment({root = ROOT, home = os.homedir(), commonDirectory, b
       if (!sameJson({...existing.value, createdAt: null}, {...record, createdAt: null})
           || existing.value.gate3?.analysisSha256 !== record.gate3.analysisSha256) throw new Error('BLOCKED_CONTACT_LOSS_PREPARE_CONFLICT');
       if (!storedPlan || !storedPlan.bytes.equals(expectedPlan)) throw new Error('BLOCKED_CONTACT_LOSS_PLAN_MISSING_OR_CONFLICT');
+      verifyParentInventoryUnchanged(parent, {root, home, commonDirectory});
       return {status: 'PREPARED_REUSED', prepareSha256: existing.sha256, roots};
     }
     writeDualImmutable(roots, 'prepare.json', jsonBytes(record));
     writeDualImmutable(roots, 'plan.json', expectedPlan);
+    verifyParentInventoryUnchanged(parent, {root, home, commonDirectory});
     return {status: 'PREPARED', prepareSha256: sha256(jsonBytes(record)), roots};
   } finally {
     releaseLock(roots, lock);
@@ -441,8 +566,43 @@ function releaseLock(roots, lock) {
 }
 
 function readExperimentState(roots) {
+  const rootMembers = roots.epoch === ACTIVE_EPOCH ? epochRootMembers(roots) : null;
   const prepared = readJsonDual(roots, 'prepare.json');
-  if (!prepared) return {status: 'NOT_PREPARED', charged: 0, completed: 0, ambiguous: 0, candidateResults: []};
+  if (!prepared) {
+    if (roots.epoch === ACTIVE_EPOCH && rootMembers.length) throw new Error('BLOCKED_CONTACT_LOSS_ORPHAN_ACTIVE_EPOCH');
+    return {status: 'NOT_PREPARED', charged: 0, completed: 0, ambiguous: 0, candidateResults: []};
+  }
+  if (roots.epoch === ACTIVE_EPOCH) {
+    for (const name of ['gate3-analysis.json', 'plan.json']) {
+      if (!rootMembers.includes(name)) throw new Error(`BLOCKED_CONTACT_LOSS_ACTIVE_EPOCH_MEMBER_MISSING:${name}`);
+    }
+    if (prepared.value.schemaVersion !== 2 || prepared.value.epoch !== ACTIVE_EPOCH
+        || prepared.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+        || prepared.value.approvalMarker !== ISSUE_APPROVAL_MARKER
+        || prepared.value.successorApprovalMarker !== SUCCESSOR_APPROVAL_MARKER
+        || prepared.value.parentEpoch?.epoch !== PARENT_EPOCH
+        || prepared.value.parentEpoch?.head !== PARENT_HEAD
+        || prepared.value.parentEpoch?.prepareSha256 !== PARENT_PREPARE_SHA256
+        || prepared.value.parentEpoch?.planSha256 !== PARENT_PLAN_SHA256
+        || prepared.value.parentEpoch?.gate3Sha256 !== PARENT_GATE3_SHA256
+        || prepared.value.parentEpoch?.charged !== 0 || prepared.value.parentEpoch?.completed !== 0
+        || prepared.value.parentEpoch?.ambiguous !== 0
+        || !sameJson(prepared.value.plan, core.plan()) || prepared.value.startedCalls !== 0
+        || prepared.value.completedCalls !== 0 || prepared.value.ambiguousCalls !== 0
+        || !sameJson(prepared.value.budget, core.accounting())) throw new Error('BLOCKED_CONTACT_LOSS_PREPARE_IDENTITY');
+    const plan = readDual(roots, 'plan.json', {required: true});
+    const expectedPlan = jsonBytes({schemaVersion: 2, epoch: ACTIVE_EPOCH,
+      contractSha256: SUCCESSOR_CONTRACT_SHA256, plan: core.plan(), callCap: 42,
+      historicalCalls: 3251, lifetimeCap: 5255, downstreamReserve: 1962});
+    const gate3 = readJsonDual(roots, 'gate3-analysis.json', {required: true});
+    if (!plan.bytes.equals(expectedPlan) || gate3.sha256 !== prepared.value.gate3?.analysisSha256
+        || gate3.value.status !== 'GATE3_ANALYSIS_PASS' || gate3.value.head !== prepared.value.head) {
+      throw new Error('BLOCKED_CONTACT_LOSS_PREPARE_REPORT_IDENTITY');
+    }
+  } else if (prepared.value.schemaVersion !== 1 || prepared.value.head !== PARENT_HEAD
+      || prepared.value.contractSha256 !== CONTRACT_SHA256 || prepared.value.approvalMarker !== ISSUE_APPROVAL_MARKER) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PREPARE_IDENTITY');
+  }
   const expected = core.plan(), calls = [], candidateResults = [];
   let gap = false, ambiguous = 0;
   for (let index = 0; index < expected.length; index++) {
@@ -454,7 +614,9 @@ function readExperimentState(roots) {
       calls.push({cell: item, status: 'NOT_STARTED'});
       continue;
     }
-    if (gap || start.value.schemaVersion !== 1 || start.value.id !== item.id || start.value.alpha !== item.alpha
+    if (gap || start.value.schemaVersion !== 1 || (roots.epoch === ACTIVE_EPOCH
+        && (start.value.epoch !== ACTIVE_EPOCH || start.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256))
+        || start.value.id !== item.id || start.value.alpha !== item.alpha
         || start.value.alphaOrder !== item.alphaOrder || start.value.pitch !== item.pitch
         || start.value.velocity !== item.velocity || start.value.cellOrder !== item.cellOrder
         || start.value.state !== 'STARTED' || start.value.sourceHead !== prepared.value.head
@@ -465,9 +627,13 @@ function readExperimentState(roots) {
     let normalizedMetrics;
     try { normalizedMetrics = normalizeAnalyzerMetrics(metadata.value.metrics, metadata.value.guardHits); }
     catch { throw new Error('BLOCKED_CONTACT_LOSS_COMPLETE_IDENTITY'); }
-    if (complete.value.schemaVersion !== 1 || complete.value.state !== 'COMPLETE' || complete.value.id !== item.id
+    if (complete.value.schemaVersion !== 1 || (roots.epoch === ACTIVE_EPOCH
+        && (complete.value.epoch !== ACTIVE_EPOCH || complete.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256))
+        || complete.value.state !== 'COMPLETE' || complete.value.id !== item.id
         || complete.value.audioSha256 !== audio.sha256
         || complete.value.metadataSha256 !== metadata.sha256 || metadata.value.id !== item.id
+        || (roots.epoch === ACTIVE_EPOCH && (metadata.value.epoch !== ACTIVE_EPOCH
+          || metadata.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256))
         || metadata.value.alpha !== item.alpha || metadata.value.alphaOrder !== item.alphaOrder
         || metadata.value.pitch !== item.pitch || metadata.value.velocity !== item.velocity
         || metadata.value.cellOrder !== item.cellOrder
@@ -482,7 +648,13 @@ function readExperimentState(roots) {
     const rows = calls.slice(alphaOrder * 7, alphaOrder * 7 + 7);
     if (rows.length === 7 && rows.every(row => row.status === 'COMPLETE')) {
       const stored = readJsonDual(roots, `${EXPERIMENT_REL}/alpha-${String(alphaOrder).padStart(2, '0')}.json`);
-      if (stored) candidateResults.push(stored.value);
+      if (stored) {
+        if (roots.epoch === ACTIVE_EPOCH && (stored.value.epoch !== ACTIVE_EPOCH
+            || stored.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) {
+          throw new Error('BLOCKED_CONTACT_LOSS_CANDIDATE_IDENTITY');
+        }
+        candidateResults.push(stored.value);
+      }
     }
   }
   return {status: ambiguous ? 'BLOCKED_AMBIGUOUS_CALL' : 'READY', prepare: prepared.value,
@@ -535,14 +707,15 @@ function assertAnalyzerContract() {
   normalizeAnalyzerMetrics(analyzer.analyze(left, right, 96, SAMPLE_RATE), 0);
   return {status: 'ANALYZER_SHAPE_PASS', fixtureFrames: left.length};
 }
-function captureMetadata({cell, sourceHead, wasmSha256, guardHits, metrics}) {
+function captureMetadata({cell, sourceHead, wasmSha256, guardHits, metrics, epoch = ACTIVE_EPOCH}) {
   const normalizedMetrics = normalizeAnalyzerMetrics(metrics, guardHits);
-  return {id: cell.id, alpha: cell.alpha, alphaOrder: cell.alphaOrder, pitch: cell.pitch,
+  return {epoch, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+    id: cell.id, alpha: cell.alpha, alphaOrder: cell.alphaOrder, pitch: cell.pitch,
     velocity: cell.velocity, cellOrder: cell.cellOrder, sourceHead, wasmSha256,
     finite: normalizedMetrics.official.finite, guardHits, metrics: normalizedMetrics};
 }
 
-function renderCall({root = ROOT, buildDirectory, cell, harnessFactory}) {
+function renderCall({root = ROOT, buildDirectory, cell, harnessFactory, epoch = ACTIVE_EPOCH}) {
   const {PluginHarness} = require('../../../../../test/helpers/plugin-harness.cjs');
   const oldBuild = process.env.SORAOTO_WASM_BUILD_DIR;
   process.env.SORAOTO_WASM_BUILD_DIR = path.resolve(root, buildDirectory || DIAGNOSTIC_BUILD_REL);
@@ -568,7 +741,7 @@ function renderCall({root = ROOT, buildDirectory, cell, harnessFactory}) {
     const audio = writeFloatWav(left, right), analyzed = require('./analyze-issue7-physical-identification.cjs')
       .analyze(left, right, cell.pitch, SAMPLE_RATE);
     const metadata = captureMetadata({cell, sourceHead: git(root, ['rev-parse', 'HEAD']),
-      wasmSha256: sha256(harness.bytes), guardHits, metrics: analyzed});
+      wasmSha256: sha256(harness.bytes), guardHits, metrics: analyzed, epoch});
     return {audio, metadata};
   } finally {
     try { harness?.close(); } finally {
@@ -589,7 +762,7 @@ function referenceRows({root = ROOT, home = os.homedir(), commonDirectory, archi
   if (!archive) throw new Error('BLOCKED_CONTACT_LOSS_REFERENCE_ARCHIVE_MISSING');
   return offline.readVerifiedReference(archive, records.p3Manifest.value).rows;
 }
-function scoreAlpha({alphaOrder, rows, refs, gainDb, sourceHead, wasmSha256}) {
+function scoreAlpha({alphaOrder, rows, refs, gainDb, sourceHead, wasmSha256, epoch = ACTIVE_EPOCH}) {
   const direct = require('./stage3-direct-reference-metrics.cjs');
   const loss = require('./physical-fit-v4-loss.cjs');
   const cellRows = core.STRESS_CELLS.map(([pitch, velocity], cellOrder) => {
@@ -612,7 +785,8 @@ function scoreAlpha({alphaOrder, rows, refs, gainDb, sourceHead, wasmSha256}) {
     : gainDb;
   if (!Number.isFinite(effectiveGainDb)) throw new Error('BLOCKED_CONTACT_LOSS_SHARED_GAIN');
   const familyLoss = loss.candidateLoss(cellRows.map(row => ({pitch: row.cell.pitch, reference: row.ref.audio, model: row.audio})), effectiveGainDb).total;
-  const result = {alpha: core.ALPHAS[alphaOrder], alphaOrder, familyLoss, official: evaluation, sharedGainDb: effectiveGainDb,
+  const result = {epoch, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+    alpha: core.ALPHAS[alphaOrder], alphaOrder, familyLoss, official: evaluation, sharedGainDb: effectiveGainDb,
     sourceHead, wasmSha256, cells: cellRows.map(({cell, actual}, index) => ({...cell,
       finite: actual.metrics.official.finite, guardHits: actual.metrics.official.outputGuardHits,
       peakDbfs: actual.metrics.official.peakDbfs,
@@ -623,14 +797,14 @@ function scoreAlpha({alphaOrder, rows, refs, gainDb, sourceHead, wasmSha256}) {
   return result;
 }
 
-function scoreCompletedAlpha({alphaOrder, calls, refs, gainDb, sourceHead, wasmSha256, evaluator = scoreAlpha}) {
+function scoreCompletedAlpha({alphaOrder, calls, refs, gainDb, sourceHead, wasmSha256, epoch = ACTIVE_EPOCH, evaluator = scoreAlpha}) {
   if (!Array.isArray(calls) || calls.length !== 7 || calls.some(row => row.status !== 'COMPLETE')) {
     throw new Error('BLOCKED_CONTACT_LOSS_ALPHA_INCOMPLETE');
   }
   return evaluator({alphaOrder, rows: calls.map(row => ({cell: row.cell,
     audio: row.audio || readDual(row.roots, `${EXPERIMENT_REL}/${row.cell.id}/audio.wav`, {required: true}),
     metadata: row.metadata || readJsonDual(row.roots, `${EXPERIMENT_REL}/${row.cell.id}/metadata.json`, {required: true})})),
-    refs, gainDb, sourceHead, wasmSha256});
+    refs, gainDb, sourceHead, wasmSha256, epoch});
 }
 function verifiedReceipt(state, identity = {head: state.prepare.head}) {
   if (state.charged !== 42 || state.completed !== 42 || state.ambiguous !== 0) throw new Error('BLOCKED_CONTACT_LOSS_INCOMPLETE_EXPERIMENT');
@@ -645,6 +819,8 @@ function verifiedReceipt(state, identity = {head: state.prepare.head}) {
 }
 
 function verifyPreparedCurrent(roots, state, {root = ROOT, home = os.homedir(), commonDirectory, buildDirectory} = {}) {
+  const parent = verifyParentExperiment01({root, home, commonDirectory});
+  if (!sameJson(state.prepare.parentEpoch, parent.proof)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT');
   const identity = currentIdentity(root);
   if (identity.head !== state.prepare.head || ![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)) {
     throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
@@ -679,7 +855,8 @@ function verifyAcceptanceLedgerIdentity(roots, stage, cells, expected) {
   }
   for (const call of calls.calls) {
     const value = call.start.value;
-    if (value.head !== expected.head || value.wasmSha256 !== expected.wasmSha256
+    if (value.epoch !== ACTIVE_EPOCH || value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+        || value.head !== expected.head || value.wasmSha256 !== expected.wasmSha256
         || value.sourceSnapshotSha256 !== expected.sourceSnapshotSha256 || value.buildRole !== expected.buildRole) {
       throw new Error(`BLOCKED_CONTACT_LOSS_ACCEPTANCE_SOURCE_BINDING:${stage}`);
     }
@@ -690,6 +867,8 @@ function verifySelectionAfterPromotion({roots, state, selectionStored, root = RO
   if (state.charged !== 42 || state.completed !== 42 || state.ambiguous !== 0 || state.candidateResults.length !== 6) {
     throw new Error('BLOCKED_CONTACT_LOSS_INCOMPLETE_EXPERIMENT');
   }
+  const parent = verifyParentExperiment01({root, home, commonDirectory});
+  if (!sameJson(state.prepare.parentEpoch, parent.proof)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT');
   const before = frozenSourceSnapshot({root, home, commonDirectory});
   const refs = referenceRows({root, home, commonDirectory, archivePath});
   const identity = preparedAcceptanceIdentity(state);
@@ -698,7 +877,8 @@ function verifySelectionAfterPromotion({roots, state, selectionStored, root = RO
   if (storedResults.baselineUnsafe) throw new Error('BLOCKED_CONTACT_LOSS_BASELINE_UNSAFE');
   const receipt = verifiedReceipt(state, {head: state.prepare.head});
   const decision = core.selectCandidate(state.candidateResults, {receipt});
-  const expected = {schemaVersion: 1, ...decision, receipt, charged: state.charged, completed: state.completed,
+  const expected = {schemaVersion: 1, epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+    ...decision, receipt, charged: state.charged, completed: state.completed,
     ambiguous: state.ambiguous, stage3: 'NOT RUN', stage4: 'NOT RUN'};
   if (!selectionStored || !sameJson(selectionStored.value, expected)) throw new Error('BLOCKED_CONTACT_LOSS_SELECTION_MISMATCH');
   if (!sameJson(before, frozenSourceSnapshot({root, home, commonDirectory}))) throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_CHANGED_DURING_VERIFY');
@@ -711,7 +891,12 @@ function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDir
   const roots = resolveRoots({root, home, commonDirectory}), state = readExperimentState(roots);
   if (!state.prepare) throw new Error('BLOCKED_CONTACT_LOSS_NOT_PREPARED');
   const priorTerminal = readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`);
-  if (priorTerminal) return {...priorTerminal.value, charged: state.charged, completed: state.completed, ambiguous: state.ambiguous};
+  if (priorTerminal) {
+    if (priorTerminal.value.epoch !== ACTIVE_EPOCH || priorTerminal.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256) {
+      throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_IDENTITY');
+    }
+    return {...priorTerminal.value, charged: state.charged, completed: state.completed, ambiguous: state.ambiguous};
+  }
   if (state.ambiguous) throw new Error('BLOCKED_CONTACT_LOSS_AMBIGUOUS_CALL_NO_RERENDER');
   const identity = verifyPreparedCurrent(roots, state, {root, home, commonDirectory, buildDirectory});
   const refs = referenceRows({root, home, commonDirectory, archivePath});
@@ -719,12 +904,13 @@ function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDir
   try {
     let calls = readExperimentState(roots), charged = calls.charged;
     if (calls.ambiguous) throw new Error('BLOCKED_CONTACT_LOSS_AMBIGUOUS_CALL_NO_RERENDER');
-    if (charged > core.EXPERIMENT_CALL_CAP) throw new Error('BLOCKED_CONTACT_LOSS_CALL_CAP');
+    if (combinedExperimentCalls(roots) > core.EXPERIMENT_CALL_CAP) throw new Error('BLOCKED_CONTACT_LOSS_CALL_CAP');
     if (calls.completed > 0) {
       const reports = verifyStoredAlphaResults(roots, calls, {root, home, commonDirectory, buildDirectory,
         refs, evaluator, createMissingReports: true});
       if (reports.baselineUnsafe) {
-        const terminal = {status: 'GATE4_BASELINE_UNSAFE', reason: 'BASELINE_SAFETY_GATE_FAILED', charged,
+        const terminal = {epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+          status: 'GATE4_BASELINE_UNSAFE', reason: 'BASELINE_SAFETY_GATE_FAILED', charged,
           completed: calls.completed, ambiguous: calls.ambiguous, stage3: 'NOT RUN', stage4: 'NOT RUN'};
         writeDualImmutable(roots, `${EXPERIMENT_REL}/terminal.json`, jsonBytes(terminal));
         return terminal;
@@ -736,13 +922,14 @@ function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDir
       verifyPreparedCurrent(roots, calls, {root, home, commonDirectory, buildDirectory});
       const currentBuild = verifyDiagnosticBuild(root, identity.head, {buildDirectory});
       if (currentBuild.wasm.sha256 !== calls.prepare.build.wasm.sha256) throw new Error('BLOCKED_CONTACT_LOSS_BUILD_DRIFT');
-      const start = {schemaVersion: 1, id: cell.id, alpha: cell.alpha, alphaOrder: cell.alphaOrder,
+      const start = {schemaVersion: 1, epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+        id: cell.id, alpha: cell.alpha, alphaOrder: cell.alphaOrder,
         pitch: cell.pitch, velocity: cell.velocity, cellOrder: cell.cellOrder,
         sourceHead: identity.head, wasmSha256: currentBuild.wasm.sha256, state: 'STARTED',
         startedAt: new Date().toISOString()};
       writeDualImmutable(roots, `${base}/start.json`, jsonBytes(start));
       let capture;
-      try { capture = renderer({root, buildDirectory: path.relative(root, path.resolve(root, buildDirectory || DIAGNOSTIC_BUILD_REL)), cell}); }
+      try { capture = renderer({root, buildDirectory: path.relative(root, path.resolve(root, buildDirectory || DIAGNOSTIC_BUILD_REL)), cell, epoch: ACTIVE_EPOCH}); }
       catch (error) { throw new Error(`BLOCKED_CONTACT_LOSS_AMBIGUOUS_CALL:${cell.id}:${error.message}`); }
       try { verifyPreparedCurrent(roots, calls, {root, home, commonDirectory, buildDirectory}); }
       catch { throw new Error(`BLOCKED_CONTACT_LOSS_AMBIGUOUS_CALL:${cell.id}:SOURCE_OR_REMOTE_IDENTITY_DRIFT`); }
@@ -750,10 +937,12 @@ function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDir
           || capture.metadata.alpha !== cell.alpha || capture.metadata.pitch !== cell.pitch
           || capture.metadata.velocity !== cell.velocity || capture.metadata.sourceHead !== identity.head
           || capture.metadata.wasmSha256 !== currentBuild.wasm.sha256) throw new Error(`BLOCKED_CONTACT_LOSS_CAPTURE_IDENTITY:${cell.id}`);
-      const metadata = {...capture.metadata, audioSha256: sha256(capture.audio), completedAt: new Date().toISOString()};
+      const metadata = {...capture.metadata, epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+        audioSha256: sha256(capture.audio), completedAt: new Date().toISOString()};
       writeDualImmutable(roots, `${base}/audio.wav`, capture.audio);
       writeDualImmutable(roots, `${base}/metadata.json`, jsonBytes(metadata));
-      writeDualImmutable(roots, `${base}/complete.json`, jsonBytes({schemaVersion: 1, id: cell.id,
+      writeDualImmutable(roots, `${base}/complete.json`, jsonBytes({schemaVersion: 1, epoch: ACTIVE_EPOCH,
+        contractSha256: SUCCESSOR_CONTRACT_SHA256, id: cell.id,
         state: 'COMPLETE', audioSha256: sha256(capture.audio), metadataSha256: sha256(jsonBytes(metadata)), completedAt: metadata.completedAt}));
       calls = readExperimentState(roots);
       if (calls.ambiguous) throw new Error('BLOCKED_CONTACT_LOSS_AMBIGUOUS_CALL_NO_RERENDER');
@@ -761,7 +950,8 @@ function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDir
       const unsafeCapture = capture.metadata.finite !== true || capture.metadata.guardHits !== 0
         || !Number.isFinite(capture.metadata.metrics?.peakDbfs) || capture.metadata.metrics.peakDbfs >= 0;
       if (unsafeCapture) {
-        const terminal = {status: 'BLOCKED_UNSAFE_CAPTURE', reason: 'FINITE_GUARD_OR_PEAK_GATE', charged,
+        const terminal = {epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+          status: 'BLOCKED_UNSAFE_CAPTURE', reason: 'FINITE_GUARD_OR_PEAK_GATE', charged,
           completed: calls.completed, ambiguous: calls.ambiguous, stage3: 'NOT RUN', stage4: 'NOT RUN'};
         writeDualImmutable(roots, `${EXPERIMENT_REL}/terminal.json`, jsonBytes(terminal));
         return terminal;
@@ -771,12 +961,14 @@ function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDir
         const baselineScore = cell.alphaOrder === 0 ? null : readJsonDual(roots, `${EXPERIMENT_REL}/alpha-00.json`, {required: true}).value;
         let scored;
         try {
-          scored = evaluator({alphaOrder: cell.alphaOrder, rows: alphaCalls.map(row => ({cell: row.cell,
+        scored = evaluator({alphaOrder: cell.alphaOrder, epoch: ACTIVE_EPOCH, rows: alphaCalls.map(row => ({cell: row.cell,
             audio: readDual(roots, `${EXPERIMENT_REL}/${row.cell.id}/audio.wav`, {required: true}),
             metadata: readJsonDual(roots, `${EXPERIMENT_REL}/${row.cell.id}/metadata.json`, {required: true})})),
             refs, gainDb: baselineScore?.sharedGainDb ?? null, sourceHead: identity.head, wasmSha256: currentBuild.wasm.sha256});
+          scored = {...scored, epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256};
         } catch {
-          const terminal = {status: 'BLOCKED_METRIC_RECOMPUTATION', reason: 'OFFICIAL_METRICS_UNVERIFIABLE',
+          const terminal = {epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+            status: 'BLOCKED_METRIC_RECOMPUTATION', reason: 'OFFICIAL_METRICS_UNVERIFIABLE',
             charged, completed: calls.completed, ambiguous: calls.ambiguous, stage3: 'NOT RUN', stage4: 'NOT RUN'};
           writeDualImmutable(roots, `${EXPERIMENT_REL}/terminal.json`, jsonBytes(terminal));
           return terminal;
@@ -784,7 +976,8 @@ function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDir
         if (cell.alphaOrder === 0) {
           try { core.assertBaselineSafe(scored); }
           catch {
-            const terminal = {status: 'GATE4_BASELINE_UNSAFE', reason: 'BASELINE_SAFETY_GATE_FAILED', charged,
+            const terminal = {epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+              status: 'GATE4_BASELINE_UNSAFE', reason: 'BASELINE_SAFETY_GATE_FAILED', charged,
               completed: calls.completed, ambiguous: calls.ambiguous, stage3: 'NOT RUN', stage4: 'NOT RUN'};
             writeDualImmutable(roots, `${EXPERIMENT_REL}/alpha-00.json`, jsonBytes({...scored, status: terminal.status}));
             writeDualImmutable(roots, `${EXPERIMENT_REL}/terminal.json`, jsonBytes(terminal));
@@ -801,7 +994,8 @@ function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDir
     verifyPreparedCurrent(roots, calls, {root, home, commonDirectory, buildDirectory});
     const receipt = verifiedReceipt(calls, identity);
     const selection = core.selectCandidate(calls.candidateResults, {receipt});
-    writeDualImmutable(roots, `${EXPERIMENT_REL}/selection.json`, jsonBytes({schemaVersion: 1, ...selection,
+    writeDualImmutable(roots, `${EXPERIMENT_REL}/selection.json`, jsonBytes({schemaVersion: 1,
+      epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256, ...selection,
       receipt, charged: calls.charged, completed: calls.completed, ambiguous: calls.ambiguous,
       stage3: 'NOT RUN', stage4: 'NOT RUN'}));
     return {status: selection.status, charged: calls.charged, completed: calls.completed,
@@ -836,7 +1030,7 @@ function verifyStoredAlphaResults(roots, state, {root = ROOT, home = os.homedir(
     const stored = readJsonDual(roots, `${EXPERIMENT_REL}/alpha-${String(alphaOrder).padStart(2, '0')}.json`);
     const recomputed = scoreCompletedAlpha({alphaOrder, calls, refs: reference,
       gainDb: baselineScore?.sharedGainDb ?? null, sourceHead: state.prepare.head,
-      wasmSha256: state.prepare.build.wasm.sha256, evaluator});
+      wasmSha256: state.prepare.build.wasm.sha256, epoch: ACTIVE_EPOCH, evaluator});
     if (alphaOrder === 0) {
       try { core.assertBaselineSafe(recomputed); }
       catch { recomputed.status = 'GATE4_BASELINE_UNSAFE'; baselineUnsafe = true; }
@@ -853,8 +1047,12 @@ function verifyStoredAlphaResults(roots, state, {root = ROOT, home = os.homedir(
 
 function verifyExperiment({root = ROOT, home = os.homedir(), commonDirectory, buildDirectory, archivePath} = {}) {
   const roots = resolveRoots({root, home, commonDirectory});
+  const parent = verifyParentExperiment01({root, home, commonDirectory});
   const state = readExperimentState(roots);
-  if (!state.prepare) return {status: 'NOT_PREPARED', charged: 0, completed: 0, ambiguous: 0, writes: 0, renders: 0, acousticCalls: 0};
+  if (!state.prepare) return {status: 'NOT_PREPARED', epoch: ACTIVE_EPOCH,
+    parentEpoch: {status: 'VERIFIED', ...parent.proof, copies: undefined},
+    charged: 0, completed: 0, ambiguous: 0, writes: 0, renders: 0, acousticCalls: 0};
+  if (!sameJson(state.prepare.parentEpoch, parent.proof)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT');
   if (state.ambiguous) return {status: 'BLOCKED_AMBIGUOUS_CALL', charged: state.charged,
     completed: state.completed, ambiguous: state.ambiguous, writes: 0, renders: 0, acousticCalls: 0};
   const before = frozenSourceSnapshot({root, home, commonDirectory});
@@ -869,7 +1067,8 @@ function verifyExperiment({root = ROOT, home = os.homedir(), commonDirectory, bu
     if (state.candidateResults.length !== 6) throw new Error('BLOCKED_CONTACT_LOSS_CANDIDATE_REPORT_COUNT');
     const receipt = verifiedReceipt(state, identity), decision = core.selectCandidate(state.candidateResults, {receipt});
     const stored = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true}).value;
-    const expected = {schemaVersion: 1, ...decision, receipt, charged: state.charged, completed: state.completed,
+  const expected = {schemaVersion: 1, epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+      ...decision, receipt, charged: state.charged, completed: state.completed,
       ambiguous: state.ambiguous, stage3: 'NOT RUN', stage4: 'NOT RUN'};
     if (!sameJson(stored, expected)) throw new Error('BLOCKED_CONTACT_LOSS_SELECTION_MISMATCH');
     selection = decision;
@@ -878,7 +1077,9 @@ function verifyExperiment({root = ROOT, home = os.homedir(), commonDirectory, bu
   }
   const after = frozenSourceSnapshot({root, home, commonDirectory});
   if (!sameJson(before, after)) throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_CHANGED_DURING_VERIFY');
-  return {status: terminal?.value.status || selection?.status || 'VERIFIED_IN_PROGRESS',
+  if (terminal && (terminal.value.epoch !== ACTIVE_EPOCH
+      || terminal.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_IDENTITY');
+  return {status: terminal?.value.status || selection?.status || 'VERIFIED_IN_PROGRESS', epoch: ACTIVE_EPOCH,
     charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
     verifiedAlphaCount: Math.min(6, Math.floor(state.completed / 7)), selection,
     frozenEvidenceUnchanged: true, writes: 0, renders: 0, acousticCalls: 0};
@@ -898,7 +1099,9 @@ function readAcceptanceCalls(roots, stage, cells) {
       if (complete) throw new Error('BLOCKED_CONTACT_LOSS_ACCEPTANCE_LEDGER_GAP');
       gap = true; calls.push({cell, id, status: 'NOT_STARTED'}); continue;
     }
-    if (gap || start.value.schemaVersion !== 1 || start.value.id !== id || start.value.stage !== stage
+    if (gap || start.value.schemaVersion !== 1 || start.value.epoch !== ACTIVE_EPOCH
+        || start.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+        || start.value.id !== id || start.value.stage !== stage
         || start.value.callOrder !== index || !sameJson(start.value.cell, cell)
         || !/^[a-f0-9]{40}$/.test(start.value.head || '')
         || !/^[a-f0-9]{64}$/.test(start.value.wasmSha256 || '')
@@ -908,9 +1111,12 @@ function readAcceptanceCalls(roots, stage, cells) {
     if (!complete) { ambiguous++; gap = true; calls.push({cell, id, status: 'AMBIGUOUS', start}); continue; }
     const audio = readDual(roots, `${base}/audio.wav`, {required: true});
     const metadata = readJsonDual(roots, `${base}/metadata.json`, {required: true});
-    if (complete.value.schemaVersion !== 1 || complete.value.id !== id || complete.value.stage !== stage
+    if (complete.value.schemaVersion !== 1 || complete.value.epoch !== ACTIVE_EPOCH
+        || complete.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+        || complete.value.id !== id || complete.value.stage !== stage
         || complete.value.state !== 'COMPLETE' || complete.value.audioSha256 !== audio.sha256
         || complete.value.metadataSha256 !== metadata.sha256 || metadata.value.id !== id
+        || metadata.value.epoch !== ACTIVE_EPOCH || metadata.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
         || metadata.value.stage !== stage || metadata.value.callOrder !== index
         || !sameJson(metadata.value.cell, cell) || metadata.value.sourceHead !== start.value.head
         || metadata.value.wasmSha256 !== start.value.wasmSha256
@@ -941,9 +1147,10 @@ function runAcceptancePlan({roots, stage, cells, identityNow, render, previousAc
   for (let index = state.completed; index < cells.length; index++) {
     const cell = cells[index], id = acceptanceCallId(stage, index, cell), base = `${ACCEPTANCE_ROOT}/${stage}/calls/${id}`;
     const identity = identityNow(cell), before = {...identity};
-    core.accounting({startedExperimentCalls: readExperimentState(roots).charged,
+    core.accounting({startedExperimentCalls: combinedExperimentCalls(roots),
       startedAcceptanceCalls: previousAcceptanceCalls + index + 1});
-    writeDualImmutable(roots, `${base}/start.json`, jsonBytes({schemaVersion: 1, id, stage, callOrder: index,
+    writeDualImmutable(roots, `${base}/start.json`, jsonBytes({schemaVersion: 1, epoch: ACTIVE_EPOCH,
+      contractSha256: SUCCESSOR_CONTRACT_SHA256, id, stage, callOrder: index,
       cell, head: identity.head, wasmSha256: identity.wasmSha256,
       sourceSnapshotSha256: identity.sourceSnapshotSha256, buildRole: identity.buildRole,
       state: 'STARTED', startedAt: new Date().toISOString()}));
@@ -957,13 +1164,15 @@ function runAcceptancePlan({roots, stage, cells, identityNow, render, previousAc
       throw new Error(`BLOCKED_CONTACT_LOSS_ACCEPTANCE_CAPTURE_INVALID:${stage}:${id}`);
     }
     const audioSha256 = sha256(capture.audio), metadata = {...capture.metadata, schemaVersion: 1,
+      epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
       id, stage, callOrder: index, cell, sourceHead: identity.head, wasmSha256: identity.wasmSha256,
       sourceSnapshotSha256: identity.sourceSnapshotSha256, buildRole: identity.buildRole, audioSha256,
       completedAt: new Date().toISOString()};
     const metadataBytes = jsonBytes(metadata);
     writeDualImmutable(roots, `${base}/audio.wav`, capture.audio);
     writeDualImmutable(roots, `${base}/metadata.json`, metadataBytes);
-    writeDualImmutable(roots, `${base}/complete.json`, jsonBytes({schemaVersion: 1, id, stage, state: 'COMPLETE',
+    writeDualImmutable(roots, `${base}/complete.json`, jsonBytes({schemaVersion: 1, epoch: ACTIVE_EPOCH,
+      contractSha256: SUCCESSOR_CONTRACT_SHA256, id, stage, state: 'COMPLETE',
       audioSha256, metadataSha256: sha256(metadataBytes), completedAt: metadata.completedAt}));
     state = readAcceptanceCalls(roots, stage, cells);
   }
@@ -973,10 +1182,11 @@ function runAcceptancePlan({roots, stage, cells, identityNow, render, previousAc
   return state;
 }
 function recordAcceptanceReport(roots, stage, report) {
-  const relative = `${ACCEPTANCE_ROOT}/${stage}/report.json`, bytes = jsonBytes(report), existing = readJsonDual(roots, relative);
+  const boundReport = {...report, epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256};
+  const relative = `${ACCEPTANCE_ROOT}/${stage}/report.json`, bytes = jsonBytes(boundReport), existing = readJsonDual(roots, relative);
   if (existing && !existing.bytes.equals(bytes)) throw new Error(`BLOCKED_CONTACT_LOSS_ACCEPTANCE_REPORT_CONFLICT:${stage}`);
   if (!existing) writeDualImmutable(roots, relative, bytes);
-  return {report, sha256: sha256(bytes), status: existing ? 'REUSED' : 'CREATED'};
+  return {report: boundReport, sha256: sha256(bytes), status: existing ? 'REUSED' : 'CREATED'};
 }
 
 function referenceMetricsForCells(root, cells) {
@@ -1115,7 +1325,9 @@ function verifyPromotedAuthority({roots, state, root = ROOT, home = os.homedir()
   const promotion = readPromotion(roots);
   if (!promotion) throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_RECEIPT_MISSING');
   const record = promotion.value, identity = currentIdentity(root);
-  if (identity.head !== record.head || ![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)
+  if (record.schemaVersion !== 2 || record.epoch !== ACTIVE_EPOCH
+      || record.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+      || identity.head !== record.head || ![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)
       || record.parentHead !== state.prepare.head || record.selectionSha256 !== readDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true}).sha256
       || !sameJson(record.changedPaths, PROMOTION_PATHS)
       || commitParent(root, record.head) !== record.parentHead
@@ -1171,7 +1383,8 @@ function promoteSelected({roots, state, selection, root = ROOT} = {}) {
     }
     const pushedIdentity = currentIdentity(root); verifiedPullRequest(root, pushedIdentity.head);
     if (pushedIdentity.head !== beforeIdentity.head) throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_HEAD_READBACK');
-    const record = {schemaVersion: 1, issue: 7, pr: 8, contractSha256: CONTRACT_SHA256,
+    const record = {schemaVersion: 2, issue: 7, pr: 8, epoch: ACTIVE_EPOCH,
+      contractSha256: SUCCESSOR_CONTRACT_SHA256,
       selectionSha256: readDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true}).sha256,
       alpha: selection.selected.alpha, parentHead: state.prepare.head, head: beforeIdentity.head, tree: recovery.tree,
       changedPaths: PROMOTION_PATHS, sourceBefore: state.prepare.source, sourceAfter,
@@ -1218,8 +1431,9 @@ function promoteSelected({roots, state, selection, root = ROOT} = {}) {
   if (pushed.error || pushed.status !== 0) throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_PUSH');
   const local = currentIdentity(root); verifiedPullRequest(root, local.head);
   if (local.head !== head) throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_HEAD_READBACK');
-  const sourceAfter = sourceSnapshot(root), record = {schemaVersion: 1, issue: 7, pr: 8,
-    contractSha256: CONTRACT_SHA256, selectionSha256: readDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true}).sha256,
+  const sourceAfter = sourceSnapshot(root), record = {schemaVersion: 2, issue: 7, pr: 8,
+    epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+    selectionSha256: readDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true}).sha256,
     alpha: selection.selected.alpha, parentHead: state.prepare.head, head, tree: verified.tree,
     changedPaths: PROMOTION_PATHS, sourceBefore, sourceAfter,
     values: {contact_loss_soft: verified.expectedSoft, contact_loss_hard: verified.expectedHard},
@@ -1383,7 +1597,7 @@ function stage3Report(roots, root, stage3WasmBuild, acceptanceOffset) {
       sentinels: sentinelRows.length, total: rows.length}, direct: {pass: directPass, counts: evaluated.counts,
       metrics: evaluated.direct.metrics, diagnostics: evaluated.diagnostics}, sentinels,
     rows: rows.map(row => ({cell: row.cell, metrics: row.metrics})),
-    accounting: core.accounting({startedExperimentCalls: readExperimentState(roots).charged,
+    accounting: core.accounting({startedExperimentCalls: combinedExperimentCalls(roots),
       startedAcceptanceCalls: acceptanceOffset + calls.charged})};
   return recordAcceptanceReport(roots, 'stage3', result);
 }
@@ -1490,7 +1704,7 @@ function stage4Report(roots, root, stage3Value, stage3Sha256, stage4Build, accep
     calls: calls.completed, coverage: summary.coverage, counts: summary.counts, cellFailures: summary.cellFailures,
     repeatFailures: summary.repeatFailures, stage3IdentityStable: summary.stage3IdentityStable,
     legacyConformance: summary.legacyConformance, outputEquivalence: summary.outputEquivalence,
-    accounting: core.accounting({startedExperimentCalls: readExperimentState(roots).charged,
+    accounting: core.accounting({startedExperimentCalls: combinedExperimentCalls(roots),
       startedAcceptanceCalls: acceptanceOffset + calls.charged})};
   return recordAcceptanceReport(roots, 'stage4', report);
 }
@@ -1546,6 +1760,12 @@ function continueApproved({root = ROOT, home = os.homedir(), commonDirectory, bu
   const roots = resolveRoots({root, home, commonDirectory});
   let state = readExperimentState(roots), selectionStored = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`);
   if (!state.prepare) throw new Error('BLOCKED_CONTACT_LOSS_NOT_PREPARED');
+  const parent = verifyParentExperiment01({root, home, commonDirectory});
+  if (!sameJson(state.prepare.parentEpoch, parent.proof)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT');
+  if (selectionStored && (selectionStored.value.epoch !== ACTIVE_EPOCH
+      || selectionStored.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_SELECTION_IDENTITY');
+  }
   if (!selectionStored) {
     const first = runBounded({root, home, commonDirectory, buildDirectory, archivePath});
     state = readExperimentState(roots); selectionStored = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`);
@@ -1641,11 +1861,12 @@ function continueApproved({root = ROOT, home = os.homedir(), commonDirectory, bu
     result = continuationDecision({selection, confirmation, headroom, release, stage3, stage4});
     if (result.status !== 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW') return result;
     const webPlayer = runWebPlayerGates(root);
-    const final = {schemaVersion: 1, issue: 7, pr: 8, decision: 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW',
+    const final = {schemaVersion: 2, issue: 7, pr: 8, epoch: ACTIVE_EPOCH,
+      contractSha256: SUCCESSOR_CONTRACT_SHA256, decision: 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW',
       head: currentIdentity(root).head, selectionSha256: selectionStored.sha256, promotionSha256: promoted.promotionSha256,
       reports: Object.fromEntries(['confirmation', 'headroom', 'promoted-builds', 'release-equivalence', 'stage3', 'stage4']
         .map(name => [name, readDual(roots, `${ACCEPTANCE_ROOT}/${name}/report.json`, {required: true}).sha256])),
-      webPlayer, capacity, manualAudio: 'NOT RUN', review: 'PENDING', accounting: core.accounting({startedExperimentCalls: state.charged,
+      webPlayer, capacity, manualAudio: 'NOT RUN', review: 'PENDING', accounting: core.accounting({startedExperimentCalls: combinedExperimentCalls(roots),
         startedAcceptanceCalls: core.RESERVE_CALLS}), stage3: 'PASS', stage4: 'PASS'};
     writeDualImmutable(roots, `${ACCEPTANCE_ROOT}/final-report.json`, jsonBytes(final));
     return final;
@@ -1653,9 +1874,45 @@ function continueApproved({root = ROOT, home = os.homedir(), commonDirectory, bu
 }
 
 function status({root = ROOT, home = os.homedir(), commonDirectory} = {}) {
-  const roots = resolveRoots({root, home, commonDirectory}), state = readExperimentState(roots);
-  const currentHead = state.prepare ? git(root, ['rev-parse', 'HEAD']) : null;
+  const roots = resolveRoots({root, home, commonDirectory});
+  let currentHead = null;
+  try { currentHead = git(root, ['rev-parse', 'HEAD']); } catch { /* status remains read-only for empty fixtures */ }
+  let parent;
+  try { parent = verifyParentExperiment01({root, home, commonDirectory}); }
+  catch (error) {
+    const rawBlocker = String(error.message || error);
+    return {status: 'BLOCKED_CONTACT_LOSS_PARENT_EPOCH', epoch: ACTIVE_EPOCH,
+      parentStatus: 'UNVERIFIED', parentBlocker: rawBlocker.match(/BLOCKED_CONTACT_LOSS_[A-Z0-9_]+/)?.[0]
+        || 'BLOCKED_CONTACT_LOSS_PARENT_READ', parentHead: null,
+      preparedHead: null, currentHead, parentCharged: null, charged: 0, completed: 0,
+      ambiguous: 0, acceptanceCharged: 0, callCap: core.EXPERIMENT_CALL_CAP,
+      acceptanceReserve: core.RESERVE_CALLS, cumulative: core.HISTORICAL_CALLS,
+      lifetimeCap: core.MAX_CALLS, selection: 'NOT RUN', stage3: 'NOT RUN', stage4: 'NOT RUN',
+      finalReport: 'NOT RUN', reports: {}, writes: 0, renders: 0, acousticCalls: 0};
+  }
+  const state = readExperimentState(roots);
+  if (state.prepare && !sameJson(state.prepare.parentEpoch, parent.proof)) {
+    return {status: 'BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT', epoch: ACTIVE_EPOCH,
+      parentStatus: 'VERIFIED', parentHead: parent.proof.head, parentCharged: parent.state.charged,
+      preparedHead: state.prepare.head, currentHead,
+      charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
+      acceptanceCharged: 0, callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
+      cumulative: core.HISTORICAL_CALLS + state.charged, lifetimeCap: core.MAX_CALLS,
+      selection: 'NOT RUN', stage3: 'NOT RUN', stage4: 'NOT RUN', finalReport: 'NOT RUN',
+      reports: {}, writes: 0, renders: 0, acousticCalls: 0};
+  }
   const selection = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`), reports = {};
+  if (selection && (selection.value.epoch !== ACTIVE_EPOCH
+      || selection.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) {
+    return {status: 'BLOCKED_CONTACT_LOSS_SELECTION_IDENTITY', epoch: ACTIVE_EPOCH,
+      parentStatus: 'VERIFIED', parentHead: parent.proof.head, preparedHead: state.prepare?.head || null,
+      currentHead, parentCharged: parent.state.charged, charged: state.charged,
+      completed: state.completed, ambiguous: state.ambiguous, acceptanceCharged: 0,
+      callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
+      cumulative: core.HISTORICAL_CALLS + state.charged, lifetimeCap: core.MAX_CALLS,
+      selection: 'UNVERIFIED', stage3: 'NOT RUN', stage4: 'NOT RUN', finalReport: 'NOT RUN',
+      reports: {}, writes: 0, renders: 0, acousticCalls: 0};
+  }
   let acceptanceCharged = 0;
   const report = stage => {
     const stored = readJsonDual(roots, `${ACCEPTANCE_ROOT}/${stage}/report.json`);
@@ -1683,15 +1940,20 @@ function status({root = ROOT, home = os.homedir(), commonDirectory} = {}) {
     count('stage4', lifecycleCells); report('stage4');
   }
   const final = readJsonDual(roots, `${ACCEPTANCE_ROOT}/final-report.json`);
+  if (final && (final.value.epoch !== ACTIVE_EPOCH
+      || final.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) throw new Error('BLOCKED_CONTACT_LOSS_FINAL_REPORT_IDENTITY');
   const staleUnstartedPreparation = state.prepare && state.charged === 0 && !selection
     && state.prepare.head !== currentHead;
+  const parentCharged = parent.state.charged, combinedCharged = parentCharged + state.charged;
   return {status: staleUnstartedPreparation ? 'BLOCKED_CONTACT_LOSS_HEAD_DRIFT'
       : final?.value?.decision || readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`)?.value.status
-        || selection?.value.status || state.status,
+        || selection?.value.status || (state.prepare ? state.status : 'NOT_PREPARED'), epoch: ACTIVE_EPOCH,
+    parentStatus: 'VERIFIED', parentHead: parent.proof.head, parentCharged,
+    parentPrepareSha256: parent.proof.prepareSha256,
     preparedHead: state.prepare?.head || null, currentHead,
     charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
     acceptanceCharged, callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
-    cumulative: core.HISTORICAL_CALLS + state.charged + acceptanceCharged, lifetimeCap: core.MAX_CALLS,
+    combinedCharged, cumulative: core.HISTORICAL_CALLS + combinedCharged + acceptanceCharged, lifetimeCap: core.MAX_CALLS,
     selection: selection?.value.status || 'NOT RUN', stage3: reports.stage3 || 'NOT RUN', stage4: reports.stage4 || 'NOT RUN',
     finalReport: final?.value.decision || 'NOT RUN', reports, writes: 0, renders: 0, acousticCalls: 0};
 }
@@ -1721,9 +1983,13 @@ if (require.main === module) {
   catch (error) { process.stderr.write(`${String(error.message || error).replace(/\n/g, ' ')}\n`); process.exitCode = 1; }
 }
 
-module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA256, SOURCE_FILES,
+module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA256,
+  SUCCESSOR_CONTRACT_SHA256, SUCCESSOR_APPROVAL_MARKER, ACTIVE_EPOCH, PARENT_EPOCH,
+  PARENT_HEAD, PARENT_PREPARE_SHA256, PARENT_PLAN_SHA256, PARENT_GATE3_SHA256, SOURCE_FILES,
   resolveRoots, readDual, readJsonDual, writeDualImmutable, currentIdentity, verifiedPullRequest,
-  verifyIssueApproval, latestOfflineReport, gate3Analysis, verifyDiagnosticBuild, prepareExperiment,
+  verifyIssueApproval, latestOfflineReport, gate3Analysis, verifyDiagnosticBuild, verifyParentExperiment01,
+  parentInventory, verifyParentInventoryUnchanged, prepareExperiment,
+  combinedExperimentCharge,
   frozenSourceSnapshot, frozenSnapshotSha256, assertFrozenSnapshotMatches, readExperimentState, writeFloatWav,
   officialMetricPayload, normalizeAnalyzerMetrics, analyzerFixture, assertAnalyzerContract, captureMetadata, renderCall, referenceRows,
   scoreAlpha, scoreCompletedAlpha, verifiedReceipt, runBounded, verifyStoredAlphaResults, verifyExperiment,

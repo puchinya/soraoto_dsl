@@ -9,3 +9,4 @@ shared soraotoDSL contract.
 | Shared DSL-owned Plugin configuration | [`plugins/plugin-configuration-design.md`](plugins/plugin-configuration-design.md) |
 | SuperSynth release and piano calibration | [`plugins/dsp/super-synth/super-synth-design.md`](plugins/dsp/super-synth/super-synth-design.md) |
 | SuperSynth engine model architecture | [`plugins/dsp/super-synth/super-synth-engine-models-design.md`](plugins/dsp/super-synth/super-synth-engine-models-design.md) |
+| Issue #7 contact-loss experiment successor | [`plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-design.md`](plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-design.md) |

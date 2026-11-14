@@ -36,17 +36,59 @@ function initFixtureRepo(root) {
 }
 function bytesSha(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
 function setupPrepared({roots, head = '1'.repeat(40), wasmSha256 = '2'.repeat(64)}) {
-  const value = {schemaVersion: 1, issue: 7, pr: 8, branch: runner.PR_BRANCH, head,
-    contractSha256: runner.CONTRACT_SHA256, source: {}, build: {wasm: {sha256: wasmSha256}}, plan: core.plan()};
+  const gate3 = {status: 'GATE3_ANALYSIS_PASS', head};
+  const gate3Bytes = Buffer.from(`${JSON.stringify(stable(gate3), null, 2)}\n`), gate3Sha256 = bytesSha(gate3Bytes);
+  const parentEpoch = {epoch: runner.PARENT_EPOCH, head: runner.PARENT_HEAD,
+    prepareSha256: runner.PARENT_PREPARE_SHA256, planSha256: runner.PARENT_PLAN_SHA256,
+    gate3Sha256: runner.PARENT_GATE3_SHA256,
+    charged: 0, completed: 0, ambiguous: 0};
+  const value = {schemaVersion: 2, issue: 7, pr: 8, branch: runner.PR_BRANCH, head,
+    epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
+    approvalMarker: 'ISSUE7_CONTACT_LOSS_V1_GATE3_6_APPROVED',
+    successorApprovalMarker: runner.SUCCESSOR_APPROVAL_MARKER, parentEpoch,
+    gate3: {status: 'GATE3_ANALYSIS_PASS', analysisSha256: gate3Sha256},
+    source: {}, build: {wasm: {sha256: wasmSha256}}, plan: core.plan(),
+    startedCalls: 0, completedCalls: 0, ambiguousCalls: 0, budget: core.accounting()};
+  const plan = {schemaVersion: 2, epoch: runner.ACTIVE_EPOCH,
+    contractSha256: runner.SUCCESSOR_CONTRACT_SHA256, plan: core.plan(), callCap: 42,
+    historicalCalls: 3251, lifetimeCap: 5255, downstreamReserve: 1962};
+  runner.writeDualImmutable(roots, 'gate3-analysis.json', gate3Bytes);
+  runner.writeDualImmutable(roots, 'plan.json', Buffer.from(`${JSON.stringify(stable(plan), null, 2)}\n`));
   runner.writeDualImmutable(roots, 'prepare.json', Buffer.from(`${JSON.stringify(stable(value), null, 2)}\n`));
   return {value, head, wasmSha256};
 }
 function writeStart(roots, cell, {head, wasmSha256}) {
-  const value = {schemaVersion: 1, id: cell.id, alpha: cell.alpha, alphaOrder: cell.alphaOrder,
+  const value = {schemaVersion: 1, epoch: runner.ACTIVE_EPOCH,
+    contractSha256: runner.SUCCESSOR_CONTRACT_SHA256, id: cell.id, alpha: cell.alpha, alphaOrder: cell.alphaOrder,
     pitch: cell.pitch, velocity: cell.velocity, cellOrder: cell.cellOrder,
     sourceHead: head, wasmSha256, state: 'STARTED', startedAt: '2026-11-09T00:00:00.000Z'};
   runner.writeDualImmutable(roots, `experiment/${cell.id}/start.json`,
     Buffer.from(`${JSON.stringify(stable(value), null, 2)}\n`));
+}
+function setupSyntheticParent(context, {startedCalls = 0, extraFile = false} = {}) {
+  const roots = runner.resolveRoots({root: context.root, home: context.home,
+    commonDirectory: context.commonDirectory, epoch: runner.PARENT_EPOCH});
+  const gate3 = {status: 'GATE3_ANALYSIS_PASS', head: runner.PARENT_HEAD,
+    contractSha256: runner.CONTRACT_SHA256, cellCount: 140, observationCount: 20,
+    causalStatus: 'NOT_CONFIRMED', archiveSha256: 'a'.repeat(64), offlineReportSha256: 'b'.repeat(64)};
+  const gate3Bytes = Buffer.from(`${JSON.stringify(stable(gate3), null, 2)}\n`), gate3Sha256 = bytesSha(gate3Bytes);
+  const plan = {schemaVersion: 1, plan: core.plan(), callCap: 42,
+    historicalCalls: 3251, lifetimeCap: 5255, downstreamReserve: 1962};
+  const planBytes = Buffer.from(`${JSON.stringify(stable(plan), null, 2)}\n`);
+  const prepare = {schemaVersion: 1, issue: 7, pr: 8, branch: runner.PR_BRANCH, head: runner.PARENT_HEAD,
+    contractSha256: runner.CONTRACT_SHA256, approvalMarker: 'ISSUE7_CONTACT_LOSS_V1_GATE3_6_APPROVED',
+    gate3: {...gate3, analysisSha256: gate3Sha256}, plan: core.plan(), startedCalls,
+    completedCalls: 0, ambiguousCalls: 0,
+    budget: core.accounting({startedExperimentCalls: startedCalls})};
+  const prepareBytes = Buffer.from(`${JSON.stringify(stable(prepare), null, 2)}\n`);
+  runner.writeDualImmutable(roots, 'gate3-analysis.json', gate3Bytes);
+  runner.writeDualImmutable(roots, 'plan.json', planBytes);
+  runner.writeDualImmutable(roots, 'prepare.json', prepareBytes);
+  if (extraFile) {
+    for (const copy of [roots.primary, roots.secondary]) fs.writeFileSync(path.join(copy, 'unexpected.json'), '{}');
+  }
+  return {roots, expected: {prepareSha256: bytesSha(prepareBytes), planSha256: bytesSha(planBytes),
+    gate3Sha256, head: runner.PARENT_HEAD, members: ['gate3-analysis.json', 'plan.json', 'prepare.json']}};
 }
 function setBuildDirectory(directory, callback) {
   const name = 'SORAOTO_WASM_BUILD_DIR', previous = process.env[name];
@@ -55,22 +97,57 @@ function setBuildDirectory(directory, callback) {
   finally { if (previous === undefined) delete process.env[name]; else process.env[name] = previous; }
 }
 
-test('only the approved experiment-01 evidence namespace is addressable', t => {
+test('experiment-02 is the only active namespace and experiment-01 remains separately addressable', t => {
   const context = tempRoots();
-  const roots = runner.resolveRoots({root: context.root, home: context.home,
-    commonDirectory: context.commonDirectory, epoch: 'experiment-02'});
-  assert.deepEqual(roots, context.roots);
-  assert.ok(roots.primary.endsWith(path.join('physical-contact-loss-v1', 'experiment-01')));
-  assert.ok(roots.secondary.endsWith(path.join('physical-contact-loss-v1', 'experiment-01')));
+  assert.equal(context.roots.epoch, 'experiment-02');
+  const parent = runner.resolveRoots({root: context.root, home: context.home,
+    commonDirectory: context.commonDirectory, epoch: 'experiment-01'});
+  assert.ok(parent.primary.endsWith(path.join('physical-contact-loss-v1', 'experiment-01')));
+  assert.ok(parent.secondary.endsWith(path.join('physical-contact-loss-v1', 'experiment-01')));
+  assert.notEqual(parent.primary, context.roots.primary);
+  assert.throws(() => runner.resolveRoots({root: context.root, home: context.home,
+    commonDirectory: context.commonDirectory, epoch: 'experiment-03'}), /BLOCKED_CONTACT_LOSS_EPOCH/);
 });
 
-test('status reports an unstarted immutable preparation as blocked after HEAD drift', t => {
+test('experiment-02 predecessor proof authenticates both copies and preserves the captured inventory', () => {
+  const context = tempRoots(), fixture = setupSyntheticParent(context);
+  const options = {root: context.root, home: context.home, commonDirectory: context.commonDirectory};
+  const before = runner.verifyParentExperiment01(options, {expected: fixture.expected});
+  assert.equal(before.proof.charged, 0);
+  assert.equal(before.proof.completed, 0);
+  assert.equal(before.proof.ambiguous, 0);
+  assert.deepEqual(before.proof.rootMembers, ['gate3-analysis.json', 'plan.json', 'prepare.json']);
+  const after = runner.verifyParentInventoryUnchanged(before, options);
+  assert.deepEqual(after.inventory, before.inventory);
+  const target = path.join(fixture.roots.primary, 'prepare.json'), current = fs.statSync(target);
+  fs.utimesSync(target, current.atime, new Date(current.mtimeMs + 3000));
+  assert.throws(() => runner.verifyParentInventoryUnchanged(before, options), /PARENT_COPY_DRIFT|PARENT_CHANGED/);
+});
+
+test('parent proof rejects extra members and nonzero predecessor accounting', () => {
+  const extra = tempRoots(), extraFixture = setupSyntheticParent(extra, {extraFile: true});
+  assert.throws(() => runner.verifyParentExperiment01({root: extra.root, home: extra.home,
+    commonDirectory: extra.commonDirectory}, {expected: extraFixture.expected}), /PARENT_MEMBERS/);
+  const charged = tempRoots(), chargedFixture = setupSyntheticParent(charged, {startedCalls: 1});
+  assert.throws(() => runner.verifyParentExperiment01({root: charged.root, home: charged.home,
+    commonDirectory: charged.commonDirectory}, {expected: chargedFixture.expected}), /PARENT_PREPARE_IDENTITY/);
+});
+
+test('successor call accounting combines both epochs under the original 42-call cap', () => {
+  assert.equal(runner.combinedExperimentCharge(0, 0), 0);
+  assert.equal(runner.combinedExperimentCharge(0, 42), 42);
+  assert.throws(() => runner.combinedExperimentCharge(1, 42), /EXPERIMENT_CAP/);
+  assert.throws(() => runner.combinedExperimentCharge(-1, 0), /CALL_ACCOUNTING/);
+});
+
+test('status blocks an unverified predecessor without changing the prepared epoch', t => {
   const context = tempRoots(), currentHead = initFixtureRepo(context.root);
   const prepared = setupPrepared(context);
   assert.notEqual(prepared.head, currentHead);
   const result = runner.status({root: context.root, home: context.home, commonDirectory: context.commonDirectory});
-  assert.equal(result.status, 'BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
-  assert.equal(result.preparedHead, prepared.head);
+  assert.equal(result.status, 'BLOCKED_CONTACT_LOSS_PARENT_EPOCH');
+  assert.equal(result.parentStatus, 'UNVERIFIED');
+  assert.equal(result.preparedHead, null);
   assert.equal(result.currentHead, currentHead);
   assert.equal(result.charged, 0);
   assert.equal(result.completed, 0);
@@ -124,7 +201,8 @@ function persistCapture(roots, cell, capture) {
   runner.writeDualImmutable(roots, `${base}/audio.wav`, capture.audio);
   runner.writeDualImmutable(roots, `${base}/metadata.json`, metadataBytes);
   runner.writeDualImmutable(roots, `${base}/complete.json`, Buffer.from(`${JSON.stringify(stable({
-    schemaVersion: 1, id: cell.id, state: 'COMPLETE', audioSha256,
+    schemaVersion: 1, epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
+    id: cell.id, state: 'COMPLETE', audioSha256,
     metadataSha256: bytesSha(metadataBytes), completedAt: metadata.completedAt
   }), null, 2)}\n`));
 }
@@ -251,8 +329,16 @@ test('out-of-order and partial paired starts cannot be repaired or charged as a 
   fs.mkdirSync(path.dirname(path.join(next.roots.secondary, `experiment/${cell.id}/start.json`)), {recursive: true});
   fs.writeFileSync(path.join(next.roots.secondary, `experiment/${cell.id}/start.json`), marker);
   assert.throws(() => runner.writeDualImmutable(next.roots, `experiment/${cell.id}/start.json`, marker), /DUAL_COPY_MISSING/);
-  assert.throws(() => runner.readExperimentState(next.roots), /DUAL_COPY_MISSING/);
+  assert.throws(() => runner.readExperimentState(next.roots), /EPOCH_ROOT_DIVERGED|DUAL_COPY_MISSING/);
   assert.equal(fs.existsSync(path.join(next.roots.primary, `experiment/${cell.id}/start.json`)), false);
+});
+
+test('an interrupted successor preparation remains an orphan and cannot be auto-completed', () => {
+  const context = tempRoots();
+  runner.writeDualImmutable(context.roots, 'gate3-analysis.json', Buffer.from('{}\n'));
+  assert.throws(() => runner.readExperimentState(context.roots), /ORPHAN_ACTIVE_EPOCH/);
+  assert.equal(runner.readDual(context.roots, 'prepare.json'), null);
+  assert.equal(runner.readDual(context.roots, 'gate3-analysis.json').bytes.toString(), '{}\n');
 });
 
 test('read-only status reports exact counters and creates no epoch files', () => {
