@@ -886,16 +886,19 @@ function verifySelectionAfterPromotion({roots, state, selectionStored, root = RO
 }
 
 function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDirectory,
-  renderer = renderCall, evaluator = scoreAlpha, archivePath} = {}) {
+  renderer = renderCall, evaluator = scoreAlpha, archivePath, terminalVerifier = verifyExperiment} = {}) {
   assertAnalyzerContract();
   const roots = resolveRoots({root, home, commonDirectory}), state = readExperimentState(roots);
   if (!state.prepare) throw new Error('BLOCKED_CONTACT_LOSS_NOT_PREPARED');
   const priorTerminal = readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`);
   if (priorTerminal) {
-    if (priorTerminal.value.epoch !== ACTIVE_EPOCH || priorTerminal.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256) {
-      throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_IDENTITY');
+    const verified = terminalVerifier({root, home, commonDirectory, buildDirectory, archivePath, evaluator});
+    if (verified.status !== priorTerminal.value.status || verified.charged !== state.charged
+        || verified.completed !== state.completed || verified.ambiguous !== state.ambiguous) {
+      throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
     }
-    return {...priorTerminal.value, charged: state.charged, completed: state.completed, ambiguous: state.ambiguous};
+    return {...priorTerminal.value, charged: verified.charged, completed: verified.completed,
+      ambiguous: verified.ambiguous, terminalEvidence: 'VERIFIED'};
   }
   if (state.ambiguous) throw new Error('BLOCKED_CONTACT_LOSS_AMBIGUOUS_CALL_NO_RERENDER');
   const identity = verifyPreparedCurrent(roots, state, {root, home, commonDirectory, buildDirectory});
@@ -1005,7 +1008,8 @@ function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDir
 
 function verifyStoredAlphaResults(roots, state, {root = ROOT, home = os.homedir(), commonDirectory,
   buildDirectory, refs = null, evaluator = scoreAlpha, createMissingReports = false,
-  skipCurrentAuthority = false, expectedIdentity} = {}) {
+  skipCurrentAuthority = false, expectedIdentity, expectedTerminal = null,
+  preparedVerifier = verifyPreparedCurrent} = {}) {
   if (skipCurrentAuthority) {
     const original = expectedIdentity || preparedAcceptanceIdentity(state), storedGate3 = readJsonDual(roots, 'gate3-analysis.json', {required: true});
     if (storedGate3.sha256 !== state.prepare.gate3.analysisSha256 || storedGate3.value.head !== state.prepare.head
@@ -1021,16 +1025,34 @@ function verifyStoredAlphaResults(roots, state, {root = ROOT, home = os.homedir(
     if (artifact.sha256 !== original.wasmSha256 || artifact.size !== state.prepare.build.wasm.size) {
       throw new Error('BLOCKED_CONTACT_LOSS_ORIGINAL_DIAGNOSTIC_WASM_DRIFT');
     }
-  } else verifyPreparedCurrent(roots, state, {root, home, commonDirectory, buildDirectory});
+  } else preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory});
   const reference = refs || referenceRows({root, home, commonDirectory});
-  let baselineScore = null, baselineUnsafe = false;
+  let baselineScore = null, baselineUnsafe = false, terminalMetricFailure = false;
+  const terminalAlphaOrder = expectedTerminal?.status === 'BLOCKED_METRIC_RECOMPUTATION'
+    ? (expectedTerminal.charged / 7) - 1 : -1;
   for (let alphaOrder = 0; alphaOrder < core.ALPHAS.length; alphaOrder++) {
     const calls = state.calls.slice(alphaOrder * 7, alphaOrder * 7 + 7);
     if (calls.length !== 7 || calls.some(row => row.status !== 'COMPLETE')) break;
     const stored = readJsonDual(roots, `${EXPERIMENT_REL}/alpha-${String(alphaOrder).padStart(2, '0')}.json`);
-    const recomputed = scoreCompletedAlpha({alphaOrder, calls, refs: reference,
-      gainDb: baselineScore?.sharedGainDb ?? null, sourceHead: state.prepare.head,
-      wasmSha256: state.prepare.build.wasm.sha256, epoch: ACTIVE_EPOCH, evaluator});
+    if (expectedTerminal?.status === 'BLOCKED_METRIC_RECOMPUTATION' && alphaOrder === terminalAlphaOrder && stored) {
+      throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_REPORT_UNEXPECTED');
+    }
+    let recomputed;
+    try {
+      recomputed = scoreCompletedAlpha({alphaOrder, calls, refs: reference,
+        gainDb: baselineScore?.sharedGainDb ?? null, sourceHead: state.prepare.head,
+        wasmSha256: state.prepare.build.wasm.sha256, epoch: ACTIVE_EPOCH, evaluator});
+    } catch {
+      if (expectedTerminal?.status === 'BLOCKED_METRIC_RECOMPUTATION'
+          && alphaOrder === terminalAlphaOrder && !stored) {
+        terminalMetricFailure = true;
+        break;
+      }
+      throw new Error('BLOCKED_CONTACT_LOSS_STORED_METRIC_RECOMPUTATION');
+    }
+    if (expectedTerminal?.status === 'BLOCKED_METRIC_RECOMPUTATION' && alphaOrder === terminalAlphaOrder) {
+      throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_FAILURE_NOT_REPRODUCED');
+    }
     if (alphaOrder === 0) {
       try { core.assertBaselineSafe(recomputed); }
       catch { recomputed.status = 'GATE4_BASELINE_UNSAFE'; baselineUnsafe = true; }
@@ -1041,26 +1063,98 @@ function verifyStoredAlphaResults(roots, state, {root = ROOT, home = os.homedir(
     else if (!stored) throw new Error(`BLOCKED_CONTACT_LOSS_ALPHA_REPORT_MISSING:alpha-${alphaOrder}`);
     else if (!sameJson(stored.value, recomputed)) throw new Error(`BLOCKED_CONTACT_LOSS_STORED_METRIC_MISMATCH:alpha-${alphaOrder}`);
   }
+  if (expectedTerminal?.status === 'BLOCKED_METRIC_RECOMPUTATION' && !terminalMetricFailure) {
+    throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_FAILURE_NOT_REPRODUCED');
+  }
   return {status: 'PASS', verifiedAlphaCount: Math.min(6, Math.floor(state.completed / 7)),
-    charged: state.charged, completed: state.completed, ambiguous: state.ambiguous, baselineUnsafe};
+    charged: state.charged, completed: state.completed, ambiguous: state.ambiguous, baselineUnsafe,
+    terminalMetricFailure};
 }
 
-function verifyExperiment({root = ROOT, home = os.homedir(), commonDirectory, buildDirectory, archivePath} = {}) {
+function terminalExpectedRecord(terminal, state) {
+  const details = {
+    BLOCKED_UNSAFE_CAPTURE: 'FINITE_GUARD_OR_PEAK_GATE',
+    BLOCKED_METRIC_RECOMPUTATION: 'OFFICIAL_METRICS_UNVERIFIABLE',
+    GATE4_BASELINE_UNSAFE: 'BASELINE_SAFETY_GATE_FAILED'
+  };
+  const reason = details[terminal?.status];
+  if (!reason) throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_STATUS');
+  const expected = {epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+    status: terminal.status, reason, charged: state.charged, completed: state.completed,
+    ambiguous: state.ambiguous, stage3: 'NOT RUN', stage4: 'NOT RUN'};
+  if (!sameJson(terminal, expected)) throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
+  if (state.ambiguous !== 0 || state.charged !== state.completed || state.charged <= 0) {
+    throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
+  }
+  if (terminal.status === 'BLOCKED_UNSAFE_CAPTURE') {
+    const unsafe = [];
+    for (let index = 0; index < state.charged; index++) {
+      const call = state.calls[index];
+      if (call?.status !== 'COMPLETE') throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
+      if (verifyStoredUnsafeCapture(call)) unsafe.push(index);
+    }
+    if (unsafe.length !== 1 || unsafe[0] !== state.charged - 1) {
+      throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_UNSAFE_GATE_NOT_REPRODUCED');
+    }
+  } else if (terminal.status === 'GATE4_BASELINE_UNSAFE') {
+    if (state.charged !== 7 || state.completed !== 7 || state.candidateResults.length !== 1) {
+      throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
+    }
+  } else if (state.charged % 7 !== 0 || state.candidateResults.length !== (state.charged / 7) - 1) {
+    throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
+  }
+  return expected;
+}
+
+function verifyStoredUnsafeCapture(call) {
+  const metadata = call.metadata?.value, recorded = metadata?.metrics?.official;
+  if (!metadata || !recorded || !Number.isSafeInteger(metadata.guardHits) || metadata.guardHits < 0) {
+    throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_MEASURED_METRIC_MISSING');
+  }
+  const audio = decodeAudio(call.audio.bytes);
+  const recomputed = normalizeAnalyzerMetrics(require('./analyze-issue7-physical-identification.cjs')
+    .analyze(audio.left, audio.right, call.cell.pitch, SAMPLE_RATE), metadata.guardHits).official;
+  const fields = ['finite', 'peakDbfs', 'outputGuardHits'];
+  for (const field of fields) {
+    if (recomputed[field] !== recorded[field]) throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_MEASURED_METRIC_MISMATCH');
+  }
+  return recomputed.finite !== true || metadata.guardHits !== 0 || recomputed.peakDbfs >= 0;
+}
+
+function verifyExperiment(options = {}) {
+  const {root = ROOT, home = os.homedir(), commonDirectory, buildDirectory, archivePath,
+    parentVerifier = verifyParentExperiment01, preparedVerifier = verifyPreparedCurrent,
+    snapshotReader = frozenSourceSnapshot, referenceReader = referenceRows, evaluator = scoreAlpha} = options;
   const roots = resolveRoots({root, home, commonDirectory});
-  const parent = verifyParentExperiment01({root, home, commonDirectory});
+  const parent = parentVerifier({root, home, commonDirectory});
   const state = readExperimentState(roots);
   if (!state.prepare) return {status: 'NOT_PREPARED', epoch: ACTIVE_EPOCH,
     parentEpoch: {status: 'VERIFIED', ...parent.proof, copies: undefined},
     charged: 0, completed: 0, ambiguous: 0, writes: 0, renders: 0, acousticCalls: 0};
   if (!sameJson(state.prepare.parentEpoch, parent.proof)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT');
-  if (state.ambiguous) return {status: 'BLOCKED_AMBIGUOUS_CALL', charged: state.charged,
-    completed: state.completed, ambiguous: state.ambiguous, writes: 0, renders: 0, acousticCalls: 0};
-  const before = frozenSourceSnapshot({root, home, commonDirectory});
   const terminal = readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`);
-  const identity = verifyPreparedCurrent(roots, state, {root, home, commonDirectory, buildDirectory});
-  if (state.completed > 0) {
-    const refs = referenceRows({root, home, commonDirectory, archivePath});
-    verifyStoredAlphaResults(roots, state, {root, home, commonDirectory, buildDirectory, refs});
+  if (state.ambiguous && !terminal) return {status: 'BLOCKED_AMBIGUOUS_CALL', charged: state.charged,
+    completed: state.completed, ambiguous: state.ambiguous, writes: 0, renders: 0, acousticCalls: 0};
+  const before = snapshotReader({root, home, commonDirectory});
+  const identity = preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory});
+  let alphaVerification = {baselineUnsafe: false, terminalMetricFailure: false};
+  const hasCompleteAlpha = Array.from({length: core.ALPHAS.length}, (_, alphaOrder) =>
+    state.calls.slice(alphaOrder * 7, alphaOrder * 7 + 7)).some(calls =>
+    calls.length === 7 && calls.every(row => row.status === 'COMPLETE'));
+  if (hasCompleteAlpha) {
+    const refs = referenceReader({root, home, commonDirectory, archivePath});
+    alphaVerification = verifyStoredAlphaResults(roots, state, {root, home, commonDirectory,
+      buildDirectory, refs, evaluator, expectedTerminal: terminal?.value, preparedVerifier});
+  }
+  if (terminal) terminalExpectedRecord(terminal.value, state);
+  if (terminal?.value.status === 'BLOCKED_METRIC_RECOMPUTATION' && !alphaVerification.terminalMetricFailure) {
+    throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_FAILURE_NOT_REPRODUCED');
+  }
+  if (terminal?.value.status === 'GATE4_BASELINE_UNSAFE' && !alphaVerification.baselineUnsafe) {
+    throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_BASELINE_GATE_NOT_REPRODUCED');
+  }
+  if (terminal && readDual(roots, `${EXPERIMENT_REL}/selection.json`)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_SELECTION_CONFLICT');
   }
   let selection = null;
   if (state.completed === 42 && state.charged === 42) {
@@ -1075,10 +1169,8 @@ function verifyExperiment({root = ROOT, home = os.homedir(), commonDirectory, bu
   } else if (readDual(roots, `${EXPERIMENT_REL}/selection.json`)) {
     throw new Error('BLOCKED_CONTACT_LOSS_EARLY_SELECTION');
   }
-  const after = frozenSourceSnapshot({root, home, commonDirectory});
+  const after = snapshotReader({root, home, commonDirectory});
   if (!sameJson(before, after)) throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_CHANGED_DURING_VERIFY');
-  if (terminal && (terminal.value.epoch !== ACTIVE_EPOCH
-      || terminal.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_IDENTITY');
   return {status: terminal?.value.status || selection?.status || 'VERIFIED_IN_PROGRESS', epoch: ACTIVE_EPOCH,
     charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
     verifiedAlphaCount: Math.min(6, Math.floor(state.completed / 7)), selection,
@@ -1873,31 +1965,50 @@ function continueApproved({root = ROOT, home = os.homedir(), commonDirectory, bu
   } finally { releaseLock(roots, lock); }
 }
 
-function status({root = ROOT, home = os.homedir(), commonDirectory} = {}) {
+function independentlyVerifiedActiveLedger(roots) {
+  try {
+    const state = readExperimentState(roots);
+    return {status: 'VERIFIED', charged: state.charged, completed: state.completed, ambiguous: state.ambiguous};
+  } catch {
+    return {status: 'UNVERIFIED', charged: null, completed: null, ambiguous: null};
+  }
+}
+function blockerForStatus(error) {
+  return String(error?.message || error).match(/BLOCKED_CONTACT_LOSS_[A-Z0-9_]+/)?.[0]
+    || 'BLOCKED_CONTACT_LOSS_EXECUTION_IDENTITY_UNVERIFIED';
+}
+function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirectory,
+  parentVerifier = verifyParentExperiment01, preparedVerifier = verifyPreparedCurrent,
+  terminalVerifier = verifyExperiment, snapshotReader = frozenSourceSnapshot,
+  referenceReader = referenceRows} = {}) {
   const roots = resolveRoots({root, home, commonDirectory});
   let currentHead = null;
   try { currentHead = git(root, ['rev-parse', 'HEAD']); } catch { /* status remains read-only for empty fixtures */ }
   let parent;
-  try { parent = verifyParentExperiment01({root, home, commonDirectory}); }
+  try { parent = parentVerifier({root, home, commonDirectory}); }
   catch (error) {
-    const rawBlocker = String(error.message || error);
+    const active = independentlyVerifiedActiveLedger(roots);
+    const rawBlocker = blockerForStatus(error);
     return {status: 'BLOCKED_CONTACT_LOSS_PARENT_EPOCH', epoch: ACTIVE_EPOCH,
-      parentStatus: 'UNVERIFIED', parentBlocker: rawBlocker.match(/BLOCKED_CONTACT_LOSS_[A-Z0-9_]+/)?.[0]
-        || 'BLOCKED_CONTACT_LOSS_PARENT_READ', parentHead: null,
-      preparedHead: null, currentHead, parentCharged: null, charged: 0, completed: 0,
-      ambiguous: 0, acceptanceCharged: 0, callCap: core.EXPERIMENT_CALL_CAP,
-      acceptanceReserve: core.RESERVE_CALLS, cumulative: core.HISTORICAL_CALLS,
+      parentStatus: 'UNVERIFIED', parentBlocker: rawBlocker,
+      activeLedgerStatus: active.status, parentHead: null,
+      preparedHead: null, currentHead, parentCharged: null,
+      charged: active.charged, completed: active.completed, ambiguous: active.ambiguous,
+      combinedCharged: null, cumulative: null, acceptanceCharged: null,
+      callCap: core.EXPERIMENT_CALL_CAP,
+      acceptanceReserve: core.RESERVE_CALLS,
       lifetimeCap: core.MAX_CALLS, selection: 'NOT RUN', stage3: 'NOT RUN', stage4: 'NOT RUN',
       finalReport: 'NOT RUN', reports: {}, writes: 0, renders: 0, acousticCalls: 0};
   }
   const state = readExperimentState(roots);
   if (state.prepare && !sameJson(state.prepare.parentEpoch, parent.proof)) {
     return {status: 'BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT', epoch: ACTIVE_EPOCH,
-      parentStatus: 'VERIFIED', parentHead: parent.proof.head, parentCharged: parent.state.charged,
+      parentStatus: 'VERIFIED', activeLedgerStatus: 'VERIFIED', parentHead: parent.proof.head,
+      parentCharged: parent.state.charged,
       preparedHead: state.prepare.head, currentHead,
       charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
-      acceptanceCharged: 0, callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
-      cumulative: core.HISTORICAL_CALLS + state.charged, lifetimeCap: core.MAX_CALLS,
+      acceptanceCharged: null, callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
+      combinedCharged: null, cumulative: null, lifetimeCap: core.MAX_CALLS,
       selection: 'NOT RUN', stage3: 'NOT RUN', stage4: 'NOT RUN', finalReport: 'NOT RUN',
       reports: {}, writes: 0, renders: 0, acousticCalls: 0};
   }
@@ -1905,11 +2016,11 @@ function status({root = ROOT, home = os.homedir(), commonDirectory} = {}) {
   if (selection && (selection.value.epoch !== ACTIVE_EPOCH
       || selection.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) {
     return {status: 'BLOCKED_CONTACT_LOSS_SELECTION_IDENTITY', epoch: ACTIVE_EPOCH,
-      parentStatus: 'VERIFIED', parentHead: parent.proof.head, preparedHead: state.prepare?.head || null,
+      parentStatus: 'VERIFIED', activeLedgerStatus: 'VERIFIED', parentHead: parent.proof.head, preparedHead: state.prepare?.head || null,
       currentHead, parentCharged: parent.state.charged, charged: state.charged,
-      completed: state.completed, ambiguous: state.ambiguous, acceptanceCharged: 0,
+      completed: state.completed, ambiguous: state.ambiguous, acceptanceCharged: null,
       callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
-      cumulative: core.HISTORICAL_CALLS + state.charged, lifetimeCap: core.MAX_CALLS,
+      combinedCharged: null, cumulative: null, lifetimeCap: core.MAX_CALLS,
       selection: 'UNVERIFIED', stage3: 'NOT RUN', stage4: 'NOT RUN', finalReport: 'NOT RUN',
       reports: {}, writes: 0, renders: 0, acousticCalls: 0};
   }
@@ -1942,12 +2053,30 @@ function status({root = ROOT, home = os.homedir(), commonDirectory} = {}) {
   const final = readJsonDual(roots, `${ACCEPTANCE_ROOT}/final-report.json`);
   if (final && (final.value.epoch !== ACTIVE_EPOCH
       || final.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) throw new Error('BLOCKED_CONTACT_LOSS_FINAL_REPORT_IDENTITY');
-  const staleUnstartedPreparation = state.prepare && state.charged === 0 && !selection
-    && state.prepare.head !== currentHead;
+  let executionBlocker = null;
+  if (state.prepare) {
+    try {
+      const identity = currentIdentity(root);
+      if (identity.head !== state.prepare.head || identity.head !== currentHead) {
+        throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
+      }
+      if (![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)) throw new Error('BLOCKED_CONTACT_LOSS_BRANCH');
+      if (!sameJson(sourceSnapshot(root), state.prepare.source)) throw new Error('BLOCKED_CONTACT_LOSS_SOURCE_DRIFT');
+      preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory});
+      if (readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`)) {
+        const verified = terminalVerifier({root, home, commonDirectory, buildDirectory,
+          parentVerifier, preparedVerifier, snapshotReader, referenceReader});
+        if (verified.status !== readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`).value.status
+            || verified.charged !== state.charged || verified.completed !== state.completed
+            || verified.ambiguous !== state.ambiguous) throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
+      }
+    } catch (error) { executionBlocker = blockerForStatus(error); }
+  }
   const parentCharged = parent.state.charged, combinedCharged = parentCharged + state.charged;
-  return {status: staleUnstartedPreparation ? 'BLOCKED_CONTACT_LOSS_HEAD_DRIFT'
-      : final?.value?.decision || readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`)?.value.status
+  return {status: executionBlocker || final?.value?.decision
+        || readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`)?.value.status
         || selection?.value.status || (state.prepare ? state.status : 'NOT_PREPARED'), epoch: ACTIVE_EPOCH,
+    activeLedgerStatus: 'VERIFIED',
     parentStatus: 'VERIFIED', parentHead: parent.proof.head, parentCharged,
     parentPrepareSha256: parent.proof.prepareSha256,
     preparedHead: state.prepare?.head || null, currentHead,

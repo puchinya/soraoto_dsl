@@ -27,18 +27,18 @@ function tempRoots() {
   for (const directory of [root, home, commonDirectory]) fs.mkdirSync(directory, {recursive: true});
   return {base, root, home, commonDirectory, roots: runner.resolveRoots({root, home, commonDirectory})};
 }
-function initFixtureRepo(root) {
-  execFileSync('rtk', ['git', 'init', '--quiet'], {cwd: root, stdio: 'ignore'});
+function initFixtureRepo(root, branch = runner.PR_BRANCH) {
+  execFileSync('rtk', ['git', 'init', '--quiet', '-b', branch], {cwd: root, stdio: 'ignore'});
   execFileSync('rtk', ['git', 'config', 'user.name', 'Issue 7 Fixture'], {cwd: root, stdio: 'ignore'});
   execFileSync('rtk', ['git', 'config', 'user.email', 'issue7-fixture@example.invalid'], {cwd: root, stdio: 'ignore'});
   execFileSync('rtk', ['git', 'commit', '--allow-empty', '-m', 'fixture head'], {cwd: root, stdio: 'ignore'});
   return execFileSync('rtk', ['git', 'rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim();
 }
 function bytesSha(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
-function setupPrepared({roots, head = '1'.repeat(40), wasmSha256 = '2'.repeat(64)}) {
+function setupPrepared({roots, head = '1'.repeat(40), wasmSha256 = '2'.repeat(64), source = {}, parentProof = null}) {
   const gate3 = {status: 'GATE3_ANALYSIS_PASS', head};
   const gate3Bytes = Buffer.from(`${JSON.stringify(stable(gate3), null, 2)}\n`), gate3Sha256 = bytesSha(gate3Bytes);
-  const parentEpoch = {epoch: runner.PARENT_EPOCH, head: runner.PARENT_HEAD,
+  const parentEpoch = parentProof || {epoch: runner.PARENT_EPOCH, head: runner.PARENT_HEAD,
     prepareSha256: runner.PARENT_PREPARE_SHA256, planSha256: runner.PARENT_PLAN_SHA256,
     gate3Sha256: runner.PARENT_GATE3_SHA256,
     charged: 0, completed: 0, ambiguous: 0};
@@ -47,7 +47,7 @@ function setupPrepared({roots, head = '1'.repeat(40), wasmSha256 = '2'.repeat(64
     approvalMarker: 'ISSUE7_CONTACT_LOSS_V1_GATE3_6_APPROVED',
     successorApprovalMarker: runner.SUCCESSOR_APPROVAL_MARKER, parentEpoch,
     gate3: {status: 'GATE3_ANALYSIS_PASS', analysisSha256: gate3Sha256},
-    source: {}, build: {wasm: {sha256: wasmSha256}}, plan: core.plan(),
+    source, build: {wasm: {sha256: wasmSha256}}, plan: core.plan(),
     startedCalls: 0, completedCalls: 0, ambiguousCalls: 0, budget: core.accounting()};
   const plan = {schemaVersion: 2, epoch: runner.ACTIVE_EPOCH,
     contractSha256: runner.SUCCESSOR_CONTRACT_SHA256, plan: core.plan(), callCap: 42,
@@ -56,6 +56,58 @@ function setupPrepared({roots, head = '1'.repeat(40), wasmSha256 = '2'.repeat(64
   runner.writeDualImmutable(roots, 'plan.json', Buffer.from(`${JSON.stringify(stable(plan), null, 2)}\n`));
   runner.writeDualImmutable(roots, 'prepare.json', Buffer.from(`${JSON.stringify(stable(value), null, 2)}\n`));
   return {value, head, wasmSha256};
+}
+function commitFixtureSource(root) {
+  const source = {};
+  for (const relative of runner.SOURCE_FILES) {
+    const file = path.join(root, relative);
+    fs.mkdirSync(path.dirname(file), {recursive: true});
+    const bytes = Buffer.from(`fixture:${relative}`);
+    fs.writeFileSync(file, bytes);
+    const stat = fs.statSync(file);
+    source[relative] = {sha256: bytesSha(bytes), size: bytes.length, mtimeMs: stat.mtimeMs};
+  }
+  execFileSync('rtk', ['git', 'add', ...runner.SOURCE_FILES], {cwd: root, stdio: 'ignore'});
+  execFileSync('rtk', ['git', 'commit', '--quiet', '-m', 'fixture source snapshot'], {cwd: root, stdio: 'ignore'});
+  return {source, head: execFileSync('rtk', ['git', 'rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim()};
+}
+function preparedStatusFixture() {
+  const context = tempRoots(), parent = setupSyntheticParent(context);
+  initFixtureRepo(context.root);
+  const source = commitFixtureSource(context.root);
+  const parentProof = {epoch: runner.PARENT_EPOCH, head: runner.PARENT_HEAD,
+    prepareSha256: runner.PARENT_PREPARE_SHA256, planSha256: runner.PARENT_PLAN_SHA256,
+    gate3Sha256: runner.PARENT_GATE3_SHA256, charged: 0, completed: 0, ambiguous: 0};
+  const prepared = setupPrepared({roots: context.roots, head: source.head,
+    source: source.source, parentProof});
+  return {...context, parent, parentProof, prepared, head: source.head};
+}
+function verifyFixtureParent(context, options) {
+  const actual = runner.verifyParentExperiment01(options, {expected: context.parent.expected});
+  return {...actual, proof: context.parentProof};
+}
+function writeCompletedCall(roots, cell, prepared, {scale = 1, guardHits = 0} = {}) {
+  writeStart(roots, cell, prepared);
+  const fixture = runner.analyzerFixture(cell.pitch);
+  for (let index = 0; index < fixture.left.length; index++) {
+    fixture.left[index] *= scale;
+    fixture.right[index] *= scale;
+  }
+  const audio = runner.writeFloatWav(fixture.left, fixture.right), audioSha256 = bytesSha(audio);
+  const metrics = runner.normalizeAnalyzerMetrics(require('./analyze-issue7-physical-identification.cjs')
+    .analyze(fixture.left, fixture.right, cell.pitch, 48000), guardHits);
+  const metadata = {epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
+    id: cell.id, alpha: cell.alpha, alphaOrder: cell.alphaOrder, pitch: cell.pitch,
+    velocity: cell.velocity, cellOrder: cell.cellOrder, sourceHead: prepared.head,
+    wasmSha256: prepared.wasmSha256, finite: metrics.official.finite, guardHits, metrics, audioSha256};
+  const metadataBytes = Buffer.from(`${JSON.stringify(stable(metadata), null, 2)}\n`);
+  runner.writeDualImmutable(roots, `experiment/${cell.id}/audio.wav`, audio);
+  runner.writeDualImmutable(roots, `experiment/${cell.id}/metadata.json`, metadataBytes);
+  runner.writeDualImmutable(roots, `experiment/${cell.id}/complete.json`, Buffer.from(`${JSON.stringify(stable({
+    schemaVersion: 1, epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
+    id: cell.id, state: 'COMPLETE', audioSha256, metadataSha256: bytesSha(metadataBytes),
+    completedAt: '2026-11-14T00:00:00.000Z'}), null, 2)}\n`));
+  return {audio, metadata};
 }
 function writeStart(roots, cell, {head, wasmSha256}) {
   const value = {schemaVersion: 1, epoch: runner.ACTIVE_EPOCH,
@@ -349,6 +401,172 @@ test('read-only status reports exact counters and creates no epoch files', () =>
   {charged: 0, completed: 0, ambiguous: 0, writes: 0, renders: 0, acousticCalls: 0});
   assert.equal(fs.existsSync(context.roots.primary), beforePrimary);
   assert.equal(fs.existsSync(context.roots.secondary), beforeSecondary);
+});
+
+function fixtureStatus(context) {
+  return runner.status({...context,
+    parentVerifier: options => verifyFixtureParent(context, options),
+    preparedVerifier: (roots, state, {root}) => {
+      const identity = runner.currentIdentity(root);
+      if (identity.head !== state.prepare.head) throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
+      return identity;
+    }});
+}
+
+test('prepared status reports READY only at the exact clean source HEAD and remains read-only', () => {
+  const context = preparedStatusFixture();
+  const before = runner.parentInventory(context.roots);
+  const result = fixtureStatus(context);
+  assert.equal(result.status, 'READY');
+  assert.equal(result.charged, 0);
+  assert.equal(result.activeLedgerStatus, 'VERIFIED');
+  assert.deepEqual(runner.parentInventory(context.roots), before);
+});
+
+test('prepared status blocks a doc-only HEAD change even after one completed cell', () => {
+  const context = preparedStatusFixture(), first = core.plan()[0];
+  writeCompletedCall(context.roots, first, context.prepared);
+  fs.writeFileSync(path.join(context.root, 'later-note.md'), 'documentation only\n');
+  execFileSync('rtk', ['git', 'add', 'later-note.md'], {cwd: context.root, stdio: 'ignore'});
+  execFileSync('rtk', ['git', 'commit', '--quiet', '-m', 'fixture doc-only HEAD change'], {cwd: context.root, stdio: 'ignore'});
+  const result = fixtureStatus(context);
+  assert.equal(result.status, 'BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
+  assert.equal(result.charged, 1);
+  assert.equal(result.completed, 1);
+  assert.equal(result.writes, 0);
+  assert.equal(result.renders, 0);
+  assert.equal(result.acousticCalls, 0);
+});
+
+test('prepared status blocks same-HEAD source snapshot drift and dirty worktrees', () => {
+  const sourceDrift = preparedStatusFixture(), sourceFile = path.join(sourceDrift.root, runner.SOURCE_FILES[0]);
+  const later = new Date(Date.now() + 2000);
+  fs.utimesSync(sourceFile, later, later);
+  assert.equal(fixtureStatus(sourceDrift).status, 'BLOCKED_CONTACT_LOSS_SOURCE_DRIFT');
+  assert.equal(runner.currentIdentity(sourceDrift.root).head, sourceDrift.head);
+
+  const dirty = preparedStatusFixture();
+  fs.writeFileSync(path.join(dirty.root, 'untracked.txt'), 'dirty');
+  assert.equal(fixtureStatus(dirty).status, 'BLOCKED_CONTACT_LOSS_DIRTY_OR_UNIDENTIFIED_WORKTREE');
+});
+
+test('parent verification failure reports only an independently verified active call count', () => {
+  const context = preparedStatusFixture();
+  writeCompletedCall(context.roots, core.plan()[0], context.prepared);
+  for (const copy of [context.parent.roots.primary, context.parent.roots.secondary]) {
+    fs.appendFileSync(path.join(copy, 'prepare.json'), Buffer.from(' '));
+  }
+  const result = fixtureStatus(context);
+  assert.equal(result.status, 'BLOCKED_CONTACT_LOSS_PARENT_EPOCH');
+  assert.equal(result.activeLedgerStatus, 'VERIFIED');
+  assert.equal(result.charged, 1);
+  assert.equal(result.completed, 1);
+  assert.equal(result.combinedCharged, null);
+  assert.equal(result.cumulative, null);
+  assert.equal(result.acceptanceCharged, null);
+  assert.equal(result.writes, 0);
+});
+
+test('parent failure reports active accounting as unknown when the active ledger also fails verification', () => {
+  const context = preparedStatusFixture();
+  writeCompletedCall(context.roots, core.plan()[0], context.prepared);
+  for (const copy of [context.roots.primary, context.roots.secondary]) {
+    const file = path.join(copy, 'experiment', core.plan()[0].id, 'complete.json');
+    const complete = JSON.parse(fs.readFileSync(file, 'utf8'));
+    complete.audioSha256 = 'a'.repeat(64);
+    fs.writeFileSync(file, Buffer.from(`${JSON.stringify(stable(complete), null, 2)}\n`));
+  }
+  for (const copy of [context.parent.roots.primary, context.parent.roots.secondary]) {
+    const file = path.join(copy, 'prepare.json');
+    const prepare = JSON.parse(fs.readFileSync(file, 'utf8'));
+    prepare.head = 'f'.repeat(40);
+    fs.writeFileSync(file, Buffer.from(`${JSON.stringify(stable(prepare), null, 2)}\n`));
+  }
+  const result = fixtureStatus(context);
+  assert.equal(result.status, 'BLOCKED_CONTACT_LOSS_PARENT_EPOCH');
+  assert.equal(result.activeLedgerStatus, 'UNVERIFIED');
+  assert.equal(result.charged, null);
+  assert.equal(result.completed, null);
+  assert.equal(result.cumulative, null);
+});
+
+function terminalVerificationOptions(context) {
+  return {parentVerifier: options => verifyFixtureParent(context, options),
+    preparedVerifier: (roots, state, {root}) => {
+      const identity = runner.currentIdentity(root);
+      if (identity.head !== state.prepare.head) throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
+      return identity;
+    }, snapshotReader: () => ({fixtureSnapshot: 'unchanged'}), referenceReader: () => []};
+}
+function writeTerminal(context, value) {
+  runner.writeDualImmutable(context.roots, 'experiment/terminal.json', Buffer.from(`${JSON.stringify(stable(value), null, 2)}\n`));
+}
+
+test('run-bounded rejects a forged pass terminal when the ledger has zero calls', () => {
+  const context = preparedStatusFixture();
+  writeTerminal(context, {epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
+    status: 'GATE4_STRESS_PASS', charged: 0, completed: 0, ambiguous: 0,
+    stage3: 'NOT RUN', stage4: 'NOT RUN'});
+  const verification = terminalVerificationOptions(context);
+  let renders = 0;
+  assert.throws(() => runner.runBounded({...context, renderer: () => { renders++; },
+    terminalVerifier: options => runner.verifyExperiment({...options, ...verification})}), /TERMINAL_STATUS/);
+  assert.equal(renders, 0);
+});
+
+test('run-bounded verifies parent and current HEAD before reusing an existing blocked terminal', () => {
+  const makeBlocked = () => {
+    const context = preparedStatusFixture(), cell = core.plan()[0];
+    writeCompletedCall(context.roots, cell, context.prepared, {scale: 20});
+    writeTerminal(context, {epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
+      status: 'BLOCKED_UNSAFE_CAPTURE', reason: 'FINITE_GUARD_OR_PEAK_GATE',
+      charged: 1, completed: 1, ambiguous: 0, stage3: 'NOT RUN', stage4: 'NOT RUN'});
+    return context;
+  };
+  const reuse = context => {
+    const verification = terminalVerificationOptions(context);
+    let renders = 0;
+    const result = runner.runBounded({...context, renderer: () => { renders++; },
+      terminalVerifier: options => runner.verifyExperiment({...options, ...verification})});
+    assert.equal(renders, 0);
+    return result;
+  };
+
+  const valid = makeBlocked();
+  const verified = reuse(valid);
+  assert.equal(verified.status, 'BLOCKED_UNSAFE_CAPTURE');
+  assert.equal(verified.terminalEvidence, 'VERIFIED');
+  assert.equal(verified.charged, 1);
+
+  const alteredMetrics = makeBlocked();
+  for (const copy of [alteredMetrics.roots.primary, alteredMetrics.roots.secondary]) {
+    const base = path.join(copy, 'experiment', core.plan()[0].id);
+    const metadataPath = path.join(base, 'metadata.json');
+    const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+    metadata.metrics.peakDbfs = -1;
+    metadata.metrics.official.peakDbfs = -1;
+    const metadataBytes = Buffer.from(`${JSON.stringify(stable(metadata), null, 2)}\n`);
+    fs.writeFileSync(metadataPath, metadataBytes);
+    const completePath = path.join(base, 'complete.json'), complete = JSON.parse(fs.readFileSync(completePath, 'utf8'));
+    complete.metadataSha256 = bytesSha(metadataBytes);
+    fs.writeFileSync(completePath, Buffer.from(`${JSON.stringify(stable(complete), null, 2)}\n`));
+  }
+  assert.throws(() => reuse(alteredMetrics), /TERMINAL_MEASURED_METRIC_MISMATCH/);
+
+  const brokenParent = makeBlocked();
+  const parentPrepare = JSON.parse(fs.readFileSync(path.join(brokenParent.parent.roots.primary, 'prepare.json'), 'utf8'));
+  parentPrepare.head = 'f'.repeat(40);
+  const mutatedPrepare = Buffer.from(`${JSON.stringify(stable(parentPrepare), null, 2)}\n`);
+  for (const copy of [brokenParent.parent.roots.primary, brokenParent.parent.roots.secondary]) {
+    fs.writeFileSync(path.join(copy, 'prepare.json'), mutatedPrepare);
+  }
+  assert.throws(() => reuse(brokenParent), /PARENT_DIGEST/);
+
+  const changedHead = makeBlocked();
+  fs.writeFileSync(path.join(changedHead.root, 'later-note.md'), 'documentation only\n');
+  execFileSync('rtk', ['git', 'add', 'later-note.md'], {cwd: changedHead.root, stdio: 'ignore'});
+  execFileSync('rtk', ['git', 'commit', '--quiet', '-m', 'fixture terminal HEAD drift'], {cwd: changedHead.root, stdio: 'ignore'});
+  assert.throws(() => reuse(changedHead), /HEAD_DRIFT/);
 });
 
 test('frozen-snapshot binding derives an omitted legacy digest without rewriting evidence', () => {
