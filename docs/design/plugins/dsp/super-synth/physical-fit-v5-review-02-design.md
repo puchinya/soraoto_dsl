@@ -27,6 +27,8 @@ The synthetic backend returns independent results to the recorder. The recorder 
 
 Unresolved prior calls block before marker creation. Any repeat, official conformance, Stage3 equivalence, or pattern-specific headroom failure returns a blocked decision. Runtime preparation rejects uncommitted sources, mismatched continuation-01 provenance, or divergent dual-store copies.
 
+Frozen-source validation has two separate owners. `verifyFrozenP5Parent` reads each recorded P5 source blob from the frozen P5 commit and compares that historical content to the P5 record. The current review runtime verifier separately compares its complete `sourceHashes` set with the current committed revision and checkout. This permits a descendant to carry approved implementation changes without changing what P5 recorded, while still rejecting any drift from the current runtime revision's own source identity.
+
 ## Alternatives considered
 
 - Reusing the continuation-01 namespace was rejected because its source identity is already pinned by an immutable record.

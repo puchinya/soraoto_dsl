@@ -53,6 +53,12 @@ This continuation is synthetic verification only. It performs zero real acoustic
 
 Missing or non-finite headroom peaks, absent patterns, incomplete repeat rows, unresolved charged calls, missing Stage3 cells, legacy-test failure, or source/dual-store identity drift fail closed. No failed synthetic scenario may advance to a later stage.
 
+### Frozen-parent and current-revision source identities
+
+- Verify the frozen P5 record's `sourceHashes` against Git blobs at that record's exact frozen `commitSha`. A permitted descendant may contain later implementation changes to those paths; those changes do not rewrite or invalidate the historical source identity.
+- Independently verify every source hash captured by the current review runtime revision against the current revision's exact committed HEAD and checkout. A mismatch remains `BLOCKED_REVIEW_SOURCE_SHA_MISMATCH` and must fail closed.
+- Both checks are mandatory. Never skip the historical hash check, compare historical P5 hashes to the descendant checkout, or accept a current-source mutation because the frozen parent is valid.
+
 ## Security and privacy
 
 The v5 review evidence remains in the existing private dual-store layout. No raw audio or new acoustic capture is authorized by this amendment. The separate continuation-02 namespace prevents overwriting prior review evidence.

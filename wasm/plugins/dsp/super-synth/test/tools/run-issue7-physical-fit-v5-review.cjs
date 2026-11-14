@@ -51,6 +51,31 @@ function hashFile(file) { return core.sha256(fs.readFileSync(file)); }
 function sourceHashMap(files, root = ROOT) {
   return Object.fromEntries([...new Set(files)].sort().map(relative => [relative, hashFile(path.join(root, relative))]));
 }
+function sourceHashMapAtCommit(files, commit, root = ROOT) {
+  if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error('BLOCKED_REVIEW_SOURCE_COMMIT_IDENTITY');
+  return Object.fromEntries([...new Set(files)].sort().map(relative => {
+    if (path.isAbsolute(relative) || relative.split(/[\\/]/).includes('..')) {
+      throw new Error('BLOCKED_REVIEW_SOURCE_PATH_IDENTITY');
+    }
+    let bytes;
+    try {
+      bytes = execFileSync('rtk', ['git', 'show', `${commit}:${relative}`], {cwd: root});
+    } catch {
+      throw new Error('BLOCKED_REVIEW_FROZEN_SOURCE_UNAVAILABLE');
+    }
+    return [relative, core.sha256(bytes)];
+  }));
+}
+function verifyFrozenSourceHashes({root = ROOT, commit, sourceHashes} = {}) {
+  const actual = sourceHashMapAtCommit(Object.keys(sourceHashes || {}), commit, root);
+  if (!canonicalSame(actual, sourceHashes)) throw new Error('BLOCKED_REVIEW_FROZEN_SOURCE_SHA_MISMATCH');
+  return actual;
+}
+function verifyBoundSourceHashes({root = ROOT, sourceHashes, mismatch = 'BLOCKED_REVIEW_SOURCE_SHA_MISMATCH'} = {}) {
+  const actual = sourceHashMap(Object.keys(sourceHashes || {}), root);
+  if (!canonicalSame(actual, sourceHashes)) throw new Error(mismatch);
+  return actual;
+}
 function assertReviewSourcesCommitted(root = ROOT, head = git(['rev-parse', 'HEAD'], root)) {
   for (const relative of NEW_SOURCE_REL) {
     try {
@@ -128,8 +153,7 @@ function verifyFrozenP5Parent({root = ROOT, verifyRemote = false, currentHead} =
     const remote = oldP5.remoteReadback(head);
     if (remote.head !== head || remote.state !== 'OPEN') throw new Error('BLOCKED_REVIEW_REMOTE_HEAD_READBACK');
   }
-  const hashes = sourceHashMap(Object.keys(prepared.record.sourceHashes), root);
-  if (!canonicalSame(hashes, prepared.record.sourceHashes)) throw new Error('BLOCKED_REVIEW_FROZEN_SOURCE_SHA_MISMATCH');
+  verifyFrozenSourceHashes({root, commit: prepared.record.commitSha, sourceHashes: prepared.record.sourceHashes});
 
   const parentSnapshots = getParentSnapshots(root);
   if (!same(parentSnapshots.inventory.v3, prepared.record.parentInventory.v3)
@@ -235,9 +259,7 @@ function prepareReviewRevision({root = ROOT, home = os.homedir(), commonDirector
       return {...prepared, roots, writes: 0, reused: true, parentInventory: parent.parentSnapshots.inventory};
     }
     const sourceHashes = sourceHashMap(sourceSet(parent), root);
-    const sourceLineage = verifyLineage({root, frozenHead: core.FROZEN_P5_HEAD, currentHead: parent.head,
-      sourceHashes: Object.fromEntries(Object.entries(sourceHashes).filter(([file]) =>
-        Object.hasOwn(parent.prepared.record.sourceHashes, file)))});
+    const sourceLineage = verifyLineage({root, frozenHead: core.FROZEN_P5_HEAD, currentHead: parent.head});
     const report = auditReport({root, verifyRemote: false});
     const reportBytes = core.jsonBytes(report);
     const reportWrite = core.writeImmutableDual(roots, AUDIT_REL, reportBytes);
@@ -283,11 +305,8 @@ function verifyReviewRevision({root = ROOT, home = os.homedir(), commonDirectory
       || !same(prepared.runtime.parentInventory, parent.parentSnapshots.inventory)) {
     throw new Error('BLOCKED_REVIEW_REVISION_PARENT_MISMATCH');
   }
-  verifyLineage({root, frozenHead: prepared.runtime.fixedParentHead, currentHead: prepared.runtime.commitSha,
-    sourceHashes: Object.fromEntries(Object.entries(prepared.runtime.sourceHashes).filter(([file]) =>
-      Object.hasOwn(parent.prepared.record.sourceHashes, file)))});
-  const currentSources = sourceHashMap(Object.keys(prepared.runtime.sourceHashes), root);
-  if (!canonicalSame(currentSources, prepared.runtime.sourceHashes)) throw new Error('BLOCKED_REVIEW_SOURCE_SHA_MISMATCH');
+  verifyLineage({root, frozenHead: prepared.runtime.fixedParentHead, currentHead: prepared.runtime.commitSha});
+  verifyBoundSourceHashes({root, sourceHashes: prepared.runtime.sourceHashes});
   const recomputed = auditReport({root, verifyRemote: false});
   if (core.sha256(core.jsonBytes(recomputed)) !== prepared.auditSha256
       || !same(recomputed.summary, prepared.runtime.auditSummary)) throw new Error('BLOCKED_REVIEW_AUDIT_SHA_MISMATCH');
@@ -791,6 +810,7 @@ if (require.main === module) {
 }
 
 module.exports = {ROOT, NEW_SOURCE_REL, REVISION_REL, AUDIT_REL, TERMINAL_REL,
+  sourceHashMapAtCommit, verifyFrozenSourceHashes, verifyBoundSourceHashes,
   verifyLineage, assertReviewSourcesCommitted, verifyFrozenP5Parent, auditReport, prepareReviewRevision, verifyReviewRevision,
   status, verify, dryRun, runP5Candidates, runConfirmation, runHeadroom, promoteP6,
   buildSyntheticVariants, comparePcm, runReleasePairs, runStage3, runStage4, finalize,

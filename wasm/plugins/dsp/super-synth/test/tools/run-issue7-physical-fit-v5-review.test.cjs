@@ -302,6 +302,27 @@ test('T04: accepts a child HEAD with frozen sources and rejects changed sources 
     currentHead: '0'.repeat(40)}));
 });
 
+test('T04b: verifies P5 source hashes at the frozen commit and current revision hashes against the checkout', () => {
+  const parent = runner.verifyFrozenP5Parent({verifyRemote: false});
+  const source = Object.keys(parent.prepared.record.sourceHashes).find(file => file.endsWith('/plugin.c'));
+  assert.ok(source, 'the frozen P5 record includes the SuperSynth plugin source');
+
+  const historical = runner.sourceHashMapAtCommit([source], core.FROZEN_P5_HEAD, runner.ROOT);
+  assert.equal(historical[source], parent.prepared.record.sourceHashes[source]);
+  const currentHead = require('node:child_process').execFileSync('rtk', ['git', 'rev-parse', 'HEAD'],
+    {cwd: runner.ROOT, encoding: 'utf8'}).trim();
+  const current = runner.sourceHashMapAtCommit([source], currentHead, runner.ROOT);
+  assert.notEqual(current[source], historical[source], 'descendant implementation changes do not rewrite frozen P5 identity');
+
+  const currentBytes = fs.readFileSync(path.join(runner.ROOT, source));
+  const bound = {[source]: core.sha256(currentBytes)};
+  assert.deepEqual(runner.verifyBoundSourceHashes({root: runner.ROOT, sourceHashes: bound}), bound);
+  assert.throws(() => runner.verifyBoundSourceHashes({root: runner.ROOT,
+    sourceHashes: {[source]: '0'.repeat(64)}}), /BLOCKED_REVIEW_SOURCE_SHA_MISMATCH/);
+  assert.throws(() => runner.verifyFrozenSourceHashes({root: runner.ROOT, commit: core.FROZEN_P5_HEAD,
+    sourceHashes: {[source]: '0'.repeat(64)}}), /BLOCKED_REVIEW_FROZEN_SOURCE_SHA_MISMATCH/);
+});
+
 test('T05: call identity reuse requires exact values, cell, and artifact kind', t => {
   const {roots} = makeRoots(t);
   const {lock, request} = makeRequest({roots, id: 'identity', artifactKind: 'metric'});

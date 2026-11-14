@@ -27,6 +27,13 @@ function tempRoots() {
   for (const directory of [root, home, commonDirectory]) fs.mkdirSync(directory, {recursive: true});
   return {base, root, home, commonDirectory, roots: runner.resolveRoots({root, home, commonDirectory})};
 }
+function initFixtureRepo(root) {
+  execFileSync('rtk', ['git', 'init', '--quiet'], {cwd: root, stdio: 'ignore'});
+  execFileSync('rtk', ['git', 'config', 'user.name', 'Issue 7 Fixture'], {cwd: root, stdio: 'ignore'});
+  execFileSync('rtk', ['git', 'config', 'user.email', 'issue7-fixture@example.invalid'], {cwd: root, stdio: 'ignore'});
+  execFileSync('rtk', ['git', 'commit', '--allow-empty', '-m', 'fixture head'], {cwd: root, stdio: 'ignore'});
+  return execFileSync('rtk', ['git', 'rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim();
+}
 function bytesSha(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
 function setupPrepared({roots, head = '1'.repeat(40), wasmSha256 = '2'.repeat(64)}) {
   const value = {schemaVersion: 1, issue: 7, pr: 8, branch: runner.PR_BRANCH, head,
@@ -47,6 +54,31 @@ function setBuildDirectory(directory, callback) {
   try { return callback(); }
   finally { if (previous === undefined) delete process.env[name]; else process.env[name] = previous; }
 }
+
+test('only the approved experiment-01 evidence namespace is addressable', t => {
+  const context = tempRoots();
+  const roots = runner.resolveRoots({root: context.root, home: context.home,
+    commonDirectory: context.commonDirectory, epoch: 'experiment-02'});
+  assert.deepEqual(roots, context.roots);
+  assert.ok(roots.primary.endsWith(path.join('physical-contact-loss-v1', 'experiment-01')));
+  assert.ok(roots.secondary.endsWith(path.join('physical-contact-loss-v1', 'experiment-01')));
+});
+
+test('status reports an unstarted immutable preparation as blocked after HEAD drift', t => {
+  const context = tempRoots(), currentHead = initFixtureRepo(context.root);
+  const prepared = setupPrepared(context);
+  assert.notEqual(prepared.head, currentHead);
+  const result = runner.status({root: context.root, home: context.home, commonDirectory: context.commonDirectory});
+  assert.equal(result.status, 'BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
+  assert.equal(result.preparedHead, prepared.head);
+  assert.equal(result.currentHead, currentHead);
+  assert.equal(result.charged, 0);
+  assert.equal(result.completed, 0);
+  assert.equal(result.writes, 0);
+  assert.equal(result.renders, 0);
+  assert.equal(result.acousticCalls, 0);
+});
+
 function openHarness(buildDirectory) {
   const {PluginHarness} = require('../../../../../test/helpers/plugin-harness.cjs');
   const harness = setBuildDirectory(buildDirectory, () => new PluginHarness(ROOT, 'plugins/dsp/super-synth/plugin.wasm'));

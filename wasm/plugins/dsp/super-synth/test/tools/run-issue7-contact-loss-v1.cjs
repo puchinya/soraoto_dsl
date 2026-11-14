@@ -1654,6 +1654,7 @@ function continueApproved({root = ROOT, home = os.homedir(), commonDirectory, bu
 
 function status({root = ROOT, home = os.homedir(), commonDirectory} = {}) {
   const roots = resolveRoots({root, home, commonDirectory}), state = readExperimentState(roots);
+  const currentHead = state.prepare ? git(root, ['rev-parse', 'HEAD']) : null;
   const selection = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`), reports = {};
   let acceptanceCharged = 0;
   const report = stage => {
@@ -1682,8 +1683,12 @@ function status({root = ROOT, home = os.homedir(), commonDirectory} = {}) {
     count('stage4', lifecycleCells); report('stage4');
   }
   const final = readJsonDual(roots, `${ACCEPTANCE_ROOT}/final-report.json`);
-  return {status: final?.decision || readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`)?.value.status
-      || selection?.value.status || state.status,
+  const staleUnstartedPreparation = state.prepare && state.charged === 0 && !selection
+    && state.prepare.head !== currentHead;
+  return {status: staleUnstartedPreparation ? 'BLOCKED_CONTACT_LOSS_HEAD_DRIFT'
+      : final?.value?.decision || readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`)?.value.status
+        || selection?.value.status || state.status,
+    preparedHead: state.prepare?.head || null, currentHead,
     charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
     acceptanceCharged, callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
     cumulative: core.HISTORICAL_CALLS + state.charged + acceptanceCharged, lifetimeCap: core.MAX_CALLS,

@@ -54,6 +54,8 @@ Read-only modes never create a directory or mutate file mtimes. `--prepare` is b
 
 Source commits after a measured run are new provenance. If continuation evidence is needed, append a distinctly numbered epoch with authenticated parent report and strict source lineage; never edit a previously published report or simply relabel HEAD.
 
+The current Issue approval authorizes only `experiment-01`; the generic append-only rule above defines how a separately approved future continuation would be represented and does not authorize creating one. `experiment-01` remains immutably bound to the HEAD captured by its prepare record. If the PR HEAD or its bound sources change after preparation, do not rewrite that record, relabel it, or resume acoustic work under the changed identity. Stop before rendering and require a successor Issue contract with explicit approval before creating another epoch or spending any of the 42 calls. No `experiment-02` or continuation runner is part of this approved implementation.
+
 ## Gate 5 / Gate 6 transitions
 
 ```text
