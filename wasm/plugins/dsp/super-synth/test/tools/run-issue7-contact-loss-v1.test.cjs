@@ -1274,6 +1274,25 @@ test('continuation prefix verification tolerates its writer lock but rejects any
   assert.throws(() => runner.assertLockedRecoveryPrefix(context.roots, snapshot), /PREFIX_SET/);
 });
 
+test('recovery root verification accepts only the exact lock owned by the current writer', () => {
+  const context = tempRoots(), expected = ['plan.json', 'prepare.json'];
+  for (const name of expected) runner.writeDualImmutable(context.roots, name, Buffer.from(`immutable-${name}`));
+  const owner = crypto.randomUUID();
+  const bytes = Buffer.from(`${JSON.stringify({schemaVersion: 1, owner, pid: process.pid,
+    createdAt: new Date().toISOString()})}\n`);
+  runner.writeDualImmutable(context.roots, 'writer.lock', bytes);
+  assert.equal(runner.assertRecoveryRootMembers(context.roots, expected,
+    {ownerLock: {owner, bytes}, blocker: 'BLOCKED_TEST_ROOT_MEMBERS'}), true);
+  assert.throws(() => runner.assertRecoveryRootMembers(context.roots, expected,
+    {blocker: 'BLOCKED_TEST_ROOT_MEMBERS'}), /BLOCKED_TEST_ROOT_MEMBERS/);
+  assert.throws(() => runner.assertRecoveryRootMembers(context.roots, expected,
+    {ownerLock: {owner: crypto.randomUUID(), bytes}, blocker: 'BLOCKED_TEST_ROOT_MEMBERS'}),
+  /BLOCKED_CONTACT_LOSS_LOCK_OWNER_CHANGED/);
+  assert.throws(() => runner.assertRecoveryRootMembers(context.roots, expected,
+    {ownerLock: {owner, bytes: Buffer.from('stale lock')}, blocker: 'BLOCKED_TEST_ROOT_MEMBERS'}),
+  /BLOCKED_CONTACT_LOSS_LOCK_OWNER_CHANGED/);
+});
+
 test('prepared verification uses the authenticated recovery receipt offline epoch', () => {
   assert.equal(runner.expectedRecoveryOfflineEpoch({kind: 'CONTACT_LOSS_PREPARE_RECOVERY'}),
     'physical-root-cause-offline-v1/analysis-19');
