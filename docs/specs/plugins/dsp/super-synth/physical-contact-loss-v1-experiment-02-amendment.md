@@ -9,13 +9,17 @@
 - **Approval marker:** `ISSUE7_CONTACT_LOSS_V1_EXPERIMENT_02_APPROVED`
 - **Contract:** [experiment-02 successor contract](../../../../design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-contract.md)
 
-## Authority and narrow supersession
+## Purpose
+
+This amendment authorizes exactly one append-only successor experiment epoch after proving the original epoch is empty. It preserves the approved physical model, gates, and total acoustic-call budget.
+
+## Scope
 
 This amendment supplements the approved [Physical Contact Loss v1 amendment](physical-contact-loss-v1-amendment.md). It supersedes only that amendment's experiment-01-only epoch destination and allocation destination. Experiment-01 remains immutable and its prepare record remains bound to HEAD `ebc63ea6a32fa20ed531fa5cc9a517dd7693b38c`.
 
 The user authorized one append-only successor epoch because experiment-01 has exactly 0 started, 0 completed, and 0 ambiguous calls. No other epoch is authorized. All physical, acoustic, quality, compatibility, and downstream acceptance decisions remain those of the original contract.
 
-## Parent identity and preservation
+## Normative requirements
 
 Experiment-02 MUST use the fixed dual-store paths:
 
@@ -38,7 +42,11 @@ The single existing 42-call authorization transfers to experiment-02 because exp
 
 The fixed alpha order, seven stress coordinates, baseline safety gate, official metric evaluator, hard thresholds, candidate selection, failure terminal and Stage3/4 order remain byte-for-byte as specified by the original amendment. Historic calls remain 3,251; the downstream reserve remains 1,962; the lifetime ceiling remains 5,255. If no complete candidate passes all official gates, use `PHYSICAL_CONTACT_LOSS_FAMILY_INSUFFICIENT`; do not run downstream calls.
 
-## Runtime identity and failure behavior
+## Security and privacy
+
+Keep per-cell WAV and metadata in the fixed private dual-store roots. Public Issue and PR reports may include hashes, counts, aggregate results, gate decisions, and budget accounting, but must not include private filesystem paths, credentials, or raw private artifacts. Read-only commands do not mutate evidence.
+
+## Error and boundary behavior
 
 - All new writes MUST occur under experiment-02. Experiment-01 is read-only parent evidence.
 - Only `--prepare`, bounded execution, and approved continuation may write experiment-02. Read-only status/analyze/verify must report the selected epoch, parent identity, call totals, and HEAD relation without writing or changing mtimes.
@@ -46,6 +54,10 @@ The fixed alpha order, seven stress coordinates, baseline safety gate, official 
 - A partial/unknown parent, copy divergence, nonzero predecessor call, stale PR/HEAD, source or WASM drift, missing archive, lock conflict, partial write or ambiguous call MUST fail closed. Do not repair, delete, re-sign, re-label or rerender evidence.
 - This approval authorizes no experiment-03. If identity changes after experiment-02 is prepared, preserve it and stop.
 
-## Acceptance boundary
+## Observable behavior
 
 Passing these evidence and runtime checks authorizes the fixed experiment and existing downstream gates; it is not acoustic acceptance. Only a complete measured Gate4 hard-gate PASS permits the already approved 25 confirmation calls, 4 headroom calls, promotion, 24 release-equivalence calls, 486 Stage3 calls, and 1,423 Stage4 calls, in that order. Any failure blocks all later calls. Manual listening, Web Player acceptance, review, PR merge and Issue closure remain separate final gates.
+
+## Verification strategy
+
+Before `--prepare`, require the already approved focused Node/build matrix, frozen evidence regressions, and full CTest gate; a failure is never relabeled as a skip or pass. After all 1,423 Stage4 captures and their official gates pass, run the full CTest suite again using a lifecycle document reconstructed only from authenticated Stage3/Stage4 dual-store rows. Write that input temporarily beneath ignored `build/`, pass it through `SUPERSYNTH_LIFECYCLE_PATH`, bind the immutable post-Stage4 CTest receipt to the Stage4 report SHA-256 and input SHA-256, and remove the temporary input. A missing summary, nonzero exit, failed test, or identity mismatch blocks final acceptance. `--status` and `--verify` stay zero-write and never run this CTest operation.

@@ -2,11 +2,7 @@
 <!-- agent-doc-schema: 2 -->
 # Issue #7 — Physical Contact Loss v1 Amendment (approved 2026-10-29)
 
-## Purpose
-
-This amendment fixes the approved bounded physical contact-loss experiment and its ordered acceptance gates. It preserves the existing physical model, product thresholds, Plugin ABI, DSL authority, and total acoustic-call ceiling.
-
-## Scope
+## Authority and scope
 
 - Issue: [#7](https://github.com/puchinya/soraoto_dsl/issues/7); implementation PR: [#8](https://github.com/puchinya/soraoto_dsl/pull/8).
 - Explicit user approval is recorded as `ISSUE7_CONTACT_LOSS_V1_GATE3_6_APPROVED` in Issue #7, with [approval record](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6475747258).
@@ -15,9 +11,7 @@ This amendment fixes the approved bounded physical contact-loss experiment and i
 - This amendment changes only the **future, independent `physical-contact-loss-v1` experiment**. The previous `physical-fit-v5-amendment.md` prohibition on reallocating its unused 42 acoustic calls receives a single, explicit exception here. Never amend historical P5 records, authorizations, or evidence.
 - Gate0–2 evidence (`physical-root-cause-offline-v1/analysis-01/02/03`) is immutable. Its PCM metrics verify historical measurements, *not* the physical cause or product acceptance.
 
-## Normative requirements
-
-### Single mechanism and fixed matrix
+## Single mechanism and fixed matrix
 
 The sole experimental variable is a shared scalar `alpha` applied to the existing preset-owned concert-grand hammer/felt contact-loss coefficients:
 
@@ -47,22 +41,8 @@ The original 2026-10-29 approval used the mirrored `experiment-01` epoch. The la
 
 `--prepare` must bind approved contract, exact PR/source identities and both evidence inventories before any call. `--run-bounded` must enforce the fixed 42 maximum and finite terminal. `--continue-approved` may progress only through 25 → 4 → two-file preset/header promotion → 24 → 486 → 1,423 and never after an official failure. Promotion may modify the concert-grand contact-loss coefficients in `presets.json` and the generated `super-synth_grand_profiles.h` **only after** holdout/headroom PASS. Keep `interface.soraoto`, the existing original acoustic runner/writers and frozen evidence unchanged.
 
-## Observable behavior
-
-The runner reports finite, source-bound states for the fixed sequence. It must not report a candidate or product PASS unless all required measurements and predecessor gates are authenticated and pass. An incomplete or unsafe baseline stops before remaining experiment calls; a family with no eligible candidate terminates `PHYSICAL_CONTACT_LOSS_FAMILY_INSUFFICIENT` with Stage3/4 NOT RUN.
-
-## Error and boundary behavior
-
-Noncanonical or unsafe setter requests, invalid engine/profile state, active voices, malformed or ambiguous evidence, identity drift, incomplete dual-store writes, and failed official gates are rejected without changing accepted state or replaying charged calls. Any failed or incomplete predecessor prevents all later acceptance stages. The fixed experiment and lifetime limits remain hard boundaries.
-
-## Security and privacy
-
-Keep WAV and metadata artifacts in the approved private dual-store roots. Public reports may expose hashes, counts, aggregate measurements, gate decisions, and call accounting; they must not expose private filesystem paths, credentials, or raw private artifacts. Read-only `--status`, `--analyze`, and `--verify` perform no writes, builds, renders, or acoustic calls.
-
-## Verification strategy
+## Observable acceptance and verification
 
 Synthetic fixed-grid, setter mutation, safety, hard-gate rejection, charge-before-render/ambiguous-call, dual-copy lock/partial, immutable prior evidence, stale PR HEAD, selected alpha, all gate FAIL branches, production export absence, test/release PCM equivalence and exact 486/1423 lifecycle/adjacent checks MUST be tested. Confirm real audio only on an authorized host with the authentic Salamander archive, frozen previous evidence, actual WASM artifacts and fixed PR HEAD; a fixture cannot substitute. Run CMake/CTest, focused Node tests, frozen offline/v5 regression, then Web Player tests/build and listening only after real gate PASS. Record unverified platforms accurately.
-
-After all 1,423 Stage4 cells pass, the full repository CTest suite MUST also run against the persisted Stage4 evidence. Reconstruct the legacy full-range calibration input only from the authenticated dual-store Stage3 and Stage4 WAV/metadata readback, using the existing `stage4-full-range-evaluator.cjs` document shape. Write that input only as a temporary file under the ignored `build/` area, pass its path through `SUPERSYNTH_LIFECYCLE_PATH`, and remove it after CTest. Bind the CTest result to the Stage4 report SHA-256 and reconstructed-input SHA-256 in an append-only dual-store report. A missing or failed test, missing summary, identity mismatch, or missing CTest report blocks final acceptance. `--status` and `--verify` remain zero-write; this temporary input is created only by the post-Stage4 continuation.
 
 **Approval is for the fixed finite experiment and existing ordered downstream gates, not a guarantee of product quality or PR merge.** Issue #7 remains OPEN/blocked and PR #8 unmerged until actual acoustic acceptance and final user/reviewer gates.

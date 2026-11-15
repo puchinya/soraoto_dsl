@@ -8,13 +8,17 @@
 - **Contract:** [successor Implementation Contract](physical-contact-loss-v1-experiment-02-contract.md)
 **Approval marker:** `ISSUE7_CONTACT_LOSS_V1_EXPERIMENT_02_APPROVED`
 
-## Design decision
+## Context and goals
 
 Use one append-only `experiment-02` dual-store root and treat `experiment-01` as immutable parent evidence. The existing runner remains the single orchestration owner; its active CLI modes default to the fixed successor epoch, and its resolver accepts only the exact approved epoch identifiers. Writes are permitted only to experiment-02. The runner reads experiment-01 solely to authenticate its parent proof.
 
 The existing 42-call allocation is consumed at most once across both epochs. Since the authenticated experiment-01 ledger contains no call starts or terminal result, experiment-02 receives the unchanged fixed 42-cell plan. The original 1,962 downstream reserve and 5,255 lifetime ceiling remain unchanged.
 
-## Ownership and data flow
+## Architecture
+
+The current contact-loss runner remains the single owner of experiment and acceptance orchestration. It uses fixed experiment-02 roots for new writes, treats experiment-01 only as immutable parent evidence, and advances through the already approved stages in order. The post-Stage4 full-CTest check consumes reconstructed rows from saved evidence and does not render audio or change the acoustic budget.
+
+## Data flow and ownership
 
 | Owner | Responsibility |
 |---|---|
@@ -32,7 +36,7 @@ Any parent mismatch, extra/missing root member, nonzero experiment-01 call, exis
 
 After a measured Gate4 PASS, the existing continuation runner performs 25 → 4 → approved two-file promotion → 24 → 486 → 1,423 with each predecessor fully stored and verified. A failed or incomplete predecessor leaves later stages NOT RUN. This design introduces no new parameter, acceptance gate, or call allocation.
 
-## Verification mapping
+## Requirements traceability
 
 | Acceptance criterion | Evidence |
 |---|---|
@@ -44,6 +48,14 @@ After a measured Gate4 PASS, the existing continuation runner performs 25 → 4 
 | Strict product separation | Required diagnostic/production build matrix, production export check, alpha-1 PCM comparison |
 | Old evidence preservation | Full primary/secondary experiment-01 SHA/size/mtime snapshots before and after prepare/verify |
 | Actual acoustic gates | Authorized-host `--prepare`, `--verify`, `--run-bounded`, then `--continue-approved`; synthetic tests are not audio acceptance |
+
+## Verification strategy
+
+The pre-prepare full CTest gate remains required and fail-closed. After Stage4 PASS, read back and authenticate all Stage3/Stage4 dual-store rows, reconstruct the existing full-range calibration document in a temporary file under ignored `build/`, and run the full CTest suite with `SUPERSYNTH_LIFECYCLE_PATH`. Store the CTest outcome immutably with the Stage4 report and input hashes, then remove the temporary file. Read-only status and verification modes must neither construct the input nor run CTest.
+
+## Alternatives considered
+
+Reusing or modifying experiment-01, creating experiment-03, changing the stage order, skipping a failing test, or recreating the Stage4 input from unverified history would violate the approved contract. The selected design preserves the existing runner, budget, and private dual-store evidence model.
 
 ## Scope boundaries
 
