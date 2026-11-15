@@ -1,0 +1,52 @@
+<!-- agent-doc-type: design -->
+<!-- agent-doc-schema: 2 -->
+
+# Issue #7 — experiment-02 prepare binding recovery contract
+
+- **Status:** approved by the user in Codex on 2026-11-15 JST; recorded in Issue #7 body.
+- **Issue / PR:** [#7](https://github.com/puchinya/soraoto_dsl/issues/7) / [#8](https://github.com/puchinya/soraoto_dsl/pull/8)
+- **Approval marker:** `ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_APPROVED`
+- **Amends:** only recovery from the malformed experiment-02 preparation described below.
+- **Existing epoch:** `physical-contact-loss-v1/experiment-02`; no new epoch is authorized.
+
+## Observed immutable state
+
+The approved preflight completed on pushed HEAD `7f7fd1074be24bada371a517468f1ff4366ef1fc` with SHA-256 `07a26cee19ba84b588d33f6e5967be5b3913ce11daf1eb0e6039c350894f3cb1`. Read-only status confirmed the preflight was ready, the experiment-01 parent had 0/0/0 calls, and the active budget remained 42 experiment calls, 1,962 downstream calls, 3,251 historic calls, and a 5,255 lifetime cap.
+
+`--prepare` then created the immutable dual-store `prepare.json` with SHA-256 `37b1d47a1329a48298feea6bc93f6bf540e50b30853abe10bc7b40fcac9bd8fd`, plus `plan.json` (`0eaa7f377420d893acb6692f08aa0a6fa0b9035f26422c7d284a15d5fa08f52a`) and `gate3-analysis.json` (`df8fd945bc2936e99c51c082b4ad92d31921321b5a8332643d1e56227c93fcc2`). All four root members match byte-for-byte between stores. The prepare record has zero started/completed/ambiguous calls and no cell start records.
+
+The defect is limited to serialization: `verifyPreflightForPrepare()` returns `preflightSha256`, while the prepare writer reads `preflight.sha256`. JSON serialization therefore omitted the `preflightSha256` field. `--status` correctly fails closed with `BLOCKED_CONTACT_LOSS_PREPARE_IDENTITY`. No acoustic render or call has started.
+
+## Approved recovery
+
+1. Preserve the existing `prepare.json`, `plan.json`, `gate3-analysis.json`, and original `preflight-7f7fd1074be24bada371a517468f1ff4366ef1fc.json` byte-for-byte and preserve their mtimes. Preserve experiment-01 and all frozen evidence.
+2. Correct the prepare writer to store the returned `preflight.preflightSha256`; add regression coverage for the binding. The only changed implementation-source snapshot entries may be `wasm/plugins/dsp/super-synth/test/tools/run-issue7-contact-loss-v1.cjs` and `wasm/plugins/dsp/super-synth/test/tools/run-issue7-contact-loss-v1.test.cjs`. The approved normative document delta is limited to `docs/specs/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-amendment.md`, `docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-design.md`, and this recovery contract. Every other source-snapshot entry MUST remain byte-identical to the original preflight. No Plugin/DSP source, preset, generated profile, evaluator, ABI, metric, or threshold may change.
+3. Commit and push the correction to the existing PR #8 branch. The recovery requires the exact clean pushed HEAD and current Issue approval marker.
+4. Run one strict, zero-acoustic recovery preflight for that new HEAD. It repeats the approved diagnostic/production builds, focused Node and CTest suites, offline/frozen suite, and full CTest classification. Require zero skips; the only allowed full-CTest result remains the exact `BASELINE_FAILURES_DISCLOSED` set and signatures in the approved CTest order contract. Any other result blocks recovery.
+6. Readers may accept the missing original `prepare.json::preflightSha256` only when the exact immutable original prepare and preflight SHAs above, the complete recovery receipt, and its current-HEAD recovery preflight all authenticate in both stores. Preserve the original prepare's `head` and `source` as historical preparation identities. Record the recovery commit as `executionHead`; all later acoustic start, metadata, completion, and candidate evidence must bind to `executionHead` and the unchanged diagnostic WASM SHA. A subsequent HEAD/source change blocks.
+7. Before any acoustic call, read back and verify every recovery record, confirm the old four members remain byte/mtime unchanged, and require `--status` and `--verify` to pass with 0/0/0 experiment calls. Only then may the existing approved `--run-bounded` sequence start.
+
+## Fixed boundaries
+
+- No additional acoustic allocation: experiment-01 + experiment-02 remains at most 42 calls; downstream reserve 1,962, historic calls 3,251, lifetime cap 5,255.
+- No experiment-03, re-preparation, overwrite, deletion, re-signing, re-rendering, acceptance relaxation, or stage reordering.
+- Failed recovery preflight or recovery readback leaves all original records untouched and authorizes zero acoustic calls.
+- The full CTest pre-Stage4 result is never called PASS. The approved three failures remain disclosed exactly as previously defined; post-Stage4 full CTest still requires every test to pass.
+- Public evidence may contain hashes, filenames relative to the epoch, counts and outcomes; it must not expose private absolute paths, credentials, WAV bytes, or raw private artifacts.
+
+## Reviewer checklist
+
+- [ ] Issue marker and exact contract SHA match; PR #8 is open at the clean recovery HEAD.
+- [ ] The four original experiment-02 members and all experiment-01/frozen evidence are unchanged by hash and mtime.
+- [ ] The prepare serialization regression proves `preflightSha256` is present and exact.
+- [ ] Recovery preflight runs the complete approved matrix with zero skips and exact full-CTest baseline classification.
+- [ ] Recovery receipt authenticates original prepare/preflight, new recovery preflight, the exact two-file implementation-source delta and three-file normative-document delta, parent proof, Gate3, WASM identities and budgets.
+- [ ] Readers use `executionHead` only after authenticating the recovery receipt; every later artifact binds to it.
+- [ ] Any missing, partial, one-sided, stale or contradictory recovery evidence fails closed without a call.
+- [ ] No acoustic call starts until current `--status` and `--verify` both pass after recovery.
+
+## Document impact
+
+- Specification: `physical-contact-loss-v1-experiment-02-amendment.md`.
+- Design: `physical-contact-loss-v1-experiment-02-design.md`.
+- Status: evidence-only; measured outcomes remain in private receipts and Issue #7 body.

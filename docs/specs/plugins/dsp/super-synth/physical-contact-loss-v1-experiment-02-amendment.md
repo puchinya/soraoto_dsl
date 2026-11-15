@@ -10,6 +10,8 @@
 - **Contract:** [experiment-02 successor contract](../../../../design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-contract.md)
 - **Approved gate-order amendment:** [CTest order contract](../../../../design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-ctest-order-contract.md), SHA-256 `106f22061781a2826a77d3ca0f83b85c79a7e03de4187c3407138090ae6d4ae3`
 - **Amendment approval marker:** `ISSUE7_CONTACT_LOSS_CTEST_ORDER_AMENDMENT_APPROVED` (approved by the user in chat on 2026-11-15 JST)
+- **Approved prepare-recovery amendment:** [prepare recovery contract](../../../../design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-prepare-recovery-contract.md), SHA-256 `20241190b844ba47f3d317891776ba523ced0fa517c05207be9fa75e8ebd7be0`
+- **Recovery approval marker:** `ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_APPROVED` (approved by the user in chat on 2026-11-15 JST)
 
 ## Purpose
 
@@ -85,3 +87,17 @@ Run the amended `--preflight` once on the pushed implementation HEAD and verify 
 - [ ] No additional failure, signature drift, build/input mismatch, skip or missing summary can be converted into an allowed outcome.
 - [ ] Post-Stage4 CTest consumes only authenticated 1,408 + 15 receipts and requires every test to pass.
 - [ ] Experiment-01 evidence, physical gates, thresholds, call budgets, Stage order and product acceptance remain unchanged.
+
+## Approved experiment-02 prepare-binding recovery (2026-11-15)
+
+**Approval marker:** `ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_APPROVED`
+**Contract SHA-256:** `20241190b844ba47f3d317891776ba523ced0fa517c05207be9fa75e8ebd7be0`
+**Affected immutable preparation:** HEAD `7f7fd1074be24bada371a517468f1ff4366ef1fc`, prepare SHA-256 `37b1d47a1329a48298feea6bc93f6bf540e50b30853abe10bc7b40fcac9bd8fd`, original preflight `preflight-7f7fd1074be24bada371a517468f1ff4366ef1fc.json`, SHA-256 `07a26cee19ba84b588d33f6e5967be5b3913ce11daf1eb0e6039c350894f3cb1`.
+
+The approved preparation omitted `prepare.json::preflightSha256` because the writer referenced a nonexistent return property. This amendment authorizes one recovery within the existing experiment-02 epoch. It does not authorize a third epoch or mutation of any existing record. The original prepare, plan, Gate3 report and preflight remain immutable and retain their original hashes and mtimes.
+
+The implementation MUST correct the property binding and add one `--recover-prepared` path. On the exact clean, pushed recovery HEAD, it MUST repeat the complete approved preflight matrix with zero skips and the same exact full-CTest classification. Only if it passes may the runner append a dual-store `recovery-preflight-<HEAD>.json` and one `prepare-recovery.json`. The recovery receipt MUST bind the original prepare/preflight hashes, the recovery preflight hash, exactly two changed implementation-source files (the contact-loss runner and its test), and exactly three approved normative-document entries (this specification, the experiment-02 design, and the recovery contract). Every other original source-snapshot entry MUST remain identical. The receipt also binds the current pushed HEAD, unchanged parent and Gate3 proofs, identical diagnostic and production WASM identities, unchanged frozen inventories, zero call counters and original budgets.
+
+Readers MUST preserve the original prepared HEAD/source fields as historical preparation identity and recognize the recovery HEAD only through the fully authenticated recovery receipt. Every subsequent acoustic start, metadata, completion and candidate record MUST bind to that recovery HEAD and the unchanged diagnostic WASM. A missing, partial, divergent, stale or contradictory record blocks without repair. No acoustic call may start until current `--status` and `--verify` both pass after recovery.
+
+This exception overrides only the prior post-prepare HEAD/source-change stop for the exact malformed preparation named above. All thresholds, physical parameters, test classification, Stage order and budgets remain unchanged. The recovery reviewer checklist is published in the linked contract and in Issue #7.

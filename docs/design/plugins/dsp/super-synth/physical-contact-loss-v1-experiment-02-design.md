@@ -7,7 +7,8 @@
 - **Normative owner:** [experiment-02 amendment](../../../../specs/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-amendment.md)
 - **Contract:** [successor Implementation Contract](physical-contact-loss-v1-experiment-02-contract.md)
 - **CTest order amendment:** [approved amendment contract](physical-contact-loss-v1-experiment-02-ctest-order-contract.md), SHA-256 `106f22061781a2826a77d3ca0f83b85c79a7e03de4187c3407138090ae6d4ae3`
-- **Approval markers:** `ISSUE7_CONTACT_LOSS_V1_EXPERIMENT_02_APPROVED`, `ISSUE7_CONTACT_LOSS_CTEST_ORDER_AMENDMENT_APPROVED`
+- **Prepare recovery amendment:** [approved recovery contract](physical-contact-loss-v1-experiment-02-prepare-recovery-contract.md), SHA-256 `20241190b844ba47f3d317891776ba523ced0fa517c05207be9fa75e8ebd7be0`
+- **Approval markers:** `ISSUE7_CONTACT_LOSS_V1_EXPERIMENT_02_APPROVED`, `ISSUE7_CONTACT_LOSS_CTEST_ORDER_AMENDMENT_APPROVED`, `ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_APPROVED`
 
 ## Context and goals
 
@@ -19,6 +20,8 @@ The existing 42-call allocation is consumed at most once across both epochs. Sin
 
 The current contact-loss runner remains the single owner of experiment and acceptance orchestration. It uses fixed experiment-02 roots for new writes, treats experiment-01 only as immutable parent evidence, and advances through the already approved stages in order. A new `--preflight` operation owns the approved pre-prepare build/test gate and persists one immutable report per pushed HEAD. `--prepare` authenticates that report before creating experiment evidence. The post-Stage4 full-CTest check consumes reconstructed rows from saved evidence and does not render audio or change the acoustic budget.
 
+For the one specifically approved malformed preparation, `--recover-prepared` is a separate, one-shot recovery owner. It authenticates the four existing dual-store root members and zero-call state, repeats the full strict preflight on the new pushed HEAD, then appends a recovery preflight and one recovery receipt without rewriting the original preparation or preflight. The original prepared HEAD/source remain historical; the receipt supplies a separately authenticated `executionHead` and execution source snapshot for later calls.
+
 ## Data flow and ownership
 
 | Owner | Responsibility |
@@ -27,6 +30,7 @@ The current contact-loss runner remains the single owner of experiment and accep
 | Successor parent verifier | Read both experiment-01 stores; require the fixed prepare/plan/Gate3 hashes, exact root member set, matching bytes, and zero charged/completed/ambiguous calls. Return parent hash/size/mtime inventory without writes. |
 | `preflightExperiment` | Require both Issue approval records, exact pushed PR HEAD, parent proof, fresh Gate3 report, frozen inventory and build identities. Run strict focused and frozen tests with zero skips plus full CTest; classify only the exact approved baseline failures and deferred Stage4 input failure. Append `preflight-<HEAD>.json` to both experiment-02 stores only after all preflight conditions pass. |
 | `prepareExperiment` | Require a matching dual-store preflight receipt, both Issue markers, PR/current HEAD/source/build identities, fresh Gate3 report, and exact parent proof. Record the preflight digest in immutable `prepare.json` alongside `gate3-analysis.json` and `plan.json`. Recheck the predecessor inventory before and after creation. |
+| `recoverPreparedExperiment` | Accept only the exact approved malformed prepare/preflight hashes and four-member original root. Re-run the complete strict preflight on the clean pushed recovery HEAD, require exactly two changed implementation-source files and the three approved normative-document entries with every other source-snapshot entry unchanged, and require identical WASM/parent/Gate3/frozen identities. Then append `recovery-preflight-<HEAD>.json` and `prepare-recovery.json` with immutable dual-store readback. |
 | `readExperimentState` and evidence readers | Bind prepare, starts, metadata, completion, candidate reports and acceptance calls to `experiment-02`; reject cross-epoch, source, WAV, metadata or parent mismatches. |
 | Read-only modes | Report current epoch, predecessor, preflight/prepared/current HEAD, call totals and writes=0. Do not create roots or update mtimes. |
 
@@ -34,7 +38,7 @@ Before any rendering, the execution reads the durable successor preparation, val
 
 ## Failure handling
 
-Any parent mismatch, extra/missing root member, nonzero experiment-01 call, existing experiment-01 terminal/selection, stale PR or HEAD, dirty tree, Issue marker loss, source/WASM/archive drift, partial dual write, unknown lock, concurrent writer, or ambiguous call blocks. Preserve all partial bytes. Do not change experiment-01, automatically create experiment-03, or move/repair the old prepare.
+Any parent mismatch, extra/missing root member, nonzero experiment-01 call, existing experiment-01 terminal/selection, stale PR or HEAD, dirty tree, Issue marker loss, source/WASM/archive drift, partial dual write, unknown lock, concurrent writer, or ambiguous call blocks. Preserve all partial bytes. Do not change experiment-01 or create experiment-03. The sole exception to the ordinary post-prepare HEAD stop is the exact prepare-binding recovery in the linked approved contract; it appends a receipt and never moves, repairs or re-signs the old prepare.
 
 Preflight records are immutable and keyed by the exact pushed HEAD. A report is eligible only if focused contact-loss Node/CTest and offline/frozen tests have zero skips, and its full CTest result contains exactly the two baseline failures and the expected missing Stage4-input failure. Both baseline failures must match the fixed WASM/input/source identities and full measured signatures in the approved amendment contract. Additional or changed failures block. The pre-Stage4 report records `BASELINE_FAILURES_DISCLOSED`; it never claims full CTest PASS. Any partial dual-store preflight write is retained and blocks; do not repair it in place.
 
@@ -52,6 +56,7 @@ After a measured Gate4 PASS, the existing continuation runner performs 25 → 4 
 | Strict product separation | Required diagnostic/production build matrix, production export check, alpha-1 PCM comparison |
 | Pre-prepare order exception | Pushed-HEAD-bound preflight receipt; focused and frozen suites have zero skips; exact baseline signatures and deferred Stage4 input failure are preserved |
 | Prepare cannot bypass preflight | Missing, one-sided, stale-head, source-mismatched or contract-mismatched preflight receipt tests block before any experiment plan write |
+| Malformed prepare recovery | Exact old prepare/preflight hashes, zero calls, immutable original members, strict new-head preflight, exact two-file implementation-source delta plus three-document amendment delta, recovery receipt linkage, replay, partial-write and current execution-head identity tests |
 | Old evidence preservation | Full primary/secondary experiment-01 SHA/size/mtime snapshots before and after prepare/verify |
 | Actual acoustic gates | Authorized-host `--preflight`, `--prepare`, `--verify`, `--run-bounded`, then `--continue-approved`; synthetic tests are not audio acceptance |
 | Post-Stage4 full CTest | Authenticated 1,408 + 15 lifecycle receipts, existing evaluator, temporary input, Stage4/input-bound report and all-pass result |
@@ -75,5 +80,6 @@ No change to `plugin.c`, presets, generated profiles, Plugin ABI, DSL, old P5/v3
 - [ ] Full preflight CTest reports every failure and never claims full-suite PASS.
 - [ ] Only the exact two baseline signatures and missing Stage4-input dependency are classifiable; all other changes block.
 - [ ] `--prepare` verifies the immutable preflight receipt for the exact pushed HEAD and source/build identities.
+- [ ] The approved one-time recovery preserves the original four members and binds the exact old prepare/preflight and new recovery-preflight hashes, permits only the two runner/test source entries plus three amendment documents, and binds later artifacts to the authenticated recovery HEAD.
 - [ ] Post-Stage4 full CTest consumes authenticated 1,408 + 15 rows and requires all tests to pass.
 - [ ] Experiment-01, acoustic thresholds, physical mechanism, call budgets and stage order are unchanged.

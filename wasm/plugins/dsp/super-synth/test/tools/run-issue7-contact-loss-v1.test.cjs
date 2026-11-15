@@ -1035,6 +1035,7 @@ test('frozen-snapshot binding derives an omitted legacy digest without rewriting
 test('read-only CLI modes are mutually exclusive and unknown flags are rejected', () => {
   assert.equal(runner.parseMode(['--status']), 'status');
   assert.equal(runner.parseMode(['--preflight']), 'preflight');
+  assert.equal(runner.parseMode(['--recover-prepared']), 'recover-prepared');
   assert.throws(() => runner.parseMode(['--status', '--verify']), /Usage:/);
   assert.throws(() => runner.parseMode(['--run-bounded', '--count', '1']), /Usage:/);
 });
@@ -1155,6 +1156,99 @@ test('prepare preflight identity rejects missing receipts and any source or iden
   assert.throws(() => runner.verifyPreflightForPrepare({...inputs, source: {source: 'changed'}}), /PREFLIGHT_IDENTITY/);
   assert.throws(() => runner.verifyPreflightForPrepare({...inputs, diagnosticWasmSha256: '8'.repeat(64)}), /PREFLIGHT_IDENTITY/);
   assert.deepEqual(dualTreeInventory(context.roots), before);
+});
+
+test('prepare serialization binds the verifier-returned preflightSha256 field', () => {
+  const preflight = {preflightFile: runner.preflightFileName('4'.repeat(40)),
+    preflightSha256: 'a'.repeat(64)};
+  assert.deepEqual(runner.buildPreparePreflightBinding(preflight), preflight);
+  assert.throws(() => runner.buildPreparePreflightBinding({preflightFile: preflight.preflightFile,
+    sha256: preflight.preflightSha256}), /PREPARE_PREFLIGHT_BINDING/);
+});
+
+test('recovery source delta permits only the two implementation files and three approved documents', () => {
+  const original = Object.fromEntries(runner.SOURCE_FILES
+    .filter(relative => !relative.endsWith('prepare-recovery-contract.md'))
+    .map(relative => [relative, {sha256: '1'.repeat(64), size: 10, mtimeMs: 1}]));
+  const recovery = {...original};
+  for (const relative of runner.SOURCE_FILES.filter(relative => relative.endsWith('prepare-recovery-contract.md'))) {
+    recovery[relative] = {sha256: '2'.repeat(64), size: 11, mtimeMs: 2};
+  }
+  const changed = [
+    'docs/specs/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-amendment.md',
+    'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-design.md',
+    'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-prepare-recovery-contract.md',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-contact-loss-v1.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-contact-loss-v1.test.cjs'
+  ];
+  for (const relative of changed.filter(relative => Object.hasOwn(recovery, relative))) {
+    recovery[relative] = {sha256: '3'.repeat(64), size: 12, mtimeMs: 3};
+  }
+  const delta = runner.verifyRecoverySourceDelta(original, recovery);
+  assert.deepEqual(Object.keys(delta).sort(), changed.sort());
+  const drifted = {...recovery, 'wasm/plugins/dsp/super-synth/src/plugin.c':
+    {sha256: '4'.repeat(64), size: 13, mtimeMs: 4}};
+  assert.throws(() => runner.verifyRecoverySourceDelta(original, drifted), /RECOVERY_SOURCE_DELTA/);
+});
+
+test('recovery frozen snapshot permits exactly one new offline analysis epoch', () => {
+  const record = name => ({'report.json': {primary: {sha256: name}, secondary: {sha256: name}},
+    'manifest.json': {primary: {sha256: name}, secondary: {sha256: name}}});
+  const original = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
+    'analysis-16': record('16'), 'analysis-17': record('17')}};
+  const recovery = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
+    ...original.offlineEpochs, 'analysis-18': record('18')}};
+  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, recovery, 'analysis-18'), true);
+  const drifted = structuredClone(recovery);
+  drifted.offlineEpochs['analysis-17']['report.json'].primary.sha256 = 'changed';
+  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, drifted, 'analysis-18'), /FROZEN_PARENT_DRIFT/);
+});
+
+test('prepare recovery receipt shape binds one HEAD, old roots, exact budgets, and WASM identities', () => {
+  const executionHead = '9'.repeat(40), digest = 'a'.repeat(64), source = {fixture: {sha256: digest, size: 1, mtimeMs: 1}};
+  const snapshot = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {}};
+  const gate3Analysis = {status: 'GATE3_ANALYSIS_PASS', head: executionHead,
+    offlineEpoch: 'physical-root-cause-offline-v1/analysis-18', observationCount: 20, cellCount: 140};
+  const gate3Bytes = Buffer.from(`${JSON.stringify(stable(gate3Analysis), null, 2)}\n`);
+  const oldMembers = ['gate3-analysis.json', 'plan.json', 'prepare.json',
+    runner.preflightFileName('7f7fd1074be24bada371a517468f1ff4366ef1fc')];
+  const member = {sha256: digest, size: 12, mtimeMs: 1};
+  const memberSnapshot = {primary: Object.fromEntries(oldMembers.map(name => [name, member])),
+    secondary: Object.fromEntries(oldMembers.map(name => [name, member]))};
+  const parentProof = {epoch: runner.PARENT_EPOCH, head: runner.PARENT_HEAD, charged: 0, completed: 0, ambiguous: 0};
+  const sourceDelta = Object.fromEntries([
+    'docs/specs/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-amendment.md',
+    'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-design.md',
+    'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-prepare-recovery-contract.md',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-contact-loss-v1.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-contact-loss-v1.test.cjs'
+  ].map(name => [name, {before: null, after: source.fixture}]));
+  const frozenSnapshotSha256 = runner.frozenSnapshotSha256(snapshot);
+  const wasm = {sha256: 'b'.repeat(64), size: 123};
+  const productionWasm = {sha256: 'c'.repeat(64), size: 456};
+  const receipt = {schemaVersion: 1, kind: 'CONTACT_LOSS_PREPARE_RECOVERY', issue: 7, pr: 8,
+    epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
+    recoveryContractSha256: '20241190b844ba47f3d317891776ba523ced0fa517c05207be9fa75e8ebd7be0',
+    approvalMarker: 'ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_APPROVED',
+    original: {head: '7f7fd1074be24bada371a517468f1ff4366ef1fc',
+      prepareSha256: '37b1d47a1329a48298feea6bc93f6bf540e50b30853abe10bc7b40fcac9bd8fd',
+      planSha256: '0eaa7f377420d893acb6692f08aa0a6fa0b9035f26422c7d284a15d5fa08f52a',
+      gate3Sha256: 'df8fd945bc2936e99c51c082b4ad92d31921321b5a8332643d1e56227c93fcc2',
+      preflightFile: oldMembers[3],
+      preflightSha256: '07a26cee19ba84b588d33f6e5967be5b3913ce11daf1eb0e6039c350894f3cb1',
+      memberSnapshot, parentProof, diagnosticWasmSha256: wasm.sha256, diagnosticWasmSize: wasm.size,
+      productionWasmSha256: productionWasm.sha256, productionWasmSize: productionWasm.size},
+    executionHead,
+    recovery: {head: executionHead, preflightFile: `recovery-preflight-${executionHead}.json`,
+      preflightSha256: digest, gate3AnalysisSha256: bytesSha(gate3Bytes), gate3Analysis,
+      offlineReportSha256: digest, frozenSnapshotSha256,
+      frozenEvidenceSnapshot: snapshot, source, sourceDelta,
+      builds: {diagnostic: {wasmSha256: wasm.sha256, wasmSize: wasm.size},
+        production: {wasmSha256: productionWasm.sha256, wasmSize: productionWasm.size}}},
+    parentProof, calls: {started: 0, completed: 0, ambiguous: 0}, budget: core.accounting()};
+  assert.equal(runner.assertPrepareRecoveryReceiptShape(receipt), receipt);
+  assert.throws(() => runner.assertPrepareRecoveryReceiptShape({...receipt,
+    calls: {started: 1, completed: 0, ambiguous: 0}}), /PREPARE_RECOVERY_RECEIPT_IDENTITY/);
 });
 
 test('preflight build matrix is exported as absolute paths for CTest child working directories', () => {
