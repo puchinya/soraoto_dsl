@@ -997,6 +997,23 @@ function snapshotActiveRootMembers(roots, members, {requireExact = true} = {}) {
   }
   return copies;
 }
+function assertLockedRecoveryPrefix(roots, expectedSnapshot) {
+  const expected = Object.keys(expectedSnapshot?.primary || {}).sort();
+  if (!expectedSnapshot?.secondary
+      || !sameJson(Object.keys(expectedSnapshot.secondary).sort(), expected)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_PREFIX_SET');
+  }
+  const present = epochRootMembers(roots);
+  if (!present.includes('writer.lock')
+      || !sameJson(present.filter(name => name !== 'writer.lock').sort(), expected)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_PREFIX_SET');
+  }
+  const current = snapshotActiveRootMembers(roots, expected, {requireExact: false});
+  if (!sameJson(current, expectedSnapshot)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_PREFIX_MUTATED');
+  }
+  return true;
+}
 function sameBytesSnapshot(left, right) {
   return Boolean(left && right && left.sha256 === right.sha256 && left.size === right.size);
 }
@@ -1657,8 +1674,10 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
   try {
     if (original) {
       const before = continuation02 ? previousRootSnapshot : original.memberSnapshot;
-      if (!sameJson(snapshotActiveRootMembers(roots, Object.keys(before.primary),
-        {requireExact: continuation02 ? true : false}), before)) {
+      if (continuation02) {
+        assertLockedRecoveryPrefix(roots, before);
+      } else if (!sameJson(snapshotActiveRootMembers(roots, Object.keys(before.primary),
+        {requireExact: false}), before)) {
         throw new Error(continuation02 ? 'BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_PREFIX_MUTATED'
           : 'BLOCKED_CONTACT_LOSS_RECOVERY_ORIGINAL_MUTATED');
       }
@@ -4034,7 +4053,7 @@ module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA25
   assertPrepareRecoveryReceiptShape, verifyStoredPrepareRecovery, readOriginalMalformedPreparation,
   assertRecoveryContinuation02PreflightReceiptShape, assertPrepareRecoveryContinuation02ReceiptShape,
   verifyStoredPrepareRecoveryContinuation02, verifyPrepareRecoveryContinuation02Approval,
-  verifyRecoverySourceDelta, snapshotActiveRootMembers, assertRecoveryFrozenAppendOnly,
+  verifyRecoverySourceDelta, snapshotActiveRootMembers, assertLockedRecoveryPrefix, assertRecoveryFrozenAppendOnly,
   assertPinnedRecoveryPrepareBinding,
   classifyFullCTestPreflight, preflightTestEnvironment,
   buildP3SourceManifest, runOfflineFrozenWithP3Sources, preflightFileName,

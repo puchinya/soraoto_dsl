@@ -1236,6 +1236,23 @@ test('recovery preserves distinct original copy mtimes while requiring identical
   assert.throws(() => runner.snapshotActiveRootMembers(context.roots, members), /ORIGINAL_COPY_DRIFT/);
 });
 
+test('continuation prefix verification tolerates its writer lock but rejects any other root member', () => {
+  const context = tempRoots(), members = ['plan.json', 'prepare.json'];
+  for (const copy of ['primary', 'secondary']) fs.mkdirSync(context.roots[copy], {recursive: true});
+  for (const copy of ['primary', 'secondary']) {
+    for (const name of members) fs.writeFileSync(path.join(context.roots[copy], name), `immutable-${name}`);
+  }
+  const snapshot = runner.snapshotActiveRootMembers(context.roots, members);
+  for (const copy of ['primary', 'secondary']) {
+    fs.writeFileSync(path.join(context.roots[copy], 'writer.lock'), '{"ownerId":"fixture"}');
+  }
+  assert.equal(runner.assertLockedRecoveryPrefix(context.roots, snapshot), true);
+  for (const copy of ['primary', 'secondary']) {
+    fs.writeFileSync(path.join(context.roots[copy], `recovery-preflight-${'a'.repeat(40)}.json`), '{}');
+  }
+  assert.throws(() => runner.assertLockedRecoveryPrefix(context.roots, snapshot), /PREFIX_SET/);
+});
+
 test('prepare recovery receipt shape binds one HEAD, old roots, exact budgets, and WASM identities', () => {
   const executionHead = '9'.repeat(40), digest = 'a'.repeat(64), source = {fixture: {sha256: digest, size: 1, mtimeMs: 1}};
   const snapshot = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {}};
