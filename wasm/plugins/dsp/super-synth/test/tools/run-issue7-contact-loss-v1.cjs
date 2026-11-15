@@ -32,6 +32,9 @@ const RECOVERY_ORIGINAL_PREPARE_SHA256 = '37b1d47a1329a48298feea6bc93f6bf540e50b
 const RECOVERY_ORIGINAL_PLAN_SHA256 = '0eaa7f377420d893acb6692f08aa0a6fa0b9035f26422c7d284a15d5fa08f52a';
 const RECOVERY_ORIGINAL_GATE3_SHA256 = 'df8fd945bc2936e99c51c082b4ad92d31921321b5a8332643d1e56227c93fcc2';
 const RECOVERY_ORIGINAL_PREFLIGHT_SHA256 = '07a26cee19ba84b588d33f6e5967be5b3913ce11daf1eb0e6039c350894f3cb1';
+const RECOVERY_PRIOR_ATTEMPT_REPORT_SHA256 = '49f1ae88d8583322cfc889d4c1bb03c02f43db5b74afbdebe524256734695048';
+const RECOVERY_PRIOR_ATTEMPT_MANIFEST_SHA256 = '8ec1084e70f96ca0212d48ef328d075941efafc3dd8a0e8dcf2ac381acc22e1e';
+const RECOVERY_CURRENT_OFFLINE_EPOCH = 'physical-root-cause-offline-v1/analysis-19';
 const BASELINE_HEAD = '3e3e3ba91b768767f38574b1dac9c65af75bbc23';
 const BASELINE_PRODUCTION_WASM_SHA256 = 'f36b18c705a4ac1c965f10712ae2ebde86106c6048b3f5f6a59036e721163fd3';
 const BASELINE_PRODUCTION_REPORT_SHA256 = '9f0e33296134825b9dc0e86f097e4648763fcae5378452bf85e4491a56df8de0';
@@ -404,6 +407,7 @@ function assertRecoveryPreflightReceiptShape(report, expectedHead) {
       || recovery.recoveryGate3AnalysisSha256 !== sha256(jsonBytes(recovery.gate3Analysis))
       || recovery.recoveryGate3AnalysisSha256 !== report.gate3?.analysisSha256
       || recovery.gate3Analysis?.head !== expectedHead
+      || recovery.gate3Analysis?.offlineEpoch !== RECOVERY_CURRENT_OFFLINE_EPOCH
       || recovery.gate3Analysis?.status !== 'GATE3_ANALYSIS_PASS'
       || recovery.gate3Analysis?.cellCount !== 140 || recovery.gate3Analysis?.observationCount !== 20
       || !sameJson(Object.keys(recovery.sourceDelta || {}).sort(), [...RECOVERY_ALLOWED_SOURCE_DELTA].sort())) {
@@ -429,6 +433,7 @@ function assertPrepareRecoveryReceiptShape(report) {
       || !/^[a-f0-9]{64}$/.test(report.recovery?.preflightSha256 || '')
       || !/^[a-f0-9]{64}$/.test(report.recovery?.gate3AnalysisSha256 || '')
       || report.recovery?.gate3Analysis?.head !== report.executionHead
+      || report.recovery.gate3Analysis.offlineEpoch !== RECOVERY_CURRENT_OFFLINE_EPOCH
       || report.recovery.gate3AnalysisSha256 !== sha256(jsonBytes(report.recovery.gate3Analysis))
       || !/^[a-f0-9]{64}$/.test(report.recovery?.offlineReportSha256 || '')
       || report.recovery?.frozenSnapshotSha256 !== frozenSnapshotSha256(report.recovery?.frozenEvidenceSnapshot)
@@ -445,7 +450,11 @@ function assertPrepareRecoveryReceiptShape(report) {
       || !sameJson(Object.keys(report.original.memberSnapshot.primary).sort(), [
         'gate3-analysis.json', 'plan.json', 'prepare.json', preflightFileName(RECOVERY_ORIGINAL_HEAD)
       ].sort())
-      || !sameJson(report.original.memberSnapshot.primary, report.original.memberSnapshot.secondary)) {
+      || !sameJson(Object.keys(report.original.memberSnapshot.secondary).sort(),
+        Object.keys(report.original.memberSnapshot.primary).sort())
+      || Object.keys(report.original.memberSnapshot.primary).some(relative =>
+        !sameBytesSnapshot(report.original.memberSnapshot.primary[relative],
+          report.original.memberSnapshot.secondary[relative]))) {
     throw new Error('BLOCKED_CONTACT_LOSS_PREPARE_RECOVERY_ORIGINAL_INVENTORY');
   }
   if (!sameJson(Object.keys(report.recovery.sourceDelta).sort(), [...RECOVERY_ALLOWED_SOURCE_DELTA].sort())
@@ -484,7 +493,8 @@ function verifyStoredPrepareRecovery(roots, {prepared, originalPreflight, origin
       || recoveryPreflight.value.builds.production.wasm.size !== report.recovery.builds.production.wasmSize) {
     throw new Error('BLOCKED_CONTACT_LOSS_PREPARE_RECOVERY_LINKAGE');
   }
-  assertSameGate3Evidence(originalGate3.value, report.recovery.gate3Analysis, report.executionHead);
+  assertSameGate3Evidence(originalGate3.value, report.recovery.gate3Analysis, report.executionHead,
+    RECOVERY_CURRENT_OFFLINE_EPOCH);
   if (!sameJson(recoveryPreflight.value.recovery.gate3Analysis, report.recovery.gate3Analysis)
       || recoveryPreflight.value.recovery.recoveryGate3AnalysisSha256 !== report.recovery.gate3AnalysisSha256) {
     throw new Error('BLOCKED_CONTACT_LOSS_PREPARE_RECOVERY_GATE3_IDENTITY');
@@ -503,7 +513,7 @@ function verifyStoredPrepareRecovery(roots, {prepared, originalPreflight, origin
   const originalOffline = prepared.value.gate3.offlineEpoch;
   const expectedNewOffline = report.recovery.gate3Analysis.offlineEpoch;
   assertRecoveryFrozenAppendOnly(prepared.value.frozenEvidenceSnapshot,
-    report.recovery.frozenEvidenceSnapshot, expectedNewOffline.replace('physical-root-cause-offline-v1/', ''));
+    report.recovery.frozenEvidenceSnapshot, expectedNewOffline.replace('physical-root-cause-offline-v1/', ''), 2);
   if (report.recovery.gate3Analysis.frozenSnapshotSha256 !== report.recovery.frozenSnapshotSha256
       || report.recovery.gate3Analysis.archiveSha256 !== prepared.value.gate3.archiveSha256
       || report.recovery.gate3Analysis.offlineReportSha256 !== report.recovery.offlineReportSha256
@@ -765,11 +775,14 @@ function snapshotActiveRootMembers(roots, members, {requireExact = true} = {}) {
     copies[name] = Object.fromEntries(members.map(relative => [relative, fileSnapshot(base, relative)]));
   }
   for (const relative of members) {
-    if (!sameJson(copies.primary[relative], copies.secondary[relative])) {
+    if (!sameBytesSnapshot(copies.primary[relative], copies.secondary[relative])) {
       throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_ORIGINAL_COPY_DRIFT');
     }
   }
   return copies;
+}
+function sameBytesSnapshot(left, right) {
+  return Boolean(left && right && left.sha256 === right.sha256 && left.size === right.size);
 }
 function verifyRecoverySourceDelta(originalSource, recoverySource) {
   const originalPaths = Object.keys(originalSource || {}).sort(), currentPaths = Object.keys(recoverySource || {}).sort();
@@ -829,12 +842,14 @@ function readOriginalMalformedPreparation(roots) {
   }
   return {prepare, plan, gate3, originalPreflight, memberSnapshot};
 }
-function assertRecoveryFrozenAppendOnly(originalSnapshot, recoverySnapshot, expectedLatestEpoch) {
+function assertRecoveryFrozenAppendOnly(originalSnapshot, recoverySnapshot, expectedLatestEpoch,
+  expectedAdditionalEpochs = 1) {
   const originalEpochs = Object.keys(originalSnapshot?.offlineEpochs || {}).sort();
   const recoveryEpochs = Object.keys(recoverySnapshot?.offlineEpochs || {}).sort();
   if (!originalEpochs.length || !sameJson(originalSnapshot.parentEvidence, recoverySnapshot?.parentEvidence)
-      || recoveryEpochs.length !== originalEpochs.length + 1
-      || !sameJson(recoveryEpochs.slice(0, -1), originalEpochs)
+      || ![1, 2].includes(expectedAdditionalEpochs)
+      || recoveryEpochs.length !== originalEpochs.length + expectedAdditionalEpochs
+      || !sameJson(recoveryEpochs.slice(0, originalEpochs.length), originalEpochs)
       || recoveryEpochs.at(-1) !== expectedLatestEpoch) {
     throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_FROZEN_EPOCH_SEQUENCE');
   }
@@ -843,10 +858,31 @@ function assertRecoveryFrozenAppendOnly(originalSnapshot, recoverySnapshot, expe
       throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_FROZEN_PARENT_DRIFT');
     }
   }
+  const lastOriginalNumber = Number(originalEpochs.at(-1).slice('analysis-'.length));
+  const appendedEpochs = recoveryEpochs.slice(originalEpochs.length);
+  const expectedAppendedEpochs = Array.from({length: expectedAdditionalEpochs}, (_, index) =>
+    `analysis-${String(lastOriginalNumber + index + 1).padStart(2, '0')}`);
+  if (!sameJson(appendedEpochs, expectedAppendedEpochs)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_FROZEN_EPOCH_SEQUENCE');
+  }
+  for (const epoch of appendedEpochs) {
+    const item = recoverySnapshot.offlineEpochs[epoch];
+    for (const relative of OFFLINE_FILES) {
+      const copies = item?.[relative];
+      if (!copies?.primary || !copies?.secondary || !sameBytesSnapshot(copies.primary, copies.secondary)) {
+        throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_FROZEN_APPEND_INCOMPLETE');
+      }
+    }
+  }
+  if (expectedAdditionalEpochs === 2) {
+    const prior = recoverySnapshot.offlineEpochs['analysis-18'];
+    if (prior?.['report.json']?.primary.sha256 !== RECOVERY_PRIOR_ATTEMPT_REPORT_SHA256
+        || prior?.['manifest.json']?.primary.sha256 !== RECOVERY_PRIOR_ATTEMPT_MANIFEST_SHA256) {
+      throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_PRIOR_ATTEMPT_EVIDENCE');
+    }
+  }
   const latest = recoverySnapshot.offlineEpochs[expectedLatestEpoch];
-  if (!latest?.['report.json'] || !latest?.['manifest.json']
-      || !sameJson(latest['report.json'].primary, latest['report.json'].secondary)
-      || !sameJson(latest['manifest.json'].primary, latest['manifest.json'].secondary)) {
+  if (!latest?.['report.json'] || !latest?.['manifest.json']) {
     throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_FROZEN_LATEST_INCOMPLETE');
   }
   return true;
@@ -856,9 +892,10 @@ function comparableGate3Evidence(value) {
   for (const key of ['head', 'branch', 'prUrl', 'offlineEpoch', 'offlineReportSha256', 'frozenSnapshotSha256']) delete copy[key];
   return copy;
 }
-function assertSameGate3Evidence(original, recovery, expectedHead) {
+function assertSameGate3Evidence(original, recovery, expectedHead, expectedOfflineEpoch = null) {
   const expectedEpochNumber = Number(String(original?.offlineEpoch || '').slice('physical-root-cause-offline-v1/analysis-'.length)) + 1;
-  const expectedEpoch = `physical-root-cause-offline-v1/analysis-${String(expectedEpochNumber).padStart(2, '0')}`;
+  const expectedEpoch = expectedOfflineEpoch
+    || `physical-root-cause-offline-v1/analysis-${String(expectedEpochNumber).padStart(2, '0')}`;
   if (recovery?.head !== expectedHead || recovery?.offlineEpoch !== expectedEpoch
       || recovery.status !== 'GATE3_ANALYSIS_PASS' || recovery.cellCount !== 140 || recovery.observationCount !== 20
       || !sameJson(comparableGate3Evidence(original), comparableGate3Evidence(recovery))) {
@@ -1191,9 +1228,10 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
   }
   let recoveryEpoch = null, sourceDelta = null;
   if (original) {
-    recoveryEpoch = assertSameGate3Evidence(original.gate3.value, analysis, identity.head);
+    recoveryEpoch = assertSameGate3Evidence(original.gate3.value, analysis, identity.head,
+      RECOVERY_CURRENT_OFFLINE_EPOCH);
     assertRecoveryFrozenAppendOnly(original.prepare.value.frozenEvidenceSnapshot,
-      frozenEvidenceSnapshot, recoveryEpoch.replace('physical-root-cause-offline-v1/', ''));
+      frozenEvidenceSnapshot, recoveryEpoch.replace('physical-root-cause-offline-v1/', ''), 2);
   }
   let source = sourceSnapshot(root);
   if (original) sourceDelta = verifyRecoverySourceDelta(original.prepare.value.source, source);
@@ -1298,9 +1336,10 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
   }
   if (original) {
     sourceDelta = verifyRecoverySourceDelta(original.prepare.value.source, source);
-    assertSameGate3Evidence(original.gate3.value, analysis, identity.head);
+    assertSameGate3Evidence(original.gate3.value, analysis, identity.head,
+      RECOVERY_CURRENT_OFFLINE_EPOCH);
     assertRecoveryFrozenAppendOnly(original.prepare.value.frozenEvidenceSnapshot,
-      frozenEvidenceSnapshot, recoveryEpoch.replace('physical-root-cause-offline-v1/', ''));
+      frozenEvidenceSnapshot, recoveryEpoch.replace('physical-root-cause-offline-v1/', ''), 2);
     if (!sameJson(snapshotActiveRootMembers(roots,
       Object.keys(original.memberSnapshot.primary), {requireExact: false}), original.memberSnapshot)) {
       throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_ORIGINAL_MUTATED');
@@ -1871,7 +1910,8 @@ function verifyPreparedCurrent(roots, state, {root = ROOT, home = os.homedir(), 
         || frozenSnapshotSha256(frozenNow) !== recoveryReport.frozenSnapshotSha256) {
       throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_FROZEN_EVIDENCE_DRIFT');
     }
-    assertSameGate3Evidence(gate3.value, recoveryReport.gate3Analysis, executionHead);
+    assertSameGate3Evidence(gate3.value, recoveryReport.gate3Analysis, executionHead,
+      RECOVERY_CURRENT_OFFLINE_EPOCH);
   } else assertFrozenSnapshotMatches(frozenNow, state.prepare);
   const currentBuild = verifyDiagnosticBuild(root, identity.head, {buildDirectory});
   if (currentBuild.wasm.sha256 !== state.prepare.build.wasm.sha256 || !sameJson(currentBuild.source, executionSource)) {
@@ -3582,7 +3622,8 @@ module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA25
   resolveRoots, readDual, readJsonDual, writeDualImmutable, currentIdentity, verifiedPullRequest,
   verifyIssueApproval, assertPreflightReceiptShape, assertRecoveryPreflightReceiptShape,
   assertPrepareRecoveryReceiptShape, verifyStoredPrepareRecovery, readOriginalMalformedPreparation,
-  verifyRecoverySourceDelta, assertRecoveryFrozenAppendOnly, classifyFullCTestPreflight, preflightTestEnvironment,
+  verifyRecoverySourceDelta, snapshotActiveRootMembers, assertRecoveryFrozenAppendOnly,
+  classifyFullCTestPreflight, preflightTestEnvironment,
   buildP3SourceManifest, runOfflineFrozenWithP3Sources, preflightFileName,
   verifyPreflightForPrepare, buildPreparePreflightBinding,
   latestOfflineReport, gate3Analysis, verifyDiagnosticBuild, verifyProductionBuild, verifyParentExperiment01,

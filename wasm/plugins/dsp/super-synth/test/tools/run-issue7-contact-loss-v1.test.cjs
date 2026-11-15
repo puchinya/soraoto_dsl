@@ -1192,8 +1192,9 @@ test('recovery source delta permits only the two implementation files and three 
 });
 
 test('recovery frozen snapshot permits exactly one new offline analysis epoch', () => {
-  const record = name => ({'report.json': {primary: {sha256: name}, secondary: {sha256: name}},
-    'manifest.json': {primary: {sha256: name}, secondary: {sha256: name}}});
+  const copy = (sha256, mtimeMs = 1) => ({sha256, size: 1, mtimeMs});
+  const record = name => ({'report.json': {primary: copy(name, 1), secondary: copy(name, 2)},
+    'manifest.json': {primary: copy(name, 1), secondary: copy(name, 2)}});
   const original = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
     'analysis-16': record('16'), 'analysis-17': record('17')}};
   const recovery = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
@@ -1202,13 +1203,37 @@ test('recovery frozen snapshot permits exactly one new offline analysis epoch', 
   const drifted = structuredClone(recovery);
   drifted.offlineEpochs['analysis-17']['report.json'].primary.sha256 = 'changed';
   assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, drifted, 'analysis-18'), /FROZEN_PARENT_DRIFT/);
+  const secondRecovery = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
+    ...original.offlineEpochs,
+    'analysis-18': {'report.json': {primary: copy('49f1ae88d8583322cfc889d4c1bb03c02f43db5b74afbdebe524256734695048'),
+      secondary: copy('49f1ae88d8583322cfc889d4c1bb03c02f43db5b74afbdebe524256734695048', 2)},
+    'manifest.json': {primary: copy('8ec1084e70f96ca0212d48ef328d075941efafc3dd8a0e8dcf2ac381acc22e1e'),
+      secondary: copy('8ec1084e70f96ca0212d48ef328d075941efafc3dd8a0e8dcf2ac381acc22e1e', 2)}},
+    'analysis-19': record('19')}};
+  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, secondRecovery, 'analysis-19', 2), true);
+});
+
+test('recovery preserves distinct original copy mtimes while requiring identical bytes', () => {
+  const context = tempRoots(), members = ['prepare.json'];
+  for (const copy of ['primary', 'secondary']) fs.mkdirSync(context.roots[copy], {recursive: true});
+  for (const [copy, timestamp] of [['primary', 1600000000], ['secondary', 1600000010]]) {
+    const file = path.join(context.roots[copy], members[0]);
+    fs.writeFileSync(file, 'immutable original bytes');
+    fs.utimesSync(file, timestamp, timestamp);
+  }
+  const snapshots = runner.snapshotActiveRootMembers(context.roots, members);
+  assert.equal(snapshots.primary['prepare.json'].sha256, snapshots.secondary['prepare.json'].sha256);
+  assert.equal(snapshots.primary['prepare.json'].size, snapshots.secondary['prepare.json'].size);
+  assert.notEqual(snapshots.primary['prepare.json'].mtimeMs, snapshots.secondary['prepare.json'].mtimeMs);
+  fs.writeFileSync(path.join(context.roots.secondary, 'prepare.json'), 'changed bytes');
+  assert.throws(() => runner.snapshotActiveRootMembers(context.roots, members), /ORIGINAL_COPY_DRIFT/);
 });
 
 test('prepare recovery receipt shape binds one HEAD, old roots, exact budgets, and WASM identities', () => {
   const executionHead = '9'.repeat(40), digest = 'a'.repeat(64), source = {fixture: {sha256: digest, size: 1, mtimeMs: 1}};
   const snapshot = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {}};
   const gate3Analysis = {status: 'GATE3_ANALYSIS_PASS', head: executionHead,
-    offlineEpoch: 'physical-root-cause-offline-v1/analysis-18', observationCount: 20, cellCount: 140};
+    offlineEpoch: 'physical-root-cause-offline-v1/analysis-19', observationCount: 20, cellCount: 140};
   const gate3Bytes = Buffer.from(`${JSON.stringify(stable(gate3Analysis), null, 2)}\n`);
   const oldMembers = ['gate3-analysis.json', 'plan.json', 'prepare.json',
     runner.preflightFileName('7f7fd1074be24bada371a517468f1ff4366ef1fc')];
