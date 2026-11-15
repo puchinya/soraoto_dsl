@@ -83,6 +83,9 @@ const SOURCE_FILES = Object.freeze([
 const EXPERIMENT_REL = 'experiment';
 const DIAGNOSTIC_BUILD_REL = process.env.ISSUE7_CONTACT_LOSS_BUILD_DIR || 'build/wasm-contact-loss';
 const WASM_REL = 'plugins/dsp/super-synth/plugin.wasm';
+const P3_PINNED_SOURCE_COUNT = 13;
+const P1_DIAGNOSTIC_WASM_REL = 'build/issue7-physical-identification-v1/diagnostic/plugins/dsp/super-synth/plugin.wasm';
+const P1_DIAGNOSTIC_WASM_SHA256 = '1028c5a77b533ba97066d116f77aab80e5e91b45ef043394875614ee3efab99a';
 const SAMPLE_RATE = 48000;
 const RENDER_FRAMES = 24000;
 const BLOCK_FRAMES = 128;
@@ -326,6 +329,18 @@ function assertPreflightReceiptShape(report, expectedHead) {
     throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_RECEIPT_IDENTITY');
   }
   const {checks} = report;
+  const p3Context = checks?.offlineFrozen?.sourceContext;
+  if (p3Context?.kind !== 'P3_PINNED_TEMP_WORKTREE' || p3Context.head !== expectedHead
+      || !/^[a-f0-9]{40}$/.test(p3Context.p3CreatorCommit || '')
+      || !/^[a-f0-9]{64}$/.test(p3Context.p3RecordSha256 || '')
+      || p3Context.p3SourceCount !== P3_PINNED_SOURCE_COUNT
+      || !/^[a-f0-9]{64}$/.test(p3Context.p3SourceManifestSha256 || '')
+      || p3Context.originalP1WasmSha256 !== P1_DIAGNOSTIC_WASM_SHA256
+      || !Number.isSafeInteger(p3Context.originalP1WasmSize) || p3Context.originalP1WasmSize < 1
+      || p3Context.upstreamVerified !== true || p3Context.worktreeRemoved !== true
+      || p3Context.branchRemoved !== true) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_CONTEXT');
+  }
   for (const name of ['focusedNode', 'focusedCTest', 'offlineFrozen']) {
     const check = checks?.[name];
     if (!check || check.tests < 1 || check.passed !== check.tests || check.failed !== 0 || check.skipped !== 0
@@ -710,6 +725,125 @@ function preflightTestEnvironment({root = ROOT, diagnosticBuildDirectory, produc
     ISSUE7_ROOT_CAUSE_PRIVATE_EVIDENCE: '1'};
 }
 
+function buildP3SourceManifest(p3Record, readBlob) {
+  const creatorCommit = p3Record?.creatorCommit;
+  const sourceHashes = p3Record?.optimizer?.sourceHashes;
+  if (!/^[a-f0-9]{40}$/.test(creatorCommit || '') || !sourceHashes || typeof sourceHashes !== 'object'
+      || Array.isArray(sourceHashes) || typeof readBlob !== 'function') {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_SOURCE_RECORD');
+  }
+  const entries = Object.entries(sourceHashes)
+    .sort(([left], [right]) => Buffer.compare(Buffer.from(left), Buffer.from(right)));
+  if (entries.length !== P3_PINNED_SOURCE_COUNT) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_SOURCE_COUNT');
+  const rows = entries.map(([relative, expectedSha256]) => {
+    if (typeof relative !== 'string' || !relative || path.isAbsolute(relative)
+        || relative.split(/[\\/]/).some(part => !part || part === '.' || part === '..')
+        || !/^[a-f0-9]{64}$/.test(expectedSha256 || '')) {
+      throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_SOURCE_PATH');
+    }
+    let bytes;
+    try { bytes = readBlob(creatorCommit, relative); }
+    catch { throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_SOURCE_UNAVAILABLE'); }
+    try { if (!Buffer.isBuffer(bytes)) bytes = Buffer.from(bytes); }
+    catch { throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_SOURCE_UNAVAILABLE'); }
+    const actualSha256 = sha256(bytes);
+    if (actualSha256 !== expectedSha256) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_SOURCE_IDENTITY');
+    return {path: relative, size: bytes.length, sha256: actualSha256};
+  });
+  return {creatorCommit, rows, sha256: sha256(jsonBytes(rows))};
+}
+
+function runOfflineFrozenWithP3Sources({root = ROOT, home = os.homedir(), commonDirectory,
+  head, args, env = process.env} = {}) {
+  if (path.basename(root) !== 'soraoto_dsl') throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_REPOSITORY_IDENTITY');
+  const p3Core = require('./issue7-physical-fit-v4-core.cjs');
+  const p3Roots = p3Core.resolveRoots(root, home, commonDirectory);
+  const p3Stored = p3Core.readDual(p3Roots, 'runtime-revisions/physical-fit-P3.json');
+  if (!p3Stored) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_RECORD_MISSING');
+  const p3Record = JSON.parse(p3Stored.bytes.toString('utf8'));
+  const sourceManifest = buildP3SourceManifest(p3Record,
+    (commit, relative) => gitBytes(root, ['show', commit + ':' + relative]));
+  if (git(root, ['merge-base', p3Record.creatorCommit, head]) !== p3Record.creatorCommit) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_CREATOR_NOT_ANCESTOR');
+  }
+  const originalWasm = syncReadSha(path.join(root, P1_DIAGNOSTIC_WASM_REL));
+  if (originalWasm.sha256 !== P1_DIAGNOSTIC_WASM_SHA256) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P1_WASM_IDENTITY');
+  }
+
+  const temporaryParent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'issue7-contact-loss-preflight-')));
+  const scratchRoot = path.join(temporaryParent, path.basename(root));
+  const temporaryBranch = 'codex/preflight-issue7-' + process.pid + '-' + crypto.randomBytes(6).toString('hex');
+  let worktreeAdded = false, branchAdded = false, commandResult, failureCode = null, cleanupFailed = false;
+  let contextStep = 'P3_CONTEXT';
+  try {
+    contextStep = 'P3_WORKTREE_ADD';
+    git(root, ['worktree', 'add', '--no-track', '-b', temporaryBranch, scratchRoot, head]);
+    worktreeAdded = true;
+    branchAdded = true;
+    contextStep = 'P3_WORKTREE_HEAD';
+    if (git(scratchRoot, ['rev-parse', 'HEAD']) !== head) {
+      throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_WORKTREE_HEAD');
+    }
+    contextStep = 'P3_WORKTREE_UPSTREAM';
+    git(scratchRoot, ['branch', '--set-upstream-to', 'origin/' + PR_BRANCH]);
+    if (git(scratchRoot, ['rev-parse', '--abbrev-ref', '@{upstream}']) !== 'origin/' + PR_BRANCH) {
+      throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_WORKTREE_UPSTREAM');
+    }
+    contextStep = 'P3_SOURCE_OVERLAY';
+    for (const row of sourceManifest.rows) {
+      const target = assertSafe(scratchRoot, path.join(scratchRoot, row.path));
+      const bytes = gitBytes(root, ['show', sourceManifest.creatorCommit + ':' + row.path]);
+      if (bytes.length !== row.size || sha256(bytes) !== row.sha256) {
+        throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_SOURCE_IDENTITY');
+      }
+      fs.writeFileSync(target, bytes);
+    }
+    contextStep = 'P1_WASM_LINK';
+    const scratchWasm = assertSafe(scratchRoot, path.join(scratchRoot, P1_DIAGNOSTIC_WASM_REL));
+    fs.mkdirSync(path.dirname(scratchWasm), {recursive: true});
+    if (fs.existsSync(scratchWasm)) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P1_WASM_TARGET_EXISTS');
+    fs.symlinkSync(path.join(root, P1_DIAGNOSTIC_WASM_REL), scratchWasm);
+    contextStep = 'OFFLINE_FROZEN_TESTS';
+    commandResult = runPreflightCommand(scratchRoot, args, env);
+  } catch (error) {
+    failureCode = /^BLOCKED_[A-Z0-9_]+/.exec(String(error?.message || ''))?.[0]
+      || 'BLOCKED_CONTACT_LOSS_PREFLIGHT_' + contextStep;
+  } finally {
+    if (!worktreeAdded) {
+      const entries = spawnSync('rtk', ['git', 'worktree', 'list', '--porcelain'],
+        {cwd: root, encoding: 'utf8'});
+      if (entries.error || entries.status !== 0) cleanupFailed = true;
+      else if (entries.stdout.split(/\r?\n/).includes('worktree ' + scratchRoot)) worktreeAdded = true;
+    }
+    if (worktreeAdded) {
+      try { git(root, ['worktree', 'remove', '--force', scratchRoot]); }
+      catch { cleanupFailed = true; }
+    }
+    if (!branchAdded) {
+      const exists = spawnSync('rtk', ['git', 'show-ref', '--verify', '--quiet', 'refs/heads/' + temporaryBranch],
+        {cwd: root, stdio: 'ignore'});
+      if (exists.error || ![0, 1].includes(exists.status)) cleanupFailed = true;
+      else if (exists.status === 0) branchAdded = true;
+    }
+    if (branchAdded) {
+      try { git(root, ['branch', '-D', temporaryBranch]); }
+      catch { cleanupFailed = true; }
+    }
+    try { fs.rmdirSync(temporaryParent); }
+    catch { cleanupFailed = true; }
+  }
+  if (cleanupFailed) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_P3_CONTEXT_CLEANUP');
+  if (failureCode) throw new Error(failureCode);
+  return {result: commandResult, sourceContext: {
+    kind: 'P3_PINNED_TEMP_WORKTREE', head, p3CreatorCommit: sourceManifest.creatorCommit,
+    p3RecordSha256: p3Stored.sha256, p3SourceCount: sourceManifest.rows.length,
+    p3SourceManifestSha256: sourceManifest.sha256,
+    originalP1WasmSha256: originalWasm.sha256, originalP1WasmSize: originalWasm.size,
+    upstreamVerified: true, worktreeRemoved: true, branchRemoved: true
+  }};
+}
+
 function runPreflightCommand(root, args, env = process.env) {
   const result = spawnSync('rtk', args, {cwd: root, encoding: 'utf8', env,
     maxBuffer: 128 * 1024 * 1024});
@@ -803,19 +937,23 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
   const marker = path.join(root, `.codex-test-dirty-${process.pid}`);
   const dirtyBefore = currentIdentity(root);
   fs.writeFileSync(marker, 'temporary regression precondition\n', {flag: 'wx'});
-  let offlineFrozenResult;
+  let offlineFrozenResult, offlineFrozenSourceContext;
   try {
     if (!git(root, ['status', '--porcelain=v2', '--untracked-files=all']).includes(path.basename(marker))) {
       throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_DIRTY_MARKER');
     }
-    offlineFrozenResult = runPreflightCommand(root, offlineArgs, testEnv);
+    const pinnedRun = runOfflineFrozenWithP3Sources({root, home, commonDirectory,
+      head: identity.head, args: offlineArgs, env: testEnv});
+    offlineFrozenResult = pinnedRun.result;
+    offlineFrozenSourceContext = pinnedRun.sourceContext;
   } finally { fs.unlinkSync(marker); }
   const dirtyAfter = currentIdentity(root);
   if (dirtyBefore.head !== dirtyAfter.head || dirtyBefore.branch !== dirtyAfter.branch) {
     throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_WORKTREE_DRIFT');
   }
   const offlineFrozenSummary = nodeTestSummary(`${offlineFrozenResult.stdout}\n${offlineFrozenResult.stderr}`);
-  const offlineFrozen = summarizeCommand(offlineFrozenResult, offlineFrozenSummary);
+  const offlineFrozen = {...summarizeCommand(offlineFrozenResult, offlineFrozenSummary),
+    sourceContext: offlineFrozenSourceContext};
   const fullCTestEnv = {...testEnv, SUPERSYNTH_REPORT_DIR: ''};
   delete fullCTestEnv.SUPERSYNTH_LIFECYCLE_PATH;
   const fullCTestResult = runPreflightCommand(root,
@@ -2924,10 +3062,12 @@ if (require.main === module) {
 module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA256,
   SUCCESSOR_CONTRACT_SHA256, SUCCESSOR_APPROVAL_MARKER, CTEST_ORDER_CONTRACT_SHA256,
   CTEST_ORDER_APPROVAL_MARKER, BASELINE_HEAD, ACTIVE_EPOCH, PARENT_EPOCH,
+  P3_PINNED_SOURCE_COUNT, P1_DIAGNOSTIC_WASM_REL, P1_DIAGNOSTIC_WASM_SHA256,
   BASELINE_INPUT_PATHS, BASELINE_TEST_SOURCE_HASHES,
   PARENT_HEAD, PARENT_PREPARE_SHA256, PARENT_PLAN_SHA256, PARENT_GATE3_SHA256, SOURCE_FILES,
   resolveRoots, readDual, readJsonDual, writeDualImmutable, currentIdentity, verifiedPullRequest,
-  verifyIssueApproval, assertPreflightReceiptShape, classifyFullCTestPreflight, preflightTestEnvironment, preflightFileName,
+  verifyIssueApproval, assertPreflightReceiptShape, classifyFullCTestPreflight, preflightTestEnvironment,
+  buildP3SourceManifest, runOfflineFrozenWithP3Sources, preflightFileName,
   verifyPreflightForPrepare,
   latestOfflineReport, gate3Analysis, verifyDiagnosticBuild, verifyProductionBuild, verifyParentExperiment01,
   parentInventory, verifyParentInventoryUnchanged, preflightExperiment, prepareExperiment,

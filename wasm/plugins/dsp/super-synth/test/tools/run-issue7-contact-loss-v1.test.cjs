@@ -53,7 +53,12 @@ function setupPreflight({roots, head, wasmSha256, source, parentEpoch, gate3Sha2
     checks: {
       focusedNode: {tests: 1, passed: 1, failed: 0, skipped: 0, stdoutSha256: hash, stderrSha256: hash},
       focusedCTest: {tests: 2, passed: 2, failed: 0, skipped: 0, stdoutSha256: hash, stderrSha256: hash},
-      offlineFrozen: {tests: 1, passed: 1, failed: 0, skipped: 0, stdoutSha256: hash, stderrSha256: hash},
+      offlineFrozen: {tests: 1, passed: 1, failed: 0, skipped: 0, stdoutSha256: hash, stderrSha256: hash,
+        sourceContext: {kind: 'P3_PINNED_TEMP_WORKTREE', head,
+          p3CreatorCommit: '6'.repeat(40), p3RecordSha256: '7'.repeat(64),
+          p3SourceCount: runner.P3_PINNED_SOURCE_COUNT, p3SourceManifestSha256: '8'.repeat(64),
+          originalP1WasmSha256: runner.P1_DIAGNOSTIC_WASM_SHA256, originalP1WasmSize: 427000,
+          upstreamVerified: true, worktreeRemoved: true, branchRemoved: true}},
       fullCTest: {decision: 'BASELINE_FAILURES_DISCLOSED', baselineHead: runner.BASELINE_HEAD,
         exitCode: 8, testCount: 50, failedCount: 3, skippedCount: 0,
         failureNames: ['wasm.audio-quality-regression',
@@ -1034,6 +1039,35 @@ test('read-only CLI modes are mutually exclusive and unknown flags are rejected'
   assert.throws(() => runner.parseMode(['--run-bounded', '--count', '1']), /Usage:/);
 });
 
+test('preflight validates the exact P3-pinned source manifest before historical evidence replay', () => {
+  const sourceBytes = Object.fromEntries(Array.from({length: runner.P3_PINNED_SOURCE_COUNT}, (_, index) => {
+    const relative = 'wasm/pinned-' + String(index).padStart(2, '0') + '.c';
+    return [relative, Buffer.from('source-' + index)];
+  }));
+  const sourceHashes = Object.fromEntries(Object.entries(sourceBytes)
+    .map(([relative, bytes]) => [relative, bytesSha(bytes)]));
+  const record = {creatorCommit: 'a'.repeat(40), optimizer: {sourceHashes}};
+  const load = (commit, relative) => {
+    assert.equal(commit, record.creatorCommit);
+    return sourceBytes[relative];
+  };
+  const manifest = runner.buildP3SourceManifest(record, load);
+  assert.equal(manifest.rows.length, runner.P3_PINNED_SOURCE_COUNT);
+  assert.deepEqual(manifest.rows.map(row => row.path), Object.keys(sourceHashes).sort());
+  assert.match(manifest.sha256, /^[a-f0-9]{64}$/);
+  assert.equal(runner.buildP3SourceManifest(record, load).sha256, manifest.sha256);
+  assert.throws(() => runner.buildP3SourceManifest(record, () => Buffer.from('drift')),
+    /PREFLIGHT_P3_SOURCE_IDENTITY/);
+  const shortRecord = structuredClone(record);
+  delete shortRecord.optimizer.sourceHashes[Object.keys(sourceHashes)[0]];
+  assert.throws(() => runner.buildP3SourceManifest(shortRecord, load), /PREFLIGHT_P3_SOURCE_COUNT/);
+  const unsafeRecord = structuredClone(record);
+  const first = Object.keys(unsafeRecord.optimizer.sourceHashes)[0];
+  unsafeRecord.optimizer.sourceHashes['../escape.c'] = unsafeRecord.optimizer.sourceHashes[first];
+  delete unsafeRecord.optimizer.sourceHashes[first];
+  assert.throws(() => runner.buildP3SourceManifest(unsafeRecord, load), /PREFLIGHT_P3_SOURCE_PATH/);
+});
+
 test('preflight receipt accepts only the approved baseline failures and Stage4 input deferral', () => {
   const context = tempRoots(), head = '1'.repeat(40), wasmSha256 = '2'.repeat(64), source = {};
   const frozenEvidenceSnapshot = {fixtureSnapshot: 'unchanged'};
@@ -1052,6 +1086,9 @@ test('preflight receipt accepts only the approved baseline failures and Stage4 i
   const skipped = structuredClone(preflight.report);
   skipped.checks.offlineFrozen.skipped = 1;
   assert.throws(() => runner.assertPreflightReceiptShape(skipped, head), /PREFLIGHT_CHECK:offlineFrozen/);
+  const unverifiedP3 = structuredClone(preflight.report);
+  unverifiedP3.checks.offlineFrozen.sourceContext.worktreeRemoved = false;
+  assert.throws(() => runner.assertPreflightReceiptShape(unverifiedP3, head), /PREFLIGHT_P3_CONTEXT/);
   const changedSignature = structuredClone(preflight.report);
   changedSignature.checks.fullCTest.signatures.audioQuality = 'different audio failure';
   assert.throws(() => runner.assertPreflightReceiptShape(changedSignature, head), /PREFLIGHT_FULL_CTEST/);
