@@ -8,6 +8,7 @@
 - **Contract:** [successor Implementation Contract](physical-contact-loss-v1-experiment-02-contract.md)
 - **CTest order amendment:** [approved amendment contract](physical-contact-loss-v1-experiment-02-ctest-order-contract.md), SHA-256 `106f22061781a2826a77d3ca0f83b85c79a7e03de4187c3407138090ae6d4ae3`
 - **Prepare recovery amendment:** [approved recovery contract](physical-contact-loss-v1-experiment-02-prepare-recovery-contract.md), SHA-256 `20241190b844ba47f3d317891776ba523ced0fa517c05207be9fa75e8ebd7be0`
+- **Continuation-06 recovery amendment:** [approved state-reader recovery contract](physical-contact-loss-v1-experiment-02-continuation-06-recovery-contract.md), SHA-256 `cd735bc1d262811927c28c5b2921cb34ee73ffea0ba70bb8530cffaf52addec6`
 - **Approval markers:** `ISSUE7_CONTACT_LOSS_V1_EXPERIMENT_02_APPROVED`, `ISSUE7_CONTACT_LOSS_CTEST_ORDER_AMENDMENT_APPROVED`, `ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_APPROVED`
 
 ## Context and goals
@@ -97,3 +98,20 @@ Continuation-03 preserves the immutable continuation-02 receipt and preflight, a
 ## Approved continuation-04 recovery (2026-11-16)
 
 Continuation-04 preserves the complete ten-file experiment-02 prefix through continuation-03, including every original, continuation-02 and continuation-03 record and each copy's mtime. It validates continuation-03's immutable receipt/preflight, its analysis-22 binding and the full prior chain. At the exact clean pushed PR #8 HEAD it authenticates analysis-23 and runs one complete strict zero-acoustic preflight. Only on full success does it append the final-HEAD recovery preflight and `prepare-recovery-continuation-04.json`. That receipt binds all prior receipt/preflight hashes, analysis-20/21/22/23 report/manifest identities, parent/source/frozen/build identities, zero calls, and the fixed 42/1,962/3,251/5,255 accounting. State readers select continuation-04 only after validating the entire chain, exact root membership and both dual-store readbacks. No ledger start, render or acoustic call is allowed until same-HEAD `--status` and `--verify` pass. Failed checks or partial writes remain preserved and fail closed without repair or retry.
+
+## Approved continuation-06 state-reader recovery (2026-11-16)
+
+The one continuation-05 command stopped in `readExperimentState` before preflight or any write: the validated continuation-04 value was block-scoped but later referenced while checking the expected recovery-preflight files. A read-only status call exposed the same `ReferenceError` at the same source line. Both experiment-02 copies still contain the exact 12-member continuation-04 prefix, with no continuation-05 recovery preflight, receipt, or experiment ledger directory. The continuation-05 record remains a failed attempt on Issue #7; it is not retried or rewritten.
+
+Continuation-06 corrects the reader by carrying the verified continuation-04 result into the later exact-member check. Its regression covers the stored c04 path and confirms that membership is derived from the authenticated receipt. The c06 path is a distinct direct successor to c04: it rejects any c05 artifact, preserves the 12-member prefix and all prior mtimes, publishes immutable Gate 0–2 analysis-25 for the final pushed HEAD, and appends only one c06 recovery preflight and one `prepare-recovery-continuation-06.json` after every strict zero-acoustic check passes. Both copies and the complete c04 receipt chain are read back before selecting c06 as the current execution identity. A failed check is terminal for this one c06 attempt; no cleanup, retry, or audio call follows.
+
+### Continuation-06 reviewer checklist
+
+- [ ] The Issue approval marker and exact c06 contract SHA match the linked contract.
+- [ ] The c04-state regression proves no out-of-scope `continuation04` reference remains and rejects missing, altered, or extra root members.
+- [ ] All 12 c04 prefix members and the analysis-24 publication remain byte/mtime stable; c05 artifacts remain absent.
+- [ ] Analysis-25 is published and verified for the exact pushed HEAD before c06 preflight.
+- [ ] The c06 preflight and receipt bind c04, analysis-20 through analysis-25, source/build/parent identities, zero counters, and fixed budgets.
+- [ ] Same-HEAD `--status` and `--verify` pass before the existing experiment resumes.
+- [ ] Focused tests have zero skips; full CTest reports its exact result and uses only the previously approved baseline classification.
+- [ ] Stage 3/4 and product acceptance reflect measured evidence only.
