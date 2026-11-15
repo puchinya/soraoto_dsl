@@ -698,6 +698,18 @@ function verifyBaselineInputs(root, head) {
   return {baselineHead: BASELINE_HEAD, unchangedPaths: [...BASELINE_INPUT_PATHS], sourceHashes: BASELINE_TEST_SOURCE_HASHES};
 }
 
+function preflightTestEnvironment({root = ROOT, diagnosticBuildDirectory, productionBuildDirectory, env = process.env} = {}) {
+  const diagnosticPath = path.resolve(root, diagnosticBuildDirectory || DIAGNOSTIC_BUILD_REL);
+  const productionPath = path.resolve(root, productionBuildDirectory || RELEASE_BUILD_REL);
+  if (diagnosticPath === productionPath) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_BUILD_MATRIX');
+  return {...env, ISSUE7_CONTACT_LOSS_REQUIRE_BUILD_MATRIX: '1',
+    ISSUE7_CONTACT_LOSS_BUILD_DIR: diagnosticPath,
+    ISSUE7_CONTACT_LOSS_PRODUCTION_BUILD_DIR: productionPath,
+    ISSUE7_CONTACT_LOSS_RELEASE_BUILD_DIR: productionPath,
+    SORAOTO_WASM_BUILD_DIR: diagnosticPath,
+    ISSUE7_ROOT_CAUSE_PRIVATE_EVIDENCE: '1'};
+}
+
 function runPreflightCommand(root, args, env = process.env) {
   const result = spawnSync('rtk', args, {cwd: root, encoding: 'utf8', env,
     maxBuffer: 128 * 1024 * 1024});
@@ -769,12 +781,8 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
     throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_DIAGNOSTIC_WASM_IDENTITY');
   }
   const baselineInputs = verifyBaselineInputs(root, identity.head);
-  const testEnv = {...process.env, ISSUE7_CONTACT_LOSS_REQUIRE_BUILD_MATRIX: '1',
-    ISSUE7_CONTACT_LOSS_BUILD_DIR: diagnostic.diagnosticBuildDirectory,
-    ISSUE7_CONTACT_LOSS_PRODUCTION_BUILD_DIR: production.productionBuildDirectory,
-    ISSUE7_CONTACT_LOSS_RELEASE_BUILD_DIR: production.productionBuildDirectory,
-    SORAOTO_WASM_BUILD_DIR: diagnostic.diagnosticBuildDirectory,
-    ISSUE7_ROOT_CAUSE_PRIVATE_EVIDENCE: '1'};
+  const testEnv = preflightTestEnvironment({root, diagnosticBuildDirectory: diagnosticPath,
+    productionBuildDirectory: productionPath});
   const focusedNodeArgs = ['node', '--test',
     'wasm/plugins/dsp/super-synth/test/tools/issue7-contact-loss-v1-core.test.cjs',
     'wasm/plugins/dsp/super-synth/test/tools/run-issue7-contact-loss-v1.test.cjs'];
@@ -2919,7 +2927,7 @@ module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA25
   BASELINE_INPUT_PATHS, BASELINE_TEST_SOURCE_HASHES,
   PARENT_HEAD, PARENT_PREPARE_SHA256, PARENT_PLAN_SHA256, PARENT_GATE3_SHA256, SOURCE_FILES,
   resolveRoots, readDual, readJsonDual, writeDualImmutable, currentIdentity, verifiedPullRequest,
-  verifyIssueApproval, assertPreflightReceiptShape, classifyFullCTestPreflight, preflightFileName,
+  verifyIssueApproval, assertPreflightReceiptShape, classifyFullCTestPreflight, preflightTestEnvironment, preflightFileName,
   verifyPreflightForPrepare,
   latestOfflineReport, gate3Analysis, verifyDiagnosticBuild, verifyProductionBuild, verifyParentExperiment01,
   parentInventory, verifyParentInventoryUnchanged, preflightExperiment, prepareExperiment,

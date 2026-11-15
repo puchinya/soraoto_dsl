@@ -1106,6 +1106,19 @@ test('prepare preflight identity rejects missing receipts and any source or iden
   assert.deepEqual(dualTreeInventory(context.roots), before);
 });
 
+test('preflight build matrix is exported as absolute paths for CTest child working directories', () => {
+  const context = tempRoots(), env = runner.preflightTestEnvironment({root: context.root,
+    diagnosticBuildDirectory: 'build/diag', productionBuildDirectory: 'build/release', env: {KEPT: 'yes'}});
+  assert.equal(env.ISSUE7_CONTACT_LOSS_REQUIRE_BUILD_MATRIX, '1');
+  assert.equal(env.ISSUE7_CONTACT_LOSS_BUILD_DIR, path.join(context.root, 'build/diag'));
+  assert.equal(env.SORAOTO_WASM_BUILD_DIR, path.join(context.root, 'build/diag'));
+  assert.equal(env.ISSUE7_CONTACT_LOSS_PRODUCTION_BUILD_DIR, path.join(context.root, 'build/release'));
+  assert.equal(env.ISSUE7_CONTACT_LOSS_RELEASE_BUILD_DIR, path.join(context.root, 'build/release'));
+  assert.equal(env.KEPT, 'yes');
+  assert.throws(() => runner.preflightTestEnvironment({root: context.root,
+    diagnosticBuildDirectory: 'build/same', productionBuildDirectory: 'build/same'}), /PREFLIGHT_BUILD_MATRIX/);
+});
+
 test('approved continuation keeps every later gate NOT RUN after its predecessor fails', () => {
   const selection = {status: 'GATE4_STRESS_PASS'};
   assert.deepEqual(runner.continuationDecision({selection: {status: core.TERMINAL}}),
