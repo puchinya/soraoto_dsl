@@ -1191,7 +1191,7 @@ test('recovery source delta permits only the two implementation files and three 
   assert.throws(() => runner.verifyRecoverySourceDelta(original, drifted), /RECOVERY_SOURCE_DELTA/);
 });
 
-test('recovery frozen snapshot permits exactly one new offline analysis epoch', () => {
+test('recovery frozen snapshot preserves analysis-20 and appends only approved sequential epochs', () => {
   const copy = (sha256, mtimeMs = 1) => ({sha256, size: 1, mtimeMs});
   const record = name => ({'report.json': {primary: copy(name, 1), secondary: copy(name, 2)},
     'manifest.json': {primary: copy(name, 1), secondary: copy(name, 2)}});
@@ -1211,12 +1211,21 @@ test('recovery frozen snapshot permits exactly one new offline analysis epoch', 
       secondary: copy('8ec1084e70f96ca0212d48ef328d075941efafc3dd8a0e8dcf2ac381acc22e1e', 2)}},
     'analysis-19': record('19')}};
   assert.equal(runner.assertRecoveryFrozenAppendOnly(original, secondRecovery, 'analysis-19', 2), true);
+  const analysis20 = {'report.json': {primary: copy(runner.RECOVERY_ANALYSIS20_REPORT_SHA256),
+    secondary: copy(runner.RECOVERY_ANALYSIS20_REPORT_SHA256, 2)},
+  'manifest.json': {primary: copy(runner.RECOVERY_ANALYSIS20_MANIFEST_SHA256),
+    secondary: copy(runner.RECOVERY_ANALYSIS20_MANIFEST_SHA256, 2)}};
   const continuation02 = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
-    ...secondRecovery.offlineEpochs, 'analysis-20': record('20')}};
-  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, continuation02, 'analysis-20', 3), true);
+    ...secondRecovery.offlineEpochs, 'analysis-20': analysis20, 'analysis-21': record('21')}};
+  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, continuation02, 'analysis-21', 4), true);
+  const modifiedAnalysis20 = structuredClone(continuation02);
+  modifiedAnalysis20.offlineEpochs['analysis-20']['report.json'].primary.sha256 = 'changed';
+  modifiedAnalysis20.offlineEpochs['analysis-20']['report.json'].secondary.sha256 = 'changed';
+  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, modifiedAnalysis20, 'analysis-21', 4),
+    /RECOVERY_ANALYSIS20_IDENTITY/);
   const skippedEpoch = structuredClone(continuation02);
-  delete skippedEpoch.offlineEpochs['analysis-19'];
-  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, skippedEpoch, 'analysis-20', 3),
+  delete skippedEpoch.offlineEpochs['analysis-20'];
+  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, skippedEpoch, 'analysis-21', 4),
     /RECOVERY_FROZEN_EPOCH_SEQUENCE/);
 });
 
@@ -1341,7 +1350,7 @@ test('continuation-02 receipts chain the first recovery and preserve all six pri
   const frozenEvidenceSnapshot = {parentEvidence: {sha256: digest}, offlineEpochs: {}};
   const frozenSnapshotSha256 = runner.frozenSnapshotSha256(frozenEvidenceSnapshot);
   const gate3Analysis = {status: 'GATE3_ANALYSIS_PASS', head,
-    offlineEpoch: 'physical-root-cause-offline-v1/analysis-20', observationCount: 20, cellCount: 140,
+    offlineEpoch: 'physical-root-cause-offline-v1/analysis-21', observationCount: 20, cellCount: 140,
     archiveSha256: 'b'.repeat(64), offlineReportSha256: 'c'.repeat(64), frozenSnapshotSha256};
   const gate3AnalysisSha256 = bytesSha(Buffer.from(`${JSON.stringify(stable(gate3Analysis), null, 2)}\n`));
   const parentProof = {epoch: runner.PARENT_EPOCH, head: runner.PARENT_HEAD, charged: 0, completed: 0, ambiguous: 0};
@@ -1351,6 +1360,7 @@ test('continuation-02 receipts chain the first recovery and preserve all six pri
   const receipt = {schemaVersion: 1, kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_02',
     issue: 7, pr: 8, epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
     approvalMarker: runner.PREPARE_RECOVERY_CONTINUATION_02_APPROVAL_MARKER,
+    amendmentApprovalMarker: runner.PREPARE_RECOVERY_ANALYSIS21_AMENDMENT_APPROVAL_MARKER,
     designSha256: runner.PREPARE_RECOVERY_CONTINUATION_02_DESIGN_SHA256,
     previousExecutionHead: 'e0a59dbf13d4910f2a342bf50fe2d846464c2b27',
     previousRecoveryPreflightSha256: hashes['recovery-preflight-e0a59dbf13d4910f2a342bf50fe2d846464c2b27.json'],
@@ -1369,12 +1379,15 @@ test('continuation-02 receipts chain the first recovery and preserve all six pri
   assert.throws(() => runner.assertPrepareRecoveryContinuation02ReceiptShape({...receipt,
     previousRecoveryReceiptSha256: '0'.repeat(64)}), /CONTINUATION_02_RECEIPT_IDENTITY/);
   assert.throws(() => runner.assertPrepareRecoveryContinuation02ReceiptShape({...receipt,
+    amendmentApprovalMarker: 'UNAPPROVED'}), /CONTINUATION_02_RECEIPT_IDENTITY/);
+  assert.throws(() => runner.assertPrepareRecoveryContinuation02ReceiptShape({...receipt,
     calls: {started: 1, completed: 0, ambiguous: 0}}), /CONTINUATION_02_RECEIPT_IDENTITY/);
   const context = tempRoots(), current = setupPreflight({roots: context.roots, head, wasmSha256: '3'.repeat(64),
     source, parentEpoch: parentProof, gate3Sha256: gate3AnalysisSha256, frozenEvidenceSnapshot});
   const preflight = {...current.report, kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_02_PREFLIGHT',
     gate3: {analysisSha256: gate3AnalysisSha256},
-    continuation02: {approvalMarker: receipt.approvalMarker, designSha256: receipt.designSha256,
+    continuation02: {approvalMarker: receipt.approvalMarker,
+      amendmentApprovalMarker: receipt.amendmentApprovalMarker, designSha256: receipt.designSha256,
       offlineEpoch: gate3Analysis.offlineEpoch, executionHead: head,
       preflightFile: `recovery-preflight-${head}.json`, previousExecutionHead: receipt.previousExecutionHead,
       previousRecoveryPreflightSha256: receipt.previousRecoveryPreflightSha256,
@@ -1384,6 +1397,9 @@ test('continuation-02 receipts chain the first recovery and preserve all six pri
       offlineReportSha256: gate3Analysis.offlineReportSha256, offlineManifestSha256: receipt.recovery.offlineManifestSha256,
       gate3AnalysisSha256, gate3Analysis, sourceDelta, previousRootSnapshot}};
   assert.equal(runner.assertRecoveryContinuation02PreflightReceiptShape(preflight, head), preflight);
+  assert.throws(() => runner.assertRecoveryContinuation02PreflightReceiptShape({...preflight,
+    continuation02: {...preflight.continuation02, amendmentApprovalMarker: 'UNAPPROVED'}}, head),
+  /CONTINUATION_02_PREFLIGHT_IDENTITY/);
   assert.throws(() => runner.assertRecoveryContinuation02PreflightReceiptShape({...preflight,
     continuation02: {...preflight.continuation02, previousRootSnapshot: {...previousRootSnapshot,
       primary: {...previousRootSnapshot.primary, 'prepare.json': {...previousRootSnapshot.primary['prepare.json'], sha256: '0'.repeat(64)}}}}}, head),

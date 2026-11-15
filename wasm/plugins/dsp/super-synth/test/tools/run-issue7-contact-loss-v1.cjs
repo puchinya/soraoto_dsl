@@ -22,15 +22,18 @@ const SUCCESSOR_APPROVAL_MARKER = 'ISSUE7_CONTACT_LOSS_V1_EXPERIMENT_02_APPROVED
 const CTEST_ORDER_APPROVAL_MARKER = 'ISSUE7_CONTACT_LOSS_CTEST_ORDER_AMENDMENT_APPROVED';
 const PREPARE_RECOVERY_APPROVAL_MARKER = 'ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_APPROVED';
 const PREPARE_RECOVERY_CONTINUATION_02_APPROVAL_MARKER = 'ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_02_APPROVED';
+const PREPARE_RECOVERY_ANALYSIS21_AMENDMENT_APPROVAL_MARKER = 'ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_ANALYSIS21_AMENDMENT_APPROVED';
 const CONTRACT_SHA256 = '54838dfea9832f6da358a1c620567b09246a54fdd26fb807bc74d4ceeb6dc4aa';
 const SUCCESSOR_CONTRACT_SHA256 = '681eb29ca7f3e8dbd5c7d5fa1b4aaec7abe1686ac8f176ebc360a39cf78c19d7';
 const CTEST_ORDER_CONTRACT_SHA256 = '106f22061781a2826a77d3ca0f83b85c79a7e03de4187c3407138090ae6d4ae3';
 const PREPARE_RECOVERY_CONTRACT_SHA256 = '20241190b844ba47f3d317891776ba523ced0fa517c05207be9fa75e8ebd7be0';
 const CTEST_ORDER_CONTRACT_REL = 'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-ctest-order-contract.md';
 const PREPARE_RECOVERY_CONTRACT_REL = 'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-prepare-recovery-contract.md';
-const PREPARE_RECOVERY_CONTINUATION_02_DESIGN_SHA256 = '11a42597323eb1b176b403f07daf5800bbc21686891b3847df68286e32488631';
-const PREPARE_RECOVERY_CONTINUATION_02_OFFLINE_EPOCH = 'physical-root-cause-offline-v1/analysis-20';
+const PREPARE_RECOVERY_CONTINUATION_02_DESIGN_SHA256 = 'ebcabaa5835a7f1987fa1bcc1a3a269392889252643c73ea93ee134d223feb58';
+const PREPARE_RECOVERY_CONTINUATION_02_OFFLINE_EPOCH = 'physical-root-cause-offline-v1/analysis-21';
 const PREPARE_RECOVERY_CONTINUATION_02_REL = 'prepare-recovery-continuation-02.json';
+const RECOVERY_ANALYSIS20_REPORT_SHA256 = 'af12be8d5cb0c03bbf8d5bba8085c7b848000d19f44c55c2e08b2bef72283120';
+const RECOVERY_ANALYSIS20_MANIFEST_SHA256 = '48b5443923727fc56b3c2ecde468e201036f4411e100e11fc600db17b7a4b6e7';
 const RECOVERY_ORIGINAL_HEAD = '7f7fd1074be24bada371a517468f1ff4366ef1fc';
 const RECOVERY_ORIGINAL_PREPARE_SHA256 = '37b1d47a1329a48298feea6bc93f6bf540e50b30853abe10bc7b40fcac9bd8fd';
 const RECOVERY_ORIGINAL_PLAN_SHA256 = '0eaa7f377420d893acb6692f08aa0a6fa0b9035f26422c7d284a15d5fa08f52a';
@@ -299,7 +302,8 @@ function verifyPrepareRecoveryContinuation02Approval(root = ROOT) {
   const issue = JSON.parse(github(['issue', 'view', '7', '--repo', REPOSITORY,
     '--json', 'state,body,labels'], {cwd: root}));
   if (issue.state !== 'OPEN' || !(issue.labels || []).some(row => row.name === 'phase:implementation')
-      || !String(issue.body || '').includes(PREPARE_RECOVERY_CONTINUATION_02_APPROVAL_MARKER)) {
+      || !String(issue.body || '').includes(PREPARE_RECOVERY_CONTINUATION_02_APPROVAL_MARKER)
+      || !String(issue.body || '').includes(PREPARE_RECOVERY_ANALYSIS21_AMENDMENT_APPROVAL_MARKER)) {
     throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_APPROVAL');
   }
   const design = fs.readFileSync(path.join(root,
@@ -445,6 +449,7 @@ function assertRecoveryContinuation02PreflightReceiptShape(report, expectedHead)
   assertPreflightReceiptShape({...report, kind: 'CONTACT_LOSS_PREPARE_PREFLIGHT'}, expectedHead);
   const continuation = report.continuation02;
   if (continuation?.approvalMarker !== PREPARE_RECOVERY_CONTINUATION_02_APPROVAL_MARKER
+      || continuation.amendmentApprovalMarker !== PREPARE_RECOVERY_ANALYSIS21_AMENDMENT_APPROVAL_MARKER
       || continuation.designSha256 !== PREPARE_RECOVERY_CONTINUATION_02_DESIGN_SHA256
       || continuation.offlineEpoch !== PREPARE_RECOVERY_CONTINUATION_02_OFFLINE_EPOCH
       || continuation.executionHead !== expectedHead
@@ -499,6 +504,7 @@ function assertPrepareRecoveryContinuation02ReceiptShape(report) {
       || report.issue !== 7 || report.pr !== PR_NUMBER || report.epoch !== ACTIVE_EPOCH
       || report.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
       || report.approvalMarker !== PREPARE_RECOVERY_CONTINUATION_02_APPROVAL_MARKER
+      || report.amendmentApprovalMarker !== PREPARE_RECOVERY_ANALYSIS21_AMENDMENT_APPROVAL_MARKER
       || report.designSha256 !== PREPARE_RECOVERY_CONTINUATION_02_DESIGN_SHA256
       || report.previousExecutionHead !== RECOVERY_FIRST_EXECUTION_HEAD
       || report.previousRecoveryPreflightSha256 !== RECOVERY_FIRST_PREFLIGHT_SHA256
@@ -718,7 +724,7 @@ function verifyStoredPrepareRecoveryContinuation02(roots, {prepared, originalGat
     throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_SOURCE');
   }
   assertRecoveryFrozenAppendOnly(prepared.value.frozenEvidenceSnapshot,
-    report.recovery.frozenEvidenceSnapshot, 'analysis-20', 3);
+    report.recovery.frozenEvidenceSnapshot, 'analysis-21', 4);
   const offline = latestOfflineReport(roots.repo, roots.home, roots.commonDirectory,
     report.executionHead, PREPARE_RECOVERY_CONTINUATION_02_OFFLINE_EPOCH);
   if (offline.reportSha256 !== report.recovery.offlineReportSha256
@@ -1080,7 +1086,7 @@ function assertRecoveryFrozenAppendOnly(originalSnapshot, recoverySnapshot, expe
   const originalEpochs = Object.keys(originalSnapshot?.offlineEpochs || {}).sort();
   const recoveryEpochs = Object.keys(recoverySnapshot?.offlineEpochs || {}).sort();
   if (!originalEpochs.length || !sameJson(originalSnapshot.parentEvidence, recoverySnapshot?.parentEvidence)
-      || ![1, 2, 3].includes(expectedAdditionalEpochs)
+      || ![1, 2, 3, 4].includes(expectedAdditionalEpochs)
       || recoveryEpochs.length !== originalEpochs.length + expectedAdditionalEpochs
       || !sameJson(recoveryEpochs.slice(0, originalEpochs.length), originalEpochs)
       || recoveryEpochs.at(-1) !== expectedLatestEpoch) {
@@ -1112,6 +1118,13 @@ function assertRecoveryFrozenAppendOnly(originalSnapshot, recoverySnapshot, expe
     if (prior?.['report.json']?.primary.sha256 !== RECOVERY_PRIOR_ATTEMPT_REPORT_SHA256
         || prior?.['manifest.json']?.primary.sha256 !== RECOVERY_PRIOR_ATTEMPT_MANIFEST_SHA256) {
       throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_PRIOR_ATTEMPT_EVIDENCE');
+    }
+  }
+  if (expectedAdditionalEpochs === 4) {
+    const analysis20 = recoverySnapshot.offlineEpochs['analysis-20'];
+    if (analysis20?.['report.json']?.primary.sha256 !== RECOVERY_ANALYSIS20_REPORT_SHA256
+        || analysis20?.['manifest.json']?.primary.sha256 !== RECOVERY_ANALYSIS20_MANIFEST_SHA256) {
+      throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_ANALYSIS20_IDENTITY');
     }
   }
   const latest = recoverySnapshot.offlineEpochs[expectedLatestEpoch];
@@ -1486,7 +1499,7 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
     recoveryEpoch = assertSameGate3Evidence(original.gate3.value, analysis, identity.head,
       expectedOfflineEpoch);
     assertRecoveryFrozenAppendOnly(original.prepare.value.frozenEvidenceSnapshot,
-      frozenEvidenceSnapshot, recoveryEpoch.replace('physical-root-cause-offline-v1/', ''), continuation02 ? 3 : 2);
+      frozenEvidenceSnapshot, recoveryEpoch.replace('physical-root-cause-offline-v1/', ''), continuation02 ? 4 : 2);
   }
   let source = sourceSnapshot(root);
   if (original) sourceDelta = verifyRecoverySourceDelta(original.prepare.value.source, source);
@@ -1598,7 +1611,7 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
     assertSameGate3Evidence(original.gate3.value, analysis, identity.head,
       expectedOfflineEpoch);
     assertRecoveryFrozenAppendOnly(original.prepare.value.frozenEvidenceSnapshot,
-      frozenEvidenceSnapshot, recoveryEpoch.replace('physical-root-cause-offline-v1/', ''), continuation02 ? 3 : 2);
+      frozenEvidenceSnapshot, recoveryEpoch.replace('physical-root-cause-offline-v1/', ''), continuation02 ? 4 : 2);
     if (!sameJson(snapshotActiveRootMembers(roots,
       Object.keys(original.memberSnapshot.primary), {requireExact: false}), original.memberSnapshot)) {
       throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_ORIGINAL_MUTATED');
@@ -1636,6 +1649,7 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
     const offline = latestOfflineReport(root, home, commonDirectory, identity.head,
       PREPARE_RECOVERY_CONTINUATION_02_OFFLINE_EPOCH);
     const continuation = {approvalMarker: PREPARE_RECOVERY_CONTINUATION_02_APPROVAL_MARKER,
+      amendmentApprovalMarker: PREPARE_RECOVERY_ANALYSIS21_AMENDMENT_APPROVAL_MARKER,
       designSha256: PREPARE_RECOVERY_CONTINUATION_02_DESIGN_SHA256,
       previousExecutionHead: previousRecovery.executionHead,
       previousRecoveryPreflightSha256: previousRecovery.preflight.sha256,
@@ -1863,6 +1877,7 @@ function recoverPreparedContinuation02({root = ROOT, home = os.homedir(), common
   const record = {schemaVersion: 1, kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_02',
     issue: 7, pr: PR_NUMBER, epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
     approvalMarker: PREPARE_RECOVERY_CONTINUATION_02_APPROVAL_MARKER,
+    amendmentApprovalMarker: PREPARE_RECOVERY_ANALYSIS21_AMENDMENT_APPROVAL_MARKER,
     designSha256: PREPARE_RECOVERY_CONTINUATION_02_DESIGN_SHA256,
     previousExecutionHead: previousRecovery.executionHead,
     previousRecoveryPreflightSha256: previousRecovery.preflight.sha256,
@@ -4041,7 +4056,9 @@ if (require.main === module) {
 module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA256,
   SUCCESSOR_CONTRACT_SHA256, SUCCESSOR_APPROVAL_MARKER, CTEST_ORDER_CONTRACT_SHA256,
   CTEST_ORDER_APPROVAL_MARKER, PREPARE_RECOVERY_CONTINUATION_02_APPROVAL_MARKER,
+  PREPARE_RECOVERY_ANALYSIS21_AMENDMENT_APPROVAL_MARKER,
   PREPARE_RECOVERY_CONTINUATION_02_DESIGN_SHA256, PREPARE_RECOVERY_CONTINUATION_02_OFFLINE_EPOCH,
+  RECOVERY_ANALYSIS20_REPORT_SHA256, RECOVERY_ANALYSIS20_MANIFEST_SHA256,
   PREPARE_RECOVERY_CONTINUATION_02_REL, RECOVERY_FIRST_EXECUTION_HEAD,
   RECOVERY_FIRST_PREFLIGHT_SHA256, RECOVERY_FIRST_RECEIPT_SHA256,
   BASELINE_HEAD, ACTIVE_EPOCH, PARENT_EPOCH,
