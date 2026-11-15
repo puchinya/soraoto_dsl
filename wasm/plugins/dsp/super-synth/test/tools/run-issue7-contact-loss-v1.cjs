@@ -851,13 +851,23 @@ function runPreflightCommand(root, args, env = process.env) {
     stdout: result.stdout || '', stderr: result.stderr || ''};
 }
 function summarizePassingCtest(output, expectedCount) {
-  const summary = String(output).match(/(\d+)% tests passed,\s*(\d+) tests failed out of\s*(\d+)/i);
-  const skipped = ctestSkippedCount(output);
-  if (!summary || Number(summary[3]) !== expectedCount || Number(summary[2]) !== 0 || skipped !== 0) {
-    return {tests: summary ? Number(summary[3]) : null, passed: summary ? Number(summary[3]) - Number(summary[2]) : null,
-      failed: summary ? Number(summary[2]) : null, skipped};
+  const text = String(output);
+  const legacy = text.match(/(\d+)% tests passed,\s*(\d+) tests failed out of\s*(\d+)/i);
+  const current = text.match(/(\d+)% tests passed out of\s*(\d+)/i);
+  const summary = legacy
+    ? {tests: Number(legacy[3]), failed: Number(legacy[2])}
+    : current && Number(current[1]) === 100
+      ? {tests: Number(current[2]), failed: 0}
+      : null;
+  const skipped = ctestSkippedCount(text);
+  const failureDetails = /^\s*\d+\s+-\s+.+?\s+\(Failed\)\s*$/m.test(text)
+    || /The following tests FAILED:/i.test(text);
+  const failed = summary ? Math.max(summary.failed, failureDetails ? 1 : 0) : null;
+  if (!summary || summary.tests !== expectedCount || summary.failed !== 0 || skipped !== 0 || failureDetails) {
+    return {tests: summary ? summary.tests : null,
+      passed: summary ? Math.max(0, summary.tests - failed) : null, failed, skipped};
   }
-  return {tests: Number(summary[3]), passed: Number(summary[3]), failed: 0, skipped: 0};
+  return {tests: summary.tests, passed: summary.tests, failed: 0, skipped: 0};
 }
 function summarizeCommand(result, summary) {
   return {...summary, stdoutSha256: sha256(Buffer.from(result.stdout)), stderrSha256: sha256(Buffer.from(result.stderr))};
@@ -3080,4 +3090,4 @@ module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA25
   assertEvidenceCapacity, stage3Cells,
   stage3Report, renderLifecycleWithAudio, stage4Report, stage4LegacyDocument, runPostStage4FullCTest,
   verifyAcceptanceProgress, continuationDecision, continueApproved,
-  status, parseMode, main};
+  status, parseMode, main, summarizePassingCtest};

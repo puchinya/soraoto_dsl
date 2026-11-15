@@ -1126,6 +1126,20 @@ test('full CTest classifier requires the exact failure set, signatures, lifecycl
     expectedLifecycleReportSha256: lifecycleSha256, errorCode: 'EACCES'}), /PREFLIGHT_CTEST_EXECUTION/);
 });
 
+test('focused CTest summary accepts current and legacy all-pass formats and rejects skips or failure detail', () => {
+  assert.deepEqual(runner.summarizePassingCtest('100% tests passed out of 2\n', 2),
+    {tests: 2, passed: 2, failed: 0, skipped: 0});
+  assert.deepEqual(runner.summarizePassingCtest('100% tests passed, 0 tests failed out of 2\n', 2),
+    {tests: 2, passed: 2, failed: 0, skipped: 0});
+  assert.deepEqual(runner.summarizePassingCtest('100% tests passed out of 2\n1/2 Test #2: focused ***Skipped\n', 2),
+    {tests: 2, passed: 2, failed: 0, skipped: 1});
+  assert.deepEqual(runner.summarizePassingCtest(
+    '100% tests passed out of 2\nThe following tests FAILED:\n  2 - focused (Failed)\n', 2),
+  {tests: 2, passed: 1, failed: 1, skipped: 0});
+  assert.deepEqual(runner.summarizePassingCtest('CTest exited without a summary\n', 2),
+    {tests: null, passed: null, failed: null, skipped: 0});
+});
+
 test('prepare preflight identity rejects missing receipts and any source or identity drift', () => {
   const context = tempRoots(), head = '4'.repeat(40), wasmSha256 = '5'.repeat(64), source = {source: 'fixed'};
   const frozenEvidenceSnapshot = {fixtureSnapshot: 'unchanged'}, parentProof = {epoch: runner.PARENT_EPOCH,
