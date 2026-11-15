@@ -1262,6 +1262,14 @@ test('continuation prefix verification tolerates its writer lock but rejects any
   assert.throws(() => runner.assertLockedRecoveryPrefix(context.roots, snapshot), /PREFIX_SET/);
 });
 
+test('prepared verification uses the authenticated recovery receipt offline epoch', () => {
+  assert.equal(runner.expectedRecoveryOfflineEpoch({kind: 'CONTACT_LOSS_PREPARE_RECOVERY'}),
+    'physical-root-cause-offline-v1/analysis-19');
+  assert.equal(runner.expectedRecoveryOfflineEpoch({kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_02'}),
+    'physical-root-cause-offline-v1/analysis-21');
+  assert.throws(() => runner.expectedRecoveryOfflineEpoch({kind: 'UNAUTHENTICATED'}), /RECOVERY_RECEIPT_KIND/);
+});
+
 test('prepare recovery receipt shape binds one HEAD, old roots, exact budgets, and WASM identities', () => {
   const executionHead = '9'.repeat(40), digest = 'a'.repeat(64), source = {fixture: {sha256: digest, size: 1, mtimeMs: 1}};
   const snapshot = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {}};

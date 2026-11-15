@@ -29,7 +29,7 @@ const CTEST_ORDER_CONTRACT_SHA256 = '106f22061781a2826a77d3ca0f83b85c79a7e03de41
 const PREPARE_RECOVERY_CONTRACT_SHA256 = '20241190b844ba47f3d317891776ba523ced0fa517c05207be9fa75e8ebd7be0';
 const CTEST_ORDER_CONTRACT_REL = 'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-ctest-order-contract.md';
 const PREPARE_RECOVERY_CONTRACT_REL = 'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-prepare-recovery-contract.md';
-const PREPARE_RECOVERY_CONTINUATION_02_DESIGN_SHA256 = 'ebcabaa5835a7f1987fa1bcc1a3a269392889252643c73ea93ee134d223feb58';
+const PREPARE_RECOVERY_CONTINUATION_02_DESIGN_SHA256 = 'edaa686e43fb86d6355f643a2848f018a1dcbe5d67098265db8fe8e2301c760a';
 const PREPARE_RECOVERY_CONTINUATION_02_OFFLINE_EPOCH = 'physical-root-cause-offline-v1/analysis-21';
 const PREPARE_RECOVERY_CONTINUATION_02_REL = 'prepare-recovery-continuation-02.json';
 const RECOVERY_ANALYSIS20_REPORT_SHA256 = 'af12be8d5cb0c03bbf8d5bba8085c7b848000d19f44c55c2e08b2bef72283120';
@@ -1148,6 +1148,13 @@ function assertSameGate3Evidence(original, recovery, expectedHead, expectedOffli
     throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_GATE3_EVIDENCE_DRIFT');
   }
   return expectedEpoch;
+}
+function expectedRecoveryOfflineEpoch(recoveryReceipt) {
+  if (recoveryReceipt?.kind === 'CONTACT_LOSS_PREPARE_RECOVERY') return RECOVERY_CURRENT_OFFLINE_EPOCH;
+  if (recoveryReceipt?.kind === 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_02') {
+    return PREPARE_RECOVERY_CONTINUATION_02_OFFLINE_EPOCH;
+  }
+  throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_RECEIPT_KIND');
 }
 function assertFrozenSnapshotMatches(actual, prepare) {
   const expected = prepare?.frozenEvidenceSnapshot;
@@ -2346,7 +2353,7 @@ function verifyPreparedCurrent(roots, state, {root = ROOT, home = os.homedir(), 
       throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_FROZEN_EVIDENCE_DRIFT');
     }
     assertSameGate3Evidence(gate3.value, recoveryReport.gate3Analysis, executionHead,
-      RECOVERY_CURRENT_OFFLINE_EPOCH);
+      expectedRecoveryOfflineEpoch(state.recovery.value));
   } else assertFrozenSnapshotMatches(frozenNow, state.prepare);
   const currentBuild = verifyDiagnosticBuild(root, identity.head, {buildDirectory});
   if (currentBuild.wasm.sha256 !== state.prepare.build.wasm.sha256 || !sameJson(currentBuild.source, executionSource)) {
@@ -4071,6 +4078,7 @@ module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA25
   assertRecoveryContinuation02PreflightReceiptShape, assertPrepareRecoveryContinuation02ReceiptShape,
   verifyStoredPrepareRecoveryContinuation02, verifyPrepareRecoveryContinuation02Approval,
   verifyRecoverySourceDelta, snapshotActiveRootMembers, assertLockedRecoveryPrefix, assertRecoveryFrozenAppendOnly,
+  expectedRecoveryOfflineEpoch,
   assertPinnedRecoveryPrepareBinding,
   classifyFullCTestPreflight, preflightTestEnvironment,
   buildP3SourceManifest, runOfflineFrozenWithP3Sources, preflightFileName,
