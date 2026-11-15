@@ -923,7 +923,7 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
   const focusedNodeResult = runPreflightCommand(root, focusedNodeArgs, testEnv);
   const focusedNodeSummary = nodeTestSummary(`${focusedNodeResult.stdout}\n${focusedNodeResult.stderr}`);
   const focusedNode = summarizeCommand(focusedNodeResult, focusedNodeSummary);
-  const ctestArgs = ['ctest', '--test-dir', diagnosticPath, '--output-on-failure', '-R',
+  const ctestArgs = ['ctest', '--test-dir', diagnosticPath, '--output-on-failure', '--verbose', '-R',
     '^wasm\\.dsp\\.super-synth\\.(issue7-contact-loss-v1-core|run-issue7-contact-loss-v1)$'];
   const focusedCTestResult = runPreflightCommand(root, ctestArgs, testEnv);
   const focusedCTestSummary = summarizePassingCtest(`${focusedCTestResult.stdout}\n${focusedCTestResult.stderr}`, 2);
