@@ -101,3 +101,16 @@ The implementation MUST correct the property binding and add one `--recover-prep
 Readers MUST preserve the original prepared HEAD/source fields as historical preparation identity and recognize the recovery HEAD only through the fully authenticated recovery receipt. Every subsequent acoustic start, metadata, completion and candidate record MUST bind to that recovery HEAD and the unchanged diagnostic WASM. A missing, partial, divergent, stale or contradictory record blocks without repair. No acoustic call may start until current `--status` and `--verify` both pass after recovery.
 
 This exception overrides only the prior post-prepare HEAD/source-change stop for the exact malformed preparation named above. All thresholds, physical parameters, test classification, Stage order and budgets remain unchanged. The recovery reviewer checklist is published in the linked contract and in Issue #7.
+
+## Approved continuation-03 readback recovery (2026-11-15)
+
+**Approval marker:** `ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_ANALYSIS22_AMENDMENT_APPROVED`
+**Issue approval:** recorded in Issue #7 body after user approval in Codex chat.
+**Offline evidence epoch:** `physical-root-cause-offline-v1/analysis-22`
+**Experiment evidence receipt:** `prepare-recovery-continuation-03.json`
+
+The continuation-02 report and receipt remain immutable. The continuation-02 receipt's recorded design identity is SHA-256 `ebcabaa5835a7f1987fa1bcc1a3a269392889252643c73ea93ee134d223feb58`; readers MUST validate that historical value without requiring the current design document to retain those bytes. The post-write verification correction remains a separate pushed source identity.
+
+One final recovery append is authorized in the existing experiment-02 epoch. Preserve the original six experiment-02 root records, the continuation-02 recovery preflight and receipt, analysis-20 and analysis-21, and every existing copy's bytes and mtime. Append exactly one Gate 0–2 report/manifest pair at analysis-22 for the final pushed PR #8 HEAD, then run one complete strict zero-acoustic preflight on that same HEAD. Only if all checks pass, append the new `recovery-preflight-<HEAD>.json` and one `prepare-recovery-continuation-03.json` dual-store receipt. The new receipt MUST link the continuation-02 receipt and preflight hashes, all original preparation records, both prior recovery pairs, analysis-20/21/22 report and manifest identities, the new preflight, parent/source/frozen snapshots, diagnostic and production WASM identities, zero-call counters, and unchanged budgets.
+
+The continuation-03 receipt becomes the current execution identity only after both copies and the full readback verify. No experiment ledger start, render, or acoustic call is permitted until `--status` and `--verify` both pass at that exact HEAD. Existing experiment-02 physical parameters, gates, 42-call total, 1,962 downstream reserve, 3,251 historical calls, and 5,255 lifetime cap remain unchanged. Any mismatch, partial write, changed mtime, failed preflight, or readback error blocks without repair. This is the final recovery authorization; no later recovery append is allowed.

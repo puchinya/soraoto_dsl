@@ -45,8 +45,30 @@ The defect is limited to serialization: `verifyPreflightForPrepare()` returns `p
 - [ ] Any missing, partial, one-sided, stale or contradictory recovery evidence fails closed without a call.
 - [ ] No acoustic call starts until current `--status` and `--verify` both pass after recovery.
 
+### Continuation-03 reviewer checklist
+
+- [ ] Issue approval marker and current design/contract SHA values match the pushed implementation.
+- [ ] The original six root records and continuation-02 preflight/receipt remain byte-identical with unchanged per-copy mtimes.
+- [ ] Continuation-02 is validated using its recorded historical design SHA; continuation-03 binds to analysis-22 and the exact final pushed HEAD.
+- [ ] The new preflight and receipt bind analysis-20/21/22, parent/source/frozen evidence, current build identities, 0/0/0 calls, and unchanged budgets.
+- [ ] Dual-store readback, `--status`, and `--verify` pass at the same HEAD before any acoustic call.
+- [ ] Failure or partial append blocks without repair; no further recovery append is permitted.
+
 ## Document impact
 
 - Specification: `physical-contact-loss-v1-experiment-02-amendment.md`.
 - Design: `physical-contact-loss-v1-experiment-02-design.md`.
 - Status: evidence-only; measured outcomes remain in private receipts and Issue #7 body.
+
+## Approved continuation-03 recovery (2026-11-15)
+
+**Approval marker:** `ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_ANALYSIS22_AMENDMENT_APPROVED`
+**Prior continuation-02 receipt:** SHA-256 `2a3dbcab25a699a38856a9e9c412aa2cda1c411b4c365ceb019683df932aae28`
+**Prior continuation-02 preflight:** SHA-256 `ee5dd614522c3e3064efab5baaeac1deef9bce333600d4c498e6f35e1f8a6d86`
+**Offline evidence epoch:** `physical-root-cause-offline-v1/analysis-22`
+
+The approved append repairs the post-write reader identity mismatch without changing any stored record. The continuation-02 receipt and preflight stay byte-for-byte unchanged and are authenticated using the design SHA they record (`ebcabaa5835a7f1987fa1bcc1a3a269392889252643c73ea93ee134d223feb58`).
+
+The runner first authenticates the original preparation and first recovery, then verifies continuation-02 and snapshots its complete eight-file experiment-02 prefix. At the final clean pushed PR #8 HEAD it verifies the single analysis-22 offline report/manifest pair and completes the existing strict preflight matrix with zero skips and the exact approved full-CTest baseline classification. Only after all checks pass may it append a recovery preflight and `prepare-recovery-continuation-03.json`, each dual-store and immutable. The receipt binds the previous continuation-02 report and preflight, the original preparation hashes, the first recovery hashes, analysis-20/21/22 identities, exact current HEAD, source delta, parent/frozen inventories, unchanged diagnostic and production WASM identities, 0/0/0 calls, and the fixed 42/1,962/3,251/5,255 accounting.
+
+After the append, the reader verifies all prior and new records, exact root membership, per-copy prior snapshots, and same-HEAD source/build/offline identities. Acoustic execution remains prohibited until both `--status` and `--verify` pass at the same HEAD. Failure preserves any partial append and blocks; there is no retry, overwrite, repair, or further recovery authorization.

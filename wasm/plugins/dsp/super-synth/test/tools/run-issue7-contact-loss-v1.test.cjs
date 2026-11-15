@@ -1227,6 +1227,18 @@ test('recovery frozen snapshot preserves analysis-20 and appends only approved s
   delete skippedEpoch.offlineEpochs['analysis-20'];
   assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, skippedEpoch, 'analysis-21', 4),
     /RECOVERY_FROZEN_EPOCH_SEQUENCE/);
+  const analysis21 = {'report.json': {primary: copy(runner.RECOVERY_ANALYSIS21_REPORT_SHA256),
+    secondary: copy(runner.RECOVERY_ANALYSIS21_REPORT_SHA256, 2)},
+  'manifest.json': {primary: copy(runner.RECOVERY_ANALYSIS21_MANIFEST_SHA256),
+    secondary: copy(runner.RECOVERY_ANALYSIS21_MANIFEST_SHA256, 2)}};
+  const continuation03 = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
+    ...continuation02.offlineEpochs, 'analysis-21': analysis21, 'analysis-22': record('22')}};
+  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, continuation03, 'analysis-22', 5), true);
+  const driftedAnalysis21 = structuredClone(continuation03);
+  driftedAnalysis21.offlineEpochs['analysis-21']['manifest.json'].primary.sha256 = 'changed';
+  driftedAnalysis21.offlineEpochs['analysis-21']['manifest.json'].secondary.sha256 = 'changed';
+  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, driftedAnalysis21, 'analysis-22', 5),
+    /RECOVERY_ANALYSIS21_IDENTITY/);
 });
 
 test('recovery preserves distinct original copy mtimes while requiring identical bytes', () => {
@@ -1267,6 +1279,8 @@ test('prepared verification uses the authenticated recovery receipt offline epoc
     'physical-root-cause-offline-v1/analysis-19');
   assert.equal(runner.expectedRecoveryOfflineEpoch({kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_02'}),
     'physical-root-cause-offline-v1/analysis-21');
+  assert.equal(runner.expectedRecoveryOfflineEpoch({kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_03'}),
+    'physical-root-cause-offline-v1/analysis-22');
   assert.throws(() => runner.expectedRecoveryOfflineEpoch({kind: 'UNAUTHENTICATED'}), /RECOVERY_RECEIPT_KIND/);
 });
 
@@ -1412,6 +1426,99 @@ test('continuation-02 receipts chain the first recovery and preserve all six pri
     continuation02: {...preflight.continuation02, previousRootSnapshot: {...previousRootSnapshot,
       primary: {...previousRootSnapshot.primary, 'prepare.json': {...previousRootSnapshot.primary['prepare.json'], sha256: '0'.repeat(64)}}}}}, head),
   /CONTINUATION_02_PREFIX_IDENTITY/);
+});
+
+test('continuation-03 receipt authenticates the immutable continuation-02 chain and eight-file prefix', () => {
+  const head = '8'.repeat(40), digest = 'a'.repeat(64), source = {fixture: {sha256: digest, size: 9, mtimeMs: 13}};
+  const names = ['gate3-analysis.json', 'plan.json', 'prepare.json',
+    'preflight-7f7fd1074be24bada371a517468f1ff4366ef1fc.json',
+    'recovery-preflight-e0a59dbf13d4910f2a342bf50fe2d846464c2b27.json', 'prepare-recovery.json',
+    `recovery-preflight-${runner.RECOVERY_CONTINUATION_02_EXECUTION_HEAD}.json`,
+    runner.PREPARE_RECOVERY_CONTINUATION_02_REL];
+  const hashes = {'gate3-analysis.json': 'df8fd945bc2936e99c51c082b4ad92d31921321b5a8332643d1e56227c93fcc2',
+    'plan.json': '0eaa7f377420d893acb6692f08aa0a6fa0b9035f26422c7d284a15d5fa08f52a',
+    'prepare.json': '37b1d47a1329a48298feea6bc93f6bf540e50b30853abe10bc7b40fcac9bd8fd',
+    'preflight-7f7fd1074be24bada371a517468f1ff4366ef1fc.json': '07a26cee19ba84b588d33f6e5967be5b3913ce11daf1eb0e6039c350894f3cb1',
+    'recovery-preflight-e0a59dbf13d4910f2a342bf50fe2d846464c2b27.json': runner.RECOVERY_FIRST_PREFLIGHT_SHA256,
+    'prepare-recovery.json': runner.RECOVERY_FIRST_RECEIPT_SHA256,
+    [`recovery-preflight-${runner.RECOVERY_CONTINUATION_02_EXECUTION_HEAD}.json`]: runner.RECOVERY_CONTINUATION_02_PREFLIGHT_SHA256,
+    [runner.PREPARE_RECOVERY_CONTINUATION_02_REL]: runner.RECOVERY_CONTINUATION_02_RECEIPT_SHA256};
+  const previousRootSnapshot = {primary: {}, secondary: {}};
+  for (const [index, name] of names.entries()) {
+    previousRootSnapshot.primary[name] = {sha256: hashes[name], size: 100 + index, mtimeMs: 1000 + index};
+    previousRootSnapshot.secondary[name] = {sha256: hashes[name], size: 100 + index, mtimeMs: 2000 + index};
+  }
+  assert.equal(runner.assertRecoveryContinuation03PriorRootSnapshot(previousRootSnapshot), true);
+  const sourceDelta = Object.fromEntries([
+    'docs/specs/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-amendment.md',
+    'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-design.md',
+    'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-prepare-recovery-contract.md',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-contact-loss-v1.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-contact-loss-v1.test.cjs'
+  ].map(name => [name, {before: null, after: source.fixture}]));
+  const frozenEvidenceSnapshot = {parentEvidence: {sha256: digest}, offlineEpochs: {}};
+  const frozenSnapshotSha256 = runner.frozenSnapshotSha256(frozenEvidenceSnapshot);
+  const gate3Analysis = {status: 'GATE3_ANALYSIS_PASS', head,
+    offlineEpoch: runner.PREPARE_RECOVERY_CONTINUATION_03_OFFLINE_EPOCH,
+    observationCount: 20, cellCount: 140, archiveSha256: 'b'.repeat(64),
+    offlineReportSha256: 'c'.repeat(64), frozenSnapshotSha256};
+  const gate3AnalysisSha256 = bytesSha(Buffer.from(`${JSON.stringify(stable(gate3Analysis), null, 2)}\n`));
+  const offlineHistory = {analysis20: {reportSha256: runner.RECOVERY_ANALYSIS20_REPORT_SHA256,
+    manifestSha256: runner.RECOVERY_ANALYSIS20_MANIFEST_SHA256},
+  analysis21: {reportSha256: runner.RECOVERY_ANALYSIS21_REPORT_SHA256,
+    manifestSha256: runner.RECOVERY_ANALYSIS21_MANIFEST_SHA256},
+  analysis22: {reportSha256: gate3Analysis.offlineReportSha256, manifestSha256: '2'.repeat(64)}};
+  const parentProof = {epoch: runner.PARENT_EPOCH, head: runner.PARENT_HEAD, charged: 0, completed: 0, ambiguous: 0};
+  const builds = {diagnostic: {wasmSha256: 'e'.repeat(64), wasmSize: 10},
+    production: {wasmSha256: 'f'.repeat(64), wasmSize: 20}};
+  const receipt = {schemaVersion: 1, kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_03',
+    issue: 7, pr: 8, epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
+    approvalMarker: runner.PREPARE_RECOVERY_CONTINUATION_03_APPROVAL_MARKER,
+    designSha256: runner.PREPARE_RECOVERY_CONTINUATION_03_DESIGN_SHA256,
+    previousExecutionHead: runner.RECOVERY_CONTINUATION_02_EXECUTION_HEAD,
+    previousRecoveryPreflightSha256: runner.RECOVERY_CONTINUATION_02_PREFLIGHT_SHA256,
+    previousRecoveryReceiptSha256: runner.RECOVERY_CONTINUATION_02_RECEIPT_SHA256,
+    original: {head: '7f7fd1074be24bada371a517468f1ff4366ef1fc',
+      prepareSha256: hashes['prepare.json'], planSha256: hashes['plan.json'],
+      gate3Sha256: hashes['gate3-analysis.json'],
+      preflightSha256: hashes['preflight-7f7fd1074be24bada371a517468f1ff4366ef1fc.json']},
+    executionHead: head, previousRootSnapshot,
+    recovery: {head, preflightFile: `recovery-preflight-${head}.json`, preflightSha256: digest,
+      gate3AnalysisSha256, gate3Analysis, offlineReportSha256: gate3Analysis.offlineReportSha256,
+      offlineManifestSha256: offlineHistory.analysis22.manifestSha256, offlineHistory,
+      frozenSnapshotSha256, frozenEvidenceSnapshot, source, sourceDelta, builds},
+    parentProof, calls: {started: 0, completed: 0, ambiguous: 0}, budget: core.accounting()};
+  assert.equal(runner.assertPrepareRecoveryContinuation03ReceiptShape(receipt), receipt);
+  assert.throws(() => runner.assertPrepareRecoveryContinuation03ReceiptShape({...receipt,
+    previousRecoveryReceiptSha256: '0'.repeat(64)}), /CONTINUATION_03_RECEIPT_IDENTITY/);
+  assert.throws(() => runner.assertPrepareRecoveryContinuation03ReceiptShape({...receipt,
+    previousRootSnapshot: {...previousRootSnapshot, primary: {...previousRootSnapshot.primary,
+      'prepare.json': {...previousRootSnapshot.primary['prepare.json'], sha256: '0'.repeat(64)}}}}),
+  /CONTINUATION_03_PREFIX_IDENTITY/);
+  const context = tempRoots(), current = setupPreflight({roots: context.roots, head,
+    wasmSha256: '3'.repeat(64), source, parentEpoch: parentProof,
+    gate3Sha256: gate3AnalysisSha256, frozenEvidenceSnapshot});
+  const continuation03 = {approvalMarker: receipt.approvalMarker, designSha256: receipt.designSha256,
+    previousExecutionHead: receipt.previousExecutionHead,
+    previousRecoveryPreflightSha256: receipt.previousRecoveryPreflightSha256,
+    previousRecoveryReceiptSha256: receipt.previousRecoveryReceiptSha256,
+    originalPrepareSha256: receipt.original.prepareSha256, originalPlanSha256: receipt.original.planSha256,
+    originalGate3Sha256: receipt.original.gate3Sha256, originalPreflightSha256: receipt.original.preflightSha256,
+    executionHead: head, preflightFile: receipt.recovery.preflightFile,
+    offlineEpoch: runner.PREPARE_RECOVERY_CONTINUATION_03_OFFLINE_EPOCH,
+    offlineReportSha256: receipt.recovery.offlineReportSha256,
+    offlineManifestSha256: receipt.recovery.offlineManifestSha256, offlineHistory,
+    gate3AnalysisSha256, gate3Analysis, sourceDelta, previousRootSnapshot};
+  const preflight = {...current.report,
+    kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_03_PREFLIGHT',
+    gate3: {analysisSha256: gate3AnalysisSha256}, continuation03};
+  assert.equal(runner.assertRecoveryContinuation03PreflightReceiptShape(preflight, head), preflight);
+  assert.throws(() => runner.assertRecoveryContinuation03PreflightReceiptShape({...preflight,
+    continuation03: {...continuation03, offlineHistory: {...offlineHistory,
+      analysis21: {...offlineHistory.analysis21, manifestSha256: '0'.repeat(64)}}}}, head),
+  /CONTINUATION_03_PREFLIGHT_IDENTITY/);
+  assert.equal(runner.PREPARE_RECOVERY_CONTINUATION_02_DESIGN_SHA256,
+    'ebcabaa5835a7f1987fa1bcc1a3a269392889252643c73ea93ee134d223feb58');
 });
 
 test('preflight build matrix is exported as absolute paths for CTest child working directories', () => {
