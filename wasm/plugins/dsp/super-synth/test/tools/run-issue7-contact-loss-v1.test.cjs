@@ -1276,6 +1276,21 @@ test('prepare recovery receipt shape binds one HEAD, old roots, exact budgets, a
     calls: {started: 1, completed: 0, ambiguous: 0}}), /PREPARE_RECOVERY_RECEIPT_IDENTITY/);
 });
 
+test('pinned recovery preparation accepts the immutable legacy marker only with its original byte identities', () => {
+  const head = '7f7fd1074be24bada371a517468f1ff4366ef1fc';
+  const prepared = {sha256: '37b1d47a1329a48298feea6bc93f6bf540e50b30853abe10bc7b40fcac9bd8fd',
+    value: {head, approvalMarker: 'ISSUE7_CONTACT_LOSS_V1_GATE3_6_APPROVED',
+      preflightFile: runner.preflightFileName(head)}};
+  const originalPreflight = {sha256: '07a26cee19ba84b588d33f6e5967be5b3913ce11daf1eb0e6039c350894f3cb1'};
+  assert.equal(runner.assertPinnedRecoveryPrepareBinding(prepared, originalPreflight), true);
+  assert.throws(() => runner.assertPinnedRecoveryPrepareBinding({...prepared,
+    value: {...prepared.value, approvalMarker: runner.ISSUE_APPROVAL_MARKER}}, originalPreflight),
+  /PREPARE_RECOVERY_ORIGINAL_BINDING/);
+  assert.throws(() => runner.assertPinnedRecoveryPrepareBinding({...prepared,
+    value: {...prepared.value, preflightSha256: 'a'.repeat(64)}}, originalPreflight),
+  /PREPARE_RECOVERY_ORIGINAL_BINDING/);
+});
+
 test('preflight build matrix is exported as absolute paths for CTest child working directories', () => {
   const context = tempRoots(), env = runner.preflightTestEnvironment({root: context.root,
     diagnosticBuildDirectory: 'build/diag', productionBuildDirectory: 'build/release', env: {KEPT: 'yes'}});
