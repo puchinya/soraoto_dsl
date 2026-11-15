@@ -62,7 +62,9 @@ function dualTreeInventory(roots) {
   return inventory;
 }
 function setupPrepared({roots, head = '1'.repeat(40), wasmSha256 = '2'.repeat(64), source = {}, parentProof = null}) {
-  const gate3 = {status: 'GATE3_ANALYSIS_PASS', head};
+  const frozenEvidenceSnapshot = {fixtureSnapshot: 'unchanged'};
+  const gate3 = {status: 'GATE3_ANALYSIS_PASS', head,
+    frozenSnapshotSha256: runner.frozenSnapshotSha256(frozenEvidenceSnapshot)};
   const gate3Bytes = Buffer.from(`${JSON.stringify(stable(gate3), null, 2)}\n`), gate3Sha256 = bytesSha(gate3Bytes);
   const parentEpoch = parentProof || {epoch: runner.PARENT_EPOCH, head: runner.PARENT_HEAD,
     prepareSha256: runner.PARENT_PREPARE_SHA256, planSha256: runner.PARENT_PLAN_SHA256,
@@ -72,8 +74,9 @@ function setupPrepared({roots, head = '1'.repeat(40), wasmSha256 = '2'.repeat(64
     epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
     approvalMarker: 'ISSUE7_CONTACT_LOSS_V1_GATE3_6_APPROVED',
     successorApprovalMarker: runner.SUCCESSOR_APPROVAL_MARKER, parentEpoch,
-    gate3: {status: 'GATE3_ANALYSIS_PASS', analysisSha256: gate3Sha256},
-    source, build: {wasm: {sha256: wasmSha256}}, plan: core.plan(),
+    gate3: {status: 'GATE3_ANALYSIS_PASS', analysisSha256: gate3Sha256, frozenSnapshotSha256: gate3.frozenSnapshotSha256},
+    frozenEvidenceSnapshot,
+    source, build: {diagnosticBuildDirectory: 'build/diag', wasm: {sha256: wasmSha256, size: 123}}, plan: core.plan(),
     startedCalls: 0, completedCalls: 0, ambiguousCalls: 0, budget: core.accounting()};
   const plan = {schemaVersion: 2, epoch: runner.ACTIVE_EPOCH,
     contractSha256: runner.SUCCESSOR_CONTRACT_SHA256, plan: core.plan(), callCap: 42,
@@ -88,7 +91,9 @@ function commitFixtureSource(root) {
   for (const relative of runner.SOURCE_FILES) {
     const file = path.join(root, relative);
     fs.mkdirSync(path.dirname(file), {recursive: true});
-    const bytes = Buffer.from(`fixture:${relative}`);
+    const bytes = relative === 'wasm/plugins/dsp/super-synth/presets.json'
+      ? Buffer.from('{"concert_grand":{"engine_config":{"hammer":{"contact_loss_soft":0.08,"contact_loss_hard":0.28}}}}\n')
+      : Buffer.from(`fixture:${relative}`);
     fs.writeFileSync(file, bytes);
     const stat = fs.statSync(file);
     source[relative] = {sha256: bytesSha(bytes), size: bytes.length, mtimeMs: stat.mtimeMs};
@@ -442,16 +447,18 @@ function fixtureStatus(context, {referenceReader = () => [], snapshotReader = ()
     snapshotReader, referenceReader});
 }
 
-function fixtureReferences(state) {
-  return state.calls.slice(0, 7).map(row => ({pitch: row.cell.pitch, velocity: row.cell.velocity,
+function fixtureReferences(state, alphaOrder = 0) {
+  return state.calls.slice(alphaOrder * 7, alphaOrder * 7 + 7).map(row => ({pitch: row.cell.pitch, velocity: row.cell.velocity,
     metrics: row.metadata.value.metrics, audio: decodeAudio(row.audio.bytes)}));
 }
-function writeScoredFixtureSelection(context, {reference124OffsetDb = 0} = {}) {
+function writeScoredFixtureSelection(context, {reference124OffsetDb = 0, candidateScaleAlpha = null} = {}) {
   for (const cell of core.plan()) {
-    writeCompletedCall(context.roots, cell, context.prepared);
+    const scale = cell.alphaOrder > 0 && cell.alpha === candidateScaleAlpha
+      && cell.pitch === 96 && cell.velocity === 124 ? 2 : 1;
+    writeCompletedCall(context.roots, cell, context.prepared, {scale});
   }
   let state = runner.readExperimentState(context.roots), gainDb = null;
-  const refs = fixtureReferences(state);
+  const refs = fixtureReferences(state, candidateScaleAlpha === null ? 0 : core.alphaIndex(candidateScaleAlpha));
   if (reference124OffsetDb !== 0) {
     const ref = refs.find(row => row.pitch === 96 && row.velocity === 124);
     const shifted = ref.metrics.envelopeDbfs.map(value => value + reference124OffsetDb);
@@ -542,7 +549,7 @@ test('status recomputes canonical 42-call PASS and FAIL selections from stored r
     const before = dualTreeInventory(context.roots);
     const result = fixtureStatus(context, {referenceReader: () => fixture.refs});
     assert.equal(fixture.decision.status, reference124OffsetDb === 0 ? 'GATE4_STRESS_PASS' : core.TERMINAL);
-    assert.equal(result.status, fixture.decision.status);
+    assert.equal(result.status, fixture.decision.status, JSON.stringify(result));
     assert.equal(result.selection, fixture.decision.status);
     assert.equal(result.charged, 42);
     assert.equal(result.completed, 42);
@@ -552,6 +559,201 @@ test('status recomputes canonical 42-call PASS and FAIL selections from stored r
     assert.equal(result.acousticCalls, 0);
     assert.deepEqual(dualTreeInventory(context.roots), before);
   }
+});
+
+test('post-promotion verify and status use promoted authority instead of the stale prepared HEAD', () => {
+  const context = preparedStatusFixture(), fixture = writeScoredFixtureSelection(context);
+  assert.equal(fixture.decision.status, 'GATE4_STRESS_PASS');
+  fs.writeFileSync(path.join(context.root, 'promotion-descendant.md'), 'two-file promotion descendant fixture\n');
+  execFileSync('rtk', ['git', 'add', 'promotion-descendant.md'], {cwd: context.root, stdio: 'ignore'});
+  execFileSync('rtk', ['git', 'commit', '--quiet', '-m', 'fixture promotion descendant'], {cwd: context.root, stdio: 'ignore'});
+  const promotedHead = runner.currentIdentity(context.root).head;
+  assert.notEqual(promotedHead, context.prepared.head);
+  writePromotion(context, {schemaVersion: 2, epoch: runner.ACTIVE_EPOCH,
+    contractSha256: runner.SUCCESSOR_CONTRACT_SHA256, head: promotedHead});
+  const before = dualTreeInventory(context.roots);
+  let promotedChecks = 0;
+  const promotedVerifier = ({state, root}) => {
+    promotedChecks++;
+    assert.equal(state.prepare.head, context.prepared.head);
+    assert.equal(runner.currentIdentity(root).head, promotedHead);
+    return {head: promotedHead};
+  };
+  const promotionSelectionVerifier = ({selectionStored}) => {
+    assert.equal(selectionStored.value.status, fixture.decision.status);
+    return fixture.decision;
+  };
+  const preparedVerifier = () => { throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT'); };
+  const parentVerifier = options => verifyFixtureParent(context, options);
+  const snapshotReader = () => ({fixtureSnapshot: 'unchanged'});
+  const verifyOptions = {...context, parentVerifier, preparedVerifier, promotedVerifier,
+    promotionSelectionVerifier, snapshotReader, referenceReader: () => fixture.refs};
+  const verified = runner.verifyExperiment(verifyOptions);
+  assert.equal(verified.status, 'GATE4_STRESS_PASS');
+  assert.equal(verified.selection.status, 'GATE4_STRESS_PASS');
+  assert.equal(verified.writes, 0);
+  assert.equal(verified.renders, 0);
+  assert.equal(verified.acousticCalls, 0);
+  const status = runner.status({...verifyOptions, terminalVerifier: options => runner.verifyExperiment({...options,
+    parentVerifier, preparedVerifier, promotedVerifier, promotionSelectionVerifier, snapshotReader,
+    referenceReader: () => fixture.refs}), acceptanceVerifier: () => ({acceptanceCharged: 0, reports: {}})});
+  assert.equal(status.status, 'GATE4_STRESS_PASS');
+  assert.equal(status.preparedHead, context.prepared.head);
+  assert.equal(status.currentHead, promotedHead);
+  assert.equal(status.writes, 0);
+  assert.equal(status.renders, 0);
+  assert.equal(status.acousticCalls, 0);
+  assert.ok(promotedChecks >= 3);
+  assert.deepEqual(dualTreeInventory(context.roots), before);
+});
+
+test('authenticated two-file promotion is accepted by read-only verify and status without rebinding experiment evidence', () => {
+  const context = preparedStatusFixture(), fixture = writeScoredFixtureSelection(context,
+    {candidateScaleAlpha: 0.5});
+  assert.equal(fixture.decision.status, 'GATE4_STRESS_PASS');
+  assert.notEqual(fixture.decision.selected.alpha, 1);
+  const promotion = commitPromotionFixture(context, fixture.record);
+  assert.equal(promotion.record.parentHead, context.prepared.head);
+  assert.notEqual(promotion.head, context.prepared.head);
+  const before = dualTreeInventory(context.roots);
+  const snapshotReader = () => context.prepared.value.frozenEvidenceSnapshot;
+  const parentVerifier = options => verifyFixtureParent(context, options);
+  const promotedVerifier = options => runner.verifyPromotedAuthority({...options,
+    pullRequestVerifier: (_root, head) => assert.equal(head, promotion.head),
+    issueApprovalVerifier: () => true,
+    offlineReportReader: () => ({reportSha256: context.prepared.value.gate3.offlineReportSha256}),
+    snapshotReader});
+  const promotionSelectionVerifier = options => runner.verifySelectionAfterPromotion({...options,
+    parentVerifier, snapshotReader, referenceReader: () => fixture.refs,
+    frozenSnapshotReader: snapshotReader,
+    offlineReportReader: () => ({reportSha256: context.prepared.value.gate3.offlineReportSha256}),
+    wasmArtifactReader: () => ({sha256: context.prepared.value.build.wasm.sha256,
+      size: context.prepared.value.build.wasm.size})});
+  const common = {...context, parentVerifier, promotedVerifier, promotionSelectionVerifier,
+    snapshotReader, referenceReader: () => fixture.refs};
+  const verified = runner.verifyExperiment(common);
+  assert.equal(verified.status, 'GATE4_STRESS_PASS');
+  assert.equal(verified.charged, 42);
+  assert.equal(verified.completed, 42);
+  assert.equal(verified.ambiguous, 0);
+  assert.equal(verified.writes, 0);
+  assert.equal(verified.renders, 0);
+  assert.equal(verified.acousticCalls, 0);
+  const status = runner.status({...common, acceptanceVerifier: () => ({acceptanceCharged: 0, reports: {}})});
+  assert.equal(status.status, 'GATE4_STRESS_PASS');
+  assert.equal(status.preparedHead, context.prepared.head);
+  assert.equal(status.currentHead, promotion.head);
+  assert.equal(status.selection, 'GATE4_STRESS_PASS');
+  assert.equal(status.writes, 0);
+  assert.equal(status.renders, 0);
+  assert.equal(status.acousticCalls, 0);
+  assert.deepEqual(dualTreeInventory(context.roots), before);
+});
+
+test('post-promotion verify rejects an unauthenticated fake promotion without altering evidence', () => {
+  const context = preparedStatusFixture(), fixture = writeScoredFixtureSelection(context);
+  fs.writeFileSync(path.join(context.root, 'unapproved-descendant.md'), 'not a promotion\n');
+  execFileSync('rtk', ['git', 'add', 'unapproved-descendant.md'], {cwd: context.root, stdio: 'ignore'});
+  execFileSync('rtk', ['git', 'commit', '--quiet', '-m', 'fixture unapproved descendant'], {cwd: context.root, stdio: 'ignore'});
+  writePromotion(context, {schemaVersion: 2, epoch: runner.ACTIVE_EPOCH,
+    contractSha256: runner.SUCCESSOR_CONTRACT_SHA256, head: runner.currentIdentity(context.root).head});
+  const before = dualTreeInventory(context.roots);
+  const options = {...context, parentVerifier: opts => verifyFixtureParent(context, opts),
+    snapshotReader: () => ({fixtureSnapshot: 'unchanged'}), referenceReader: () => fixture.refs};
+  assert.throws(() => runner.verifyExperiment(options), /BLOCKED_CONTACT_LOSS_PROMOTION_IDENTITY/);
+  const status = fixtureStatus(context, {referenceReader: () => fixture.refs});
+  assert.equal(status.status, 'BLOCKED_CONTACT_LOSS_PROMOTION_IDENTITY');
+  assert.equal(status.selection, 'UNVERIFIED');
+  assert.equal(status.writes, 0);
+  assert.equal(status.renders, 0);
+  assert.deepEqual(dualTreeInventory(context.roots), before);
+});
+
+test('status refuses final acoustic PASS when a valid Gate4 selection has no downstream stage evidence', () => {
+  const context = preparedStatusFixture(), fixture = writeScoredFixtureSelection(context);
+  assert.equal(fixture.decision.status, 'GATE4_STRESS_PASS');
+  const fakeFinal = {schemaVersion: 2, issue: 7, pr: 8, epoch: runner.ACTIVE_EPOCH,
+    contractSha256: runner.SUCCESSOR_CONTRACT_SHA256, decision: 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW',
+    head: context.prepared.head, selectionSha256: 'a'.repeat(64), promotionSha256: 'b'.repeat(64),
+    reports: Object.fromEntries(['confirmation', 'headroom', 'promoted-builds', 'release-equivalence', 'stage3', 'stage4', 'full-ctest']
+      .map(name => [name, 'c'.repeat(64)])), webPlayer: {test: 'PASS', build: 'PASS'},
+    manualAudio: 'NOT RUN', review: 'PENDING', stage3: 'PASS', stage4: 'PASS',
+    accounting: core.accounting({startedExperimentCalls: 42, startedAcceptanceCalls: core.RESERVE_CALLS})};
+  runner.writeDualImmutable(context.roots, 'acceptance/final-report.json', Buffer.from(`${JSON.stringify(stable(fakeFinal), null, 2)}\n`));
+  const before = dualTreeInventory(context.roots);
+  const result = fixtureStatus(context, {referenceReader: () => fixture.refs});
+  assert.equal(result.status, 'BLOCKED_CONTACT_LOSS_ACCEPTANCE_REPORT_MISSING');
+  assert.equal(result.finalReport, 'UNVERIFIED');
+  assert.equal(result.selection, 'GATE4_STRESS_PASS');
+  assert.equal(result.acceptanceCharged, null);
+  assert.equal(result.cumulative, null);
+  assert.equal(result.writes, 0);
+  assert.equal(result.renders, 0);
+  assert.equal(result.acousticCalls, 0);
+  assert.deepEqual(dualTreeInventory(context.roots), before);
+});
+
+test('post-Stage4 full CTest consumes a reconstructed lifecycle document from the build temp area', () => {
+  const context = preparedStatusFixture(), document = {schemaVersion: 1, decision: 'STAGE4_LIFECYCLE_CAPTURE_COMPLETE',
+    identity: {stage3ResultSha256: 'a'.repeat(64)}, coverage: {lifecycleCells: 1408, adjacentComparisons: 1392, repeatCells: 15},
+    render: {sampleRate: 48000}, matrix: [{pitch: 48, velocity: 14, metrics: {finite: true}}], repeats: []};
+  const inputBytes = Buffer.from(`${JSON.stringify(stable(document), null, 2)}\n`);
+  const before = dualTreeInventory(context.roots);
+  let commandSeen = false;
+  const result = runner.runPostStage4FullCTest({roots: context.roots, root: context.root,
+    buildDirectory: 'build/diagnostic', stage4ReportSha256: 'b'.repeat(64), document,
+    spawn: (command, args, options) => {
+      commandSeen = true;
+      assert.equal(command, 'rtk');
+      assert.deepEqual(args, ['ctest', '--test-dir', path.join(context.root, 'build/diagnostic'), '--output-on-failure']);
+      const input = options.env.SUPERSYNTH_LIFECYCLE_PATH;
+      assert.ok(input.startsWith(path.join(context.root, 'build', '.issue7-contact-loss-post-stage4-')));
+      assert.deepEqual(fs.readFileSync(input), inputBytes);
+      assert.equal(options.env.SUPERSYNTH_REPORT_DIR, '');
+      return {status: 0, stdout: '100% tests passed, 0 tests failed out of 50\n', stderr: ''};
+    }});
+  assert.equal(commandSeen, true);
+  assert.equal(result.report.pass, true);
+  assert.equal(result.report.testCount, 50);
+  assert.equal(result.report.failedCount, 0);
+  assert.equal(result.report.lifecycleInputSha256, bytesSha(inputBytes));
+  assert.equal(result.report.stage4ReportSha256, 'b'.repeat(64));
+  assert.deepEqual(fs.readdirSync(path.join(context.root, 'build')), []);
+  const after = dualTreeInventory(context.roots);
+  const oldFiles = copy => before[copy].filter(row => row.type === 'file');
+  const newFiles = copy => after[copy].filter(row => row.type === 'file');
+  for (const copy of ['primary', 'secondary']) {
+    assert.deepEqual(newFiles(copy).filter(row => oldFiles(copy).some(old => old.path === row.path)), oldFiles(copy));
+    assert.deepEqual(newFiles(copy).filter(row => !oldFiles(copy).some(old => old.path === row.path)).map(row => row.path),
+      [path.join('acceptance', 'full-ctest', 'report.json')]);
+  }
+});
+
+test('post-Stage4 full CTest records concrete failures instead of promoting them to PASS', () => {
+  const context = preparedStatusFixture(), document = {schemaVersion: 1, decision: 'STAGE4_LIFECYCLE_CAPTURE_COMPLETE',
+    identity: {}, coverage: {}, render: {}, matrix: [], repeats: []};
+  const result = runner.runPostStage4FullCTest({roots: context.roots, root: context.root,
+    buildDirectory: 'build/diagnostic', stage4ReportSha256: 'd'.repeat(64), document,
+    spawn: () => ({status: 8, stdout: '94% tests passed, 3 tests failed out of 50\n'
+      + 'The following tests FAILED:\n\t  2 - wasm.audio-quality-regression (Failed)\n', stderr: ''})});
+  assert.equal(result.report.pass, false);
+  assert.equal(result.report.decision, 'BLOCKED_FULL_CTEST_FAIL');
+  assert.equal(result.report.exitCode, 8);
+  assert.equal(result.report.testCount, 50);
+  assert.equal(result.report.failedCount, 3);
+  assert.deepEqual(result.report.failureNames, ['wasm.audio-quality-regression']);
+});
+
+test('post-Stage4 full CTest fails closed when process success has no complete CTest summary', () => {
+  const context = preparedStatusFixture(), document = {schemaVersion: 1, decision: 'STAGE4_LIFECYCLE_CAPTURE_COMPLETE',
+    identity: {}, coverage: {}, render: {}, matrix: [], repeats: []};
+  const result = runner.runPostStage4FullCTest({roots: context.roots, root: context.root,
+    buildDirectory: 'build/diagnostic', stage4ReportSha256: 'e'.repeat(64), document,
+    spawn: () => ({status: 0, stdout: 'ctest terminated before its summary\n', stderr: ''})});
+  assert.equal(result.report.pass, false);
+  assert.equal(result.report.decision, 'BLOCKED_FULL_CTEST_FAIL');
+  assert.equal(result.report.testCount, null);
+  assert.equal(result.report.failedCount, null);
 });
 
 test('status blocks a forged selection even with a complete 42-call receipt and leaves both copies untouched', () => {
@@ -655,6 +857,34 @@ function writeTerminal(context, value) {
 }
 function writeSelection(context, value) {
   runner.writeDualImmutable(context.roots, 'experiment/selection.json', Buffer.from(`${JSON.stringify(stable(value), null, 2)}\n`));
+}
+function writePromotion(context, value) {
+  runner.writeDualImmutable(context.roots, 'acceptance/promotion.json', Buffer.from(`${JSON.stringify(stable(value), null, 2)}\n`));
+}
+function commitPromotionFixture(context, selection) {
+  const alpha = selection.selected.alpha;
+  const presetPath = 'wasm/plugins/dsp/super-synth/presets.json';
+  const preset = JSON.parse(fs.readFileSync(path.join(context.root, presetPath), 'utf8'));
+  preset.concert_grand.engine_config.hammer.contact_loss_soft = Number((0.08 * alpha).toFixed(8));
+  preset.concert_grand.engine_config.hammer.contact_loss_hard = Number((0.28 * alpha).toFixed(8));
+  fs.writeFileSync(path.join(context.root, presetPath), `${JSON.stringify(preset)}\n`);
+  const generatedPath = 'wasm/shared/generated/super-synth_grand_profiles.h';
+  fs.writeFileSync(path.join(context.root, generatedPath), 'fixture promoted profile\n');
+  execFileSync('rtk', ['git', 'add', presetPath, generatedPath], {cwd: context.root, stdio: 'ignore'});
+  execFileSync('rtk', ['git', 'commit', '--quiet', '-m', 'fixture exact promotion'], {cwd: context.root, stdio: 'ignore'});
+  const head = runner.currentIdentity(context.root).head;
+  const tree = execFileSync('rtk', ['git', 'rev-parse', `${head}^{tree}`], {cwd: context.root, encoding: 'utf8'}).trim();
+  assert.deepEqual(runner.commitChangedPaths(context.root, head), runner.PROMOTION_PATHS);
+  const values = {contact_loss_soft: Number((0.08 * alpha).toFixed(8)), contact_loss_hard: Number((0.28 * alpha).toFixed(8))};
+  const record = {schemaVersion: 2, issue: 7, pr: 8, epoch: runner.ACTIVE_EPOCH,
+    contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
+    selectionSha256: runner.readDual(context.roots, 'experiment/selection.json', {required: true}).sha256,
+    alpha, parentHead: context.prepared.head, head, tree,
+    changedPaths: ['wasm/plugins/dsp/super-synth/presets.json', generatedPath].sort(),
+    sourceBefore: context.prepared.value.source, sourceAfter: runner.sourceSnapshot(context.root), values,
+    remoteReadback: {state: 'OPEN', branch: runner.PR_BRANCH, head}};
+  writePromotion(context, record);
+  return {head, record};
 }
 
 test('run-bounded rejects a forged pass terminal when the ledger has zero calls', () => {

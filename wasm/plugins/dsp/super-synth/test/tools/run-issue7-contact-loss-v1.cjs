@@ -863,17 +863,21 @@ function verifyAcceptanceLedgerIdentity(roots, stage, cells, expected) {
   }
   return calls;
 }
-function verifySelectionAfterPromotion({roots, state, selectionStored, root = ROOT, home = os.homedir(), commonDirectory, archivePath} = {}) {
+function verifySelectionAfterPromotion({roots, state, selectionStored, root = ROOT, home = os.homedir(), commonDirectory,
+  archivePath, parentVerifier = verifyParentExperiment01, snapshotReader = frozenSourceSnapshot,
+  referenceReader = referenceRows, frozenSnapshotReader = frozenSourceSnapshot,
+  offlineReportReader = latestOfflineReport, wasmArtifactReader = syncReadSha} = {}) {
   if (state.charged !== 42 || state.completed !== 42 || state.ambiguous !== 0 || state.candidateResults.length !== 6) {
     throw new Error('BLOCKED_CONTACT_LOSS_INCOMPLETE_EXPERIMENT');
   }
-  const parent = verifyParentExperiment01({root, home, commonDirectory});
+  const parent = parentVerifier({root, home, commonDirectory});
   if (!sameJson(state.prepare.parentEpoch, parent.proof)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT');
-  const before = frozenSourceSnapshot({root, home, commonDirectory});
-  const refs = referenceRows({root, home, commonDirectory, archivePath});
+  const before = snapshotReader({root, home, commonDirectory});
+  const refs = referenceReader({root, home, commonDirectory, archivePath});
   const identity = preparedAcceptanceIdentity(state);
   const storedResults = verifyStoredAlphaResults(roots, state, {root, home, commonDirectory, refs,
-    evaluator: scoreAlpha, expectedIdentity: identity, skipCurrentAuthority: true});
+    evaluator: scoreAlpha, expectedIdentity: identity, skipCurrentAuthority: true,
+    frozenSnapshotReader, offlineReportReader, wasmArtifactReader});
   if (storedResults.baselineUnsafe) throw new Error('BLOCKED_CONTACT_LOSS_BASELINE_UNSAFE');
   const receipt = verifiedReceipt(state, {head: state.prepare.head});
   const decision = core.selectCandidate(state.candidateResults, {receipt});
@@ -881,7 +885,7 @@ function verifySelectionAfterPromotion({roots, state, selectionStored, root = RO
     ...decision, receipt, charged: state.charged, completed: state.completed,
     ambiguous: state.ambiguous, stage3: 'NOT RUN', stage4: 'NOT RUN'};
   if (!selectionStored || !sameJson(selectionStored.value, expected)) throw new Error('BLOCKED_CONTACT_LOSS_SELECTION_MISMATCH');
-  if (!sameJson(before, frozenSourceSnapshot({root, home, commonDirectory}))) throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_CHANGED_DURING_VERIFY');
+  if (!sameJson(before, snapshotReader({root, home, commonDirectory}))) throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_CHANGED_DURING_VERIFY');
   return decision;
 }
 
@@ -1009,19 +1013,20 @@ function runBounded({root = ROOT, home = os.homedir(), commonDirectory, buildDir
 function verifyStoredAlphaResults(roots, state, {root = ROOT, home = os.homedir(), commonDirectory,
   buildDirectory, refs = null, evaluator = scoreAlpha, createMissingReports = false,
   skipCurrentAuthority = false, expectedIdentity, expectedTerminal = null,
-  preparedVerifier = verifyPreparedCurrent} = {}) {
+  preparedVerifier = verifyPreparedCurrent, frozenSnapshotReader = frozenSourceSnapshot,
+  offlineReportReader = latestOfflineReport, wasmArtifactReader = syncReadSha} = {}) {
   if (skipCurrentAuthority) {
     const original = expectedIdentity || preparedAcceptanceIdentity(state), storedGate3 = readJsonDual(roots, 'gate3-analysis.json', {required: true});
     if (storedGate3.sha256 !== state.prepare.gate3.analysisSha256 || storedGate3.value.head !== state.prepare.head
         || storedGate3.value.status !== 'GATE3_ANALYSIS_PASS') {
       throw new Error('BLOCKED_CONTACT_LOSS_PREPARE_EVIDENCE_DRIFT');
     }
-    const frozen = frozenSourceSnapshot({root, home, commonDirectory});
+    const frozen = frozenSnapshotReader({root, home, commonDirectory});
     assertFrozenSnapshotMatches(frozen, state.prepare);
-    const offline = latestOfflineReport(root, home, commonDirectory, state.prepare.head);
+    const offline = offlineReportReader(root, home, commonDirectory, state.prepare.head);
     if (offline.reportSha256 !== state.prepare.gate3.offlineReportSha256) throw new Error('BLOCKED_CONTACT_LOSS_OFFLINE_EVIDENCE_DRIFT');
     const directory = path.resolve(root, buildDirectory || state.prepare.build.diagnosticBuildDirectory);
-    const artifact = syncReadSha(path.join(directory, WASM_REL));
+    const artifact = wasmArtifactReader(path.join(directory, WASM_REL));
     if (artifact.sha256 !== original.wasmSha256 || artifact.size !== state.prepare.build.wasm.size) {
       throw new Error('BLOCKED_CONTACT_LOSS_ORIGINAL_DIAGNOSTIC_WASM_DRIFT');
     }
@@ -1138,6 +1143,7 @@ function verifyStoredUnsafeCapture(call) {
 function verifyExperiment(options = {}) {
   const {root = ROOT, home = os.homedir(), commonDirectory, buildDirectory, archivePath,
     parentVerifier = verifyParentExperiment01, preparedVerifier = verifyPreparedCurrent,
+    promotedVerifier = verifyPromotedAuthority, promotionSelectionVerifier = verifySelectionAfterPromotion,
     snapshotReader = frozenSourceSnapshot, referenceReader = referenceRows, evaluator = scoreAlpha} = options;
   const roots = resolveRoots({root, home, commonDirectory});
   const parent = parentVerifier({root, home, commonDirectory});
@@ -1146,6 +1152,20 @@ function verifyExperiment(options = {}) {
     parentEpoch: {status: 'VERIFIED', ...parent.proof, copies: undefined},
     charged: 0, completed: 0, ambiguous: 0, writes: 0, renders: 0, acousticCalls: 0};
   if (!sameJson(state.prepare.parentEpoch, parent.proof)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT');
+  const promotion = readPromotion(roots);
+  if (promotion) {
+    promotedVerifier({roots, state, root, home, commonDirectory});
+    const selectionStored = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true});
+    const before = snapshotReader({root, home, commonDirectory});
+    const selection = promotionSelectionVerifier({roots, state, selectionStored, root, home, commonDirectory, archivePath,
+      parentVerifier, snapshotReader, referenceReader});
+    if (selection.status !== selectionStored.value.status) throw new Error('BLOCKED_CONTACT_LOSS_SELECTION_MISMATCH');
+    const after = snapshotReader({root, home, commonDirectory});
+    if (!sameJson(before, after)) throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_CHANGED_DURING_VERIFY');
+    return {status: selection.status, epoch: ACTIVE_EPOCH, charged: state.charged, completed: state.completed,
+      ambiguous: state.ambiguous, verifiedAlphaCount: 6, selection, promotionSha256: promotion.sha256,
+      frozenEvidenceUnchanged: true, writes: 0, renders: 0, acousticCalls: 0};
+  }
   const terminal = readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`);
   if (state.ambiguous && !terminal) return {status: 'BLOCKED_AMBIGUOUS_CALL', charged: state.charged,
     completed: state.completed, ambiguous: state.ambiguous, writes: 0, renders: 0, acousticCalls: 0};
@@ -1287,12 +1307,13 @@ function runAcceptancePlan({roots, stage, cells, identityNow, render, previousAc
   }
   return state;
 }
-function recordAcceptanceReport(roots, stage, report) {
+function recordAcceptanceReport(roots, stage, report, {persist = true} = {}) {
   const boundReport = {...report, epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256};
   const relative = `${ACCEPTANCE_ROOT}/${stage}/report.json`, bytes = jsonBytes(boundReport), existing = readJsonDual(roots, relative);
   if (existing && !existing.bytes.equals(bytes)) throw new Error(`BLOCKED_CONTACT_LOSS_ACCEPTANCE_REPORT_CONFLICT:${stage}`);
+  if (!existing && !persist) throw new Error(`BLOCKED_CONTACT_LOSS_ACCEPTANCE_REPORT_MISSING:${stage}`);
   if (!existing) writeDualImmutable(roots, relative, bytes);
-  return {report: boundReport, sha256: sha256(bytes), status: existing ? 'REUSED' : 'CREATED'};
+  return {report: boundReport, sha256: sha256(bytes), status: existing ? (persist ? 'REUSED' : 'VERIFIED') : 'CREATED'};
 }
 
 function referenceMetricsForCells(root, cells) {
@@ -1306,7 +1327,7 @@ function referenceMetricsForCells(root, cells) {
   return {fixture, rows, fixtureSha256: sha256(fs.readFileSync(path.join(root,
     'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json')))};
 }
-function confirmationReport(roots, root, selectedAlpha) {
+function confirmationReport(roots, root, selectedAlpha, {persist = true} = {}) {
   const cells = core.CONFIRMATION_CELLS.map((cell, index) => ({kind: 'confirmation', ...cell, cellOrder: index,
     alpha: selectedAlpha, alphaOrder: core.alphaIndex(selectedAlpha)}));
   const calls = readAcceptanceCalls(roots, 'confirmation', cells);
@@ -1323,7 +1344,7 @@ function confirmationReport(roots, root, selectedAlpha) {
     pass, alpha: selectedAlpha, calls: calls.completed, callIds: calls.calls.map(call => call.id),
     audioSha256: calls.calls.map(call => call.audio.sha256), metadataSha256: calls.calls.map(call => call.metadata.sha256),
     referenceFixtureSha256: fixtureSha256, official};
-  return recordAcceptanceReport(roots, 'confirmation', report);
+  return recordAcceptanceReport(roots, 'confirmation', report, {persist});
 }
 function renderHeadroomCall({root = ROOT, buildDirectory, cell} = {}) {
   const {PluginHarness} = require('../../../../../test/helpers/plugin-harness.cjs');
@@ -1359,7 +1380,7 @@ function renderHeadroomCall({root = ROOT, buildDirectory, cell} = {}) {
     if (oldBuild === undefined) delete process.env.SORAOTO_WASM_BUILD_DIR; else process.env.SORAOTO_WASM_BUILD_DIR = oldBuild;
   } }
 }
-function headroomReport(roots, selectedAlpha) {
+function headroomReport(roots, selectedAlpha, {persist = true} = {}) {
   const cells = core.HEADROOM_CELLS.map(cell => ({...cell, kind: 'headroom', alpha: cell.role === 'baseline' ? 1 : selectedAlpha}));
   const calls = readAcceptanceCalls(roots, 'headroom', cells), byPattern = new Map();
   for (const call of calls.calls) {
@@ -1380,7 +1401,7 @@ function headroomReport(roots, selectedAlpha) {
   const pass = rows.length === 2 && rows.every(row => row.pass);
   const report = {schemaVersion: 1, gate: 'HEADROOM', decision: pass ? 'HEADROOM_PASS' : 'BLOCKED_HEADROOM_FAIL',
     pass, alpha: selectedAlpha, calls: calls.completed, rows};
-  return recordAcceptanceReport(roots, 'headroom', report);
+  return recordAcceptanceReport(roots, 'headroom', report, {persist});
 }
 const PROMOTION_PATHS = Object.freeze(['wasm/plugins/dsp/super-synth/presets.json',
   'wasm/shared/generated/super-synth_grand_profiles.h'].sort());
@@ -1427,31 +1448,42 @@ function readPromotion(roots) {
   const stored = readJsonDual(roots, `${ACCEPTANCE_ROOT}/promotion.json`);
   return stored ? {value: stored.value, sha256: stored.sha256} : null;
 }
-function verifyPromotedAuthority({roots, state, root = ROOT, home = os.homedir(), commonDirectory} = {}) {
+function verifyPromotedAuthority({roots, state, root = ROOT, home = os.homedir(), commonDirectory,
+  pullRequestVerifier = verifiedPullRequest, issueApprovalVerifier = verifyIssueApproval,
+  offlineReportReader = latestOfflineReport, snapshotReader = frozenSourceSnapshot,
+  sourceSnapshotReader = sourceSnapshot} = {}) {
   const promotion = readPromotion(roots);
   if (!promotion) throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_RECEIPT_MISSING');
   const record = promotion.value, identity = currentIdentity(root);
-  if (record.schemaVersion !== 2 || record.epoch !== ACTIVE_EPOCH
-      || record.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
-      || identity.head !== record.head || ![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)
-      || record.parentHead !== state.prepare.head || record.selectionSha256 !== readDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true}).sha256
-      || !sameJson(record.changedPaths, PROMOTION_PATHS)
-      || commitParent(root, record.head) !== record.parentHead
-      || !sameJson(commitChangedPaths(root, record.head), PROMOTION_PATHS)
-      || git(root, ['rev-parse', `${record.head}^{tree}`]) !== record.tree) {
-    throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_IDENTITY');
-  }
-  verifiedPullRequest(root, identity.head); verifyIssueApproval(root);
-  const currentSources = sourceSnapshot(root);
+  const selection = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true}).value;
+  const selectedAlpha = selection.selected?.alpha;
+  const identityChecks = {
+    schema: record.schemaVersion === 2 && record.epoch === ACTIVE_EPOCH && record.contractSha256 === SUCCESSOR_CONTRACT_SHA256,
+    head: identity.head === record.head && [PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch),
+    parent: record.parentHead === state.prepare.head && commitParent(root, record.head) === record.parentHead,
+    selection: record.selectionSha256 === readDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true}).sha256,
+    recordPaths: sameJson(record.changedPaths, PROMOTION_PATHS),
+    commitPaths: sameJson(commitChangedPaths(root, record.head), PROMOTION_PATHS),
+    tree: git(root, ['rev-parse', `${record.head}^{tree}`]) === record.tree
+  };
+  const failedIdentityChecks = Object.entries(identityChecks).filter(([, pass]) => !pass).map(([name]) => name);
+  if (failedIdentityChecks.length) throw new Error(`BLOCKED_CONTACT_LOSS_PROMOTION_IDENTITY:${failedIdentityChecks.join(',')}`);
+  if (!core.ALPHAS.includes(selectedAlpha)) throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_SELECTION');
+  const commit = assertPromotionCommit({root, prepare: state.prepare, selectedAlpha, expectedHead: record.head});
+  if (commit.tree !== record.tree || record.values?.contact_loss_soft !== commit.expectedSoft
+      || record.values?.contact_loss_hard !== commit.expectedHard
+      || !sameJson(record.sourceBefore, state.prepare.source)) throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_VALUES');
+  pullRequestVerifier(root, identity.head); issueApprovalVerifier(root);
+  const currentSources = sourceSnapshotReader(root);
   if (!sameJson(currentSources, record.sourceAfter)) throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_SOURCE_DRIFT');
   for (const relative of SOURCE_FILES) {
     if (!PROMOTION_PATHS.includes(relative) && !sameJson(record.sourceBefore[relative], record.sourceAfter[relative])) {
       throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_CHANGED_UNAUTHORIZED_SOURCE');
     }
   }
-  const priorOffline = latestOfflineReport(root, home, commonDirectory, state.prepare.head);
+  const priorOffline = offlineReportReader(root, home, commonDirectory, state.prepare.head);
   if (priorOffline.reportSha256 !== state.prepare.gate3.offlineReportSha256) throw new Error('BLOCKED_CONTACT_LOSS_OFFLINE_EVIDENCE_DRIFT');
-  const frozen = frozenSourceSnapshot({root, home, commonDirectory});
+  const frozen = snapshotReader({root, home, commonDirectory});
   assertFrozenSnapshotMatches(frozen, state.prepare);
   return {...identity, promotion: record, promotionSha256: promotion.sha256};
 }
@@ -1648,7 +1680,7 @@ function renderReleaseCell({root = ROOT, buildDirectory, cell} = {}) {
     finally { if (prior === undefined) delete process.env.SORAOTO_WASM_BUILD_DIR; else process.env.SORAOTO_WASM_BUILD_DIR = prior; }
   }
 }
-function releaseEquivalenceReport(roots) {
+function releaseEquivalenceReport(roots, {persist = true} = {}) {
   const cells = core.RELEASE_CELLS, test = readAcceptanceCalls(roots, 'release-test', cells), release = readAcceptanceCalls(roots, 'release-production', cells);
   const loss = require('./physical-fit-v4-loss.cjs'), rows = cells.map((cell, index) => {
     const testCall = test.calls[index], releaseCall = release.calls[index];
@@ -1671,14 +1703,14 @@ function releaseEquivalenceReport(roots) {
   const pass = rows.length === 12 && rows.every(row => row.pass);
   return recordAcceptanceReport(roots, 'release-equivalence', {schemaVersion: 1, gate: 'RELEASE_EQUIVALENCE',
     decision: pass ? 'RELEASE_EQUIVALENCE_PASS' : 'BLOCKED_RELEASE_EQUIVALENCE_FAIL', pass, calls: 24,
-    maximumAbsoluteDifference: Math.max(...rows.map(row => row.maximumAbsoluteDifference || 0)), rows});
+    maximumAbsoluteDifference: Math.max(...rows.map(row => row.maximumAbsoluteDifference || 0)), rows}, {persist});
 }
 function stage3Cells() {
   const recovery = require('./run-stage3-production-recovery.cjs');
   if (recovery.CELL_SPECS.length !== 486) throw new Error('BLOCKED_CONTACT_LOSS_STAGE3_CELL_SET');
   return recovery.CELL_SPECS.map(cell => ({...cell}));
 }
-function stage3Report(roots, root, stage3WasmBuild, acceptanceOffset) {
+function stage3Report(roots, root, stage3WasmBuild, acceptanceOffset, {persist = true} = {}) {
   const recovery = require('./run-stage3-production-recovery.cjs'), direct = require('./run-stage3-direct-reference.cjs');
   const cells = stage3Cells(), calls = readAcceptanceCalls(roots, 'stage3', cells);
   const fixtureBytes = fs.readFileSync(path.join(root, 'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json'));
@@ -1705,7 +1737,7 @@ function stage3Report(roots, root, stage3WasmBuild, acceptanceOffset) {
     rows: rows.map(row => ({cell: row.cell, metrics: row.metrics})),
     accounting: core.accounting({startedExperimentCalls: combinedExperimentCalls(roots),
       startedAcceptanceCalls: acceptanceOffset + calls.charged})};
-  return recordAcceptanceReport(roots, 'stage3', result);
+  return recordAcceptanceReport(roots, 'stage3', result, {persist});
 }
 function runLegacyStage4Conformance(root, document) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'issue7-contact-loss-stage4-'));
@@ -1792,7 +1824,8 @@ function renderLifecycleWithAudio({root = ROOT, buildDirectory, cell} = {}) {
     finally { if (prior === undefined) delete process.env.SORAOTO_WASM_BUILD_DIR; else process.env.SORAOTO_WASM_BUILD_DIR = prior; }
   }
 }
-function stage4Report(roots, root, stage3Value, stage3Sha256, stage4Build, acceptanceOffset) {
+function stage4Report(roots, root, stage3Value, stage3Sha256, stage4Build, acceptanceOffset,
+  {persist = true, legacyConformance} = {}) {
   const capture = require('./capture-supersynth-stage4-lifecycle.cjs'), evaluator = require('./stage4-full-range-evaluator.cjs');
   const cells = [...capture.LIFECYCLE_CELLS, ...capture.REPEAT_CELLS].map(cell => ({...cell}));
   const calls = readAcceptanceCalls(roots, 'stage4', cells);
@@ -1802,17 +1835,98 @@ function stage4Report(roots, root, stage3Value, stage3Sha256, stage4Build, accep
     build: stage3Value.build, fixtureSha256: stage3Value.fixtureSha256}};
   const identity = {stage3ResultSha256: stage3Sha256, stage3Identity: stage3Identity.identity};
   const stage3Rows = (stage3Value.rows || []).map(row => ({pitch: row.cell.pitch, velocity: row.cell.velocity, metrics: row.metrics}));
+  let legacyDocument;
   const summary = evaluator.evaluate({root, identity, stage3Identity, stage3Rows, matrix, repeats,
-    legacy: ({document}) => runLegacyStage4Conformance(root, document), legacyMatrixPath: null});
+    legacy: persist ? ({document}) => {
+      legacyDocument = document;
+      return runLegacyStage4Conformance(root, document);
+    }
+      : () => {
+        if (!legacyConformance || typeof legacyConformance.pass !== 'boolean') {
+          throw new Error('BLOCKED_CONTACT_LOSS_STAGE4_LEGACY_EVIDENCE_MISSING');
+        }
+        legacyDocument = {schemaVersion: 1, decision: 'STAGE4_LIFECYCLE_CAPTURE_COMPLETE', identity,
+          coverage: {lifecycleCells: matrix.length, adjacentComparisons: 1392, repeatCells: repeats.length},
+          render: require('./capture-supersynth-stage4-lifecycle.cjs').renderMetadata(root), matrix, repeats};
+        return legacyConformance;
+      }, legacyMatrixPath: null});
   const pass = summary.decision === 'STAGE4_FULL_RANGE_COMPLETE' && calls.completed === 1423 && calls.charged === 1423;
   const report = {schemaVersion: 1, gate: 'STAGE4', decision: pass ? 'STAGE4_FULL_RANGE_COMPLETE' : summary.decision,
     pass, sourceHead: currentIdentity(root).head, build: {directory: stage4Build.directory, wasmSha256: stage4Build.wasmSha256},
     calls: calls.completed, coverage: summary.coverage, counts: summary.counts, cellFailures: summary.cellFailures,
     repeatFailures: summary.repeatFailures, stage3IdentityStable: summary.stage3IdentityStable,
-    legacyConformance: summary.legacyConformance, outputEquivalence: summary.outputEquivalence,
+    legacyConformance: summary.legacyConformance, legacyDocumentSha256: sha256(jsonBytes(legacyDocument)),
+    outputEquivalence: summary.outputEquivalence,
     accounting: core.accounting({startedExperimentCalls: combinedExperimentCalls(roots),
       startedAcceptanceCalls: acceptanceOffset + calls.charged})};
-  return recordAcceptanceReport(roots, 'stage4', report);
+  return recordAcceptanceReport(roots, 'stage4', report, {persist});
+}
+function stage4LegacyDocument(roots, root, stage3Value, stage3Sha256) {
+  const capture = require('./capture-supersynth-stage4-lifecycle.cjs'), evaluator = require('./stage4-full-range-evaluator.cjs');
+  const cells = [...capture.LIFECYCLE_CELLS, ...capture.REPEAT_CELLS].map(cell => ({...cell}));
+  const calls = readAcceptanceCalls(roots, 'stage4', cells);
+  if (calls.completed !== cells.length || calls.charged !== cells.length || calls.ambiguous !== 0) {
+    throw new Error('BLOCKED_CONTACT_LOSS_ACCEPTANCE_INCOMPLETE:stage4');
+  }
+  const rows = calls.calls.map(call => ({...call.cell, metrics: call.metadata.value.metrics}));
+  const matrix = rows.filter(row => row.kind === 'lifecycle'), repeats = rows.filter(row => row.kind === 'repeat');
+  const stage3Identity = {resultSha256: stage3Sha256, identity: {sourceHead: stage3Value.sourceHead,
+    build: stage3Value.build, fixtureSha256: stage3Value.fixtureSha256}};
+  const identity = {stage3ResultSha256: stage3Sha256, stage3Identity: stage3Identity.identity};
+  const stage3Rows = (stage3Value.rows || []).map(row => ({pitch: row.cell.pitch, velocity: row.cell.velocity, metrics: row.metrics}));
+  let document;
+  evaluator.evaluate({root, identity, stage3Identity, stage3Rows, matrix, repeats,
+    legacy: input => { document = input.document; return {pass: true, status: 0, stdout: '', stderr: ''}; }, legacyMatrixPath: null});
+  if (!document) throw new Error('BLOCKED_CONTACT_LOSS_STAGE4_DOCUMENT_RECONSTRUCTION');
+  return document;
+}
+function runPostStage4FullCTest({roots, root = ROOT, buildDirectory, stage4ReportSha256, document,
+  spawn = spawnSync} = {}) {
+  const inputBytes = jsonBytes(document), inputSha256 = sha256(inputBytes);
+  const relative = `${ACCEPTANCE_ROOT}/full-ctest/report.json`;
+  const existing = readJsonDual(roots, relative);
+  if (existing) {
+    const value = existing.value;
+    if (value.epoch !== ACTIVE_EPOCH || value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+        || value.gate !== 'POST_STAGE4_FULL_CTEST'
+        || value.stage4ReportSha256 !== stage4ReportSha256 || value.lifecycleInputSha256 !== inputSha256
+        || value.buildRole !== 'guarded-test' || !Number.isSafeInteger(value.testCount) || value.testCount < 1
+        || !Number.isSafeInteger(value.failedCount) || value.failedCount < 0
+        || !/^[a-f0-9]{64}$/.test(value.stdoutSha256) || !/^[a-f0-9]{64}$/.test(value.stderrSha256)
+        || !sameJson(value.command, ['ctest', '--output-on-failure'])
+        || value.errorCode !== null
+        || value.pass !== (value.exitCode === 0 && value.failedCount === 0)
+        || value.decision !== (value.pass ? 'FULL_CTEST_PASS' : 'BLOCKED_FULL_CTEST_FAIL')) {
+      throw new Error('BLOCKED_CONTACT_LOSS_FULL_CTEST_IDENTITY');
+    }
+    return {report: value, sha256: existing.sha256, status: 'REUSED'};
+  }
+  const buildRoot = path.join(root, 'build');
+  fs.mkdirSync(buildRoot, {recursive: true});
+  const temporary = fs.mkdtempSync(path.join(buildRoot, '.issue7-contact-loss-post-stage4-'));
+  const matrixPath = path.join(temporary, 'lifecycle.json');
+  try {
+    fs.writeFileSync(matrixPath, inputBytes);
+    const ctestDirectory = path.resolve(root, buildDirectory || DIAGNOSTIC_BUILD_REL);
+    const result = spawn('rtk', ['ctest', '--test-dir', ctestDirectory, '--output-on-failure'], {
+      cwd: root, encoding: 'utf8', env: {...process.env, SUPERSYNTH_LIFECYCLE_PATH: matrixPath,
+        SUPERSYNTH_REPORT_DIR: ''}, maxBuffer: 32 * 1024 * 1024});
+    const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+    const summary = output.match(/(\d+)% tests passed,\s*(\d+) tests failed out of\s*(\d+)/i);
+    const failureNames = [...output.matchAll(/^\s*\d+\s+-\s+(.+?)\s+\(Failed\)\s*$/gm)].map(match => match[1]);
+    const pass = result.status === 0 && !result.error && Boolean(summary) && Number(summary[2]) === 0;
+    const report = {schemaVersion: 1, epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+      gate: 'POST_STAGE4_FULL_CTEST', decision: pass ? 'FULL_CTEST_PASS' : 'BLOCKED_FULL_CTEST_FAIL',
+      pass, exitCode: result.status, errorCode: result.error?.code || null,
+      testCount: summary ? Number(summary[3]) : null, failedCount: summary ? Number(summary[2]) : null,
+      failureNames, stdoutSha256: sha256(Buffer.from(result.stdout || '')),
+      stderrSha256: sha256(Buffer.from(result.stderr || '')), stage4ReportSha256,
+      lifecycleInputSha256: inputSha256, command: ['ctest', '--output-on-failure'],
+      buildRole: 'guarded-test'};
+    const bytes = jsonBytes(report);
+    writeDualImmutable(roots, relative, bytes);
+    return {report, sha256: sha256(bytes), status: 'CREATED'};
+  } finally { fs.rmSync(temporary, {recursive: true, force: true}); }
 }
 function runWebPlayerGates(root = ROOT) {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'web-player/package.json'), 'utf8'));
@@ -1820,6 +1934,200 @@ function runWebPlayerGates(root = ROOT) {
   runBuildCommand(path.join(root, 'web-player'), ['npm', 'test'], 'BLOCKED_CONTACT_LOSS_WEB_PLAYER_TESTS');
   runBuildCommand(path.join(root, 'web-player'), ['npm', 'run', 'build'], 'BLOCKED_CONTACT_LOSS_WEB_PLAYER_BUILD');
   return {test: 'PASS', build: 'PASS'};
+}
+function sourceSnapshotDigest(root) {
+  return sha256(Buffer.from(JSON.stringify(stable(sourceSnapshot(root)))));
+}
+function verifyPromotedBuildReport(roots, root, promotion) {
+  const stored = readJsonDual(roots, `${ACCEPTANCE_ROOT}/promoted-builds/report.json`);
+  if (!stored) return null;
+  const value = stored.value;
+  if (value.epoch !== ACTIVE_EPOCH || value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+      || value.gate !== 'PROMOTED_BUILDS' || value.decision !== 'PROMOTED_BUILDS_READY' || value.pass !== true
+      || value.head !== promotion.head || value.sourceSnapshotSha256 !== sourceSnapshotDigest(root)
+      || !value.builds || Object.keys(value.builds).sort().join(',') !== 'release,test') {
+    throw new Error('BLOCKED_CONTACT_LOSS_PROMOTED_BUILD_REPORT');
+  }
+  const expected = {
+    test: {directory: 'build/wasm-contact-loss-promoted-test', testing: 'ON', guards: 'ON'},
+    release: {directory: 'build/wasm-contact-loss-promoted-release', testing: 'OFF', guards: 'OFF'}
+  };
+  for (const role of ['test', 'release']) {
+    const identity = value.builds[role], config = expected[role], directory = path.resolve(root, config.directory);
+    if (identity.directory !== config.directory) throw new Error('BLOCKED_CONTACT_LOSS_PROMOTED_BUILD_PATH');
+    const cacheBytes = fs.readFileSync(path.join(directory, 'CMakeCache.txt'));
+    const cache = cacheBytes.toString('utf8'), option = (name, expectedValue) =>
+      new RegExp(`^${name}:BOOL=${expectedValue}$`, 'm').test(cache);
+    if (sha256(cacheBytes) !== identity.cacheSha256 || !option('BUILD_TESTING', config.testing)
+        || !option('SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS', config.guards)
+        || !option('SORAOTO_SUPERSYNTH_CONTACT_LOSS_DIAGNOSTICS', 'OFF')
+        || !option('SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS', 'OFF')) {
+      throw new Error('BLOCKED_CONTACT_LOSS_PROMOTED_BUILD_OPTIONS');
+    }
+    const wasm = syncReadSha(path.join(directory, WASM_REL));
+    const exports = WebAssembly.Module.exports(new WebAssembly.Module(wasm.bytes)).map(row => row.name).sort();
+    if (identity.wasmSha256 !== wasm.sha256 || identity.wasmSize !== wasm.size
+        || !sameJson(identity.exports, exports) || !exports.includes('soraoto_plugin_process')
+        || !exports.includes('soraoto_plugin_init')
+        || exports.some(name => name.startsWith('soraoto_supersynth_contact_loss_'))
+        || (role === 'test' && !['soraoto_supersynth_guard_hit_count', 'soraoto_supersynth_active_voice_count'].every(name => exports.includes(name)))
+        || (role === 'release' && ['soraoto_supersynth_guard_hit_count', 'soraoto_supersynth_active_voice_count'].some(name => exports.includes(name)))) {
+      throw new Error('BLOCKED_CONTACT_LOSS_PROMOTED_BUILD_ARTIFACT');
+    }
+  }
+  return stored;
+}
+function verifyAcceptanceProgress({roots, root = ROOT, state, selection, promotion, finalStored} = {}) {
+  const requiredFinal = Boolean(finalStored), alpha = selection?.selected?.alpha;
+  if (selection?.status !== 'GATE4_STRESS_PASS' || !core.ALPHAS.includes(alpha)) {
+    if (requiredFinal) throw new Error('BLOCKED_CONTACT_LOSS_FINAL_SELECTION_UNVERIFIED');
+    return {acceptanceCharged: 0, reports: {}};
+  }
+  const reports = {}, stages = {}, sourceDigest = sourceSnapshotDigest(root);
+  let acceptanceCharged = 0;
+  const verifyStage = (name, cells, expected, calculate, {required = false} = {}) => {
+    const ledger = readAcceptanceCalls(roots, name, cells);
+    acceptanceCharged += ledger.charged;
+    const stored = readJsonDual(roots, `${ACCEPTANCE_ROOT}/${name}/report.json`);
+    if (!stored) {
+      if (required) throw new Error(`BLOCKED_CONTACT_LOSS_ACCEPTANCE_REPORT_MISSING:${name}`);
+      reports[name] = 'NOT RUN';
+      return null;
+    }
+    verifyAcceptanceLedgerIdentity(roots, name, cells, expected);
+    const computed = calculate({persist: false});
+    if (computed.sha256 !== stored.sha256 || !computed.report || !sameJson(computed.report, stored.value)) {
+      throw new Error(`BLOCKED_CONTACT_LOSS_ACCEPTANCE_REPORT_MISMATCH:${name}`);
+    }
+    stages[name] = stored;
+    reports[name] = stored.value.decision;
+    return stored;
+  };
+  const confirmationCells = core.CONFIRMATION_CELLS.map((cell, index) => ({kind: 'confirmation', ...cell,
+    cellOrder: index, alpha, alphaOrder: core.alphaIndex(alpha)}));
+  const headroomCells = core.HEADROOM_CELLS.map(cell => ({...cell, kind: 'headroom', alpha: cell.role === 'baseline' ? 1 : alpha}));
+  const mustHavePrePromotion = Boolean(promotion || finalStored
+    || ['headroom', 'promoted-builds', 'release-equivalence', 'stage3', 'stage4']
+      .some(name => readJsonDual(roots, `${ACCEPTANCE_ROOT}/${name}/report.json`)));
+  const preIdentity = preparedAcceptanceIdentity(state);
+  const confirmation = verifyStage('confirmation', confirmationCells, preIdentity,
+    options => confirmationReport(roots, root, alpha, options), {required: mustHavePrePromotion || requiredFinal});
+  const headroom = verifyStage('headroom', headroomCells, preIdentity,
+    options => headroomReport(roots, alpha, options), {required: mustHavePrePromotion || requiredFinal});
+  if (promotion && (!confirmation?.value.pass || !headroom?.value.pass)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_PRECONDITION_REPORT');
+  }
+  if (!promotion && (readJsonDual(roots, `${ACCEPTANCE_ROOT}/promoted-builds/report.json`)
+      || readJsonDual(roots, `${ACCEPTANCE_ROOT}/release-equivalence/report.json`)
+      || readJsonDual(roots, `${ACCEPTANCE_ROOT}/stage3/report.json`)
+      || readJsonDual(roots, `${ACCEPTANCE_ROOT}/stage4/report.json`) || finalStored)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_RECEIPT_MISSING');
+  }
+  let buildReport = null;
+  if (promotion) buildReport = verifyPromotedBuildReport(roots, root, promotion);
+  if (buildReport) {
+    stages['promoted-builds'] = buildReport;
+    reports['promoted-builds'] = buildReport.value.decision;
+  } else reports['promoted-builds'] = 'NOT RUN';
+  const hasLaterThanBuild = ['release-equivalence', 'stage3', 'stage4'].some(name =>
+    readJsonDual(roots, `${ACCEPTANCE_ROOT}/${name}/report.json`)) || Boolean(finalStored);
+  if (hasLaterThanBuild && !buildReport) throw new Error('BLOCKED_CONTACT_LOSS_PROMOTED_BUILD_REPORT_MISSING');
+  if (buildReport) {
+    const builds = buildReport.value.builds;
+    const testIdentity = {head: promotion.head, wasmSha256: builds.test.wasmSha256,
+      sourceSnapshotSha256: sourceDigest, buildRole: 'guarded-test'};
+    const releaseIdentity = {head: promotion.head, wasmSha256: builds.release.wasmSha256,
+      sourceSnapshotSha256: sourceDigest, buildRole: 'production-release'};
+    const testCalls = readAcceptanceCalls(roots, 'release-test', core.RELEASE_CELLS);
+    const releaseCalls = readAcceptanceCalls(roots, 'release-production', core.RELEASE_CELLS);
+    acceptanceCharged += testCalls.charged + releaseCalls.charged;
+    const releaseStored = readJsonDual(roots, `${ACCEPTANCE_ROOT}/release-equivalence/report.json`);
+    if (!releaseStored && (requiredFinal || readJsonDual(roots, `${ACCEPTANCE_ROOT}/stage3/report.json`)
+        || readJsonDual(roots, `${ACCEPTANCE_ROOT}/stage4/report.json`))) {
+      throw new Error('BLOCKED_CONTACT_LOSS_ACCEPTANCE_REPORT_MISSING:release-equivalence');
+    }
+    if (releaseStored) {
+      verifyAcceptanceLedgerIdentity(roots, 'release-test', core.RELEASE_CELLS, testIdentity);
+      verifyAcceptanceLedgerIdentity(roots, 'release-production', core.RELEASE_CELLS, releaseIdentity);
+      const computed = releaseEquivalenceReport(roots, {persist: false});
+      if (computed.sha256 !== releaseStored.sha256 || !sameJson(computed.report, releaseStored.value)) {
+        throw new Error('BLOCKED_CONTACT_LOSS_ACCEPTANCE_REPORT_MISMATCH:release-equivalence');
+      }
+      stages['release-equivalence'] = releaseStored;
+      reports['release-equivalence'] = releaseStored.value.decision;
+    } else reports['release-equivalence'] = 'NOT RUN';
+    const stage3Plan = stage3Cells(), stage3Stored = readJsonDual(roots, `${ACCEPTANCE_ROOT}/stage3/report.json`);
+    const stage3Calls = readAcceptanceCalls(roots, 'stage3', stage3Plan);
+    acceptanceCharged += stage3Calls.charged;
+    if (stage3Stored) {
+      if (!releaseStored?.value.pass) throw new Error('BLOCKED_CONTACT_LOSS_STAGE3_PREDECESSOR');
+      verifyAcceptanceLedgerIdentity(roots, 'stage3', stage3Plan, testIdentity);
+      const computed = stage3Report(roots, root, builds.test, 53, {persist: false});
+      if (computed.sha256 !== stage3Stored.sha256 || !sameJson(computed.report, stage3Stored.value)) {
+        throw new Error('BLOCKED_CONTACT_LOSS_ACCEPTANCE_REPORT_MISMATCH:stage3');
+      }
+      stages.stage3 = stage3Stored;
+      reports.stage3 = stage3Stored.value.decision;
+    } else reports.stage3 = 'NOT RUN';
+    const capture = require('./capture-supersynth-stage4-lifecycle.cjs');
+    const stage4Cells = [...capture.LIFECYCLE_CELLS, ...capture.REPEAT_CELLS].map(cell => ({...cell}));
+    const stage4Calls = readAcceptanceCalls(roots, 'stage4', stage4Cells), stage4Stored = readJsonDual(roots, `${ACCEPTANCE_ROOT}/stage4/report.json`);
+    acceptanceCharged += stage4Calls.charged;
+    if (stage4Stored) {
+      if (!stage3Stored?.value.pass) throw new Error('BLOCKED_CONTACT_LOSS_STAGE4_PREDECESSOR');
+      verifyAcceptanceLedgerIdentity(roots, 'stage4', stage4Cells, testIdentity);
+      const computed = stage4Report(roots, root, stage3Stored.value, stage3Stored.sha256, builds.test, 539,
+        {persist: false, legacyConformance: stage4Stored.value.legacyConformance});
+      if (computed.sha256 !== stage4Stored.sha256 || !sameJson(computed.report, stage4Stored.value)) {
+        throw new Error('BLOCKED_CONTACT_LOSS_ACCEPTANCE_REPORT_MISMATCH:stage4');
+      }
+      stages.stage4 = stage4Stored;
+      reports.stage4 = stage4Stored.value.decision;
+    } else reports.stage4 = 'NOT RUN';
+  } else {
+    reports['release-equivalence'] = reports.stage3 = reports.stage4 = 'NOT RUN';
+  }
+  const ctest = readJsonDual(roots, `${ACCEPTANCE_ROOT}/full-ctest/report.json`);
+  if (ctest) {
+    if (!stages.stage4) throw new Error('BLOCKED_CONTACT_LOSS_FULL_CTEST_STAGE4_MISSING');
+    const stage4Document = stage4LegacyDocument(roots, root, stages.stage3.value, stages.stage3.sha256);
+    if (ctest.value.epoch !== ACTIVE_EPOCH || ctest.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+        || ctest.value.gate !== 'POST_STAGE4_FULL_CTEST'
+        || ctest.value.stage4ReportSha256 !== stages.stage4.sha256
+        || ctest.value.lifecycleInputSha256 !== sha256(jsonBytes(stage4Document))
+        || !Number.isSafeInteger(ctest.value.testCount) || ctest.value.testCount < 1
+        || !Number.isSafeInteger(ctest.value.failedCount) || ctest.value.failedCount < 0
+        || !/^[a-f0-9]{64}$/.test(ctest.value.stdoutSha256) || !/^[a-f0-9]{64}$/.test(ctest.value.stderrSha256)
+        || !sameJson(ctest.value.command, ['ctest', '--output-on-failure'])
+        || ctest.value.buildRole !== 'guarded-test' || ctest.value.errorCode !== null
+        || ctest.value.pass !== (ctest.value.exitCode === 0 && ctest.value.failedCount === 0)
+        || ctest.value.decision !== (ctest.value.pass ? 'FULL_CTEST_PASS' : 'BLOCKED_FULL_CTEST_FAIL')) {
+      throw new Error('BLOCKED_CONTACT_LOSS_FULL_CTEST_REPORT_MISMATCH');
+    }
+    stages['full-ctest'] = ctest;
+    reports['full-ctest'] = ctest.value.decision;
+  } else reports['full-ctest'] = 'NOT RUN';
+  if (requiredFinal) {
+    const requiredNames = ['confirmation', 'headroom', 'promoted-builds', 'release-equivalence', 'stage3', 'stage4', 'full-ctest'];
+    for (const name of requiredNames) {
+      if (!stages[name] || stages[name].value.pass !== true) throw new Error(`BLOCKED_CONTACT_LOSS_FINAL_STAGE_NOT_PASS:${name}`);
+    }
+    const expectedReportHashes = Object.fromEntries(requiredNames.map(name => [name, stages[name].sha256]));
+    const final = finalStored.value;
+    const promotionReceipt = readPromotion(roots), selectionStored = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true});
+    const expectedAccounting = core.accounting({startedExperimentCalls: combinedExperimentCalls(roots), startedAcceptanceCalls: core.RESERVE_CALLS});
+    if (final.schemaVersion !== 2 || final.epoch !== ACTIVE_EPOCH || final.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+        || final.head !== currentIdentity(root).head || final.selectionSha256 !== selectionStored.sha256
+        || final.promotionSha256 !== promotionReceipt.sha256 || !sameJson(final.reports, expectedReportHashes)
+        || final.decision !== 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW' || final.stage3 !== 'PASS' || final.stage4 !== 'PASS'
+        || final.manualAudio !== 'NOT RUN' || final.review !== 'PENDING'
+        || final.webPlayer?.test !== 'PASS' || final.webPlayer?.build !== 'PASS'
+        || !sameJson(final.accounting, expectedAccounting)) {
+      throw new Error('BLOCKED_CONTACT_LOSS_FINAL_REPORT_MISMATCH');
+    }
+    reports.final = final.decision;
+  } else reports.final = 'NOT RUN';
+  return {acceptanceCharged, reports, stages};
 }
 function continuationDecision({selection, confirmation, headroom, release, stage3, stage4}) {
   if (selection?.status !== 'GATE4_STRESS_PASS') return {status: selection?.status || 'BLOCKED_CONTACT_LOSS_SELECTION_MISSING', stage3: 'NOT RUN', stage4: 'NOT RUN'};
@@ -1966,12 +2274,24 @@ function continueApproved({root = ROOT, home = os.homedir(), commonDirectory, bu
       builds.test, 539).report;
     result = continuationDecision({selection, confirmation, headroom, release, stage3, stage4});
     if (result.status !== 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW') return result;
+    const stage3Stored = readJsonDual(roots, `${ACCEPTANCE_ROOT}/stage3/report.json`, {required: true});
+    const stage4Stored = readJsonDual(roots, `${ACCEPTANCE_ROOT}/stage4/report.json`, {required: true});
+    const legacyDocument = stage4LegacyDocument(roots, root, stage3Stored.value, stage3Stored.sha256);
+    const fullCTest = runPostStage4FullCTest({roots, root, buildDirectory,
+      stage4ReportSha256: stage4Stored.sha256, document: legacyDocument});
+    if (!fullCTest.report.pass) {
+      return {status: fullCTest.report.decision, stage3: 'PASS', stage4: 'PASS',
+        fullCTest: fullCTest.report, fullCTestSha256: fullCTest.sha256,
+        charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
+        writes: 1, renders: 0, acousticCalls: 0};
+    }
     const webPlayer = runWebPlayerGates(root);
     const final = {schemaVersion: 2, issue: 7, pr: 8, epoch: ACTIVE_EPOCH,
       contractSha256: SUCCESSOR_CONTRACT_SHA256, decision: 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW',
       head: currentIdentity(root).head, selectionSha256: selectionStored.sha256, promotionSha256: promoted.promotionSha256,
       reports: Object.fromEntries(['confirmation', 'headroom', 'promoted-builds', 'release-equivalence', 'stage3', 'stage4']
-        .map(name => [name, readDual(roots, `${ACCEPTANCE_ROOT}/${name}/report.json`, {required: true}).sha256])),
+        .map(name => [name, readDual(roots, `${ACCEPTANCE_ROOT}/${name}/report.json`, {required: true}).sha256])
+        .concat([['full-ctest', fullCTest.sha256]])),
       webPlayer, capacity, manualAudio: 'NOT RUN', review: 'PENDING', accounting: core.accounting({startedExperimentCalls: combinedExperimentCalls(roots),
         startedAcceptanceCalls: core.RESERVE_CALLS}), stage3: 'PASS', stage4: 'PASS'};
     writeDualImmutable(roots, `${ACCEPTANCE_ROOT}/final-report.json`, jsonBytes(final));
@@ -1993,7 +2313,9 @@ function blockerForStatus(error) {
 }
 function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirectory,
   parentVerifier = verifyParentExperiment01, preparedVerifier = verifyPreparedCurrent,
-  terminalVerifier = verifyExperiment, snapshotReader = frozenSourceSnapshot,
+  terminalVerifier = verifyExperiment, promotedVerifier = verifyPromotedAuthority,
+  promotionSelectionVerifier = verifySelectionAfterPromotion, acceptanceVerifier = verifyAcceptanceProgress,
+  snapshotReader = frozenSourceSnapshot,
   referenceReader = referenceRows} = {}) {
   const roots = resolveRoots({root, home, commonDirectory});
   let currentHead = null;
@@ -2029,6 +2351,7 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
   const selection = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`);
   const terminal = readJsonDual(roots, `${EXPERIMENT_REL}/terminal.json`);
   const final = readJsonDual(roots, `${ACCEPTANCE_ROOT}/final-report.json`), reports = {};
+  const promotion = readPromotion(roots);
   if (selection && (selection.value.epoch !== ACTIVE_EPOCH
       || selection.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) {
     return {status: 'BLOCKED_CONTACT_LOSS_SELECTION_IDENTITY', epoch: ACTIVE_EPOCH,
@@ -2043,23 +2366,32 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
   let executionBlocker = null, verifiedExecution = null, verifiedSelection = null;
   if (state.prepare) {
     try {
-      const identity = currentIdentity(root);
-      if (identity.head !== state.prepare.head || identity.head !== currentHead) {
-        throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
+      if (promotion) {
+        promotedVerifier({roots, state, root, home, commonDirectory});
+        if (!selection) throw new Error('BLOCKED_CONTACT_LOSS_PROMOTION_SELECTION_MISSING');
+        const decision = promotionSelectionVerifier({roots, state, selectionStored: selection, root, home, commonDirectory,
+          parentVerifier, snapshotReader, referenceReader});
+        if (decision.status !== selection.value.status) throw new Error('BLOCKED_CONTACT_LOSS_SELECTION_MISMATCH');
+        verifiedSelection = decision;
+      } else {
+        const identity = currentIdentity(root);
+        if (identity.head !== state.prepare.head || identity.head !== currentHead) {
+          throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
+        }
+        if (![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)) throw new Error('BLOCKED_CONTACT_LOSS_BRANCH');
+        if (!sameJson(sourceSnapshot(root), state.prepare.source)) throw new Error('BLOCKED_CONTACT_LOSS_SOURCE_DRIFT');
+        preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory});
       }
-      if (![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)) throw new Error('BLOCKED_CONTACT_LOSS_BRANCH');
-      if (!sameJson(sourceSnapshot(root), state.prepare.source)) throw new Error('BLOCKED_CONTACT_LOSS_SOURCE_DRIFT');
-      preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory});
     } catch (error) { executionBlocker = blockerForStatus(error); }
   }
-  if (selection || terminal || final) {
+  if (selection || terminal || final || promotion) {
     if (!state.prepare) executionBlocker ||= 'BLOCKED_CONTACT_LOSS_SELECTION_WITHOUT_PREPARE';
     else if (selection && (state.charged !== 42 || state.completed !== 42 || state.ambiguous !== 0)) {
       executionBlocker ||= 'BLOCKED_CONTACT_LOSS_SELECTION_LEDGER_INCOMPLETE';
     } else if (!executionBlocker) {
       try {
         verifiedExecution = terminalVerifier({root, home, commonDirectory, buildDirectory,
-          parentVerifier, preparedVerifier, snapshotReader, referenceReader});
+          parentVerifier, preparedVerifier, promotedVerifier, promotionSelectionVerifier, snapshotReader, referenceReader});
         if (verifiedExecution.charged !== state.charged || verifiedExecution.completed !== state.completed
             || verifiedExecution.ambiguous !== state.ambiguous) {
           throw new Error('BLOCKED_CONTACT_LOSS_TERMINAL_LEDGER_MISMATCH');
@@ -2079,7 +2411,7 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
       } catch (error) { executionBlocker = blockerForStatus(error); }
     }
   }
-  if (executionBlocker && (selection || terminal || final)) {
+  if (executionBlocker && (selection || terminal || final || promotion)) {
     const parentCharged = parent.state.charged, combinedCharged = parentCharged + state.charged;
     return {status: executionBlocker, epoch: ACTIVE_EPOCH,
       activeLedgerStatus: 'VERIFIED', parentStatus: 'VERIFIED', parentHead: parent.proof.head,
@@ -2091,47 +2423,40 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
       selection: selection ? 'UNVERIFIED' : 'NOT RUN', stage3: 'NOT RUN', stage4: 'NOT RUN',
       finalReport: final ? 'UNVERIFIED' : 'NOT RUN', reports: {}, writes: 0, renders: 0, acousticCalls: 0};
   }
-  let acceptanceCharged = 0;
-  const report = stage => {
-    const stored = readJsonDual(roots, `${ACCEPTANCE_ROOT}/${stage}/report.json`);
-    reports[stage] = stored?.value.decision || 'NOT RUN';
-    return stored?.value || null;
-  };
-  const count = (stage, cells) => {
-    const calls = readAcceptanceCalls(roots, stage, cells);
-    acceptanceCharged += calls.charged;
-    return calls;
-  };
-  if (verifiedSelection?.status === 'GATE4_STRESS_PASS') {
-    const alpha = verifiedSelection.selected?.alpha;
-    if (!Number.isFinite(alpha)) throw new Error('BLOCKED_CONTACT_LOSS_SELECTED_ALPHA');
-    count('confirmation', core.CONFIRMATION_CELLS.map((cell, index) => ({kind: 'confirmation', ...cell,
-      cellOrder: index, alpha, alphaOrder: core.alphaIndex(alpha)})));
-    report('confirmation');
-    count('headroom', core.HEADROOM_CELLS.map(cell => ({...cell, kind: 'headroom', alpha: cell.role === 'baseline' ? 1 : alpha})));
-    report('headroom');
-    count('release-test', core.RELEASE_CELLS); count('release-production', core.RELEASE_CELLS);
-    report('release-equivalence'); report('promoted-builds');
-    const stage3Plan = stage3Cells(); count('stage3', stage3Plan); report('stage3');
-    const lifecycleCells = [...require('./capture-supersynth-stage4-lifecycle.cjs').LIFECYCLE_CELLS,
-      ...require('./capture-supersynth-stage4-lifecycle.cjs').REPEAT_CELLS];
-    count('stage4', lifecycleCells); report('stage4');
+  let verifiedAcceptance = {acceptanceCharged: 0, reports: {}};
+  if (verifiedSelection?.status === 'GATE4_STRESS_PASS' || final) {
+    try {
+      verifiedAcceptance = acceptanceVerifier({roots, root, state, selection: verifiedSelection,
+        promotion: promotion?.value, finalStored: final});
+    } catch (error) {
+      const blocker = blockerForStatus(error), parentCharged = parent.state.charged;
+      return {status: blocker, epoch: ACTIVE_EPOCH, activeLedgerStatus: 'VERIFIED', parentStatus: 'VERIFIED',
+        parentHead: parent.proof.head, parentCharged, parentPrepareSha256: parent.proof.prepareSha256,
+        preparedHead: state.prepare?.head || null, currentHead, charged: state.charged,
+        completed: state.completed, ambiguous: state.ambiguous, acceptanceCharged: null,
+        callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
+        combinedCharged: parentCharged + state.charged, cumulative: null, lifetimeCap: core.MAX_CALLS,
+        selection: verifiedSelection?.status || 'UNVERIFIED', stage3: 'UNVERIFIED', stage4: 'UNVERIFIED',
+        finalReport: final ? 'UNVERIFIED' : 'NOT RUN', reports: {}, writes: 0, renders: 0, acousticCalls: 0};
+    }
   }
-  if (final && (final.value.epoch !== ACTIVE_EPOCH
-      || final.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256)) throw new Error('BLOCKED_CONTACT_LOSS_FINAL_REPORT_IDENTITY');
+  Object.assign(reports, verifiedAcceptance.reports);
   const parentCharged = parent.state.charged, combinedCharged = parentCharged + state.charged;
-  return {status: executionBlocker || final?.value?.decision
-        || terminal?.value.status || verifiedSelection?.status || (state.prepare ? state.status : 'NOT_PREPARED'), epoch: ACTIVE_EPOCH,
+  const ctestDecision = verifiedAcceptance.reports['full-ctest'];
+  const statusValue = executionBlocker || (final ? verifiedAcceptance.reports.final : null)
+    || (ctestDecision && ctestDecision !== 'NOT RUN' && ctestDecision !== 'FULL_CTEST_PASS' ? ctestDecision : null)
+    || verifiedSelection?.status || terminal?.value.status || (state.prepare ? state.status : 'NOT_PREPARED');
+  return {status: statusValue, epoch: ACTIVE_EPOCH,
     activeLedgerStatus: 'VERIFIED',
     parentStatus: 'VERIFIED', parentHead: parent.proof.head, parentCharged,
     parentPrepareSha256: parent.proof.prepareSha256,
     preparedHead: state.prepare?.head || null, currentHead,
     charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
-    acceptanceCharged, callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
-    combinedCharged, cumulative: core.HISTORICAL_CALLS + combinedCharged + acceptanceCharged, lifetimeCap: core.MAX_CALLS,
+    acceptanceCharged: verifiedAcceptance.acceptanceCharged, callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
+    combinedCharged, cumulative: core.HISTORICAL_CALLS + combinedCharged + verifiedAcceptance.acceptanceCharged, lifetimeCap: core.MAX_CALLS,
     selection: verifiedSelection?.status || (selection ? 'UNVERIFIED' : 'NOT RUN'),
     stage3: reports.stage3 || 'NOT RUN', stage4: reports.stage4 || 'NOT RUN',
-    finalReport: final?.value.decision || 'NOT RUN', reports, writes: 0, renders: 0, acousticCalls: 0};
+    finalReport: verifiedAcceptance.reports.final || 'NOT RUN', reports, writes: 0, renders: 0, acousticCalls: 0};
 }
 
 function parseMode(argv) {
@@ -2166,10 +2491,12 @@ module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA25
   verifyIssueApproval, latestOfflineReport, gate3Analysis, verifyDiagnosticBuild, verifyParentExperiment01,
   parentInventory, verifyParentInventoryUnchanged, prepareExperiment,
   combinedExperimentCharge,
-  frozenSourceSnapshot, frozenSnapshotSha256, assertFrozenSnapshotMatches, readExperimentState, writeFloatWav,
+  frozenSourceSnapshot, frozenSnapshotSha256, assertFrozenSnapshotMatches, sourceSnapshot, readExperimentState, writeFloatWav,
   officialMetricPayload, normalizeAnalyzerMetrics, analyzerFixture, assertAnalyzerContract, captureMetadata, renderCall, referenceRows,
   scoreAlpha, scoreCompletedAlpha, verifiedReceipt, runBounded, verifyStoredAlphaResults, verifyExperiment,
+  verifySelectionAfterPromotion, PROMOTION_PATHS, commitChangedPaths, assertPromotionCommit, verifyPromotedAuthority, promoteSelected,
   buildPromotedPair, renderPromotedCell, renderReleaseCell, releaseEquivalenceReport, estimateDualEvidenceBytes,
   assertEvidenceCapacity, stage3Cells,
-  stage3Report, renderLifecycleWithAudio, stage4Report, continuationDecision, continueApproved,
+  stage3Report, renderLifecycleWithAudio, stage4Report, stage4LegacyDocument, runPostStage4FullCTest,
+  verifyAcceptanceProgress, continuationDecision, continueApproved,
   status, parseMode, main};

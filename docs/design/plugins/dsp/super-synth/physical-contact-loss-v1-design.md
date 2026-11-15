@@ -2,14 +2,14 @@
 <!-- agent-doc-schema: 2 -->
 # Issue #7 — Physical Contact Loss v1 Design (approved)
 
-## Normative authority and lifecycle
+## Context and goals
 
 - Specification: [physical-contact-loss-v1-amendment.md](../../../../specs/plugins/dsp/super-synth/physical-contact-loss-v1-amendment.md).
 - [Implementation Contract](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6473845875) SHA-256 `54838dfea9832f6da358a1c620567b09246a54fdd26fb807bc74d4ceeb6dc4aa`, [user approval](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6475747258), Issue body marker `ISSUE7_CONTACT_LOSS_V1_GATE3_6_APPROVED`.
 - Existing `physical-fit-v5-amendment.md` is still authoritative for the *frozen v5 experiment*. The approved exception reallocates the 42 **unused** calls only to the new independent epoch. Do not repurpose the old v5 ledger or adjust its terminal.
 - Scope: one hammer contact dissipation scaling mechanism. All other DSP branches and architecture invariants remain unchanged. Gate 3 reports hypothesis; Gate 4 falsifies it with actual captures; Gate 5 performs existing acceptance sequence only on PASS; Gate 6 is final product review.
 
-## Ownership map / exact changes
+## Data flow and ownership
 
 | Owner | Responsibility / prescribed behavior |
 | --- | --- |
@@ -22,7 +22,7 @@
 
 No changes permitted in `interface.soraoto`, Plugin ABI, factory preset schema, physical-identification helper signatures or `grand_strings_step` force/loss arithmetic. The test-only setter is deliberately private to the diagnostic build. The production path must keep the existing `engine_model=9` and current physical transition geometry.
 
-## Fixed α and render protocol
+## Architecture
 
 ```text
 ALPHA = [1.00, 0.50, 0.65, 0.80, 1.20, 1.40]
@@ -42,7 +42,7 @@ The starting conjecture is **`HAMMER_CONTACT_DISSIPATION_HYPOTHESIS`**, not conf
 
 `--analyze` remains read-only. `--prepare` stores its complete deterministic Gate3 report as `gate3-analysis.json` in both new-epoch stores and binds its SHA-256 and frozen-source snapshot digest into `prepare.json`. For an already immutable preflight record that embeds the full snapshot but predates the duplicate digest field, verification derives the digest from those exact stored bytes; it never rewrites or repairs the record. Candidate selection and all acceptance summaries are recomputed from the stored WAV/metadata pairs on every continuation; an existing summary cannot substitute for its source rows. After the two approved promotion files are committed, a restart validates the exact parent, tree, changed-path set, parameter values, and remote PR HEAD before writing the promotion receipt. It never rerenders completed calls to repair a missing receipt.
 
-## Evidence identity, repeat and cancellation
+## Failure handling
 
 Use a dedicated pair:
 - Primary: `<git-common-dir>/soraoto-agent-state/7/physical-contact-loss-v1/experiment-01/`
@@ -54,9 +54,9 @@ Read-only modes never create a directory or mutate file mtimes. `--prepare` is b
 
 Source commits after a measured run are new provenance. If continuation evidence is needed, append a distinctly numbered epoch with authenticated parent report and strict source lineage; never edit a previously published report or simply relabel HEAD.
 
-The 2026-10-29 approval originally authorized only `experiment-01`, immutably bound to its prepared HEAD. The user-approved [experiment-02 successor amendment](physical-contact-loss-v1-experiment-02-amendment.md) now authorizes one separate append-only epoch because experiment-01 has zero charged calls. The successor runner must authenticate experiment-01 and leave its bytes/mtimes unchanged; the combined experiment allocation remains 42 calls. This does not authorize experiment-03, re-labeling experiment-01, or resuming either epoch after source/HEAD drift.
+The 2026-10-29 approval originally authorized only `experiment-01`, immutably bound to its prepared HEAD. The user-approved [experiment-02 successor amendment](../../../../specs/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-amendment.md) now authorizes one separate append-only epoch because experiment-01 has zero charged calls. The successor runner must authenticate experiment-01 and leave its bytes/mtimes unchanged; the combined experiment allocation remains 42 calls. This does not authorize experiment-03, re-labeling experiment-01, or resuming either epoch after source/HEAD drift.
 
-## Gate 5 / Gate 6 transitions
+## Requirements traceability
 
 ```text
 GATE3_ANALYSIS_PASS
@@ -87,7 +87,9 @@ Cumulative `3251 + 42 + (25+4+24+486+1423) = 5255`; no borrowing or broadening. 
 
 Before the first approved render, the runner estimates both evidence stores' maximum WAV and metadata footprint plus the two promoted build trees; it blocks before charging if either store lacks space. It rechecks the remaining Stage4 footprint before the 1,423-cell lifecycle sequence. Stage3 writes all 486 direct/sentinel WAV and metadata pairs before applying the official 480-cell direct-reference evaluation and six deterministic sentinel comparisons. Stage4 writes all 1,408 lifecycle plus 15 repeat WAV/metadata pairs, checks their source-bound identities, then invokes the existing adjacent/velocity conformance evaluator against a temporary read-only serialization of those stored rows.
 
-## Concrete failure-mode tests and review checkpoints
+After Stage4 PASS, the continuation reconstructs the same legacy calibration document from authenticated Stage3/Stage4 dual-store rows and reruns the full CTest suite with `SUPERSYNTH_LIFECYCLE_PATH` pointing at a temporary file beneath ignored `build/`. It records the exit code, test counts, failed test names, output digests, Stage4 report SHA-256, and reconstructed-input SHA-256 in an immutable dual-store report, then removes the temporary input. CTest must report a complete successful summary before final acceptance or Web Player checks. `--status` and `--verify` only recompute and compare saved evidence; they never create the temporary file or run CTest.
+
+## Verification strategy
 
 Before authorizing the first real call: assert finite canonical α, factory-preset base (0.08/0.28), noncumulative repeated setter, rejection leaves all state unchanged, reset/voice lifecycle and alpha1 bitwise/accepted PCM baseline; source SHA/mtime stable. Assert fixed 42 IDs/ordering, guarded read-only Gate3, lineage segregation, correct reference SHA. Inject (separately) clipping, guard hits, nonfinite, shape>10, level>20, dynamic span>8, spectral brightness fail and better-loss-but-hard-fail. Assert all are rejected, zero winner yields finite terminal and no downstream work.
 
@@ -96,6 +98,10 @@ Before authorizing the first real call: assert finite canonical α, factory-pres
 The generic repository test run may skip WASM-dependent checks when build inputs are absent. Before the bounded experiment, execute the dedicated contact-loss suite with `ISSUE7_CONTACT_LOSS_REQUIRE_BUILD_MATRIX=1` and explicit `ISSUE7_CONTACT_LOSS_BUILD_DIR` and `ISSUE7_CONTACT_LOSS_PRODUCTION_BUILD_DIR`. In this mode, missing artifacts, missing diagnostic exports, production exports, or skipped alpha-one PCM equivalence are failures. Configure a diagnostic build with `BUILD_TESTING=ON`, guard diagnostics `ON`, contact-loss diagnostics `ON`, and physical-identification diagnostics `OFF`; configure a separate production build with `BUILD_TESTING=OFF`, guard/contact-loss/physical-identification diagnostics `OFF`. Run the focused Node suite and the registered CTest with both exact directories in the environment. The matrix must prove setter/getter behavior and production export absence; the alpha-one equivalence fixture must compare actual output PCM from both built WASM files. The analyzer integration fixture uses the real analyzer and runner persistence/readback path with synthetic PCM, so it proves record shape without consuming an experiment cell.
 
 Inject process abort immediately after one mirrored durable start; retry must not rerender, counter must charge once. Tamper both copies with equal-length different bytes; exact recorded SHA must reject. Inject remote HEAD drift, incomplete two-copy publication, lock owner conflict, and new source identity after freeze; no false PASS. Inject holdout failure, headroom failure, PCM equivalence failure, Stage3 failure and Stage4 failure independently and assert later calls=0. Verify test/release SHA mismatch is allowed only where PCM equivalence is proven. Verify exactly 486/1423 cells and existing lifecycle/adjacent validations.
+
+## Alternatives considered
+
+The approved design keeps one orchestration runner and a separate append-only successor epoch. Reusing or rewriting experiment-01, adding another epoch, changing the physical mechanism, skipping the full CTest suite, or relaxing a quality gate would violate the approved contract and is not an available implementation alternative.
 
 Commands in [contract](https://github.com/puchinya/soraoto_dsl/issues/7#issuecomment-6473845875) are normative: `rtk cmake -S wasm -B build/wasm -DCMAKE_TOOLCHAIN_FILE="$PWD/wasm/cmake/wasm32-clang.cmake"`, build, CTest, focused Node and frozen offline/v5 tests, `rtk git diff --check`, then `web-player/` npm tests/build after all upstream PASS. Record exact results, exit codes, and untested OSs. A synthetic fixture result never satisfies a real audio gate.
 
