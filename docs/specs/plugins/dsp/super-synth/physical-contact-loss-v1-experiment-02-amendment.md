@@ -8,6 +8,8 @@
 - **Implementation:** [PR #8](https://github.com/puchinya/soraoto_dsl/pull/8)
 - **Approval marker:** `ISSUE7_CONTACT_LOSS_V1_EXPERIMENT_02_APPROVED`
 - **Contract:** [experiment-02 successor contract](../../../../design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-contract.md)
+- **Approved gate-order amendment:** [CTest order contract](../../../../design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-ctest-order-contract.md), SHA-256 `106f22061781a2826a77d3ca0f83b85c79a7e03de4187c3407138090ae6d4ae3`
+- **Amendment approval marker:** `ISSUE7_CONTACT_LOSS_CTEST_ORDER_AMENDMENT_APPROVED` (approved by the user in chat on 2026-11-15 JST)
 
 ## Purpose
 
@@ -58,6 +60,28 @@ Keep per-cell WAV and metadata in the fixed private dual-store roots. Public Iss
 
 Passing these evidence and runtime checks authorizes the fixed experiment and existing downstream gates; it is not acoustic acceptance. Only a complete measured Gate4 hard-gate PASS permits the already approved 25 confirmation calls, 4 headroom calls, promotion, 24 release-equivalence calls, 486 Stage3 calls, and 1,423 Stage4 calls, in that order. Any failure blocks all later calls. Manual listening, Web Player acceptance, review, PR merge and Issue closure remain separate final gates.
 
+## Approved CTest gate-order amendment (2026-11-15)
+
+The amendment changes only the pre-prepare and post-Stage4 full-CTest sequence. It does not relax an audio threshold or declare an acoustic failure acceptable.
+
+Before `--prepare`, `--preflight` MUST run and persist a source-bound, immutable, dual-store receipt for the exact clean pushed HEAD. It requires independent diagnostic and production build checks; the strict Issue #7 Node suite, focused contact-loss CTest tests, and offline/frozen regressions with zero skips; and a full CTest run whose exit code, count, failures, signatures, and output hashes are retained. `--prepare` MUST authenticate that receipt and the same current HEAD/source/build identities. A changed source or HEAD requires a new append-only preflight receipt; no receipt may be overwritten.
+
+The pre-prepare full suite MUST never be reported `FULL_CTEST_PASS` when it fails. Only the two actual failures proven identical against the named baseline may be classified `KNOWN_BASELINE_FAIL`: `wasm.audio-quality-regression` and `wasm.dsp.super-synth.supersynth-v9-production-lifecycle`. The current approved baseline uses the same diagnostic WASM SHA-256 `f36b18c705a4ac1c965f10712ae2ebde86106c6048b3f5f6a59036e721163fd3`; exact baseline source SHA and measured failure signatures are fixed in the linked CTest order contract. The full-range calibration test MUST remain visible as `DEFERRED_POST_STAGE4_INPUT_NOT_YET_AVAILABLE` when its required persisted Stage4 input is absent. Any additional failure, changed signature or build/input identity, skip, missing result summary, or unexplained nonzero exit blocks preparation.
+
+Only after Gate4, 25 confirmation calls, 4 headroom calls, promotion, 24 release-equivalence calls, 486 Stage3 calls and 1,423 Stage4 calls all pass their existing measured gates may the runner reconstruct the existing 1,408 lifecycle plus 15 repeat document from authenticated dual-store receipts. It must use `stage4-full-range-evaluator.cjs`, place the temporary document under ignored `build/`, pass it through `SUPERSYNTH_LIFECYCLE_PATH`, bind the immutable full-CTest receipt to both the Stage4 report SHA-256 and lifecycle-input SHA-256, and require every test to pass. No additional render or audio call is part of this gate. Web Player and manual listening remain separate final acceptance requirements.
+
+`--status` and `--verify` remain zero-write and do not run CTest. Any actual measured audio failure stops the approved sequence; all later stages remain NOT RUN.
+
 ## Verification strategy
 
-Before `--prepare`, require the already approved focused Node/build matrix, frozen evidence regressions, and full CTest gate; a failure is never relabeled as a skip or pass. After all 1,423 Stage4 captures and their official gates pass, run the full CTest suite again using a lifecycle document reconstructed only from authenticated Stage3/Stage4 dual-store rows. Write that input temporarily beneath ignored `build/`, pass it through `SUPERSYNTH_LIFECYCLE_PATH`, bind the immutable post-Stage4 CTest receipt to the Stage4 report SHA-256 and input SHA-256, and remove the temporary input. A missing summary, nonzero exit, failed test, or identity mismatch blocks final acceptance. `--status` and `--verify` stay zero-write and never run this CTest operation.
+Run the amended `--preflight` once on the pushed implementation HEAD and verify its dual-store readback before `--prepare`. After all 1,423 Stage4 captures and their official gates pass, run the full CTest suite again with the authenticated Stage4 input as specified above. A missing summary, nonzero exit, failed test, skip, or identity mismatch blocks final acceptance. Read-only status/verification must preserve all existing mtimes and never construct the post-Stage4 input or run CTest.
+
+### Amendment reviewer checklist
+
+- [ ] Issue approval marker and exact contract SHA match this amendment.
+- [ ] Preflight is bound to current pushed HEAD, source snapshot, diagnostic/production builds, parent proof and Gate3 report; `--prepare` refuses to run without it.
+- [ ] Focused Node/CTest and offline/frozen regressions pass with zero skips.
+- [ ] Full preflight CTest is disclosed as failing if it fails; only the exact approved two baseline signatures and the deferred Stage4-input failure are classifiable.
+- [ ] No additional failure, signature drift, build/input mismatch, skip or missing summary can be converted into an allowed outcome.
+- [ ] Post-Stage4 CTest consumes only authenticated 1,408 + 15 receipts and requires every test to pass.
+- [ ] Experiment-01 evidence, physical gates, thresholds, call budgets, Stage order and product acceptance remain unchanged.

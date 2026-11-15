@@ -35,6 +35,41 @@ function initFixtureRepo(root, branch = runner.PR_BRANCH) {
   return execFileSync('rtk', ['git', 'rev-parse', 'HEAD'], {cwd: root, encoding: 'utf8'}).trim();
 }
 function bytesSha(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
+function setupPreflight({roots, head, wasmSha256, source, parentEpoch, gate3Sha256, frozenEvidenceSnapshot}) {
+  const hash = 'a'.repeat(64), preflightFile = runner.preflightFileName(head);
+  const report = {schemaVersion: 1, kind: 'CONTACT_LOSS_PREPARE_PREFLIGHT', decision: 'PREPARE_PREFLIGHT_READY',
+    epoch: runner.ACTIVE_EPOCH, head, branch: runner.PR_BRANCH,
+    contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
+    ctestOrderContractSha256: runner.CTEST_ORDER_CONTRACT_SHA256,
+    issueApprovalMarker: 'ISSUE7_CONTACT_LOSS_V1_GATE3_6_APPROVED',
+    successorApprovalMarker: runner.SUCCESSOR_APPROVAL_MARKER,
+    ctestOrderApprovalMarker: runner.CTEST_ORDER_APPROVAL_MARKER,
+    parentProof: parentEpoch, gate3: {analysisSha256: gate3Sha256},
+    frozenEvidenceSnapshot, frozenSnapshotSha256: runner.frozenSnapshotSha256(frozenEvidenceSnapshot), source,
+    baselineInputs: {baselineHead: runner.BASELINE_HEAD,
+      unchangedPaths: [...runner.BASELINE_INPUT_PATHS], sourceHashes: runner.BASELINE_TEST_SOURCE_HASHES},
+    builds: {diagnostic: {pass: true, wasm: {sha256: wasmSha256}},
+      production: {pass: true, wasm: {sha256: 'c'.repeat(64)}}},
+    checks: {
+      focusedNode: {tests: 1, passed: 1, failed: 0, skipped: 0, stdoutSha256: hash, stderrSha256: hash},
+      focusedCTest: {tests: 2, passed: 2, failed: 0, skipped: 0, stdoutSha256: hash, stderrSha256: hash},
+      offlineFrozen: {tests: 1, passed: 1, failed: 0, skipped: 0, stdoutSha256: hash, stderrSha256: hash},
+      fullCTest: {decision: 'BASELINE_FAILURES_DISCLOSED', baselineHead: runner.BASELINE_HEAD,
+        exitCode: 8, testCount: 50, failedCount: 3, skippedCount: 0,
+        failureNames: ['wasm.audio-quality-regression',
+          'wasm.dsp.super-synth.supersynth-v9-full-range-calibration',
+          'wasm.dsp.super-synth.supersynth-v9-production-lifecycle'],
+        signatures: {audioQuality: 'field-wind-over-lumeria: true peak -32.387194396613445',
+          productionLifecycleReportSha256: '9f0e33296134825b9dc0e86f097e4648763fcae5378452bf85e4491a56df8de0',
+          productionWasmSha256: 'f36b18c705a4ac1c965f10712ae2ebde86106c6048b3f5f6a59036e721163fd3',
+          stage4Input: 'persisted Stage4 lifecycle matrix is required; the Stage4 runner owns all acoustic renders'},
+        stdoutSha256: hash, stderrSha256: hash}
+    }};
+  runner.assertPreflightReceiptShape(report, head);
+  const bytes = Buffer.from(`${JSON.stringify(stable(report), null, 2)}\n`);
+  runner.writeDualImmutable(roots, preflightFile, bytes);
+  return {preflightFile, preflightSha256: bytesSha(bytes), report};
+}
 function decodeAudio(wav) {
   return require('./physical-fit-v4-loss.cjs').decodeFloat32StereoWav(wav);
 }
@@ -70,10 +105,15 @@ function setupPrepared({roots, head = '1'.repeat(40), wasmSha256 = '2'.repeat(64
     prepareSha256: runner.PARENT_PREPARE_SHA256, planSha256: runner.PARENT_PLAN_SHA256,
     gate3Sha256: runner.PARENT_GATE3_SHA256,
     charged: 0, completed: 0, ambiguous: 0};
+  const preflight = setupPreflight({roots, head, wasmSha256, source, parentEpoch,
+    gate3Sha256, frozenEvidenceSnapshot});
   const value = {schemaVersion: 2, issue: 7, pr: 8, branch: runner.PR_BRANCH, head,
     epoch: runner.ACTIVE_EPOCH, contractSha256: runner.SUCCESSOR_CONTRACT_SHA256,
     approvalMarker: 'ISSUE7_CONTACT_LOSS_V1_GATE3_6_APPROVED',
-    successorApprovalMarker: runner.SUCCESSOR_APPROVAL_MARKER, parentEpoch,
+    successorApprovalMarker: runner.SUCCESSOR_APPROVAL_MARKER,
+    ctestOrderContractSha256: runner.CTEST_ORDER_CONTRACT_SHA256,
+    ctestOrderApprovalMarker: runner.CTEST_ORDER_APPROVAL_MARKER,
+    preflightFile: preflight.preflightFile, preflightSha256: preflight.preflightSha256, parentEpoch,
     gate3: {status: 'GATE3_ANALYSIS_PASS', analysisSha256: gate3Sha256, frozenSnapshotSha256: gate3.frozenSnapshotSha256},
     frozenEvidenceSnapshot,
     source, build: {diagnosticBuildDirectory: 'build/diag', wasm: {sha256: wasmSha256, size: 123}}, plan: core.plan(),
@@ -511,13 +551,13 @@ function writeUnsafeBoundaryFixture(completedCount) {
 
 test('prepared status reports READY only at the exact clean source HEAD and remains read-only', () => {
   const context = preparedStatusFixture();
-  const before = runner.parentInventory(context.roots);
+  const before = dualTreeInventory(context.roots);
   const result = fixtureStatus(context);
   assert.equal(result.status, 'READY');
   assert.equal(result.charged, 0);
   assert.equal(result.selection, 'NOT RUN');
   assert.equal(result.activeLedgerStatus, 'VERIFIED');
-  assert.deepEqual(runner.parentInventory(context.roots), before);
+  assert.deepEqual(dualTreeInventory(context.roots), before);
 });
 
 test('status refuses a forged stress-pass selection before the exact 42-call ledger is complete', () => {
@@ -989,8 +1029,81 @@ test('frozen-snapshot binding derives an omitted legacy digest without rewriting
 
 test('read-only CLI modes are mutually exclusive and unknown flags are rejected', () => {
   assert.equal(runner.parseMode(['--status']), 'status');
+  assert.equal(runner.parseMode(['--preflight']), 'preflight');
   assert.throws(() => runner.parseMode(['--status', '--verify']), /Usage:/);
   assert.throws(() => runner.parseMode(['--run-bounded', '--count', '1']), /Usage:/);
+});
+
+test('preflight receipt accepts only the approved baseline failures and Stage4 input deferral', () => {
+  const context = tempRoots(), head = '1'.repeat(40), wasmSha256 = '2'.repeat(64), source = {};
+  const frozenEvidenceSnapshot = {fixtureSnapshot: 'unchanged'};
+  const parentEpoch = {epoch: runner.PARENT_EPOCH, head: runner.PARENT_HEAD,
+    charged: 0, completed: 0, ambiguous: 0};
+  const preflight = setupPreflight({roots: context.roots, head, wasmSha256, source, parentEpoch,
+    gate3Sha256: '3'.repeat(64), frozenEvidenceSnapshot});
+  const state = runner.readExperimentState(context.roots);
+  assert.equal(state.status, 'PREFLIGHT_READY');
+  assert.deepEqual(state.preflightReports.map(row => row.file), [preflight.preflightFile]);
+  assert.equal(runner.assertPreflightReceiptShape(preflight.report, head), preflight.report);
+
+  const extraFailure = structuredClone(preflight.report);
+  extraFailure.checks.fullCTest.failureNames.push('wasm.unapproved.failure');
+  assert.throws(() => runner.assertPreflightReceiptShape(extraFailure, head), /PREFLIGHT_FULL_CTEST/);
+  const skipped = structuredClone(preflight.report);
+  skipped.checks.offlineFrozen.skipped = 1;
+  assert.throws(() => runner.assertPreflightReceiptShape(skipped, head), /PREFLIGHT_CHECK:offlineFrozen/);
+  const changedSignature = structuredClone(preflight.report);
+  changedSignature.checks.fullCTest.signatures.audioQuality = 'different audio failure';
+  assert.throws(() => runner.assertPreflightReceiptShape(changedSignature, head), /PREFLIGHT_FULL_CTEST/);
+});
+
+test('full CTest classifier requires the exact failure set, signatures, lifecycle identity, and zero skips', () => {
+  const lifecycle = {schemaVersion: 1, check: 'supersynth-v9-production-simd-lifecycle',
+    productionWasmSha256: 'f36b18c705a4ac1c965f10712ae2ebde86106c6048b3f5f6a59036e721163fd3',
+    cells: 1408, adjacentComparisons: 1390};
+  const lifecycleBytes = Buffer.from(`${JSON.stringify(lifecycle, null, 2)}\n`);
+  const lifecycleSha256 = bytesSha(lifecycleBytes);
+  const failures = ['wasm.audio-quality-regression',
+    'wasm.dsp.super-synth.supersynth-v9-full-range-calibration',
+    'wasm.dsp.super-synth.supersynth-v9-production-lifecycle'];
+  const output = ['94% tests passed, 3 tests failed out of 50', 'The following tests FAILED:',
+    ...failures.map((name, index) => `  ${index + 1} - ${name} (Failed)`),
+    'field-wind-over-lumeria: true peak -32.387194396613445',
+    'persisted Stage4 lifecycle matrix is required; the Stage4 runner owns all acoustic renders',
+    JSON.stringify(lifecycle, null, 2)].join('\n');
+  const classified = runner.classifyFullCTestPreflight({status: 8, stdout: output,
+    expectedLifecycleReportSha256: lifecycleSha256});
+  assert.equal(classified.decision, 'BASELINE_FAILURES_DISCLOSED');
+  assert.equal(classified.testCount, 50);
+  assert.equal(classified.failedCount, 3);
+  assert.equal(classified.skippedCount, 0);
+  assert.equal(classified.signatures.productionLifecycleReportSha256, lifecycleSha256);
+  assert.throws(() => runner.classifyFullCTestPreflight({status: 8,
+    stdout: `${output}\n***Skipped`, expectedLifecycleReportSha256: lifecycleSha256}), /PREFLIGHT_NEW_CTEST_FAILURE/);
+  assert.throws(() => runner.classifyFullCTestPreflight({status: 8,
+    stdout: output.replace('field-wind-over-lumeria', 'changed-field-wind'),
+    expectedLifecycleReportSha256: lifecycleSha256}), /PREFLIGHT_CTEST_FAILURE_SIGNATURE/);
+  assert.throws(() => runner.classifyFullCTestPreflight({status: 8, stdout: output,
+    expectedLifecycleReportSha256: '0'.repeat(64)}), /PREFLIGHT_BASELINE_LIFECYCLE_DRIFT/);
+  assert.throws(() => runner.classifyFullCTestPreflight({status: 8, stdout: output,
+    expectedLifecycleReportSha256: lifecycleSha256, errorCode: 'EACCES'}), /PREFLIGHT_CTEST_EXECUTION/);
+});
+
+test('prepare preflight identity rejects missing receipts and any source or identity drift', () => {
+  const context = tempRoots(), head = '4'.repeat(40), wasmSha256 = '5'.repeat(64), source = {source: 'fixed'};
+  const frozenEvidenceSnapshot = {fixtureSnapshot: 'unchanged'}, parentProof = {epoch: runner.PARENT_EPOCH,
+    head: runner.PARENT_HEAD, charged: 0, completed: 0, ambiguous: 0};
+  const analysisSha256 = '6'.repeat(64), productionWasmSha256 = 'c'.repeat(64);
+  const inputs = {roots: context.roots, head, source, parentProof, frozenEvidenceSnapshot, analysisSha256,
+    diagnosticWasmSha256: wasmSha256, productionWasmSha256};
+  assert.throws(() => runner.verifyPreflightForPrepare(inputs), /PREFLIGHT_MISSING/);
+  setupPreflight({roots: context.roots, head, wasmSha256, source, parentEpoch: parentProof,
+    gate3Sha256: analysisSha256, frozenEvidenceSnapshot});
+  const before = dualTreeInventory(context.roots);
+  assert.equal(runner.verifyPreflightForPrepare(inputs).preflightSha256.length, 64);
+  assert.throws(() => runner.verifyPreflightForPrepare({...inputs, source: {source: 'changed'}}), /PREFLIGHT_IDENTITY/);
+  assert.throws(() => runner.verifyPreflightForPrepare({...inputs, diagnosticWasmSha256: '8'.repeat(64)}), /PREFLIGHT_IDENTITY/);
+  assert.deepEqual(dualTreeInventory(context.roots), before);
 });
 
 test('approved continuation keeps every later gate NOT RUN after its predecessor fails', () => {

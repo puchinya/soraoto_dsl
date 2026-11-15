@@ -19,8 +19,21 @@ const LOCAL_WORKTREE_BRANCH = 'codex/issue-7-pr8-root-cause-review';
 const PR_URL = `https://github.com/${REPOSITORY}/pull/${PR_NUMBER}`;
 const ISSUE_APPROVAL_MARKER = 'ISSUE7_CONTACT_LOSS_V1_GATE3_6_APPROVED';
 const SUCCESSOR_APPROVAL_MARKER = 'ISSUE7_CONTACT_LOSS_V1_EXPERIMENT_02_APPROVED';
+const CTEST_ORDER_APPROVAL_MARKER = 'ISSUE7_CONTACT_LOSS_CTEST_ORDER_AMENDMENT_APPROVED';
 const CONTRACT_SHA256 = '54838dfea9832f6da358a1c620567b09246a54fdd26fb807bc74d4ceeb6dc4aa';
 const SUCCESSOR_CONTRACT_SHA256 = '211ff6c120647ef59de6977c1d753c5078fcd04ec70cec754ac2c0d680e894ca';
+const CTEST_ORDER_CONTRACT_SHA256 = '106f22061781a2826a77d3ca0f83b85c79a7e03de4187c3407138090ae6d4ae3';
+const CTEST_ORDER_CONTRACT_REL = 'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-ctest-order-contract.md';
+const BASELINE_HEAD = '3e3e3ba91b768767f38574b1dac9c65af75bbc23';
+const BASELINE_PRODUCTION_WASM_SHA256 = 'f36b18c705a4ac1c965f10712ae2ebde86106c6048b3f5f6a59036e721163fd3';
+const BASELINE_PRODUCTION_REPORT_SHA256 = '9f0e33296134825b9dc0e86f097e4648763fcae5378452bf85e4491a56df8de0';
+const BASELINE_AUDIO_ERROR = 'field-wind-over-lumeria: true peak -32.387194396613445';
+const BASELINE_STAGE4_INPUT_ERROR = 'persisted Stage4 lifecycle matrix is required; the Stage4 runner owns all acoustic renders';
+const BASELINE_CTEST_FAILURES = Object.freeze([
+  'wasm.audio-quality-regression',
+  'wasm.dsp.super-synth.supersynth-v9-full-range-calibration',
+  'wasm.dsp.super-synth.supersynth-v9-production-lifecycle'
+]);
 const ACTIVE_EPOCH = 'experiment-02';
 const PARENT_EPOCH = 'experiment-01';
 const PARENT_PREPARE_SHA256 = 'c49362c8db61ec223f78e7a326fb34eb6c49dd24f06bf48ea90bcc6d4624a24e';
@@ -37,6 +50,7 @@ const SOURCE_FILES = Object.freeze([
   'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-design.md',
   'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-design.md',
   'docs/design/plugins/dsp/super-synth/physical-contact-loss-v1-experiment-02-contract.md',
+  CTEST_ORDER_CONTRACT_REL,
   'wasm/CMakeLists.txt',
   'wasm/cmake/wasm_plugin.cmake',
   'wasm/cmake/wasm32-clang.cmake',
@@ -233,17 +247,139 @@ function verifyIssueApproval(root = ROOT) {
   const labels = (issue.labels || []).map(row => row.name);
   if (!labels.includes('phase:implementation')) throw new Error('BLOCKED_CONTACT_LOSS_ISSUE_PHASE');
   const body = String(issue.body || '');
-  if (!body.includes(SUCCESSOR_APPROVAL_MARKER) || !body.includes(SUCCESSOR_CONTRACT_SHA256)) {
-    throw new Error('BLOCKED_CONTACT_LOSS_SUCCESSOR_APPROVAL_MISSING');
+  if (!body.includes(SUCCESSOR_APPROVAL_MARKER) || !body.includes(SUCCESSOR_CONTRACT_SHA256)
+      || !body.includes(CTEST_ORDER_APPROVAL_MARKER) || !body.includes(CTEST_ORDER_CONTRACT_SHA256)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_CTEST_ORDER_APPROVAL_MISSING');
   }
   const contractBytes = fs.readFileSync(path.join(root, SUCCESSOR_CONTRACT_REL));
   if (sha256(contractBytes) !== SUCCESSOR_CONTRACT_SHA256) throw new Error('BLOCKED_CONTACT_LOSS_SUCCESSOR_CONTRACT_SHA');
+  const ctestContractBytes = fs.readFileSync(path.join(root, CTEST_ORDER_CONTRACT_REL));
+  if (sha256(ctestContractBytes) !== CTEST_ORDER_CONTRACT_SHA256) throw new Error('BLOCKED_CONTACT_LOSS_CTEST_ORDER_CONTRACT_SHA');
   if (body.includes(ISSUE_APPROVAL_MARKER)) return true;
   const comments = JSON.parse(github(['api', `repos/${REPOSITORY}/issues/7/comments?per_page=100`], {cwd: root}));
   if (!Array.isArray(comments) || !comments.some(row => String(row.body || '').includes(ISSUE_APPROVAL_MARKER))) {
     throw new Error('BLOCKED_CONTACT_LOSS_ISSUE_APPROVAL_MISSING');
   }
   return true;
+}
+function preflightFileName(head) {
+  if (!/^[a-f0-9]{40}$/.test(head || '')) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_HEAD');
+  return `preflight-${head}.json`;
+}
+function extractJsonBlock(output, testName) {
+  const marker = String(output).indexOf(testName);
+  if (marker < 0) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_CTEST_TEST_MISSING');
+  const start = String(output).indexOf('{', marker);
+  if (start < 0) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_CTEST_JSON_MISSING');
+  let depth = 0, inString = false, escaped = false;
+  for (let index = start; index < output.length; index++) {
+    const character = output[index];
+    if (escaped) { escaped = false; continue; }
+    if (inString && character === '\\') { escaped = true; continue; }
+    if (character === '"') { inString = !inString; continue; }
+    if (!inString) {
+      if (character === '{') depth++;
+      else if (character === '}' && --depth === 0) {
+        try { return JSON.parse(output.slice(start, index + 1)); }
+        catch { throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_CTEST_JSON_INVALID'); }
+      }
+    }
+  }
+  throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_CTEST_JSON_TRUNCATED');
+}
+function ctestSkippedCount(output) {
+  return [...String(output).matchAll(/\*\*\*Skipped|\*\*\*Not Run/g)].length;
+}
+function nodeTestSummary(output) {
+  const text = String(output);
+  const pick = (name) => {
+    const match = text.match(new RegExp(`(?:#|ℹ)\\s*${name}\\s+(\\d+)`, 'i'));
+    return match ? Number(match[1]) : null;
+  };
+  const tests = pick('tests'), passed = pick('pass'), failed = pick('fail'), skipped = pick('skipped');
+  if (![tests, passed, failed, skipped].every(Number.isSafeInteger)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_NODE_SUMMARY');
+  }
+  return {tests, passed, failed, skipped};
+}
+function assertPreflightReceiptShape(report, expectedHead) {
+  if (report.schemaVersion !== 1 || report.kind !== 'CONTACT_LOSS_PREPARE_PREFLIGHT'
+      || report.decision !== 'PREPARE_PREFLIGHT_READY' || report.epoch !== ACTIVE_EPOCH
+      || report.head !== expectedHead || report.branch !== PR_BRANCH
+      || report.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+      || report.ctestOrderContractSha256 !== CTEST_ORDER_CONTRACT_SHA256
+      || report.issueApprovalMarker !== ISSUE_APPROVAL_MARKER
+      || report.successorApprovalMarker !== SUCCESSOR_APPROVAL_MARKER
+      || report.ctestOrderApprovalMarker !== CTEST_ORDER_APPROVAL_MARKER
+      || !/^[a-f0-9]{64}$/.test(report.gate3?.analysisSha256 || '')
+      || !/^[a-f0-9]{64}$/.test(report.frozenSnapshotSha256 || '')
+      || !report.parentProof || report.parentProof.epoch !== PARENT_EPOCH
+      || report.parentProof.head !== PARENT_HEAD || report.parentProof.charged !== 0
+      || report.parentProof.completed !== 0 || report.parentProof.ambiguous !== 0
+      || report.baselineInputs?.baselineHead !== BASELINE_HEAD
+      || !sameJson(report.baselineInputs?.unchangedPaths, [...BASELINE_INPUT_PATHS])
+      || !sameJson(report.baselineInputs?.sourceHashes, BASELINE_TEST_SOURCE_HASHES)
+      || report.frozenSnapshotSha256 !== frozenSnapshotSha256(report.frozenEvidenceSnapshot)
+      || !report.source || report.builds?.diagnostic?.pass !== true || report.builds?.production?.pass !== true
+      || !/^[a-f0-9]{64}$/.test(report.builds?.diagnostic?.wasm?.sha256 || '')
+      || !/^[a-f0-9]{64}$/.test(report.builds?.production?.wasm?.sha256 || '')) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_RECEIPT_IDENTITY');
+  }
+  const {checks} = report;
+  for (const name of ['focusedNode', 'focusedCTest', 'offlineFrozen']) {
+    const check = checks?.[name];
+    if (!check || check.tests < 1 || check.passed !== check.tests || check.failed !== 0 || check.skipped !== 0
+        || !/^[a-f0-9]{64}$/.test(check.stdoutSha256 || '')
+        || !/^[a-f0-9]{64}$/.test(check.stderrSha256 || '')) {
+      throw new Error(`BLOCKED_CONTACT_LOSS_PREFLIGHT_CHECK:${name}`);
+    }
+  }
+  if (checks.focusedCTest.tests !== 2 || checks.focusedCTest.passed !== 2
+      || checks.fullCTest?.decision !== 'BASELINE_FAILURES_DISCLOSED'
+      || checks.fullCTest.baselineHead !== BASELINE_HEAD || checks.fullCTest.exitCode !== 8
+      || checks.fullCTest.testCount !== 50 || checks.fullCTest.failedCount !== 3
+      || checks.fullCTest.skippedCount !== 0
+      || !sameJson(checks.fullCTest.failureNames, [...BASELINE_CTEST_FAILURES].sort())
+      || checks.fullCTest.signatures?.audioQuality !== BASELINE_AUDIO_ERROR
+      || checks.fullCTest.signatures?.productionLifecycleReportSha256 !== BASELINE_PRODUCTION_REPORT_SHA256
+      || checks.fullCTest.signatures?.productionWasmSha256 !== BASELINE_PRODUCTION_WASM_SHA256
+      || checks.fullCTest.signatures?.stage4Input !== BASELINE_STAGE4_INPUT_ERROR
+      || !/^[a-f0-9]{64}$/.test(checks.fullCTest.stdoutSha256 || '')
+      || !/^[a-f0-9]{64}$/.test(checks.fullCTest.stderrSha256 || '')) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_FULL_CTEST');
+  }
+  return report;
+}
+function classifyFullCTestPreflight({status, errorCode = null, stdout = '', stderr = '',
+  expectedLifecycleReportSha256 = BASELINE_PRODUCTION_REPORT_SHA256} = {}) {
+  const output = `${stdout || ''}\n${stderr || ''}`;
+  if (errorCode) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_CTEST_EXECUTION');
+  const summary = output.match(/(\d+)% tests passed,\s*(\d+) tests failed out of\s*(\d+)/i);
+  const failureNames = [...output.matchAll(/^\s*\d+\s+-\s+(.+?)\s+\(Failed\)\s*$/gm)]
+    .map(match => match[1]).sort();
+  const skippedCount = ctestSkippedCount(output);
+  if (!summary || Number(summary[3]) !== 50 || Number(summary[2]) !== 3 || skippedCount !== 0
+      || status !== 8 || !sameJson(failureNames, [...BASELINE_CTEST_FAILURES].sort())) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_NEW_CTEST_FAILURE');
+  }
+  if (!output.includes(BASELINE_AUDIO_ERROR) || !output.includes(BASELINE_STAGE4_INPUT_ERROR)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_CTEST_FAILURE_SIGNATURE');
+  }
+  const lifecycle = extractJsonBlock(output, 'wasm.dsp.super-synth.supersynth-v9-production-lifecycle');
+  const lifecycleBytes = Buffer.from(`${JSON.stringify(lifecycle, null, 2)}\n`);
+  const reportSha256 = sha256(lifecycleBytes);
+  if (lifecycle.productionWasmSha256 !== BASELINE_PRODUCTION_WASM_SHA256
+      || lifecycle.cells !== 1408 || lifecycle.adjacentComparisons !== 1390
+      || reportSha256 !== expectedLifecycleReportSha256) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_BASELINE_LIFECYCLE_DRIFT');
+  }
+  const fullCTest = {decision: 'BASELINE_FAILURES_DISCLOSED', baselineHead: BASELINE_HEAD,
+    exitCode: status, testCount: Number(summary[3]), failedCount: Number(summary[2]), skippedCount,
+    failureNames, signatures: {audioQuality: BASELINE_AUDIO_ERROR,
+      productionLifecycleReportSha256: reportSha256, productionWasmSha256: lifecycle.productionWasmSha256,
+      stage4Input: BASELINE_STAGE4_INPUT_ERROR}, stdoutSha256: sha256(Buffer.from(stdout || '')),
+    stderrSha256: sha256(Buffer.from(stderr || ''))};
+  return fullCTest;
 }
 function fileSnapshot(root, relative) {
   const file = path.join(root, relative), info = syncReadSha(file);
@@ -337,7 +473,9 @@ function epochRootMembers(roots) {
   if (present[0] === null) return [];
   if (!sameJson(present[0], present[1])) throw new Error('BLOCKED_CONTACT_LOSS_EPOCH_ROOT_DIVERGED');
   const allowed = ['acceptance', 'experiment', 'gate3-analysis.json', 'plan.json', 'prepare.json', 'writer.lock'];
-  if (present[0].some(name => !allowed.includes(name))) throw new Error('BLOCKED_CONTACT_LOSS_EPOCH_ROOT_MEMBERS');
+  if (present[0].some(name => !allowed.includes(name) && !/^preflight-[a-f0-9]{40}\.json$/.test(name))) {
+    throw new Error('BLOCKED_CONTACT_LOSS_EPOCH_ROOT_MEMBERS');
+  }
   return present[0];
 }
 function combinedExperimentCharge(parentCalls, currentCalls) {
@@ -501,6 +639,247 @@ function verifyDiagnosticBuild(root, expectedHead, options = {}) {
     wasm: {sha256: wasm.sha256, size: wasm.size, exports: exports.filter(name => name.startsWith('soraoto_supersynth_contact_loss_')).sort()}};
 }
 
+function verifyProductionBuild(root, expectedHead, options = {}) {
+  const buildDirectory = path.resolve(root, options.buildDirectory || RELEASE_BUILD_REL);
+  const cachePath = path.join(buildDirectory, 'CMakeCache.txt'), wasmPath = path.join(buildDirectory, WASM_REL);
+  const cache = fs.readFileSync(cachePath, 'utf8');
+  const option = (name, value) => new RegExp(`^${name}:[^=]+=${value}$`, 'm').test(cache);
+  if (!option('BUILD_TESTING', 'OFF') || !option('SORAOTO_SUPERSYNTH_GUARD_DIAGNOSTICS', 'OFF')
+      || !option('SORAOTO_SUPERSYNTH_CONTACT_LOSS_DIAGNOSTICS', 'OFF')
+      || !option('SORAOTO_SUPERSYNTH_PHYSICAL_IDENTIFICATION_DIAGNOSTICS', 'OFF')
+      || !cache.includes(`CMAKE_HOME_DIRECTORY:INTERNAL=${path.join(root, 'wasm')}`)
+      || !cache.includes(`CMAKE_TOOLCHAIN_FILE:FILEPATH=${path.join(root, 'wasm/cmake/wasm32-clang.cmake')}`)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PRODUCTION_BUILD_OPTIONS');
+  }
+  const objectPath = path.join(buildDirectory, 'plugins/dsp/super-synth/CMakeFiles/soraoto_dsp_super_synth.dir/src/plugin.c.obj');
+  const objectStat = fs.statSync(objectPath), wasm = syncReadSha(wasmPath);
+  const compileInputs = ['wasm/plugins/dsp/super-synth/src/plugin.c', 'wasm/CMakeLists.txt',
+    'wasm/cmake/wasm_plugin.cmake', 'wasm/plugins/dsp/super-synth/presets.json',
+    'wasm/shared/generated/super-synth_grand_profiles.h'];
+  if (compileInputs.some(relative => fs.statSync(path.join(root, relative)).mtimeMs > objectStat.mtimeMs)
+      || wasm.mtimeMs < objectStat.mtimeMs) throw new Error('BLOCKED_CONTACT_LOSS_STALE_PRODUCTION_BUILD');
+  const exports = WebAssembly.Module.exports(new WebAssembly.Module(wasm.bytes)).map(row => row.name).sort();
+  for (const name of ['soraoto_plugin_process', 'soraoto_plugin_init']) {
+    if (!exports.includes(name)) throw new Error('BLOCKED_CONTACT_LOSS_PRODUCTION_BUILD_EXPORTS');
+  }
+  if (exports.some(name => ['soraoto_supersynth_contact_loss_set', 'soraoto_supersynth_contact_loss_get',
+    'soraoto_supersynth_guard_hit_count', 'soraoto_supersynth_active_voice_count'].includes(name))) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PRODUCTION_BUILD_DIAGNOSTIC_EXPORTS');
+  }
+  return {head: expectedHead, source: sourceSnapshot(root), productionBuildDirectory: path.relative(root, buildDirectory),
+    wasm: {sha256: wasm.sha256, size: wasm.size, exports}};
+}
+
+const BASELINE_INPUT_PATHS = Object.freeze([
+  'wasm/test/audio-quality-regression.test.js', 'wasm/test/helpers/plugin-harness.cjs',
+  'web-player/src/js/compiler.js', 'web-player/src/js/instrument-library.js', 'web-player/public/songs',
+  'wasm/plugins/dsp/super-synth/test/tools/verify-supersynth-v9-production-lifecycle.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/piano-pitch-estimator.cjs',
+  'wasm/plugins/dsp/super-synth/test/supersynth-v9-full-range-calibration.test.js',
+  'wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json',
+  'wasm/plugins/dsp/super-synth/presets.json', 'wasm/plugins/dsp/super-synth/src/plugin.c',
+  'wasm/shared/generated/super-synth_grand_profiles.h', 'wasm/plugins/dsp/drum-machine',
+  'wasm/plugins/effects/master-limiter'
+]);
+const BASELINE_TEST_SOURCE_HASHES = Object.freeze({
+  'wasm/test/audio-quality-regression.test.js': 'cb24d7b78b9145e5d43ca4405d48a0b52259557ef7df2a45d1c04ec199c2d165',
+  'wasm/plugins/dsp/super-synth/test/tools/verify-supersynth-v9-production-lifecycle.cjs': '7f88c043544ac0984702efe883d5b35ab3b4191bc8c41767094f39d1a573ebbd',
+  'wasm/plugins/dsp/super-synth/test/supersynth-v9-full-range-calibration.test.js': 'a78bf720b84868d41f68c91f394dad8c79d035fcc20b70dc020df2a094a075c8'
+});
+function verifyBaselineInputs(root, head) {
+  for (const [relative, expected] of Object.entries(BASELINE_TEST_SOURCE_HASHES)) {
+    if (syncReadSha(path.join(root, relative)).sha256 !== expected) {
+      throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_BASELINE_SOURCE_DRIFT');
+    }
+  }
+  const result = spawnSync('rtk', ['git', 'diff', '--quiet', `${BASELINE_HEAD}...${head}`, '--', ...BASELINE_INPUT_PATHS],
+    {cwd: root, stdio: ['ignore', 'ignore', 'ignore']});
+  if (result.error || result.status !== 0) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_BASELINE_INPUT_DRIFT');
+  return {baselineHead: BASELINE_HEAD, unchangedPaths: [...BASELINE_INPUT_PATHS], sourceHashes: BASELINE_TEST_SOURCE_HASHES};
+}
+
+function runPreflightCommand(root, args, env = process.env) {
+  const result = spawnSync('rtk', args, {cwd: root, encoding: 'utf8', env,
+    maxBuffer: 128 * 1024 * 1024});
+  return {status: result.status, errorCode: result.error?.code || null,
+    stdout: result.stdout || '', stderr: result.stderr || ''};
+}
+function summarizePassingCtest(output, expectedCount) {
+  const summary = String(output).match(/(\d+)% tests passed,\s*(\d+) tests failed out of\s*(\d+)/i);
+  const skipped = ctestSkippedCount(output);
+  if (!summary || Number(summary[3]) !== expectedCount || Number(summary[2]) !== 0 || skipped !== 0) {
+    return {tests: summary ? Number(summary[3]) : null, passed: summary ? Number(summary[3]) - Number(summary[2]) : null,
+      failed: summary ? Number(summary[2]) : null, skipped};
+  }
+  return {tests: Number(summary[3]), passed: Number(summary[3]), failed: 0, skipped: 0};
+}
+function summarizeCommand(result, summary) {
+  return {...summary, stdoutSha256: sha256(Buffer.from(result.stdout)), stderrSha256: sha256(Buffer.from(result.stderr))};
+}
+function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory, buildDirectory, productionBuildDirectory} = {}) {
+  const roots = resolveRoots({root, home, commonDirectory}), identity = currentIdentity(root);
+  if (identity.branch !== PR_BRANCH) throw new Error('BLOCKED_CONTACT_LOSS_BRANCH');
+  verifiedPullRequest(root, identity.head);
+  verifyIssueApproval(root);
+  const activeMembers = epochRootMembers(roots);
+  if (activeMembers.includes('writer.lock')) throw new Error('BLOCKED_CONTACT_LOSS_WRITER_LOCK_EXISTS');
+  if (activeMembers.some(name => !/^preflight-[a-f0-9]{40}\.json$/.test(name))) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_AFTER_PREPARE');
+  }
+  for (const name of activeMembers) {
+    const head = name.slice('preflight-'.length, -'.json'.length);
+    assertPreflightReceiptShape(readJsonDual(roots, name, {required: true}).value, head);
+  }
+  const parent = verifyParentExperiment01({root, home, commonDirectory});
+  const analysis = gate3Analysis({root, home, commonDirectory});
+  if (analysis.status !== 'GATE3_ANALYSIS_PASS' || analysis.cellCount !== 140) throw new Error('BLOCKED_CONTACT_LOSS_GATE3');
+  const frozenEvidenceSnapshot = frozenSourceSnapshot({root, home, commonDirectory});
+  if (frozenSnapshotSha256(frozenEvidenceSnapshot) !== analysis.frozenSnapshotSha256) {
+    throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_CHANGED');
+  }
+  let source = sourceSnapshot(root);
+  const preflightName = preflightFileName(identity.head);
+  const currentDiagnostic = verifyDiagnosticBuild(root, identity.head, {buildDirectory});
+  const currentProduction = verifyProductionBuild(root, identity.head, {buildDirectory: productionBuildDirectory});
+  const existing = readJsonDual(roots, preflightName);
+  if (existing) {
+    assertPreflightReceiptShape(existing.value, identity.head);
+    if (!sameJson(existing.value.source, source)
+        || existing.value.gate3.analysisSha256 !== sha256(jsonBytes(analysis))
+        || !sameJson(existing.value.parentProof, parent.proof)
+        || !sameJson(existing.value.frozenEvidenceSnapshot, frozenEvidenceSnapshot)
+        || existing.value.builds.diagnostic.wasm.sha256 !== currentDiagnostic.wasm.sha256
+        || existing.value.builds.production.wasm.sha256 !== currentProduction.wasm.sha256) {
+      throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_STALE');
+    }
+    return {status: 'PREPARED_PREFLIGHT_REUSED', head: identity.head, preflightFile: preflightName,
+      preflightSha256: existing.sha256, checks: existing.value.checks, writes: 0, renders: 0, acousticCalls: 0};
+  }
+  if (readDual(roots, 'prepare.json') || readDual(roots, 'plan.json') || readDual(roots, 'gate3-analysis.json')) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_AFTER_PREPARE');
+  }
+  const diagnosticPath = path.resolve(root, buildDirectory || DIAGNOSTIC_BUILD_REL);
+  const productionPath = path.resolve(root, productionBuildDirectory || RELEASE_BUILD_REL);
+  runBuildCommand(root, ['cmake', '--build', diagnosticPath, '--parallel'], 'BLOCKED_CONTACT_LOSS_PREFLIGHT_DIAGNOSTIC_BUILD');
+  runBuildCommand(root, ['cmake', '--build', productionPath, '--parallel'], 'BLOCKED_CONTACT_LOSS_PREFLIGHT_PRODUCTION_BUILD');
+  source = sourceSnapshot(root);
+  const diagnostic = verifyDiagnosticBuild(root, identity.head, {buildDirectory});
+  const production = verifyProductionBuild(root, identity.head, {buildDirectory: productionBuildDirectory});
+  if (diagnostic.wasm.sha256 !== BASELINE_PRODUCTION_WASM_SHA256) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_DIAGNOSTIC_WASM_IDENTITY');
+  }
+  const baselineInputs = verifyBaselineInputs(root, identity.head);
+  const testEnv = {...process.env, ISSUE7_CONTACT_LOSS_REQUIRE_BUILD_MATRIX: '1',
+    ISSUE7_CONTACT_LOSS_BUILD_DIR: diagnostic.diagnosticBuildDirectory,
+    ISSUE7_CONTACT_LOSS_PRODUCTION_BUILD_DIR: production.productionBuildDirectory,
+    ISSUE7_CONTACT_LOSS_RELEASE_BUILD_DIR: production.productionBuildDirectory,
+    SORAOTO_WASM_BUILD_DIR: diagnostic.diagnosticBuildDirectory,
+    ISSUE7_ROOT_CAUSE_PRIVATE_EVIDENCE: '1'};
+  const focusedNodeArgs = ['node', '--test',
+    'wasm/plugins/dsp/super-synth/test/tools/issue7-contact-loss-v1-core.test.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-contact-loss-v1.test.cjs'];
+  const focusedNodeResult = runPreflightCommand(root, focusedNodeArgs, testEnv);
+  const focusedNodeSummary = nodeTestSummary(`${focusedNodeResult.stdout}\n${focusedNodeResult.stderr}`);
+  const focusedNode = summarizeCommand(focusedNodeResult, focusedNodeSummary);
+  const ctestArgs = ['ctest', '--test-dir', diagnosticPath, '--output-on-failure', '-R',
+    '^wasm\\.dsp\\.super-synth\\.(issue7-contact-loss-v1-core|run-issue7-contact-loss-v1)$'];
+  const focusedCTestResult = runPreflightCommand(root, ctestArgs, testEnv);
+  const focusedCTestSummary = summarizePassingCtest(`${focusedCTestResult.stdout}\n${focusedCTestResult.stderr}`, 2);
+  const focusedCTest = summarizeCommand(focusedCTestResult, focusedCTestSummary);
+  const offlineArgs = ['node', '--test',
+    'wasm/plugins/dsp/super-synth/test/tools/issue7-physical-root-cause-offline-v1.test.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-physical-root-cause-offline-v1.test.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/analyze-issue7-physical-root-cause-v1.test.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-physical-fit-v5.test.cjs',
+    'wasm/plugins/dsp/super-synth/test/tools/run-issue7-physical-fit-v5-review.test.cjs'];
+  const marker = path.join(root, `.codex-test-dirty-${process.pid}`);
+  const dirtyBefore = currentIdentity(root);
+  fs.writeFileSync(marker, 'temporary regression precondition\n', {flag: 'wx'});
+  let offlineFrozenResult;
+  try {
+    if (!git(root, ['status', '--porcelain=v2', '--untracked-files=all']).includes(path.basename(marker))) {
+      throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_DIRTY_MARKER');
+    }
+    offlineFrozenResult = runPreflightCommand(root, offlineArgs, testEnv);
+  } finally { fs.unlinkSync(marker); }
+  const dirtyAfter = currentIdentity(root);
+  if (dirtyBefore.head !== dirtyAfter.head || dirtyBefore.branch !== dirtyAfter.branch) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_WORKTREE_DRIFT');
+  }
+  const offlineFrozenSummary = nodeTestSummary(`${offlineFrozenResult.stdout}\n${offlineFrozenResult.stderr}`);
+  const offlineFrozen = summarizeCommand(offlineFrozenResult, offlineFrozenSummary);
+  const fullCTestEnv = {...testEnv, SUPERSYNTH_REPORT_DIR: ''};
+  delete fullCTestEnv.SUPERSYNTH_LIFECYCLE_PATH;
+  const fullCTestResult = runPreflightCommand(root,
+    ['ctest', '--test-dir', diagnosticPath, '--output-on-failure'], fullCTestEnv);
+  let fullCTest;
+  try {
+    fullCTest = classifyFullCTestPreflight(fullCTestResult);
+  } catch (error) {
+    const output = `${fullCTestResult.stdout}\n${fullCTestResult.stderr}`;
+    const summary = output.match(/(\d+)% tests passed,\s*(\d+) tests failed out of\s*(\d+)/i);
+    const names = [...output.matchAll(/^\s*\d+\s+-\s+(.+?)\s+\(Failed\)\s*$/gm)].map(match => match[1]).sort();
+    fullCTest = {decision: 'BLOCKED_PREFLIGHT_CTEST', blocker: String(error.message || error),
+      baselineHead: BASELINE_HEAD, exitCode: fullCTestResult.status, testCount: summary ? Number(summary[3]) : null,
+      failedCount: summary ? Number(summary[2]) : null, skippedCount: ctestSkippedCount(output), failureNames: names,
+      stdoutSha256: sha256(Buffer.from(fullCTestResult.stdout)), stderrSha256: sha256(Buffer.from(fullCTestResult.stderr))};
+  }
+  const current = currentIdentity(root);
+  verifiedPullRequest(root, current.head); verifyIssueApproval(root);
+  if (current.head !== identity.head || !sameJson(sourceSnapshot(root), source)
+      || !sameJson(frozenSourceSnapshot({root, home, commonDirectory}), frozenEvidenceSnapshot)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_IDENTITY_DRIFT');
+  }
+  const parentAfter = verifyParentInventoryUnchanged(parent, {root, home, commonDirectory});
+  const checks = {builds: {diagnostic: {pass: true, wasmSha256: diagnostic.wasm.sha256},
+      production: {pass: true, wasmSha256: production.wasm.sha256}},
+    focusedNode, focusedCTest, offlineFrozen, fullCTest};
+  const strictPass = focusedNodeResult.status === 0 && !focusedNodeResult.errorCode
+    && focusedNode.passed === focusedNode.tests && focusedNode.failed === 0 && focusedNode.skipped === 0
+    && focusedCTestResult.status === 0 && !focusedCTestResult.errorCode
+    && focusedCTest.passed === 2 && focusedCTest.failed === 0 && focusedCTest.skipped === 0
+    && offlineFrozenResult.status === 0 && !offlineFrozenResult.errorCode
+    && offlineFrozen.passed === offlineFrozen.tests && offlineFrozen.failed === 0 && offlineFrozen.skipped === 0;
+  if (!strictPass || fullCTest.decision !== 'BASELINE_FAILURES_DISCLOSED') {
+    return {status: 'BLOCKED_CONTACT_LOSS_PREFLIGHT_CHECKS', head: identity.head, checks,
+      writes: 0, renders: 0, acousticCalls: 0};
+  }
+  const report = assertPreflightReceiptShape({schemaVersion: 1, kind: 'CONTACT_LOSS_PREPARE_PREFLIGHT',
+    decision: 'PREPARE_PREFLIGHT_READY', epoch: ACTIVE_EPOCH, head: identity.head, branch: identity.branch,
+    contractSha256: SUCCESSOR_CONTRACT_SHA256, ctestOrderContractSha256: CTEST_ORDER_CONTRACT_SHA256,
+    issueApprovalMarker: ISSUE_APPROVAL_MARKER, successorApprovalMarker: SUCCESSOR_APPROVAL_MARKER,
+    ctestOrderApprovalMarker: CTEST_ORDER_APPROVAL_MARKER,
+    parentProof: parentAfter.proof, gate3: {analysisSha256: sha256(jsonBytes(analysis))},
+    frozenEvidenceSnapshot, frozenSnapshotSha256: frozenSnapshotSha256(frozenEvidenceSnapshot),
+    source, baselineInputs,
+    builds: {diagnostic: {pass: true, ...diagnostic}, production: {pass: true, ...production}}, checks}, identity.head);
+  const lock = acquireLock(roots);
+  try {
+    const stored = writeDualImmutable(roots, preflightName, jsonBytes(report));
+    const readback = readJsonDual(roots, preflightName, {required: true});
+    if (readback.sha256 !== stored.sha256) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_READBACK');
+    return {status: 'PREPARE_PREFLIGHT_READY', head: identity.head, preflightFile: preflightName,
+      preflightSha256: readback.sha256, checks, writes: stored.status === 'CREATED' ? 1 : 0,
+      renders: 0, acousticCalls: 0};
+  } finally { releaseLock(roots, lock); }
+}
+
+function verifyPreflightForPrepare({roots, head, source, parentProof, frozenEvidenceSnapshot,
+  analysisSha256, diagnosticWasmSha256, productionWasmSha256} = {}) {
+  const preflightFile = preflightFileName(head), preflight = readJsonDual(roots, preflightFile);
+  if (!preflight) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_MISSING');
+  assertPreflightReceiptShape(preflight.value, head);
+  if (!sameJson(preflight.value.source, source)
+      || !sameJson(preflight.value.parentProof, parentProof)
+      || !sameJson(preflight.value.frozenEvidenceSnapshot, frozenEvidenceSnapshot)
+      || preflight.value.gate3.analysisSha256 !== analysisSha256
+      || preflight.value.builds.diagnostic.wasm.sha256 !== diagnosticWasmSha256
+      || preflight.value.builds.production.wasm.sha256 !== productionWasmSha256) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_IDENTITY');
+  }
+  return {preflightFile, preflightSha256: preflight.sha256};
+}
+
 function prepareExperiment({root = ROOT, home = os.homedir(), commonDirectory, buildDirectory} = {}) {
   const roots = resolveRoots({root, home, commonDirectory}), identity = currentIdentity(root);
   if (![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)) throw new Error('BLOCKED_CONTACT_LOSS_BRANCH');
@@ -512,9 +891,17 @@ function prepareExperiment({root = ROOT, home = os.homedir(), commonDirectory, b
   const frozenEvidenceSnapshot = frozenSourceSnapshot({root, home, commonDirectory});
   if (frozenSnapshotSha256(frozenEvidenceSnapshot) !== analysis.frozenSnapshotSha256) throw new Error('BLOCKED_CONTACT_LOSS_FROZEN_EVIDENCE_CHANGED');
   const source = sourceSnapshot(root), build = verifyDiagnosticBuild(root, identity.head, {buildDirectory});
+  const productionBuild = verifyProductionBuild(root, identity.head);
+  const preflight = verifyPreflightForPrepare({roots, head: identity.head, source, parentProof: parent.proof,
+    frozenEvidenceSnapshot, analysisSha256: sha256(jsonBytes(analysis)),
+    diagnosticWasmSha256: build.wasm.sha256, productionWasmSha256: productionBuild.wasm.sha256});
+  const {preflightFile} = preflight;
   const record = {schemaVersion: 2, issue: 7, pr: 8, prUrl: PR_URL, branch: PR_BRANCH, head: identity.head,
     epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
     approvalMarker: ISSUE_APPROVAL_MARKER, successorApprovalMarker: SUCCESSOR_APPROVAL_MARKER,
+    ctestOrderContractSha256: CTEST_ORDER_CONTRACT_SHA256,
+    ctestOrderApprovalMarker: CTEST_ORDER_APPROVAL_MARKER,
+    preflightFile, preflightSha256: preflight.sha256,
     parentEpoch: parent.proof,
     gate3: {status: analysis.status, offlineEpoch: analysis.offlineEpoch, offlineReportSha256: analysis.offlineReportSha256,
       archiveSha256: analysis.archiveSha256, observationCount: analysis.observationCount, cellCount: analysis.cellCount,
@@ -569,17 +956,46 @@ function readExperimentState(roots) {
   const rootMembers = roots.epoch === ACTIVE_EPOCH ? epochRootMembers(roots) : null;
   const prepared = readJsonDual(roots, 'prepare.json');
   if (!prepared) {
-    if (roots.epoch === ACTIVE_EPOCH && rootMembers.length) throw new Error('BLOCKED_CONTACT_LOSS_ORPHAN_ACTIVE_EPOCH');
+    if (roots.epoch === ACTIVE_EPOCH) {
+      const preflightNames = rootMembers.filter(name => /^preflight-[a-f0-9]{40}\.json$/.test(name));
+      const otherMembers = rootMembers.filter(name => !/^preflight-[a-f0-9]{40}\.json$/.test(name));
+      if (otherMembers.length || (preflightNames.length && rootMembers.includes('writer.lock'))) {
+        throw new Error('BLOCKED_CONTACT_LOSS_ORPHAN_ACTIVE_EPOCH');
+      }
+      const preflights = preflightNames.map(name => {
+        const head = name.slice('preflight-'.length, -'.json'.length);
+        const stored = readJsonDual(roots, name, {required: true});
+        assertPreflightReceiptShape(stored.value, head);
+        return {file: name, sha256: stored.sha256, value: stored.value};
+      });
+      return {status: preflights.length ? 'PREFLIGHT_READY' : 'NOT_PREPARED',
+        preflightReports: preflights, charged: 0, completed: 0, ambiguous: 0, candidateResults: []};
+    }
     return {status: 'NOT_PREPARED', charged: 0, completed: 0, ambiguous: 0, candidateResults: []};
   }
+  let currentPreflight = null;
   if (roots.epoch === ACTIVE_EPOCH) {
     for (const name of ['gate3-analysis.json', 'plan.json']) {
       if (!rootMembers.includes(name)) throw new Error(`BLOCKED_CONTACT_LOSS_ACTIVE_EPOCH_MEMBER_MISSING:${name}`);
+    }
+    const preflightFile = preflightFileName(prepared.value.head);
+    if (!rootMembers.includes(preflightFile)) throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_MISSING');
+    const preflight = readJsonDual(roots, preflightFile, {required: true});
+    currentPreflight = {file: preflightFile, sha256: preflight.sha256, value: preflight.value};
+    assertPreflightReceiptShape(preflight.value, prepared.value.head);
+    if (preflight.value.source && !sameJson(preflight.value.source, prepared.value.source)
+        || preflight.value.parentProof && !sameJson(preflight.value.parentProof, prepared.value.parentEpoch)
+        || preflight.value.builds.diagnostic.wasm.sha256 !== prepared.value.build?.wasm?.sha256
+        || preflight.value.gate3.analysisSha256 !== prepared.value.gate3?.analysisSha256) {
+      throw new Error('BLOCKED_CONTACT_LOSS_PREFLIGHT_PREPARE_IDENTITY');
     }
     if (prepared.value.schemaVersion !== 2 || prepared.value.epoch !== ACTIVE_EPOCH
         || prepared.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
         || prepared.value.approvalMarker !== ISSUE_APPROVAL_MARKER
         || prepared.value.successorApprovalMarker !== SUCCESSOR_APPROVAL_MARKER
+        || prepared.value.ctestOrderContractSha256 !== CTEST_ORDER_CONTRACT_SHA256
+        || prepared.value.ctestOrderApprovalMarker !== CTEST_ORDER_APPROVAL_MARKER
+        || prepared.value.preflightFile !== preflightFile || prepared.value.preflightSha256 !== preflight.sha256
         || prepared.value.parentEpoch?.epoch !== PARENT_EPOCH
         || prepared.value.parentEpoch?.head !== PARENT_HEAD
         || prepared.value.parentEpoch?.prepareSha256 !== PARENT_PREPARE_SHA256
@@ -658,6 +1074,7 @@ function readExperimentState(roots) {
     }
   }
   return {status: ambiguous ? 'BLOCKED_AMBIGUOUS_CALL' : 'READY', prepare: prepared.value,
+    preflightReports: currentPreflight ? [currentPreflight] : [],
     prepareSha256: prepared.sha256, calls, charged: calls.filter(row => row.status !== 'NOT_STARTED').length,
     completed: calls.filter(row => row.status === 'COMPLETE').length, ambiguous, candidateResults};
 }
@@ -1148,8 +1565,9 @@ function verifyExperiment(options = {}) {
   const roots = resolveRoots({root, home, commonDirectory});
   const parent = parentVerifier({root, home, commonDirectory});
   const state = readExperimentState(roots);
-  if (!state.prepare) return {status: 'NOT_PREPARED', epoch: ACTIVE_EPOCH,
+  if (!state.prepare) return {status: state.status === 'PREFLIGHT_READY' ? 'PREFLIGHT_READY' : 'NOT_PREPARED', epoch: ACTIVE_EPOCH,
     parentEpoch: {status: 'VERIFIED', ...parent.proof, copies: undefined},
+    preflightReports: (state.preflightReports || []).map(row => ({head: row.value.head, file: row.file, sha256: row.sha256})),
     charged: 0, completed: 0, ambiguous: 0, writes: 0, renders: 0, acousticCalls: 0};
   if (!sameJson(state.prepare.parentEpoch, parent.proof)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT');
   const promotion = readPromotion(roots);
@@ -1888,6 +2306,8 @@ function runPostStage4FullCTest({roots, root = ROOT, buildDirectory, stage4Repor
   if (existing) {
     const value = existing.value;
     if (value.epoch !== ACTIVE_EPOCH || value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+        || value.ctestOrderContractSha256 !== CTEST_ORDER_CONTRACT_SHA256
+        || value.ctestOrderApprovalMarker !== CTEST_ORDER_APPROVAL_MARKER
         || value.gate !== 'POST_STAGE4_FULL_CTEST'
         || value.stage4ReportSha256 !== stage4ReportSha256 || value.lifecycleInputSha256 !== inputSha256
         || value.buildRole !== 'guarded-test' || !Number.isSafeInteger(value.testCount) || value.testCount < 1
@@ -1916,6 +2336,8 @@ function runPostStage4FullCTest({roots, root = ROOT, buildDirectory, stage4Repor
     const failureNames = [...output.matchAll(/^\s*\d+\s+-\s+(.+?)\s+\(Failed\)\s*$/gm)].map(match => match[1]);
     const pass = result.status === 0 && !result.error && Boolean(summary) && Number(summary[2]) === 0;
     const report = {schemaVersion: 1, epoch: ACTIVE_EPOCH, contractSha256: SUCCESSOR_CONTRACT_SHA256,
+      ctestOrderContractSha256: CTEST_ORDER_CONTRACT_SHA256,
+      ctestOrderApprovalMarker: CTEST_ORDER_APPROVAL_MARKER,
       gate: 'POST_STAGE4_FULL_CTEST', decision: pass ? 'FULL_CTEST_PASS' : 'BLOCKED_FULL_CTEST_FAIL',
       pass, exitCode: result.status, errorCode: result.error?.code || null,
       testCount: summary ? Number(summary[3]) : null, failedCount: summary ? Number(summary[2]) : null,
@@ -2092,6 +2514,8 @@ function verifyAcceptanceProgress({roots, root = ROOT, state, selection, promoti
     if (!stages.stage4) throw new Error('BLOCKED_CONTACT_LOSS_FULL_CTEST_STAGE4_MISSING');
     const stage4Document = stage4LegacyDocument(roots, root, stages.stage3.value, stages.stage3.sha256);
     if (ctest.value.epoch !== ACTIVE_EPOCH || ctest.value.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+        || ctest.value.ctestOrderContractSha256 !== CTEST_ORDER_CONTRACT_SHA256
+        || ctest.value.ctestOrderApprovalMarker !== CTEST_ORDER_APPROVAL_MARKER
         || ctest.value.gate !== 'POST_STAGE4_FULL_CTEST'
         || ctest.value.stage4ReportSha256 !== stages.stage4.sha256
         || ctest.value.lifecycleInputSha256 !== sha256(jsonBytes(stage4Document))
@@ -2117,6 +2541,7 @@ function verifyAcceptanceProgress({roots, root = ROOT, state, selection, promoti
     const promotionReceipt = readPromotion(roots), selectionStored = readJsonDual(roots, `${EXPERIMENT_REL}/selection.json`, {required: true});
     const expectedAccounting = core.accounting({startedExperimentCalls: combinedExperimentCalls(roots), startedAcceptanceCalls: core.RESERVE_CALLS});
     if (final.schemaVersion !== 2 || final.epoch !== ACTIVE_EPOCH || final.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
+        || final.ctestOrderContractSha256 !== CTEST_ORDER_CONTRACT_SHA256
         || final.head !== currentIdentity(root).head || final.selectionSha256 !== selectionStored.sha256
         || final.promotionSha256 !== promotionReceipt.sha256 || !sameJson(final.reports, expectedReportHashes)
         || final.decision !== 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW' || final.stage3 !== 'PASS' || final.stage4 !== 'PASS'
@@ -2287,7 +2712,8 @@ function continueApproved({root = ROOT, home = os.homedir(), commonDirectory, bu
     }
     const webPlayer = runWebPlayerGates(root);
     const final = {schemaVersion: 2, issue: 7, pr: 8, epoch: ACTIVE_EPOCH,
-      contractSha256: SUCCESSOR_CONTRACT_SHA256, decision: 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW',
+      contractSha256: SUCCESSOR_CONTRACT_SHA256, ctestOrderContractSha256: CTEST_ORDER_CONTRACT_SHA256,
+      decision: 'ACOUSTIC_PASS_AWAITING_FINAL_REVIEW',
       head: currentIdentity(root).head, selectionSha256: selectionStored.sha256, promotionSha256: promoted.promotionSha256,
       reports: Object.fromEntries(['confirmation', 'headroom', 'promoted-builds', 'release-equivalence', 'stage3', 'stage4']
         .map(name => [name, readDual(roots, `${ACCEPTANCE_ROOT}/${name}/report.json`, {required: true}).sha256])
@@ -2445,11 +2871,12 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
   const ctestDecision = verifiedAcceptance.reports['full-ctest'];
   const statusValue = executionBlocker || (final ? verifiedAcceptance.reports.final : null)
     || (ctestDecision && ctestDecision !== 'NOT RUN' && ctestDecision !== 'FULL_CTEST_PASS' ? ctestDecision : null)
-    || verifiedSelection?.status || terminal?.value.status || (state.prepare ? state.status : 'NOT_PREPARED');
+    || verifiedSelection?.status || terminal?.value.status || state.status;
   return {status: statusValue, epoch: ACTIVE_EPOCH,
     activeLedgerStatus: 'VERIFIED',
     parentStatus: 'VERIFIED', parentHead: parent.proof.head, parentCharged,
     parentPrepareSha256: parent.proof.prepareSha256,
+    preflightReports: (state.preflightReports || []).map(row => ({head: row.value.head, file: row.file, sha256: row.sha256})),
     preparedHead: state.prepare?.head || null, currentHead,
     charged: state.charged, completed: state.completed, ambiguous: state.ambiguous,
     acceptanceCharged: verifiedAcceptance.acceptanceCharged, callCap: core.EXPERIMENT_CALL_CAP, acceptanceReserve: core.RESERVE_CALLS,
@@ -2460,9 +2887,9 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
 }
 
 function parseMode(argv) {
-  const modes = argv.filter(value => /^--(?:status|analyze|verify|prepare|run-bounded|continue-approved)$/.test(value));
+  const modes = argv.filter(value => /^--(?:status|analyze|verify|preflight|prepare|run-bounded|continue-approved)$/.test(value));
   if (modes.length !== 1 || argv.some(value => !modes.includes(value))) {
-    throw new Error('Usage: run-issue7-contact-loss-v1.cjs --status|--analyze|--verify|--prepare|--run-bounded|--continue-approved');
+    throw new Error('Usage: run-issue7-contact-loss-v1.cjs --status|--analyze|--verify|--preflight|--prepare|--run-bounded|--continue-approved');
   }
   return modes[0].slice(2);
 }
@@ -2471,11 +2898,13 @@ function main(argv = process.argv.slice(2)) {
   let result;
   if (mode === 'status') result = status();
   else if (mode === 'analyze') result = gate3Analysis();
+  else if (mode === 'preflight') result = preflightExperiment();
   else if (mode === 'prepare') result = prepareExperiment();
   else if (mode === 'run-bounded') result = runBounded();
   else if (mode === 'verify') result = verifyExperiment();
   else if (mode === 'continue-approved') result = continueApproved();
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  if (mode === 'preflight' && result.status?.startsWith('BLOCKED_')) process.exitCode = 1;
   return result;
 }
 
@@ -2485,11 +2914,15 @@ if (require.main === module) {
 }
 
 module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA256,
-  SUCCESSOR_CONTRACT_SHA256, SUCCESSOR_APPROVAL_MARKER, ACTIVE_EPOCH, PARENT_EPOCH,
+  SUCCESSOR_CONTRACT_SHA256, SUCCESSOR_APPROVAL_MARKER, CTEST_ORDER_CONTRACT_SHA256,
+  CTEST_ORDER_APPROVAL_MARKER, BASELINE_HEAD, ACTIVE_EPOCH, PARENT_EPOCH,
+  BASELINE_INPUT_PATHS, BASELINE_TEST_SOURCE_HASHES,
   PARENT_HEAD, PARENT_PREPARE_SHA256, PARENT_PLAN_SHA256, PARENT_GATE3_SHA256, SOURCE_FILES,
   resolveRoots, readDual, readJsonDual, writeDualImmutable, currentIdentity, verifiedPullRequest,
-  verifyIssueApproval, latestOfflineReport, gate3Analysis, verifyDiagnosticBuild, verifyParentExperiment01,
-  parentInventory, verifyParentInventoryUnchanged, prepareExperiment,
+  verifyIssueApproval, assertPreflightReceiptShape, classifyFullCTestPreflight, preflightFileName,
+  verifyPreflightForPrepare,
+  latestOfflineReport, gate3Analysis, verifyDiagnosticBuild, verifyProductionBuild, verifyParentExperiment01,
+  parentInventory, verifyParentInventoryUnchanged, preflightExperiment, prepareExperiment,
   combinedExperimentCharge,
   frozenSourceSnapshot, frozenSnapshotSha256, assertFrozenSnapshotMatches, sourceSnapshot, readExperimentState, writeFloatWav,
   officialMetricPayload, normalizeAnalyzerMetrics, analyzerFixture, assertAnalyzerContract, captureMetadata, renderCall, referenceRows,
