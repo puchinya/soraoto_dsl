@@ -9,6 +9,8 @@
 - **CTest order amendment:** [approved amendment contract](physical-contact-loss-v1-experiment-02-ctest-order-contract.md), SHA-256 `106f22061781a2826a77d3ca0f83b85c79a7e03de4187c3407138090ae6d4ae3`
 - **Prepare recovery amendment:** [approved recovery contract](physical-contact-loss-v1-experiment-02-prepare-recovery-contract.md), SHA-256 `20241190b844ba47f3d317891776ba523ced0fa517c05207be9fa75e8ebd7be0`
 - **Continuation-06 recovery amendment:** [approved state-reader recovery contract](physical-contact-loss-v1-experiment-02-continuation-06-recovery-contract.md), SHA-256 `cd735bc1d262811927c28c5b2921cb34ee73ffea0ba70bb8530cffaf52addec6`
+- **Continuation-07 recovery amendment:** [approved Gate3 recheck recovery contract](physical-contact-loss-v1-experiment-02-continuation-07-recovery-contract.md)
+- **Continuation-07 contract SHA-256:** `0ac392630ebc956c1f5085067394bc372f7338c7d34e1fa2069ccedbe5bbd9ef` (5,753 bytes)
 - **Approval markers:** `ISSUE7_CONTACT_LOSS_V1_EXPERIMENT_02_APPROVED`, `ISSUE7_CONTACT_LOSS_CTEST_ORDER_AMENDMENT_APPROVED`, `ISSUE7_CONTACT_LOSS_PREPARE_RECOVERY_APPROVED`
 
 ## Context and goals
@@ -115,3 +117,19 @@ Continuation-06 corrects the reader by carrying the verified continuation-04 res
 - [ ] Same-HEAD `--status` and `--verify` pass before the existing experiment resumes.
 - [ ] Focused tests have zero skips; full CTest reports its exact result and uses only the previously approved baseline classification.
 - [ ] Stage 3/4 and product acceptance reflect measured evidence only.
+
+## Approved continuation-07 Gate3 recheck recovery (2026-11-16)
+
+PR review `5913437327` confirmed that c06's post-test Gate3 check omitted the c06 offline epoch and therefore rejected its valid analysis-25 binding. The c06 one-shot remains terminal and its failed attempt is never retried. The experiment-02 stores still have the exact 12-member c04 prefix and 0/42 calls.
+
+Continuation-07 uses one pure mode-to-offline-epoch resolver for the pre-test check, post-test check, and persisted-receipt verification. A fixture exercises the actual post-CTest gate before any canonical write, covering valid analysis-25/26 cases and wrong epoch, HEAD, source, frozen snapshot, and root-prefix cases. At the final clean pushed HEAD, c07 may publish and verify analysis-26, run one strict zero-acoustic preflight, and append only its recovery preflight and receipt if every gate passes. It is a direct successor to c04 and rejects c05/c06 artifacts. Any c07 failure is terminal; no cleanup, retry, or acoustic call follows. After successful dual-store readback, same-HEAD status and verify must pass before resuming the existing 42-call experiment under unchanged 1,962 / 3,251 / 5,255 accounting.
+
+### Continuation-07 reviewer checklist
+
+- [ ] The Issue marker and contract SHA match the approved c07 amendment.
+- [ ] The same resolver drives both pre/post-test Gate3 checks and authenticated receipt epoch selection.
+- [ ] The post-CTest fixture reaches the final gate before any write and covers all required drift and prefix failures with zero writes/renders/calls.
+- [ ] c04's exact 12-member prefix and analysis-20 through analysis-25 remain immutable; c05/c06 remain absent.
+- [ ] Analysis-26 and the c07 receipt bind to the exact pushed HEAD, c04 identity, source/parent/frozen/build evidence, and fixed accounting.
+- [ ] Same-HEAD status and verify pass before any call; otherwise c07 remains terminal with experiment 0/42.
+- [ ] The PR current report reflects exact current HEAD and observed evidence; Stage3/4 are not promoted without measured PASS.
