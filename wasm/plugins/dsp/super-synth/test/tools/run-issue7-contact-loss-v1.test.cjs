@@ -1243,39 +1243,38 @@ test('recovery source delta permits only the two implementation files and three 
 
 test('recovery frozen snapshot preserves analysis-20 and appends only approved sequential epochs', () => {
   const copy = (sha256, mtimeMs = 1) => ({sha256, size: 1, mtimeMs});
-  const record = name => ({'report.json': {primary: copy(name, 1), secondary: copy(name, 2)},
-    'manifest.json': {primary: copy(name, 1), secondary: copy(name, 2)}});
+  const record = name => {
+    const epoch = String(name).startsWith('analysis-') ? String(name)
+      : `analysis-${String(name).padStart(2, '0')}`;
+    const pinned = runner.RECOVERY_FROZEN_PINNED_IDENTITIES[epoch];
+    const report = pinned?.reportSha256 || bytesSha(`report-${epoch}`);
+    const manifest = pinned?.manifestSha256 || bytesSha(`manifest-${epoch}`);
+    return {'report.json': {primary: copy(report, 1), secondary: copy(report, 2)},
+      'manifest.json': {primary: copy(manifest, 1), secondary: copy(manifest, 2)}};
+  };
   const original = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
     'analysis-16': record('16'), 'analysis-17': record('17')}};
-  const recovery = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
-    ...original.offlineEpochs, 'analysis-18': record('18')}};
-  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, recovery, 'analysis-18'), true);
-  const drifted = structuredClone(recovery);
-  drifted.offlineEpochs['analysis-17']['report.json'].primary.sha256 = 'changed';
-  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, drifted, 'analysis-18'), /FROZEN_PARENT_DRIFT/);
   const secondRecovery = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
-    ...original.offlineEpochs,
-    'analysis-18': {'report.json': {primary: copy('49f1ae88d8583322cfc889d4c1bb03c02f43db5b74afbdebe524256734695048'),
-      secondary: copy('49f1ae88d8583322cfc889d4c1bb03c02f43db5b74afbdebe524256734695048', 2)},
-    'manifest.json': {primary: copy('8ec1084e70f96ca0212d48ef328d075941efafc3dd8a0e8dcf2ac381acc22e1e'),
-      secondary: copy('8ec1084e70f96ca0212d48ef328d075941efafc3dd8a0e8dcf2ac381acc22e1e', 2)}},
-    'analysis-19': record('19')}};
-  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, secondRecovery, 'analysis-19', 2), true);
+    ...original.offlineEpochs, 'analysis-18': record('18'), 'analysis-19': record('19')}};
+  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, secondRecovery, {recovery: true}), true);
+  const drifted = structuredClone(secondRecovery);
+  drifted.offlineEpochs['analysis-17']['report.json'].primary.sha256 = 'changed';
+  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, drifted, {recovery: true}), /FROZEN_PARENT_DRIFT/);
   const analysis20 = {'report.json': {primary: copy(runner.RECOVERY_ANALYSIS20_REPORT_SHA256),
     secondary: copy(runner.RECOVERY_ANALYSIS20_REPORT_SHA256, 2)},
   'manifest.json': {primary: copy(runner.RECOVERY_ANALYSIS20_MANIFEST_SHA256),
     secondary: copy(runner.RECOVERY_ANALYSIS20_MANIFEST_SHA256, 2)}};
   const continuation02 = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
     ...secondRecovery.offlineEpochs, 'analysis-20': analysis20, 'analysis-21': record('21')}};
-  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, continuation02, 'analysis-21', 4), true);
+  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, continuation02, {continuation02: true}), true);
   const modifiedAnalysis20 = structuredClone(continuation02);
-  modifiedAnalysis20.offlineEpochs['analysis-20']['report.json'].primary.sha256 = 'changed';
-  modifiedAnalysis20.offlineEpochs['analysis-20']['report.json'].secondary.sha256 = 'changed';
-  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, modifiedAnalysis20, 'analysis-21', 4),
-    /RECOVERY_ANALYSIS20_IDENTITY/);
+  modifiedAnalysis20.offlineEpochs['analysis-20']['report.json'].primary.sha256 = 'f'.repeat(64);
+  modifiedAnalysis20.offlineEpochs['analysis-20']['report.json'].secondary.sha256 = 'f'.repeat(64);
+  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, modifiedAnalysis20, {continuation02: true}),
+    /FROZEN_PINNED_IDENTITY/);
   const skippedEpoch = structuredClone(continuation02);
   delete skippedEpoch.offlineEpochs['analysis-20'];
-  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, skippedEpoch, 'analysis-21', 4),
+  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, skippedEpoch, {continuation02: true}),
     /RECOVERY_FROZEN_EPOCH_SEQUENCE/);
   const analysis21 = {'report.json': {primary: copy(runner.RECOVERY_ANALYSIS21_REPORT_SHA256),
     secondary: copy(runner.RECOVERY_ANALYSIS21_REPORT_SHA256, 2)},
@@ -1283,12 +1282,61 @@ test('recovery frozen snapshot preserves analysis-20 and appends only approved s
     secondary: copy(runner.RECOVERY_ANALYSIS21_MANIFEST_SHA256, 2)}};
   const continuation03 = {parentEvidence: {sha256: 'parent'}, offlineEpochs: {
     ...continuation02.offlineEpochs, 'analysis-21': analysis21, 'analysis-22': record('22')}};
-  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, continuation03, 'analysis-22', 5), true);
+  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, continuation03, {continuation03: true}), true);
   const driftedAnalysis21 = structuredClone(continuation03);
-  driftedAnalysis21.offlineEpochs['analysis-21']['manifest.json'].primary.sha256 = 'changed';
-  driftedAnalysis21.offlineEpochs['analysis-21']['manifest.json'].secondary.sha256 = 'changed';
-  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, driftedAnalysis21, 'analysis-22', 5),
-    /RECOVERY_ANALYSIS21_IDENTITY/);
+  driftedAnalysis21.offlineEpochs['analysis-21']['manifest.json'].primary.sha256 = 'f'.repeat(64);
+  driftedAnalysis21.offlineEpochs['analysis-21']['manifest.json'].secondary.sha256 = 'f'.repeat(64);
+  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, driftedAnalysis21, {continuation03: true}),
+    /FROZEN_PINNED_IDENTITY/);
+});
+
+test('c07 frozen history requires all nine approved epochs and every fixed SHA', () => {
+  const copy = (sha256, mtimeMs = 1) => ({sha256, size: 32, mtimeMs});
+  const record = (epoch, pinned = null) => {
+    const values = pinned || {reportSha256: bytesSha(`r-${epoch}`), manifestSha256: bytesSha(`m-${epoch}`)};
+    return {'report.json': {primary: copy(values.reportSha256, 1), secondary: copy(values.reportSha256, 2)},
+      'manifest.json': {primary: copy(values.manifestSha256, 1), secondary: copy(values.manifestSha256, 2)}};
+  };
+  const original = {parentEvidence: {sha256: 'parent'}, offlineEpochs: Object.fromEntries(
+    Array.from({length: 17}, (_, index) => {
+      const epoch = `analysis-${String(index + 1).padStart(2, '0')}`;
+      return [epoch, record(epoch)];
+    }))};
+  const policy = runner.recoveryPolicyForMode({continuation07: true});
+  assert.equal(policy.offlineEpoch, runner.PREPARE_RECOVERY_CONTINUATION_07_OFFLINE_EPOCH);
+  assert.equal(policy.expectedLatestEpoch, 'analysis-26');
+  assert.equal(policy.expectedAdditionalEpochs, 9);
+  assert.deepEqual(policy.appendedEpochs, Array.from({length: 9}, (_, index) =>
+    `analysis-${String(18 + index).padStart(2, '0')}`));
+  const complete = {parentEvidence: structuredClone(original.parentEvidence), offlineEpochs: {
+    ...original.offlineEpochs, ...Object.fromEntries(policy.appendedEpochs.map(epoch =>
+      [epoch, record(epoch, runner.RECOVERY_FROZEN_PINNED_IDENTITIES[epoch])]))}};
+  assert.equal(runner.assertRecoveryFrozenAppendOnly(original, complete, {continuation07: true}), true);
+
+  const eight = structuredClone(complete);
+  delete eight.offlineEpochs['analysis-26'];
+  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, eight, {continuation07: true}),
+    /RECOVERY_FROZEN_EPOCH_SEQUENCE/);
+  const ten = structuredClone(complete);
+  ten.offlineEpochs['analysis-27'] = record('analysis-27');
+  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, ten, {continuation07: true}),
+    /RECOVERY_FROZEN_EPOCH_SEQUENCE/);
+  const missing = structuredClone(complete);
+  delete missing.offlineEpochs['analysis-22'];
+  assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, missing, {continuation07: true}),
+    /RECOVERY_FROZEN_EPOCH_SEQUENCE/);
+  for (const [epoch, pinned] of Object.entries(runner.RECOVERY_FROZEN_PINNED_IDENTITIES)) {
+    for (const relative of ['report.json', 'manifest.json']) {
+      const drifted = structuredClone(complete);
+      const wrong = 'f'.repeat(64);
+      drifted.offlineEpochs[epoch][relative].primary.sha256 = wrong;
+      drifted.offlineEpochs[epoch][relative].secondary.sha256 = wrong;
+      assert.throws(() => runner.assertRecoveryFrozenAppendOnly(original, drifted, {continuation07: true}),
+        /RECOVERY_FROZEN_PINNED_IDENTITY/, `${epoch} ${relative}`);
+    }
+    assert.equal(/^[a-f0-9]{64}$/.test(pinned.reportSha256), true);
+    assert.equal(/^[a-f0-9]{64}$/.test(pinned.manifestSha256), true);
+  }
 });
 
 test('recovery preserves distinct original copy mtimes while requiring identical bytes', () => {
@@ -1355,6 +1403,12 @@ test('prepared verification uses the authenticated recovery receipt offline epoc
   };
   for (const [mode, epoch] of Object.entries(expected)) {
     assert.equal(runner.recoveryOfflineEpochForMode({[mode]: true}), epoch);
+    const policy = runner.recoveryPolicyForMode({[mode]: true});
+    const latestNumber = Number(epoch.slice('physical-root-cause-offline-v1/analysis-'.length));
+    assert.equal(policy.expectedLatestEpoch, `analysis-${String(latestNumber).padStart(2, '0')}`);
+    assert.equal(policy.expectedAdditionalEpochs, latestNumber - 17);
+    assert.equal(policy.appendedEpochs.length, policy.expectedAdditionalEpochs);
+    assert.equal(policy.appendedEpochs.at(-1), policy.expectedLatestEpoch);
   }
   const modes = Object.keys(expected);
   for (let left = 0; left < modes.length; left++) {
@@ -1438,6 +1492,170 @@ test('post-CTest recovery gate accepts c06/c07 and rejects identity drift before
   assert.throws(() => verify('continuation07', runner.PREPARE_RECOVERY_CONTINUATION_07_OFFLINE_EPOCH,
     {currentRootMembers: [...expectedMembers, 'unexpected.json']}), /RECOVERY_PREFIX_MUTATED/);
   assert.deepEqual(counters, {writes: 0, renders: 0, acousticCalls: 0});
+});
+
+test('c06/c07 preflight entries carry mode-specific frozen history through mocked checks to the post-CTest gate', () => {
+  const makeFixture = ({mode = 'continuation07', mutatePinnedHistory = false} = {}) => {
+    const context = tempRoots(), head = initFixtureRepo(context.root);
+    const recoveryMode = {[mode]: true};
+    const allowedSourceDelta = runner.RECOVERY_CONTINUATION_07_ALLOWED_SOURCE_DELTA.filter(relative =>
+      mode === 'continuation07' || relative !== runner.PREPARE_RECOVERY_CONTINUATION_07_CONTRACT_REL);
+    const copy = (sha256, mtimeMs = 1) => ({sha256, size: 32, mtimeMs});
+    const record = (epoch, pinned = null) => {
+      const values = pinned || {reportSha256: bytesSha(`report-${epoch}`), manifestSha256: bytesSha(`manifest-${epoch}`)};
+      return {'report.json': {primary: copy(values.reportSha256, 1), secondary: copy(values.reportSha256, 2)},
+        'manifest.json': {primary: copy(values.manifestSha256, 1), secondary: copy(values.manifestSha256, 2)}};
+    };
+    const originalFrozen = {parentEvidence: {sha256: 'parent-proof'}, offlineEpochs: Object.fromEntries(
+      Array.from({length: 17}, (_, index) => {
+        const epoch = `analysis-${String(index + 1).padStart(2, '0')}`;
+        return [epoch, record(epoch)];
+      }))};
+    const policy = runner.recoveryPolicyForMode(recoveryMode);
+    const currentFrozen = structuredClone(originalFrozen);
+    for (const epoch of policy.appendedEpochs) {
+      currentFrozen.offlineEpochs[epoch] = record(epoch, runner.RECOVERY_FROZEN_PINNED_IDENTITIES[epoch]);
+    }
+    if (mutatePinnedHistory) {
+      for (const relative of ['report.json', 'manifest.json']) {
+        currentFrozen.offlineEpochs['analysis-22'][relative].primary.sha256 = 'f'.repeat(64);
+        currentFrozen.offlineEpochs['analysis-22'][relative].secondary.sha256 = 'f'.repeat(64);
+      }
+    }
+    const sourcePathsBefore = runner.SOURCE_FILES.filter(relative =>
+      relative !== runner.PREPARE_RECOVERY_CONTRACT_REL
+      && relative !== runner.PREPARE_RECOVERY_CONTINUATION_07_CONTRACT_REL);
+    const originalSource = Object.fromEntries(sourcePathsBefore.map(relative =>
+      [relative, {sha256: bytesSha(`before-${relative}`), size: 10, mtimeMs: 1}]));
+    const currentPaths = runner.SOURCE_FILES.filter(relative => mode === 'continuation07'
+      || relative !== runner.PREPARE_RECOVERY_CONTINUATION_07_CONTRACT_REL);
+    const currentSource = Object.fromEntries(currentPaths.map(relative => {
+      const before = originalSource[relative];
+      return [relative, allowedSourceDelta.includes(relative)
+        ? {sha256: bytesSha(`after-${relative}`), size: 11, mtimeMs: 2} : before];
+    }));
+    const prefixNames = ['gate3-analysis.json', 'plan.json', 'prepare.json',
+      runner.preflightFileName(runner.RECOVERY_ORIGINAL_HEAD),
+      `recovery-preflight-${runner.RECOVERY_FIRST_EXECUTION_HEAD}.json`, 'prepare-recovery.json',
+      `recovery-preflight-${runner.RECOVERY_CONTINUATION_02_EXECUTION_HEAD}.json`,
+      runner.PREPARE_RECOVERY_CONTINUATION_02_REL,
+      `recovery-preflight-${runner.RECOVERY_CONTINUATION_03_EXECUTION_HEAD}.json`,
+      runner.PREPARE_RECOVERY_CONTINUATION_03_REL,
+      `recovery-preflight-${runner.RECOVERY_CONTINUATION_04_EXECUTION_HEAD}.json`,
+      runner.PREPARE_RECOVERY_CONTINUATION_04_REL].sort();
+    const prefixSnapshot = {primary: Object.fromEntries(prefixNames.map(name =>
+      [name, {sha256: bytesSha(name), size: name.length, mtimeMs: 100}])),
+    secondary: Object.fromEntries(prefixNames.map(name =>
+      [name, {sha256: bytesSha(name), size: name.length, mtimeMs: 100}]))};
+    const parentProof = {epoch: runner.PARENT_EPOCH, head: runner.PARENT_HEAD,
+      charged: 0, completed: 0, ambiguous: 0};
+    const originalGate3 = {status: 'GATE3_ANALYSIS_PASS', cellCount: 140, observationCount: 20,
+      offlineEpoch: runner.PREPARE_RECOVERY_CONTINUATION_04_OFFLINE_EPOCH,
+      offlineReportSha256: 'a'.repeat(64), frozenSnapshotSha256: runner.frozenSnapshotSha256(originalFrozen),
+      archiveSha256: 'b'.repeat(64), metricDigest: 'c'.repeat(64)};
+    const analysis = {...originalGate3, head, branch: runner.PR_BRANCH, prUrl: runner.PR_URL,
+      offlineEpoch: policy.offlineEpoch, offlineReportSha256: 'd'.repeat(64),
+      frozenSnapshotSha256: runner.frozenSnapshotSha256(currentFrozen)};
+    const original = {prepare: {sha256: 'e'.repeat(64), value: {source: originalSource,
+      parentEpoch: parentProof, frozenEvidenceSnapshot: originalFrozen,
+      build: {wasm: {sha256: runner.BASELINE_PRODUCTION_WASM_SHA256, size: 100}}}},
+    plan: {sha256: '1'.repeat(64)}, gate3: {sha256: '2'.repeat(64), value: originalGate3},
+    originalPreflight: {sha256: '3'.repeat(64), value: {builds: {production: {wasm: {sha256: '4'.repeat(64), size: 101}}}}},
+    memberSnapshot: prefixSnapshot};
+    const previousContinuation04 = {value: {kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_04',
+      recovery: {offlineHistory: {analysis20: {reportSha256: runner.RECOVERY_ANALYSIS20_REPORT_SHA256,
+        manifestSha256: runner.RECOVERY_ANALYSIS20_MANIFEST_SHA256}}}},
+    sha256: runner.RECOVERY_CONTINUATION_04_RECEIPT_SHA256,
+    preflight: {sha256: runner.RECOVERY_CONTINUATION_04_PREFLIGHT_SHA256},
+    executionHead: runner.RECOVERY_CONTINUATION_04_EXECUTION_HEAD};
+    const state = {status: 'READY', recovery: previousContinuation04,
+      executionHead: runner.RECOVERY_CONTINUATION_04_EXECUTION_HEAD, charged: 0, completed: 0, ambiguous: 0};
+    const lifecycle = {schemaVersion: 1, check: 'supersynth-v9-production-simd-lifecycle',
+      productionWasmSha256: runner.BASELINE_PRODUCTION_WASM_SHA256, cells: 1408, adjacentComparisons: 1390};
+    const fullCTestOutput = ['94% tests passed, 3 tests failed out of 50', 'The following tests FAILED:',
+      '1 - wasm.audio-quality-regression (Failed)',
+      '2 - wasm.dsp.super-synth.supersynth-v9-full-range-calibration (Failed)',
+      '3 - wasm.dsp.super-synth.supersynth-v9-production-lifecycle (Failed)',
+      'field-wind-over-lumeria: true peak -32.387194396613445',
+      'persisted Stage4 lifecycle matrix is required; the Stage4 runner owns all acoustic renders',
+      'wasm.dsp.super-synth.supersynth-v9-production-lifecycle',
+      JSON.stringify(lifecycle, null, 2)].join('\n');
+    const calls = {buildCommands: 0, node: 0, focusedCTest: 0, fullCTest: 0, offlineFrozen: 0,
+      writes: 0, renders: 0, acousticCalls: 0, reachedPostCTest: false};
+    const diagnostic = {wasm: {sha256: runner.BASELINE_PRODUCTION_WASM_SHA256, size: 100}};
+    const production = {wasm: {sha256: '4'.repeat(64), size: 101}};
+    const adapters = {
+      currentIdentity: () => ({head, branch: runner.PR_BRANCH}),
+      verifiedPullRequest: () => true,
+      verifyIssueApproval: () => true,
+      verifyPrepareRecoveryContinuation06Approval: () => true,
+      verifyPrepareRecoveryContinuation07Approval: () => true,
+      epochRootMembers: () => [...prefixNames],
+      readOriginalMalformedPreparation: () => original,
+      readExperimentState: () => state,
+      readDual: () => null,
+      snapshotActiveRootMembers: () => structuredClone(prefixSnapshot),
+      verifyParentExperiment01: () => ({proof: parentProof, state: {charged: 0, completed: 0, ambiguous: 0}}),
+      gate3Analysis: () => analysis,
+      frozenSourceSnapshot: () => currentFrozen,
+      sourceSnapshot: () => currentSource,
+      verifyDiagnosticBuild: () => diagnostic,
+      verifyProductionBuild: () => production,
+      runBuildCommand: () => { calls.buildCommands++; },
+      verifyBaselineInputs: () => ({baselineHead: runner.BASELINE_HEAD}),
+      runPreflightCommand: (_root, args) => {
+        if (args[0] === 'node') {
+          calls.node++;
+          return {status: 0, stdout: '# tests 1\n# pass 1\n# fail 0\n# skipped 0\n', stderr: ''};
+        }
+        if (args.includes('-R')) {
+          calls.focusedCTest++;
+          return {status: 0, stdout: '100% tests passed, 0 tests failed out of 2\n', stderr: ''};
+        }
+        calls.fullCTest++;
+        return {status: 8, stdout: fullCTestOutput, stderr: ''};
+      },
+      classifyFullCTestPreflight: result => runner.classifyFullCTestPreflight({...result,
+        expectedLifecycleReportSha256: bytesSha(Buffer.from(`${JSON.stringify(lifecycle, null, 2)}\n`))}),
+      runOfflineFrozenWithP3Sources: () => {
+        calls.offlineFrozen++;
+        return {result: {status: 0, stdout: '# tests 1\n# pass 1\n# fail 0\n# skipped 0\n', stderr: ''},
+          sourceContext: {kind: 'SYNTHETIC_TEST_FIXTURE'}};
+      },
+      verifyParentInventoryUnchanged: parent => parent,
+      afterPostCTestGate: result => {
+        calls.reachedPostCTest = true;
+        return {status: 'TEST_PREFLIGHT_GATES_PASS', checks: result.checks,
+          writes: result.writes, renders: result.renders, acousticCalls: result.acousticCalls};
+      }
+    };
+    return {context, head, original, originalFrozen, currentFrozen, calls, adapters, mode};
+  };
+
+  const priorAdapterFlag = process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS;
+  process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS = '1';
+  try {
+    for (const mode of ['continuation06', 'continuation07']) {
+      const valid = makeFixture({mode});
+      const result = runner.preflightExperiment({...valid.context, [mode]: true,
+        testOnlyAdapters: valid.adapters});
+      assert.equal(result.status, 'TEST_PREFLIGHT_GATES_PASS', JSON.stringify({mode, checks: result.checks, calls: valid.calls}));
+      assert.equal(valid.calls.reachedPostCTest, true);
+      assert.deepEqual([valid.calls.node, valid.calls.focusedCTest, valid.calls.offlineFrozen, valid.calls.fullCTest], [1, 1, 1, 1]);
+      assert.equal(valid.calls.buildCommands, 2);
+      assert.deepEqual([result.writes, result.renders, result.acousticCalls], [0, 0, 0]);
+    }
+
+    const invalid = makeFixture({mode: 'continuation07', mutatePinnedHistory: true});
+    assert.throws(() => runner.preflightExperiment({...invalid.context, [invalid.mode]: true,
+      testOnlyAdapters: invalid.adapters}), /FROZEN_PINNED_IDENTITY/);
+    assert.equal(invalid.calls.buildCommands, 0);
+    assert.deepEqual([invalid.calls.node, invalid.calls.focusedCTest, invalid.calls.offlineFrozen, invalid.calls.fullCTest], [0, 0, 0, 0]);
+    assert.equal(invalid.calls.reachedPostCTest, false);
+  } finally {
+    if (priorAdapterFlag === undefined) delete process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS;
+    else process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS = priorAdapterFlag;
+  }
 });
 
 test('prepare recovery receipt shape binds one HEAD, old roots, exact budgets, and WASM identities', () => {
