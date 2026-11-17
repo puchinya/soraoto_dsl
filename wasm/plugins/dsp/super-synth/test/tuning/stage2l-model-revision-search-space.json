@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "modelRevision": 2,
+  "studyNamePrefix": "issue-7-grand-v9-stage2l-model-r2",
+  "seed": 7,
+  "sampler": "Optuna GPSampler",
+  "nJobs": 1,
+  "maximumCandidateIdentities": 12,
+  "candidate1Source": "Stage2K candidate-25 semantic vector ported to grand_piano_v1 revision 2",
+  "preset": "concert_grand",
+  "dimensions": [
+    {"name":"effective_strike_position_c4","type":"float","min":0.13,"max":0.17,"scale":"linear","baseline":0.14958620689655173},
+    {"name":"hammer.compression_scale","type":"float","min":0.0005,"max":0.002,"scale":"linear","baseline":0.001},
+    {"name":"piano_hammer_hardness","type":"float","min":0.0,"max":1.0,"scale":"linear","baseline":0.85},
+    {"name":"piano_inharmonicity","type":"float","min":0.0,"max":1.0,"scale":"linear","baseline":0.2},
+    {"name":"piano_string_damping","type":"float","min":0.0,"max":1.0,"scale":"linear","baseline":0.0},
+    {"name":"piano_string_unison","type":"float","min":0.4,"max":1.0,"scale":"linear","baseline":0.58},
+    {"name":"hammer.velocity_hardness_amount","type":"float","min":0.0,"max":1.0,"scale":"linear","baseline":0.0,"sourcePath":"wasm/plugins/dsp/super-synth/presets.json","sourceSymbol":"concert_grand.engine_config.hammer.velocity_hardness_amount","applyTo":"preset.engine_config.hammer.velocity_hardness_amount"}
+  ],
+  "candidate1": {
+    "effective_strike_position_c4": 0.13664120183629616,
+    "hammer.compression_scale": 0.00053383185753125,
+    "hammer.velocity_hardness_amount": 0.5,
+    "piano_hammer_hardness": 0.3719079878026494,
+    "piano_inharmonicity": 0.06597007256584347,
+    "piano_string_damping": 0.0,
+    "piano_string_unison": 0.9855708493914253
+  },
+  "screening": {
+    "pitches": [21, 48, 60, 84, 108],
+    "velocities": [14, 61, 124],
+    "pitchAuthority": "wasm/plugins/dsp/super-synth/test/tools/piano-pitch-estimator.cjs",
+    "acousticMetrics": "wasm/plugins/dsp/super-synth/test/tools/salamander-metrics.cjs",
+    "referenceFixture": "wasm/plugins/dsp/super-synth/test/reference/salamander-grand-piano-v3-metrics.json",
+    "stage2bSubset": ".agent-state/issues/7/calibration-optuna/stage2b/diagnostic-subset.json",
+    "retainContinuousMetrics": true,
+    "acousticPassFailReduction": false
+  },
+  "candidateBudget": {"candidate1":"fixed-port","remainingGPSamplerCandidates":11,"stopOnFirstFeasible":true},
+  "directionalGate": {
+    "post_attack_shape_violation_db_must_be_less_than": 2.10144,
+    "dynamic_span_violation_db_must_be_less_than": 3.528952,
+    "newPositiveIndependentSafetyConstraintsAllowed": 0
+  }
+}

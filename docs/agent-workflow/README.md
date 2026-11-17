@@ -16,6 +16,7 @@ phase:ready -> phase:implementation -> phase:review -> merged/closed
 | [`implementation.md`](implementation.md) | Scoped changes, project verification, self-review, and PR transition |
 | [`review.md`](review.md) | PR contents, review comments, remediation, and closure |
 | [`evidence.md`](evidence.md) | Logs, screenshots, and browser/audio observations |
+| [`evidence-preservation.md`](evidence-preservation.md) | Durable private evidence roots, dual-copy completion, manifests, and phase archives |
 | [`checkpoint.md`](checkpoint.md) | Pause and resume across sessions or machines |
 
 Start with [`AGENTS.md`](../../AGENTS.md), the shared entry point for repository workflow. [`CLAUDE.md`](../../CLAUDE.md) is a Claude Code router to those same rules. For repository-specific authority, use the split normative documents under `docs/specs/soraotoDSL/`; consult the Web Player README and CMake configuration for current build and test commands.

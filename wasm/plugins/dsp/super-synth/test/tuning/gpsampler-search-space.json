@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "studyName": "issue-7-grand-v9-opt-d502ea1b9652",
+  "searchSpaceHash": "d502ea1b9652723a742f82e1bdd48323145c19136fa21c8be672821e6142319e",
+  "seed": 7,
+  "sampler": {
+    "library": "optuna",
+    "class": "GPSampler",
+    "deterministicObjective": true,
+    "startupTrials": 10,
+    "parallelJobs": 1
+  },
+  "screeningEvidence": {
+    "sourceQmcSearchSpaceSha256": "59dbef83fdf85d89540210725155c1af23c2a01b294d222a2ff80af2be3cd70c",
+    "pitchSensitivityReport": ".agent-state/issues/7/full-reoptimization/qmc/pitch-replay/recomputed-pitch-ped-anova-and-active-set.json",
+    "pitchSensitivitySha256": "a8b85022f592463b3b9e31841207ce720cb21cc4f0be0c47dd3f2058c911d6c0",
+    "candidateCount": 64,
+    "pitchReplayCells": 960,
+    "measurementInvalidCount": 0,
+    "activeParameters": [
+      "effective_strike_position_c4",
+      "hammer.compression_scale",
+      "piano_hammer_hardness",
+      "piano_inharmonicity",
+      "piano_string_damping",
+      "piano_string_unison"
+    ],
+    "selectionRule": "union of each required target's 90-percent cumulative PED-ANOVA importance, all dimensions at or above 0.10, and high/low median effects at or above 25 percent of the approved tolerance",
+    "stage2FeasibleScreeningCandidates": 0
+  },
+  "dimensions": [
+    {
+      "name": "piano_hammer_hardness",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.85,
+      "group": "semantic-controls",
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbol": "concert_grand.piano_hammer_hardness",
+      "applyTo": "preset.piano_hammer_hardness",
+      "includedBy": ["A0 pitch error", "worst pitch error", "reference-fit loss", "low-register buzz", "peak headroom"],
+      "importance": {
+        "A0 pitch error": 0.004979859992577218,
+        "C8 pitch error": 0.0018489061735735522,
+        "worst pitch error": 0.09724638971226023,
+        "brightness": 0.06888051921713642,
+        "reference-fit loss": 0.6161498027199954,
+        "low-register buzz": 0.6375478694726376,
+        "peak headroom": 0.8237548969466825
+      }
+    },
+    {
+      "name": "hammer.compression_scale",
+      "type": "float",
+      "min": 0.0005,
+      "max": 0.002,
+      "scale": "linear",
+      "baseline": 0.001,
+      "group": "hammer-compression",
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbol": "concert_grand.engine_config.hammer.compression_scale",
+      "applyTo": "preset.engine_config.hammer.compression_scale",
+      "includedBy": ["A0 pitch error", "worst pitch error", "brightness", "reference-fit loss", "low-register buzz", "peak headroom"],
+      "importance": {
+        "A0 pitch error": 0.09914782003938198,
+        "C8 pitch error": 0.008664365912021429,
+        "worst pitch error": 0.3390206120990704,
+        "brightness": 0.9216074314583214,
+        "reference-fit loss": 0.223328850350168,
+        "low-register buzz": 0.29174876007424916,
+        "peak headroom": 0.12104113518041117
+      }
+    },
+    {
+      "name": "effective_strike_position_c4",
+      "type": "float",
+      "min": 0.13,
+      "max": 0.17,
+      "scale": "linear",
+      "baseline": 0.14958620689655173,
+      "group": "strike-endpoints",
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbols": ["concert_grand.engine_config.string.strike_position_bass", "concert_grand.engine_config.string.strike_position_treble"],
+      "applyTo": "derived common offset to existing strike endpoints",
+      "includedBy": ["A0 pitch error", "reference-fit loss"],
+      "importance": {
+        "A0 pitch error": 0.8165836297638885,
+        "C8 pitch error": 0.0002052268806815126,
+        "worst pitch error": 0.002085366053295991,
+        "brightness": 0.0009182812811246169,
+        "reference-fit loss": 0.08407146802403795,
+        "low-register buzz": 0.01822166821618398,
+        "peak headroom": 0.007289779580623606
+      }
+    },
+    {
+      "name": "piano_string_damping",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.0,
+      "group": "semantic-controls",
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbol": "concert_grand.piano_string_damping",
+      "applyTo": "preset.piano_string_damping",
+      "includedBy": ["A0 pitch error"],
+      "importance": {
+        "A0 pitch error": 0.01972294506393271,
+        "C8 pitch error": 0.0801369084974547,
+        "worst pitch error": 0.012644071588490582,
+        "brightness": 0.0009353847490041146,
+        "reference-fit loss": 0.06608047613910567,
+        "low-register buzz": 0.02398201762165147,
+        "peak headroom": 0.010261098309376278
+      }
+    },
+    {
+      "name": "piano_string_unison",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.58,
+      "group": "semantic-controls",
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbol": "concert_grand.piano_string_unison",
+      "applyTo": "preset.piano_string_unison",
+      "includedBy": ["A0 pitch error", "worst pitch error"],
+      "importance": {
+        "A0 pitch error": 0.026781457034830418,
+        "C8 pitch error": 0.0008057085506139339,
+        "worst pitch error": 0.011355452209562225,
+        "brightness": 0.0020062861964510216,
+        "reference-fit loss": 0.005693711198804157,
+        "low-register buzz": 0.010756182037881612,
+        "peak headroom": 0.0007237933759241218
+      }
+    },
+    {
+      "name": "piano_inharmonicity",
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "scale": "linear",
+      "baseline": 0.2,
+      "group": "semantic-controls",
+      "sourcePath": "wasm/plugins/dsp/super-synth/presets.json",
+      "sourceSymbol": "concert_grand.piano_inharmonicity",
+      "applyTo": "preset.piano_inharmonicity",
+      "includedBy": ["A0 pitch error", "C8 pitch error", "worst pitch error"],
+      "importance": {
+        "A0 pitch error": 0.0327842881053891,
+        "C8 pitch error": 0.9083388839856549,
+        "worst pitch error": 0.5376481083373206,
+        "brightness": 0.005652097097962507,
+        "reference-fit loss": 0.004675691567888762,
+        "low-register buzz": 0.017743502577396084,
+        "peak headroom": 0.03692929660698244
+      }
+    }
+  ]
+}

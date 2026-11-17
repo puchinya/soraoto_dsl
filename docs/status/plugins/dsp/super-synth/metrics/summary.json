@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "reference": "Salamander Grand Piano V3; derived numeric metrics only",
+  "render": {
+    "pluginVersion": "9.0.0",
+    "preset": "concert_grand",
+    "sampleRate": 48000,
+    "durationMs": 380,
+    "velocityRepresentatives": [
+      14,
+      31,
+      36,
+      40,
+      45,
+      49,
+      54,
+      61,
+      69,
+      77,
+      85,
+      93,
+      101,
+      109,
+      117,
+      124
+    ],
+    "pianoHammerHardness": 0.81,
+    "pianoHammerNoise": 0.1
+  },
+  "coverage": {
+    "directReferenceCells": 480,
+    "renderCells": 1408,
+    "pitches": 88,
+    "velocityLayers": 16,
+    "adjacentComparisons": 1392,
+    "interpolatedPitches": 58
+  },
+  "sharedGainOffsetDb": 34.2425,
+  "limits": {
+    "peakMaxDbfs": 1.6,
+    "peakMinDbfs": -90,
+    "directLevelErrorDb": 20,
+    "centroidRatio": 8,
+    "centroidEnergyFloor": 0.001,
+    "above2kDelta": 1,
+    "postAttackShapeErrorDb": 10,
+    "adjacentLevelJumpDb": 10,
+    "adjacentCentroidRatio": 4.5,
+    "adjacentAbove2kDelta": 0.5,
+    "adjacentLateDecayDeltaDb": 8,
+    "adjacentStereoPanDelta": 0.3,
+    "velocityLevelDropDb": 1,
+    "minimumVelocityLevelSpanDb": 6
+  },
+  "directAndFullRangeErrorDistribution": {
+    "absoluteLevelErrorDbAllCells": {
+      "p50": 9.1547,
+      "p90": 17.2893,
+      "p95": 21.5181,
+      "max": 43.312
+    },
+    "directReferenceAbsoluteLevelErrorDb": {
+      "p50": 9.1547,
+      "p90": 17.8327,
+      "p95": 22.6737,
+      "max": 43.312
+    },
+    "interpolatedKeyAbsoluteLevelErrorDb": {
+      "p50": 9.138,
+      "p90": 16.8759,
+      "p95": 21.1677,
+      "max": 34.5023
+    },
+    "peakDbfs": {
+      "p50": -5.8066,
+      "p90": 1.5836,
+      "p95": 1.5836,
+      "max": 1.5836
+    },
+    "centroidRatio": {
+      "p50": 1.8475,
+      "p90": 4.8709,
+      "p95": 5.5324,
+      "max": 11.0952
+    },
+    "centroidRatioWhenEnergyFloorMet": {
+      "p50": 1.566,
+      "p90": 3.3758,
+      "p95": 4.3798,
+      "max": 11.0952
+    },
+    "lowEnergyCentroidOutliersDiagnostic": 0,
+    "above2kAbsoluteDelta": {
+      "p50": 0.0038,
+      "p90": 0.3713,
+      "p95": 0.6599,
+      "max": 0.9867
+    },
+    "postAttackShapeErrorDb": {
+      "p50": 8.9614,
+      "p90": 19.9155,
+      "p95": 21.1977,
+      "max": 34.4862
+    },
+    "maxHarmonicRatioFactorWith0_01Floor": {
+      "p50": 31.1703,
+      "p90": 1758.5252,
+      "p95": 3143.0236,
+      "max": 15033.2278
+    },
+    "stereoWidthDeltaDiagnostic": {
+      "p50": 0.5836,
+      "p90": 1.2655,
+      "p95": 1.4209,
+      "max": 2.4407
+    },
+    "inharmonicityAbsoluteDeltaDiagnostic": {
+      "p50": 0.001,
+      "p90": 0.0085,
+      "p95": 0.0189,
+      "max": 0.0728
+    },
+    "spectralSpreadRatioDiagnostic": {
+      "p50": 3.392,
+      "p90": 5.789,
+      "p95": 6.5376,
+      "max": 21.9372
+    },
+    "onsetAbsoluteDeltaMsDiagnostic": {
+      "p50": 10,
+      "p90": 13.3333,
+      "p95": 14,
+      "max": 36
+    },
+    "earlyAttackShapeErrorDbDiagnostic": {
+      "p50": 37.8236,
+      "p90": 43.8912,
+      "p95": 45.7685,
+      "max": 56.0948
+    }
+  },
+  "adjacentContinuityDistribution": {
+    "levelJumpDb": {
+      "p50": 0.7927,
+      "p90": 2.4753,
+      "p95": 5.1476,
+      "max": 20.1041
+    },
+    "centroidRatio": {
+      "p50": 1.239,
+      "p90": 1.8717,
+      "p95": 2.0833,
+      "max": 4.4502
+    },
+    "centroidRatioWhenEnergyFloorMet": {
+      "p50": 1.2699,
+      "p90": 1.9402,
+      "p95": 2.4359,
+      "max": 3.7331
+    },
+    "above2kAbsoluteDelta": {
+      "p50": 0.0001,
+      "p90": 0.0244,
+      "p95": 0.1013,
+      "max": 0.7458
+    },
+    "lateDecayDeltaDb": {
+      "p50": 0.2585,
+      "p90": 2.9277,
+      "p95": 4.2267,
+      "max": 18.1082
+    },
+    "stereoPanDelta": {
+      "p50": 0.005,
+      "p90": 0.0504,
+      "p95": 0.0711,
+      "max": 0.1492
+    },
+    "lowEnergyCentroidOutliersDiagnostic": 0
+  },
+  "velocityResponse": {
+    "pitchesWithBrightnessEvolution": 40,
+    "brightnessEvolutionCoverage": 0.4545,
+    "levelDropToleranceDb": 1,
+    "minimumLevelSpanDb": 6
+  },
+  "failures": {
+    "directAndInterpolatedCells": 688,
+    "adjacentComparisons": 39,
+    "velocityPitchesOrLayers": 4,
+    "examples": [
+      "21:117: postAttackShape",
+      "21:124: postAttackShape",
+      "30:14: directLevel",
+      "33:14: directLevel",
+      "33:31: directLevel",
+      "36:14: postAttackShape",
+      "36:31: postAttackShape",
+      "36:36: postAttackShape",
+      "36:40: postAttackShape",
+      "36:45: postAttackShape",
+      "36:49: postAttackShape",
+      "36:54: postAttackShape",
+      "36:61: postAttackShape",
+      "36:69: postAttackShape",
+      "36:77: postAttackShape",
+      "36:85: postAttackShape",
+      "36:93: postAttackShape",
+      "36:101: postAttackShape",
+      "36:109: postAttackShape",
+      "36:117: postAttackShape"
+    ]
+  }
+}

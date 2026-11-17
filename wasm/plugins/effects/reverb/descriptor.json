@@ -34,8 +34,7 @@
       "id": 0,
       "parent_id": null,
       "name": "Root",
-      "program_list_id": 1,
-      "supports_unit_data": false
+      "program_list_id": 1
     }
   ],
   "audio_buses": [
@@ -310,7 +309,7 @@
         "instrument": null,
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -328,7 +327,7 @@
         "instrument": null,
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -346,7 +345,7 @@
         "instrument": null,
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -364,7 +363,7 @@
         "instrument": null,
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -382,7 +381,7 @@
         "instrument": null,
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     }
@@ -392,7 +391,6 @@
       "id": 1,
       "unit_id": 0,
       "name": "Soraoto Reverb Factory",
-      "supports_program_data": false,
       "mutable_program_names": false,
       "programs": [
         {
@@ -493,11 +491,6 @@
       ]
     }
   ],
-  "state": {
-    "schema_id": "soraoto.reverb.state",
-    "schema_version": 1,
-    "max_snapshot_bytes": 36
-  },
   "prefetch_support": "never",
   "prefetch_support_current": null,
   "max_event_output_per_block": 0,

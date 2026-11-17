@@ -31,7 +31,8 @@ hybrid
 
 GUI/editor/view embedding は ABI 1.0 の対象外。
 
-GUI を除く音声・イベント・parameter・state・program・routing 機能は ABI 1.0 で仕様化する。
+GUI を除く音声・イベント・parameter・program・routing 機能は ABI 1.0 で仕様化する。
+Persistent Plugin configuration is represented only by the project DSL and typed parameter values.
 
 ## 22.1 Plugin binary / package
 
@@ -441,18 +442,6 @@ soraoto_plugin_process(
 
 soraoto_plugin_reset()
 
-soraoto_plugin_state_snapshot(
-    dst_ptr: i32,
-    capacity: i32
-) -> i32
-
-soraoto_plugin_state_load(
-    src_ptr: i32,
-    len: i32,
-    context_ptr: i32,
-    context_len: i32
-) -> i32
-
 soraoto_plugin_latency_samples() -> i32
 soraoto_plugin_tail_samples() -> i64
 ```
@@ -626,7 +615,6 @@ init
 control
 activate
 deactivate
-state_load
 terminate
 ```
 
@@ -639,7 +627,6 @@ Host import callは現在のPlugin exportがreturnするまで実際のPlugin st
 start_processing
 process
 stop_processing
-state_snapshot
 ```
 
 
@@ -654,7 +641,7 @@ state_snapshot
 -4  SORAOTO_E_BUFFER_TOO_SMALL
 -5  SORAOTO_E_INCOMPATIBLE_LAYOUT
 -6  SORAOTO_E_OUT_OF_MEMORY
--7  SORAOTO_E_STATE_INCOMPATIBLE
+-7  reserved
 -8  SORAOTO_E_ASSET_UNAVAILABLE
 -9  SORAOTO_E_INTERNAL
 ```
@@ -732,10 +719,7 @@ CBOR response size が `2,147,483,647` bytes を超える query は `SORAOTO_E_O
 20  GET_PROGRAM_INFO
 21  LOAD_PROGRAM
 22  GET_PITCH_NAME
-23  GET_PROGRAM_DATA
-24  SET_PROGRAM_DATA
-25  GET_UNIT_DATA
-26  SET_UNIT_DATA
+23..26 reserved
 27  SET_PROGRAM_NAME
 28  GET_SELECTED_UNIT
 29  SELECT_UNIT
@@ -763,8 +747,6 @@ FORMAT_PARAMETER_VALUE
 PARSE_PARAMETER_TEXT
 GET_PROGRAM_INFO
 GET_PITCH_NAME
-GET_PROGRAM_DATA
-GET_UNIT_DATA
 GET_SELECTED_UNIT
 GET_CONTROLLER_MAPPINGS
 FORMAT_NOTE_EXPRESSION_VALUE
@@ -781,8 +763,6 @@ CONFIGURE
 SET_PARAMETER_VALUES
 LOAD_FACTORY_PRESET
 LOAD_PROGRAM
-SET_PROGRAM_DATA
-SET_UNIT_DATA
 SET_PROGRAM_NAME
 SELECT_UNIT
 BEGIN_MIDI_LEARN
@@ -812,8 +792,6 @@ FORMAT_PARAMETER_VALUE
 PARSE_PARAMETER_TEXT
 GET_PROGRAM_INFO
 GET_PITCH_NAME
-GET_PROGRAM_DATA
-GET_UNIT_DATA
 GET_SELECTED_UNIT
 GET_CONTROLLER_MAPPINGS
 FORMAT_NOTE_EXPRESSION_VALUE
@@ -844,8 +822,6 @@ GET_UNIT_BUS_ASSIGNMENTS:
 SET_PARAMETER_VALUES
 LOAD_FACTORY_PRESET
 LOAD_PROGRAM
-SET_PROGRAM_DATA
-SET_UNIT_DATA
 SET_PROGRAM_NAME
 SELECT_UNIT
 BEGIN_MIDI_LEARN
@@ -889,6 +865,7 @@ ParameterSnapshotV1 {
 
 ParameterSnapshotEntryV1 {
     parameter_id: UInt32
+    unit_id: UInt32?
 
     value:
         {
@@ -902,7 +879,9 @@ ParameterSnapshotEntryV1 {
 }
 ```
 
-全 persistent parameter を exactly once 含む。`read_only` meter parameter は含めない。
+All writable parameters are included exactly once per `(unit_id, parameter_id)` pair.
+Plugin-global parameters use `unit_id = null`; unit-scoped parameters include their unit ID.
+`read_only` meter parameters are excluded.
 
 ### SET_PARAMETER_VALUES
 
@@ -919,7 +898,7 @@ ParameterValueUpdateV1 {
 rules:
 
 ```text
-parameter_id unique in request
+`(unit_id, parameter_id)` unique in request
 
 read_only=true:
     cannot be set
@@ -1093,101 +1072,8 @@ response:
 }
 ```
 
-### GET_PROGRAM_DATA
-
-request:
-
-```text
-{
-    "program_list_id": UInt32,
-    "program_id": UInt32
-}
-```
-
-response:
-
-```text
-{
-    "data": Bytes
-}
-```
-
-`supports_program_data=false` の list は `SORAOTO_E_UNSUPPORTED`。
-
-### SET_PROGRAM_DATA
-
-request:
-
-```text
-{
-    "program_list_id": UInt32,
-    "program_id": UInt32,
-    "data": Bytes,
-
-    "meta": {
-        "name": String?,
-        "category": String?,
-        "instrument": String?,
-        "style": String?,
-        "character": String?,
-        "tags": List<String>?,
-        "attributes": Map<String, String>?
-    }?
-}
-```
-
-Plugin は operation 全体を transactional に適用する。
-
-success 後:
-
-```text
-PROGRAM_LIST_CHANGED
-```
-
-を HostRequest で通知する。
-
-### GET_UNIT_DATA
-
-request:
-
-```text
-{
-    "unit_id": UInt32
-}
-```
-
-response:
-
-```text
-{
-    "data": Bytes
-}
-```
-
-`supports_unit_data=false` は `SORAOTO_E_UNSUPPORTED`。
-
-### SET_UNIT_DATA
-
-request:
-
-```text
-{
-    "unit_id": UInt32,
-    "data": Bytes
-}
-```
-
-transactional。
-成功後 parameter/program/descriptor が変化し得るため Host は:
-
-```text
-GET_DESCRIPTOR
-GET_PARAMETER_SNAPSHOT
-GET_UNIT_BUS_ASSIGNMENTS
-latency / tail
-```
-
-を再取得する。
+Control opcodes 23..26 are reserved. ABI 1.0 has no opaque per-program or per-unit payload
+service; program/unit selections and parameter values are part of `PluginConfigurationV1`.
 
 ### SET_PROGRAM_NAME
 
@@ -1422,8 +1308,6 @@ PluginDescriptorV1 {
     factory_presets: List<FactoryPresetDescriptor>
     program_lists: List<ProgramListDescriptor>
 
-    state: StateDescriptor
-
     prefetch_support:
         never | supported | state_dependent
 
@@ -1458,28 +1342,10 @@ identity comparison は ASCII byte exact / case-sensitive。
 net.daradara.supersynth
 ```
 
-`compatible_plugin_ids` は、この Plugin が project load 時に replacement として受け入れられる旧 Plugin ID の exact list。
-
-```text
-[]
-    replacement declaration なし
-
-["com.old.vendor.synth"]
-    old id を置換可能
-```
-
-Host が replacement を行う場合:
-
-```text
-1. old project state / parameter ids を保持
-2. new Plugin instance を生成
-3. StateLoadContextV1.source_plugin_id に old id を渡す
-4. parameter_aliases で automation reference を remap
-5. state migration が成功した場合のみ commit
-```
-
-Plugin 自身の `id` を `compatible_plugin_ids` に含めてはならない。
-重複 ID 禁止。
+Plugin identity is exact and is stored with the graph node. Replacing a Plugin changes that DSL
+identity explicitly. `compatible_plugin_ids` declares accepted source IDs, and
+`parameter_aliases` may map automation references. The Host applies the current typed DSL
+configuration to the replacement; there is no plugin-state payload or state migration.
 
 ## 24.4 Process Context Requirements
 
@@ -1514,7 +1380,8 @@ unknown standard value は descriptor decode/configuration error。
 Vendor requirement は `vendor:<reverse-dns-id>:<name>` 形式のみ許可。
 
 requirements は `CONFIGURE -> deactivate` の間は不変。
-state/preset load により requirements が変化する場合は `RESCAN_DESCRIPTOR` を要求し再 configure する。
+Applying a preset, program, or unit selection may change requirements; in that case request
+`RESCAN_DESCRIPTOR` and configure again from the current compiled DSL configuration.
 
 ## 24.5 Plugin Process Mode Capability
 
@@ -1683,7 +1550,6 @@ UnitDescriptor {
     name: String
 
     program_list_id: UInt32?
-    supports_unit_data: Bool
 }
 ```
 
@@ -3018,13 +2884,18 @@ ControllerLearnInputV1 {
 
 target parameter は直前の BEGIN_MIDI_LEARN で固定する。
 
-Plugin が受理した場合 mapping を persistent state に更新する。
+Plugin が受理した場合 current runtime mapping を更新する。再コンパイル後も維持する
+mapping は `PluginConfigurationV1.controller_mappings` を編集し、DSLから再生成する。
 
 `END_MIDI_LEARN` は request `null`。
 
 `GET_CONTROLLER_MAPPINGS` は `List<ControllerMappingDescriptor>` を返す。
 
-Mapping 変更後 Plugin/Host は current mapping を Project state として保存する。
+Mapping changes that must survive recompilation are authored in
+`PluginConfigurationV1.controller_mappings`. The Host applies those mappings with the existing
+`BEGIN_MIDI_LEARN`, `LEARN_CONTROLLER`, and `END_MIDI_LEARN` control operations. The Plugin and Host
+do not persist a separate Project or Plugin state copy; an un-authored runtime-only mapping change
+is discarded on recompilation.
 
 ## 26.8 Physical UI Mapping
 
@@ -4019,11 +3890,6 @@ soraoto_plugin_process
     Processing only
     realtime-safe
 
-soraoto_plugin_state_snapshot
-    Configured / Active / Processing-between-calls
-    non-realtime
-    never concurrent with soraoto_plugin_process
-
 soraoto_plugin_latency_samples
 soraoto_plugin_tail_samples
     Configured / Active / Processing-between-calls
@@ -4036,10 +3902,6 @@ soraoto_plugin_stop_processing
 soraoto_plugin_reset
     Active only, not Processing
     realtime-safe
-
-soraoto_plugin_state_load
-    Configured / Active, not Processing
-    non-realtime
 
 soraoto_plugin_terminate
     Initialized only after reverse transition
@@ -4240,7 +4102,8 @@ zero-frame parameter flush
 
 `deactivate` は不要。
 
-Plugin はこの lightweight reconfigure で DSP persistent state を失ってはならない。
+Plugin はこの lightweight reconfigure で live DSP continuity/history を失ってはならない。
+This is in-memory processing continuity, not persisted Project or Plugin state.
 
 ## 28.4 Host Capability Registry
 
@@ -4420,9 +4283,8 @@ pending generated events
 保持する:
 
 ```text
-persistent parameter values
-loaded preset/program
-persistent state
+current compiled DSL parameter values
+current compiled DSL preset/program selection
 asset handles that remain valid
 ```
 
