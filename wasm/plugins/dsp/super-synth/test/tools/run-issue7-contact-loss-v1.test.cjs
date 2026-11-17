@@ -1355,21 +1355,51 @@ test('recovery preserves distinct original copy mtimes while requiring identical
   assert.throws(() => runner.snapshotActiveRootMembers(context.roots, members), /ORIGINAL_COPY_DRIFT/);
 });
 
-test('continuation prefix verification tolerates its writer lock but rejects any other root member', () => {
-  const context = tempRoots(), members = ['plan.json', 'prepare.json'];
-  for (const copy of ['primary', 'secondary']) fs.mkdirSync(context.roots[copy], {recursive: true});
+test('locked recovery prefix rejects lock-time mutation, extra members, and foreign lock owners', () => {
+  const setup = () => {
+    const context = tempRoots(), members = ['gate3-analysis.json', 'plan.json', 'prepare.json',
+      runner.preflightFileName(runner.RECOVERY_ORIGINAL_HEAD),
+      `recovery-preflight-${runner.RECOVERY_FIRST_EXECUTION_HEAD}.json`, 'prepare-recovery.json',
+      `recovery-preflight-${runner.RECOVERY_CONTINUATION_02_EXECUTION_HEAD}.json`,
+      runner.PREPARE_RECOVERY_CONTINUATION_02_REL,
+      `recovery-preflight-${runner.RECOVERY_CONTINUATION_03_EXECUTION_HEAD}.json`,
+      runner.PREPARE_RECOVERY_CONTINUATION_03_REL,
+      `recovery-preflight-${runner.RECOVERY_CONTINUATION_04_EXECUTION_HEAD}.json`,
+      runner.PREPARE_RECOVERY_CONTINUATION_04_REL].sort();
+    for (const name of members) runner.writeDualImmutable(context.roots, name, Buffer.from(`immutable-${name}`));
+    const snapshot = runner.snapshotActiveRootMembers(context.roots, members);
+    const owner = crypto.randomUUID(), bytes = Buffer.from(`${JSON.stringify({schemaVersion: 1,
+      owner, pid: process.pid, createdAt: new Date().toISOString()})}\n`);
+    runner.writeDualImmutable(context.roots, 'writer.lock', bytes);
+    return {context, members, snapshot, ownerLock: {owner, bytes}};
+  };
+  const valid = setup();
+  assert.equal(runner.assertLockedRecoveryPrefix(valid.context.roots, valid.snapshot,
+    {ownerLock: valid.ownerLock}), true);
+  assert.throws(() => runner.assertLockedRecoveryPrefix(valid.context.roots, valid.snapshot),
+    /BLOCKED_CONTACT_LOSS_LOCK_OWNER_CHANGED/);
+
+  const mutated = setup();
   for (const copy of ['primary', 'secondary']) {
-    for (const name of members) fs.writeFileSync(path.join(context.roots[copy], name), `immutable-${name}`);
+    fs.writeFileSync(path.join(mutated.context.roots[copy], runner.PREPARE_RECOVERY_CONTINUATION_04_REL),
+      'changed after lock');
   }
-  const snapshot = runner.snapshotActiveRootMembers(context.roots, members);
+  assert.throws(() => runner.assertLockedRecoveryPrefix(mutated.context.roots, mutated.snapshot,
+    {ownerLock: mutated.ownerLock}), /PREFIX_MUTATED/);
+
+  const extra = setup();
+  runner.writeDualImmutable(extra.context.roots, `recovery-preflight-${'a'.repeat(40)}.json`, Buffer.from('{}'));
+  assert.throws(() => runner.assertLockedRecoveryPrefix(extra.context.roots, extra.snapshot,
+    {ownerLock: extra.ownerLock}), /PREFIX_SET/);
+
+  const foreign = setup(), otherOwner = crypto.randomUUID();
+  const foreignBytes = Buffer.from(`${JSON.stringify({schemaVersion: 1, owner: otherOwner,
+    pid: process.pid, createdAt: new Date().toISOString()})}\n`);
   for (const copy of ['primary', 'secondary']) {
-    fs.writeFileSync(path.join(context.roots[copy], 'writer.lock'), '{"ownerId":"fixture"}');
+    fs.writeFileSync(path.join(foreign.context.roots[copy], 'writer.lock'), foreignBytes);
   }
-  assert.equal(runner.assertLockedRecoveryPrefix(context.roots, snapshot), true);
-  for (const copy of ['primary', 'secondary']) {
-    fs.writeFileSync(path.join(context.roots[copy], `recovery-preflight-${'a'.repeat(40)}.json`), '{}');
-  }
-  assert.throws(() => runner.assertLockedRecoveryPrefix(context.roots, snapshot), /PREFIX_SET/);
+  assert.throws(() => runner.assertLockedRecoveryPrefix(foreign.context.roots, foreign.snapshot,
+    {ownerLock: foreign.ownerLock}), /BLOCKED_CONTACT_LOSS_LOCK_OWNER_CHANGED/);
 });
 
 test('recovery root verification accepts only the exact lock owned by the current writer', () => {
@@ -1494,8 +1524,9 @@ test('post-CTest recovery gate accepts c06/c07 and rejects identity drift before
   assert.deepEqual(counters, {writes: 0, renders: 0, acousticCalls: 0});
 });
 
-test('c06/c07 preflight entries carry mode-specific frozen history through mocked checks to the post-CTest gate', () => {
-  const makeFixture = ({mode = 'continuation07', mutatePinnedHistory = false} = {}) => {
+test('c06/c07 preflight entries carry mode-specific history through owned-lock persistence', () => {
+  const makeFixture = ({mode = 'continuation07', mutatePinnedHistory = false,
+    continueThroughLock = false} = {}) => {
     const context = tempRoots(), head = initFixtureRepo(context.root);
     const recoveryMode = {[mode]: true};
     const allowedSourceDelta = runner.RECOVERY_CONTINUATION_07_ALLOWED_SOURCE_DELTA.filter(relative =>
@@ -1543,10 +1574,21 @@ test('c06/c07 preflight entries carry mode-specific frozen history through mocke
       runner.PREPARE_RECOVERY_CONTINUATION_03_REL,
       `recovery-preflight-${runner.RECOVERY_CONTINUATION_04_EXECUTION_HEAD}.json`,
       runner.PREPARE_RECOVERY_CONTINUATION_04_REL].sort();
-    const prefixSnapshot = {primary: Object.fromEntries(prefixNames.map(name =>
-      [name, {sha256: bytesSha(name), size: name.length, mtimeMs: 100}])),
-    secondary: Object.fromEntries(prefixNames.map(name =>
-      [name, {sha256: bytesSha(name), size: name.length, mtimeMs: 100}]))};
+    const prefixHashes = {'gate3-analysis.json': runner.RECOVERY_ORIGINAL_GATE3_SHA256,
+      'plan.json': runner.RECOVERY_ORIGINAL_PLAN_SHA256, 'prepare.json': runner.RECOVERY_ORIGINAL_PREPARE_SHA256,
+      [runner.preflightFileName(runner.RECOVERY_ORIGINAL_HEAD)]: runner.RECOVERY_ORIGINAL_PREFLIGHT_SHA256,
+      [`recovery-preflight-${runner.RECOVERY_FIRST_EXECUTION_HEAD}.json`]: runner.RECOVERY_FIRST_PREFLIGHT_SHA256,
+      'prepare-recovery.json': runner.RECOVERY_FIRST_RECEIPT_SHA256,
+      [`recovery-preflight-${runner.RECOVERY_CONTINUATION_02_EXECUTION_HEAD}.json`]: runner.RECOVERY_CONTINUATION_02_PREFLIGHT_SHA256,
+      [runner.PREPARE_RECOVERY_CONTINUATION_02_REL]: runner.RECOVERY_CONTINUATION_02_RECEIPT_SHA256,
+      [`recovery-preflight-${runner.RECOVERY_CONTINUATION_03_EXECUTION_HEAD}.json`]: runner.RECOVERY_CONTINUATION_03_PREFLIGHT_SHA256,
+      [runner.PREPARE_RECOVERY_CONTINUATION_03_REL]: runner.RECOVERY_CONTINUATION_03_RECEIPT_SHA256,
+      [`recovery-preflight-${runner.RECOVERY_CONTINUATION_04_EXECUTION_HEAD}.json`]: runner.RECOVERY_CONTINUATION_04_PREFLIGHT_SHA256,
+      [runner.PREPARE_RECOVERY_CONTINUATION_04_REL]: runner.RECOVERY_CONTINUATION_04_RECEIPT_SHA256};
+    const prefixSnapshot = {primary: Object.fromEntries(prefixNames.map((name, index) =>
+      [name, {sha256: prefixHashes[name], size: 100 + index, mtimeMs: 100 + index}])),
+    secondary: Object.fromEntries(prefixNames.map((name, index) =>
+      [name, {sha256: prefixHashes[name], size: 100 + index, mtimeMs: 200 + index}]))};
     const parentProof = {epoch: runner.PARENT_EPOCH, head: runner.PARENT_HEAD,
       charged: 0, completed: 0, ambiguous: 0};
     const originalGate3 = {status: 'GATE3_ANALYSIS_PASS', cellCount: 140, observationCount: 20,
@@ -1556,15 +1598,27 @@ test('c06/c07 preflight entries carry mode-specific frozen history through mocke
     const analysis = {...originalGate3, head, branch: runner.PR_BRANCH, prUrl: runner.PR_URL,
       offlineEpoch: policy.offlineEpoch, offlineReportSha256: 'd'.repeat(64),
       frozenSnapshotSha256: runner.frozenSnapshotSha256(currentFrozen)};
-    const original = {prepare: {sha256: 'e'.repeat(64), value: {source: originalSource,
+    const original = {prepare: {sha256: runner.RECOVERY_ORIGINAL_PREPARE_SHA256, value: {source: originalSource,
       parentEpoch: parentProof, frozenEvidenceSnapshot: originalFrozen,
       build: {wasm: {sha256: runner.BASELINE_PRODUCTION_WASM_SHA256, size: 100}}}},
-    plan: {sha256: '1'.repeat(64)}, gate3: {sha256: '2'.repeat(64), value: originalGate3},
-    originalPreflight: {sha256: '3'.repeat(64), value: {builds: {production: {wasm: {sha256: '4'.repeat(64), size: 101}}}}},
+    plan: {sha256: runner.RECOVERY_ORIGINAL_PLAN_SHA256},
+    gate3: {sha256: runner.RECOVERY_ORIGINAL_GATE3_SHA256, value: originalGate3},
+    originalPreflight: {sha256: runner.RECOVERY_ORIGINAL_PREFLIGHT_SHA256,
+      value: {builds: {production: {wasm: {sha256: '4'.repeat(64), size: 101}}}}},
     memberSnapshot: prefixSnapshot};
     const previousContinuation04 = {value: {kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_04',
-      recovery: {offlineHistory: {analysis20: {reportSha256: runner.RECOVERY_ANALYSIS20_REPORT_SHA256,
-        manifestSha256: runner.RECOVERY_ANALYSIS20_MANIFEST_SHA256}}}},
+      recovery: {offlineHistory: {
+        analysis20: {reportSha256: runner.RECOVERY_ANALYSIS20_REPORT_SHA256,
+          manifestSha256: runner.RECOVERY_ANALYSIS20_MANIFEST_SHA256},
+        analysis21: {reportSha256: runner.RECOVERY_ANALYSIS21_REPORT_SHA256,
+          manifestSha256: runner.RECOVERY_ANALYSIS21_MANIFEST_SHA256},
+        analysis22: {reportSha256: runner.RECOVERY_ANALYSIS22_REPORT_SHA256,
+          manifestSha256: runner.RECOVERY_ANALYSIS22_MANIFEST_SHA256},
+        analysis23: {reportSha256: '1'.repeat(64), manifestSha256: '2'.repeat(64)},
+        analysis24: {reportSha256: runner.RECOVERY_ANALYSIS24_REPORT_SHA256,
+          manifestSha256: runner.RECOVERY_ANALYSIS24_MANIFEST_SHA256},
+        analysis25: {reportSha256: runner.RECOVERY_ANALYSIS25_REPORT_SHA256,
+          manifestSha256: runner.RECOVERY_ANALYSIS25_MANIFEST_SHA256}}}},
     sha256: runner.RECOVERY_CONTINUATION_04_RECEIPT_SHA256,
     preflight: {sha256: runner.RECOVERY_CONTINUATION_04_PREFLIGHT_SHA256},
     executionHead: runner.RECOVERY_CONTINUATION_04_EXECUTION_HEAD};
@@ -1581,7 +1635,8 @@ test('c06/c07 preflight entries carry mode-specific frozen history through mocke
       'wasm.dsp.super-synth.supersynth-v9-production-lifecycle',
       JSON.stringify(lifecycle, null, 2)].join('\n');
     const calls = {buildCommands: 0, node: 0, focusedCTest: 0, fullCTest: 0, offlineFrozen: 0,
-      writes: 0, renders: 0, acousticCalls: 0, reachedPostCTest: false};
+      writes: 0, renders: 0, acousticCalls: 0, reachedPostCTest: false,
+      lockedPrefixChecks: 0, lockOwner: null};
     const diagnostic = {wasm: {sha256: runner.BASELINE_PRODUCTION_WASM_SHA256, size: 100}};
     const production = {wasm: {sha256: '4'.repeat(64), size: 101}};
     const adapters = {
@@ -1602,7 +1657,8 @@ test('c06/c07 preflight entries carry mode-specific frozen history through mocke
       verifyDiagnosticBuild: () => diagnostic,
       verifyProductionBuild: () => production,
       runBuildCommand: () => { calls.buildCommands++; },
-      verifyBaselineInputs: () => ({baselineHead: runner.BASELINE_HEAD}),
+      verifyBaselineInputs: () => ({baselineHead: runner.BASELINE_HEAD,
+        unchangedPaths: [...runner.BASELINE_INPUT_PATHS], sourceHashes: runner.BASELINE_TEST_SOURCE_HASHES}),
       runPreflightCommand: (_root, args) => {
         if (args[0] === 'node') {
           calls.node++;
@@ -1615,16 +1671,39 @@ test('c06/c07 preflight entries carry mode-specific frozen history through mocke
         calls.fullCTest++;
         return {status: 8, stdout: fullCTestOutput, stderr: ''};
       },
-      classifyFullCTestPreflight: result => runner.classifyFullCTestPreflight({...result,
-        expectedLifecycleReportSha256: bytesSha(Buffer.from(`${JSON.stringify(lifecycle, null, 2)}\n`))}),
+      classifyFullCTestPreflight: result => ({decision: 'BASELINE_FAILURES_DISCLOSED',
+        baselineHead: runner.BASELINE_HEAD, exitCode: 8, testCount: 50, failedCount: 3, skippedCount: 0,
+        failureNames: ['wasm.audio-quality-regression',
+          'wasm.dsp.super-synth.supersynth-v9-full-range-calibration',
+          'wasm.dsp.super-synth.supersynth-v9-production-lifecycle'],
+        signatures: {audioQuality: 'field-wind-over-lumeria: true peak -32.387194396613445',
+          productionLifecycleReportSha256: '9f0e33296134825b9dc0e86f097e4648763fcae5378452bf85e4491a56df8de0',
+          productionWasmSha256: runner.BASELINE_PRODUCTION_WASM_SHA256,
+          stage4Input: 'persisted Stage4 lifecycle matrix is required; the Stage4 runner owns all acoustic renders'},
+        stdoutSha256: bytesSha(Buffer.from(result.stdout || '')),
+        stderrSha256: bytesSha(Buffer.from(result.stderr || ''))}),
       runOfflineFrozenWithP3Sources: () => {
         calls.offlineFrozen++;
         return {result: {status: 0, stdout: '# tests 1\n# pass 1\n# fail 0\n# skipped 0\n', stderr: ''},
-          sourceContext: {kind: 'SYNTHETIC_TEST_FIXTURE'}};
+          sourceContext: {kind: 'P3_PINNED_TEMP_WORKTREE', head,
+            p3CreatorCommit: '6'.repeat(40), p3RecordSha256: '7'.repeat(64),
+            p3SourceCount: runner.P3_PINNED_SOURCE_COUNT, p3SourceManifestSha256: '8'.repeat(64),
+            originalP1WasmSha256: runner.P1_DIAGNOSTIC_WASM_SHA256, originalP1WasmSize: 427000,
+            upstreamVerified: true, worktreeRemoved: true, branchRemoved: true}};
       },
       verifyParentInventoryUnchanged: parent => parent,
+      latestOfflineReport: () => ({reportSha256: analysis.offlineReportSha256,
+        manifestSha256: 'e'.repeat(64)}),
+      assertLockedRecoveryPrefix: (_roots, _snapshot, {ownerLock} = {}) => {
+        calls.lockedPrefixChecks++;
+        calls.lockOwner = ownerLock;
+        assert.equal(typeof ownerLock?.owner, 'string');
+        assert.equal(Buffer.isBuffer(ownerLock?.bytes), true);
+        return true;
+      },
       afterPostCTestGate: result => {
         calls.reachedPostCTest = true;
+        if (continueThroughLock) return undefined;
         return {status: 'TEST_PREFLIGHT_GATES_PASS', checks: result.checks,
           writes: result.writes, renders: result.renders, acousticCalls: result.acousticCalls};
       }
@@ -1645,6 +1724,17 @@ test('c06/c07 preflight entries carry mode-specific frozen history through mocke
       assert.equal(valid.calls.buildCommands, 2);
       assert.deepEqual([result.writes, result.renders, result.acousticCalls], [0, 0, 0]);
     }
+
+    const throughLock = makeFixture({mode: 'continuation07', continueThroughLock: true});
+    const lockedResult = runner.preflightExperiment({...throughLock.context, continuation07: true,
+      testOnlyAdapters: throughLock.adapters});
+    assert.equal(lockedResult.status, 'PREPARE_PREFLIGHT_READY');
+    assert.equal(throughLock.calls.lockedPrefixChecks, 1);
+    assert.equal(typeof throughLock.calls.lockOwner.owner, 'string');
+    assert.deepEqual([lockedResult.writes, lockedResult.renders, lockedResult.acousticCalls], [1, 0, 0]);
+    const storedPreflight = runner.readJsonDual(throughLock.context.roots, lockedResult.preflightFile, {required: true});
+    assert.equal(storedPreflight.sha256, lockedResult.preflightSha256);
+    assert.equal(storedPreflight.value.kind, 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_07_PREFLIGHT');
 
     const invalid = makeFixture({mode: 'continuation07', mutatePinnedHistory: true});
     assert.throws(() => runner.preflightExperiment({...invalid.context, [invalid.mode]: true,
@@ -2353,6 +2443,43 @@ test('continuation-07 preflight and receipt shapes preserve c04 and analyses 20 
     recovery: {...receipt.recovery, offlineHistory: {...offlineHistory,
       analysis25: {...offlineHistory.analysis25, reportSha256: '0'.repeat(64)}}}}),
   /CONTINUATION_07_RECEIPT_IDENTITY/);
+
+  const stored = tempRoots();
+  for (const name of names) runner.writeDualImmutable(stored.roots, name, Buffer.from(`frozen:${name}`));
+  const storedPreflight = structuredClone(preflight);
+  runner.assertRecoveryContinuation07PreflightReceiptShape(storedPreflight, head);
+  const storedPreflightFile = `recovery-preflight-${head}.json`;
+  const storedPreflightBytes = Buffer.from(`${JSON.stringify(stable(storedPreflight), null, 2)}\n`);
+  runner.writeDualImmutable(stored.roots, storedPreflightFile, storedPreflightBytes);
+  const storedReceipt = structuredClone(receipt);
+  storedReceipt.recovery.preflightSha256 = bytesSha(storedPreflightBytes);
+  runner.assertPrepareRecoveryContinuation07ReceiptShape(storedReceipt);
+  const previousTestAdapterFlag = process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS;
+  process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS = '1';
+  let writeResult;
+  try {
+    writeResult = runner.writeRecoveryContinuation07Receipt(stored.roots, {
+      expectedPrefix: names, previousRootSnapshot,
+      preflightFile: storedPreflightFile, record: storedReceipt,
+      testOnlyAdapters: {snapshotActiveRootMembers: () => previousRootSnapshot}});
+  } finally {
+    if (previousTestAdapterFlag === undefined) delete process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS;
+    else process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS = previousTestAdapterFlag;
+  }
+  const readback = runner.readJsonDual(stored.roots, runner.PREPARE_RECOVERY_CONTINUATION_07_REL,
+    {required: true});
+  assert.equal(readback.sha256, writeResult.sha256);
+  assert.deepEqual(readback.value, storedReceipt);
+  assert.deepEqual(runner.epochRootMembers(stored.roots),
+    [...names, storedPreflightFile, runner.PREPARE_RECOVERY_CONTINUATION_07_REL].sort());
+  assert.equal(runner.assertRecoveryRootMembers(stored.roots,
+    [...names, storedPreflightFile, runner.PREPARE_RECOVERY_CONTINUATION_07_REL],
+    {blocker: 'BLOCKED_TEST_CONTINUATION_07_MEMBERS'}), true);
+
+  const reader = tempRoots();
+  runner.writeDualImmutable(reader.roots, runner.PREPARE_RECOVERY_CONTINUATION_07_REL,
+    Buffer.from(`${JSON.stringify(stable(storedReceipt), null, 2)}\n`));
+  assert.throws(() => runner.readExperimentState(reader.roots), /BLOCKED_CONTACT_LOSS_ORPHAN_ACTIVE_EPOCH/);
 });
 
 test('preflight build matrix is exported as absolute paths for CTest child working directories', () => {

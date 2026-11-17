@@ -2124,7 +2124,8 @@ function epochRootMembers(roots) {
   const allowed = ['acceptance', 'experiment', 'gate3-analysis.json', 'plan.json', 'prepare.json',
     'prepare-recovery.json', PREPARE_RECOVERY_CONTINUATION_02_REL,
     PREPARE_RECOVERY_CONTINUATION_03_REL, PREPARE_RECOVERY_CONTINUATION_04_REL,
-    PREPARE_RECOVERY_CONTINUATION_05_REL, PREPARE_RECOVERY_CONTINUATION_06_REL, 'writer.lock'];
+    PREPARE_RECOVERY_CONTINUATION_05_REL, PREPARE_RECOVERY_CONTINUATION_06_REL,
+    PREPARE_RECOVERY_CONTINUATION_07_REL, 'writer.lock'];
   if (present[0].some(name => !allowed.includes(name)
       && !/^preflight-[a-f0-9]{40}\.json$/.test(name)
       && !/^recovery-preflight-[a-f0-9]{40}\.json$/.test(name))) {
@@ -2277,22 +2278,61 @@ function snapshotActiveRootMembers(roots, members, {requireExact = true} = {}) {
   }
   return copies;
 }
-function assertLockedRecoveryPrefix(roots, expectedSnapshot) {
+function assertLockedRecoveryPrefix(roots, expectedSnapshot, {ownerLock = null} = {}) {
+  if (!ownerLock) throw new Error('BLOCKED_CONTACT_LOSS_LOCK_OWNER_CHANGED');
   const expected = Object.keys(expectedSnapshot?.primary || {}).sort();
   if (!expectedSnapshot?.secondary
       || !sameJson(Object.keys(expectedSnapshot.secondary).sort(), expected)) {
     throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_PREFIX_SET');
   }
-  const present = epochRootMembers(roots);
-  if (!present.includes('writer.lock')
-      || !sameJson(present.filter(name => name !== 'writer.lock').sort(), expected)) {
-    throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_PREFIX_SET');
-  }
+  assertRecoveryRootMembers(roots, expected, {ownerLock,
+    blocker: 'BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_PREFIX_SET'});
   const current = snapshotActiveRootMembers(roots, expected, {requireExact: false});
   if (!sameJson(current, expectedSnapshot)) {
     throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_PREFIX_MUTATED');
   }
   return true;
+}
+function writeRecoveryContinuation07Receipt(roots, {expectedPrefix, previousRootSnapshot,
+  preflightFile, record, testOnlyAdapters = null} = {}) {
+  if (testOnlyAdapters && (process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS !== '1'
+      || path.resolve(roots.repo) === ROOT)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_CONTINUATION_07_TEST_ADAPTERS_ON_LIVE_ROOT');
+  }
+  const snapshotReader = typeof testOnlyAdapters?.snapshotActiveRootMembers === 'function'
+    ? testOnlyAdapters.snapshotActiveRootMembers : snapshotActiveRootMembers;
+  assertPrepareRecoveryContinuation07ReceiptShape(record);
+  const expected = [...expectedPrefix].sort();
+  if (!sameJson(Object.keys(previousRootSnapshot?.primary || {}).sort(), expected)
+      || !sameJson(Object.keys(previousRootSnapshot?.secondary || {}).sort(), expected)
+      || !sameJson(record.previousRootSnapshot, previousRootSnapshot)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PREFIX_SET');
+  }
+  const lock = acquireLock(roots);
+  let writeResult;
+  try {
+    if (!sameJson(snapshotReader(roots, expectedPrefix, {requireExact: false}), previousRootSnapshot)) {
+      throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PREFIX_MUTATED');
+    }
+    const beforeWrite = [...expectedPrefix, preflightFile].sort();
+    assertRecoveryRootMembers(roots, beforeWrite, {ownerLock: lock,
+      blocker: 'BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PARTIAL_STATE'});
+    const preflight = readJsonDual(roots, preflightFile, {required: true});
+    assertRecoveryContinuation07PreflightReceiptShape(preflight.value, record.executionHead);
+    if (preflight.sha256 !== record.recovery.preflightSha256
+        || !sameJson(preflight.value.continuation07.previousRootSnapshot, previousRootSnapshot)) {
+      throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PREFLIGHT_READBACK');
+    }
+    writeResult = writeDualImmutable(roots, PREPARE_RECOVERY_CONTINUATION_07_REL, jsonBytes(record));
+    const afterWrite = [...beforeWrite, PREPARE_RECOVERY_CONTINUATION_07_REL].sort();
+    assertRecoveryRootMembers(roots, afterWrite, {ownerLock: lock,
+      blocker: 'BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PARTIAL_STATE'});
+    const readback = readJsonDual(roots, PREPARE_RECOVERY_CONTINUATION_07_REL, {required: true});
+    if (readback.sha256 !== writeResult.sha256 || !sameJson(readback.value, record)) {
+      throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_READBACK');
+    }
+  } finally { releaseLock(roots, lock); }
+  return writeResult;
 }
 function sameBytesSnapshot(left, right) {
   return Boolean(left && right && left.sha256 === right.sha256 && left.size === right.size);
@@ -3188,8 +3228,8 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
     builds: {diagnostic: {pass: true, ...diagnostic}, production: {pass: true, ...production}}, checks};
   let report;
   if (continuation07) {
-    const offline = latestOfflineReport(root, home, commonDirectory, identity.head,
-      PREPARE_RECOVERY_CONTINUATION_07_OFFLINE_EPOCH);
+    const offline = call('latestOfflineReport', latestOfflineReport, root, home, commonDirectory,
+      identity.head, PREPARE_RECOVERY_CONTINUATION_07_OFFLINE_EPOCH);
     const previousOfflineHistory = {...previousContinuation04.value.recovery.offlineHistory,
       analysis24: {reportSha256: RECOVERY_ANALYSIS24_REPORT_SHA256,
         manifestSha256: RECOVERY_ANALYSIS24_MANIFEST_SHA256},
@@ -3354,10 +3394,10 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
   const lock = acquireLock(roots);
   try {
     if (original) {
-      const before = (continuation02 || continuation03 || continuation04 || continuation05 || continuation06)
+      const before = (continuation02 || continuation03 || continuation04 || continuation05 || continuation06 || continuation07)
         ? previousRootSnapshot : original.memberSnapshot;
-      if (continuation02 || continuation03 || continuation04 || continuation05 || continuation06) {
-        assertLockedRecoveryPrefix(roots, before);
+      if (continuation02 || continuation03 || continuation04 || continuation05 || continuation06 || continuation07) {
+        call('assertLockedRecoveryPrefix', assertLockedRecoveryPrefix, roots, before, {ownerLock: lock});
       } else if (!sameJson(snapshotActiveRootMembers(roots, Object.keys(before.primary),
         {requireExact: false}), before)) {
         throw new Error(continuation06 ? 'BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_06_PREFIX_MUTATED'
@@ -4128,23 +4168,8 @@ function recoverPreparedContinuation07({root = ROOT, home = os.homedir(), common
     parentProof: preflight.value.parentProof, calls: {started: 0, completed: 0, ambiguous: 0},
     budget: core.accounting()};
   assertPrepareRecoveryContinuation07ReceiptShape(record);
-  const lock = acquireLock(roots);
-  let writeResult;
-  try {
-    if (!sameJson(snapshotActiveRootMembers(roots, expectedPrefix, {requireExact: false}), previousRootSnapshot)) {
-      throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PREFIX_MUTATED');
-    }
-    const currentMembers = epochRootMembers(roots).filter(name => name !== 'writer.lock').sort();
-    const expectedMembers = [...expectedPrefix, recoveryPreflightFileName(identity.head)].sort();
-    if (!sameJson(currentMembers, expectedMembers)) {
-      throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PARTIAL_STATE');
-    }
-    writeResult = writeDualImmutable(roots, PREPARE_RECOVERY_CONTINUATION_07_REL, jsonBytes(record));
-    const readback = readJsonDual(roots, PREPARE_RECOVERY_CONTINUATION_07_REL, {required: true});
-    if (readback.sha256 !== writeResult.sha256 || !sameJson(readback.value, record)) {
-      throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_READBACK');
-    }
-  } finally { releaseLock(roots, lock); }
+  const writeResult = writeRecoveryContinuation07Receipt(roots, {expectedPrefix,
+    previousRootSnapshot, preflightFile: recoveryPreflightFileName(identity.head), record});
   const recoveredState = readExperimentState(roots);
   const current = verifyPreparedCurrent(roots, recoveredState, {root, home, commonDirectory, buildDirectory});
   if (current.head !== identity.head || recoveredState.executionHead !== identity.head
@@ -6384,7 +6409,7 @@ module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA25
   P3_PINNED_SOURCE_COUNT, P1_DIAGNOSTIC_WASM_REL, P1_DIAGNOSTIC_WASM_SHA256,
   BASELINE_INPUT_PATHS, BASELINE_TEST_SOURCE_HASHES,
   PARENT_HEAD, PARENT_PREPARE_SHA256, PARENT_PLAN_SHA256, PARENT_GATE3_SHA256, SOURCE_FILES,
-  resolveRoots, readDual, readJsonDual, writeDualImmutable, currentIdentity, verifiedPullRequest,
+  resolveRoots, readDual, readJsonDual, writeDualImmutable, epochRootMembers, currentIdentity, verifiedPullRequest,
   verifyIssueApproval, assertPreflightReceiptShape, assertRecoveryPreflightReceiptShape,
   assertPrepareRecoveryReceiptShape, verifyStoredPrepareRecovery, readOriginalMalformedPreparation,
   assertRecoveryContinuation02PreflightReceiptShape, assertPrepareRecoveryContinuation02ReceiptShape,
@@ -6430,4 +6455,4 @@ module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA25
   assertEvidenceCapacity, stage3Cells,
   stage3Report, renderLifecycleWithAudio, stage4Report, stage4LegacyDocument, runPostStage4FullCTest,
   verifyAcceptanceProgress, continuationDecision, continueApproved,
-  status, parseMode, main, summarizePassingCtest};
+  writeRecoveryContinuation07Receipt, status, parseMode, main, summarizePassingCtest};
