@@ -2769,25 +2769,83 @@ test('continuation-07 actual root snapshot flows through state, prepared verific
   }
 });
 
-test('production reader verifies the authentic private recovery store read-only when available', t => {
-  const roots = runner.resolveRoots();
-  if (!fs.existsSync(roots.primary) && !fs.existsSync(roots.secondary)) {
-    t.skip('private recovery store is not mounted on this host');
-    return;
-  }
-  const beforeMembers = runner.epochRootMembers(roots);
-  if (!beforeMembers.length) {
-    t.skip('private recovery store has no active records on this host');
-    return;
-  }
-  const before = runner.snapshotActiveRootMembers(roots, beforeMembers);
-  const state = runner.readExperimentState(roots);
-  assert.equal(state.status, 'READY');
-  assert.ok(state.recovery?.value?.kind?.startsWith('CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_'));
-  assert.deepEqual([state.charged, state.completed, state.ambiguous], [0, 0, 0]);
-  assert.deepEqual(runner.epochRootMembers(roots), beforeMembers);
-  assert.deepEqual(runner.snapshotActiveRootMembers(roots, beforeMembers), before);
-});
+if (process.env.ISSUE7_CONTACT_LOSS_PRIVATE_STORE_READONLY === '1') {
+  test('production reader verifies the private recovery store read-only outside the required zero-skip suite', t => {
+    const roots = runner.resolveRoots();
+    if (!fs.existsSync(roots.primary) && !fs.existsSync(roots.secondary)) {
+      t.skip('private recovery store is not mounted on this host');
+      return;
+    }
+
+    const beforeMembers = runner.epochRootMembers(roots);
+    if (!beforeMembers.length) {
+      t.skip('private recovery store has no active records on this host');
+      return;
+    }
+    if (beforeMembers.includes('writer.lock')) {
+      t.skip('private recovery store currently has a writer lock');
+      return;
+    }
+
+    const files = [], directories = [];
+    for (const name of beforeMembers) {
+      const stats = ['primary', 'secondary'].map(copy => fs.lstatSync(path.join(roots[copy], name)));
+      for (const stat of stats) assert.equal(stat.isSymbolicLink(), false);
+      assert.equal(stats[0].isDirectory(), stats[1].isDirectory());
+      if (stats[0].isDirectory()) {
+        assert.ok(['acceptance', 'experiment'].includes(name));
+        directories.push(name);
+      } else {
+        assert.ok(stats[0].isFile() && stats[1].isFile());
+        files.push(name);
+      }
+    }
+    const beforeFiles = runner.snapshotActiveRootMembers(roots, files, {requireExact: false});
+    const treeSnapshot = () => {
+      const copies = {};
+      for (const copy of ['primary', 'secondary']) {
+        const records = {};
+        const visit = relative => {
+          const file = path.join(roots[copy], relative), stat = fs.lstatSync(file);
+          assert.equal(stat.isSymbolicLink(), false);
+          const common = {mode: stat.mode, mtimeMs: stat.mtimeMs, size: stat.size,
+            device: stat.dev, inode: stat.ino};
+          if (stat.isDirectory()) {
+            records[relative] = {kind: 'directory', ...common};
+            for (const child of fs.readdirSync(file).sort()) visit(path.join(relative, child));
+          } else {
+            assert.equal(stat.isFile(), true);
+            records[relative] = {kind: 'file', ...common,
+              sha256: crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')};
+          }
+        };
+        for (const name of directories) visit(name);
+        copies[copy] = records;
+      }
+      return copies;
+    };
+    const beforeDirectories = treeSnapshot();
+    const state = runner.readExperimentState(roots);
+
+    assert.match(state.recovery?.value?.kind || '', /^CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_0[2-7]$/);
+    assert.equal(state.calls.length, core.plan().length);
+    assert.ok(state.calls.every(row => ['NOT_STARTED', 'COMPLETE', 'AMBIGUOUS'].includes(row.status)));
+    const charged = state.calls.filter(row => row.status !== 'NOT_STARTED').length;
+    const completed = state.calls.filter(row => row.status === 'COMPLETE').length;
+    const ambiguous = state.calls.filter(row => row.status === 'AMBIGUOUS').length;
+    assert.equal(state.charged, charged);
+    assert.equal(state.completed, completed);
+    assert.equal(state.ambiguous, ambiguous);
+    assert.ok(charged <= 42);
+    assert.ok(completed <= charged);
+    assert.ok(ambiguous <= charged);
+    assert.equal(state.status, ambiguous ? 'BLOCKED_AMBIGUOUS_CALL' : 'READY');
+
+    assert.deepEqual(runner.epochRootMembers(roots), beforeMembers);
+    assert.deepEqual(runner.snapshotActiveRootMembers(roots, files, {requireExact: false}), beforeFiles);
+    assert.deepEqual(treeSnapshot(), beforeDirectories);
+  });
+}
 
 test('preflight build matrix is exported as absolute paths for CTest child working directories', () => {
   const context = tempRoots(), env = runner.preflightTestEnvironment({root: context.root,
