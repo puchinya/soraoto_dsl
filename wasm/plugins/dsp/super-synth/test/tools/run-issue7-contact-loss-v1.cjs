@@ -898,7 +898,7 @@ function assertPrepareRecoveryContinuation04ReceiptShape(report) {
   return report;
 }
 function assertRecoveryContinuation05PriorRootSnapshot(snapshot,
-  {executionHead, preflightSha256, receiptSha256} = {}) {
+  {executionHead, preflightSha256, receiptSha256, expectedHashes = null} = {}) {
   const names = ['gate3-analysis.json', 'plan.json', 'prepare.json',
     preflightFileName(RECOVERY_ORIGINAL_HEAD),
     recoveryPreflightFileName(RECOVERY_FIRST_EXECUTION_HEAD), 'prepare-recovery.json',
@@ -913,7 +913,7 @@ function assertRecoveryContinuation05PriorRootSnapshot(snapshot,
       || !sameJson(Object.keys(snapshot.secondary).sort(), names)) {
     throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_05_PREFIX_SET');
   }
-  const expected = {'gate3-analysis.json': RECOVERY_ORIGINAL_GATE3_SHA256,
+  const expected = expectedHashes || {'gate3-analysis.json': RECOVERY_ORIGINAL_GATE3_SHA256,
     'plan.json': RECOVERY_ORIGINAL_PLAN_SHA256, 'prepare.json': RECOVERY_ORIGINAL_PREPARE_SHA256,
     [preflightFileName(RECOVERY_ORIGINAL_HEAD)]: RECOVERY_ORIGINAL_PREFLIGHT_SHA256,
     [recoveryPreflightFileName(RECOVERY_FIRST_EXECUTION_HEAD)]: RECOVERY_FIRST_PREFLIGHT_SHA256,
@@ -924,11 +924,15 @@ function assertRecoveryContinuation05PriorRootSnapshot(snapshot,
     [PREPARE_RECOVERY_CONTINUATION_03_REL]: RECOVERY_CONTINUATION_03_RECEIPT_SHA256,
     [recoveryPreflightFileName(executionHead)]: preflightSha256,
     [PREPARE_RECOVERY_CONTINUATION_04_REL]: receiptSha256};
+  if (!sameJson(Object.keys(expected).sort(), names)
+      || Object.values(expected).some(value => !/^[a-f0-9]{64}$/.test(value || ''))) {
+    throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_05_PREFIX_IDENTITY');
+  }
   for (const name of names) {
     const primary = snapshot.primary[name], secondary = snapshot.secondary[name];
     if (!sameBytesSnapshot(primary, secondary) || primary.sha256 !== expected[name]
         || !Number.isFinite(primary.mtimeMs) || !Number.isFinite(secondary.mtimeMs)) {
-      throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_05_PREFIX_IDENTITY');
+      throw new Error(`BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_05_PREFIX_IDENTITY:${name}`);
     }
   }
   return true;
@@ -1196,12 +1200,13 @@ function assertContinuation07OfflineHistory(history, {includeAnalysis26 = true} 
   }
   return true;
 }
-function assertRecoveryContinuation07PreflightReceiptShape(report, expectedHead) {
+function assertRecoveryContinuation07PreflightReceiptShape(report, expectedHead, {testOnlyAdapters = null} = {}) {
   if (report?.kind !== 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_07_PREFLIGHT') {
     throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PREFLIGHT_KIND');
   }
   assertPreflightReceiptShape({...report, kind: 'CONTACT_LOSS_PREPARE_PREFLIGHT'}, expectedHead);
   const continuation = report.continuation07;
+  const pins = testOnlyAdapters?.continuation07Pins || {};
   if (continuation?.approvalMarker !== PREPARE_RECOVERY_CONTINUATION_07_APPROVAL_MARKER
       || continuation.designSha256 !== PREPARE_RECOVERY_CONTINUATION_07_DESIGN_SHA256
       || continuation.executionHead !== expectedHead
@@ -1210,10 +1215,10 @@ function assertRecoveryContinuation07PreflightReceiptShape(report, expectedHead)
       || continuation.previousRecoveryPreflightSha256 !== RECOVERY_CONTINUATION_04_PREFLIGHT_SHA256
       || continuation.previousRecoveryReceiptSha256 !== RECOVERY_CONTINUATION_04_RECEIPT_SHA256
       || continuation.offlineEpoch !== PREPARE_RECOVERY_CONTINUATION_07_OFFLINE_EPOCH
-      || continuation.originalPrepareSha256 !== RECOVERY_ORIGINAL_PREPARE_SHA256
-      || continuation.originalPlanSha256 !== RECOVERY_ORIGINAL_PLAN_SHA256
-      || continuation.originalGate3Sha256 !== RECOVERY_ORIGINAL_GATE3_SHA256
-      || continuation.originalPreflightSha256 !== RECOVERY_ORIGINAL_PREFLIGHT_SHA256
+      || continuation.originalPrepareSha256 !== (pins.originalPrepareSha256 || RECOVERY_ORIGINAL_PREPARE_SHA256)
+      || continuation.originalPlanSha256 !== (pins.originalPlanSha256 || RECOVERY_ORIGINAL_PLAN_SHA256)
+      || continuation.originalGate3Sha256 !== (pins.originalGate3Sha256 || RECOVERY_ORIGINAL_GATE3_SHA256)
+      || continuation.originalPreflightSha256 !== (pins.originalPreflightSha256 || RECOVERY_ORIGINAL_PREFLIGHT_SHA256)
       || continuation.gate3AnalysisSha256 !== report.gate3?.analysisSha256
       || continuation.gate3AnalysisSha256 !== sha256(jsonBytes(continuation.gate3Analysis))
       || continuation.gate3Analysis?.head !== expectedHead
@@ -1239,10 +1244,12 @@ function assertRecoveryContinuation07PreflightReceiptShape(report, expectedHead)
   assertRecoveryContinuation05PriorRootSnapshot(continuation.previousRootSnapshot, {
     executionHead: continuation.previousExecutionHead,
     preflightSha256: continuation.previousRecoveryPreflightSha256,
-    receiptSha256: continuation.previousRecoveryReceiptSha256});
+    receiptSha256: continuation.previousRecoveryReceiptSha256,
+    expectedHashes: pins.priorRootHashes || null});
   return report;
 }
-function assertPrepareRecoveryContinuation07ReceiptShape(report) {
+function assertPrepareRecoveryContinuation07ReceiptShape(report, {testOnlyAdapters = null} = {}) {
+  const pins = testOnlyAdapters?.continuation07Pins || {};
   if (report?.schemaVersion !== 1 || report.kind !== 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_07'
       || report.issue !== 7 || report.pr !== PR_NUMBER || report.epoch !== ACTIVE_EPOCH
       || report.contractSha256 !== SUCCESSOR_CONTRACT_SHA256
@@ -1252,10 +1259,10 @@ function assertPrepareRecoveryContinuation07ReceiptShape(report) {
       || report.previousRecoveryPreflightSha256 !== RECOVERY_CONTINUATION_04_PREFLIGHT_SHA256
       || report.previousRecoveryReceiptSha256 !== RECOVERY_CONTINUATION_04_RECEIPT_SHA256
       || report.original?.head !== RECOVERY_ORIGINAL_HEAD
-      || report.original?.prepareSha256 !== RECOVERY_ORIGINAL_PREPARE_SHA256
-      || report.original?.planSha256 !== RECOVERY_ORIGINAL_PLAN_SHA256
-      || report.original?.gate3Sha256 !== RECOVERY_ORIGINAL_GATE3_SHA256
-      || report.original?.preflightSha256 !== RECOVERY_ORIGINAL_PREFLIGHT_SHA256
+      || report.original?.prepareSha256 !== (pins.originalPrepareSha256 || RECOVERY_ORIGINAL_PREPARE_SHA256)
+      || report.original?.planSha256 !== (pins.originalPlanSha256 || RECOVERY_ORIGINAL_PLAN_SHA256)
+      || report.original?.gate3Sha256 !== (pins.originalGate3Sha256 || RECOVERY_ORIGINAL_GATE3_SHA256)
+      || report.original?.preflightSha256 !== (pins.originalPreflightSha256 || RECOVERY_ORIGINAL_PREFLIGHT_SHA256)
       || !/^[a-f0-9]{40}$/.test(report.executionHead || '')
       || report.recovery?.head !== report.executionHead
       || report.recovery?.preflightFile !== recoveryPreflightFileName(report.executionHead)
@@ -1288,7 +1295,8 @@ function assertPrepareRecoveryContinuation07ReceiptShape(report) {
   assertRecoveryContinuation05PriorRootSnapshot(report.previousRootSnapshot, {
     executionHead: report.previousExecutionHead,
     preflightSha256: report.previousRecoveryPreflightSha256,
-    receiptSha256: report.previousRecoveryReceiptSha256});
+    receiptSha256: report.previousRecoveryReceiptSha256,
+    expectedHashes: pins.priorRootHashes || null});
   return report;
 }
 function assertPrepareRecoveryReceiptShape(report) {
@@ -1918,7 +1926,11 @@ function verifyStoredPrepareRecoveryContinuation06(roots, {prepared, originalGat
     frozenEvidenceSnapshot: report.recovery.frozenEvidenceSnapshot};
 }
 function verifyStoredPrepareRecoveryContinuation07(roots, {prepared, originalGate3,
-  previousContinuation04, ownerLock = null} = {}) {
+  previousContinuation04, ownerLock = null, testOnlyAdapters = null} = {}) {
+  if (testOnlyAdapters && (process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS !== '1'
+      || path.resolve(roots.repo) === ROOT)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_CONTINUATION_07_TEST_ADAPTERS_ON_LIVE_ROOT');
+  }
   const stored = readJsonDual(roots, PREPARE_RECOVERY_CONTINUATION_07_REL);
   if (!stored) return null;
   if (!previousContinuation04) throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PREDECESSOR');
@@ -1926,9 +1938,9 @@ function verifyStoredPrepareRecoveryContinuation07(roots, {prepared, originalGat
       || readJsonDual(roots, PREPARE_RECOVERY_CONTINUATION_06_REL)) {
     throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_EXCLUSIVITY');
   }
-  const report = assertPrepareRecoveryContinuation07ReceiptShape(stored.value);
+  const report = assertPrepareRecoveryContinuation07ReceiptShape(stored.value, {testOnlyAdapters});
   const preflight = readJsonDual(roots, report.recovery.preflightFile, {required: true});
-  assertRecoveryContinuation07PreflightReceiptShape(preflight.value, report.executionHead);
+  assertRecoveryContinuation07PreflightReceiptShape(preflight.value, report.executionHead, {testOnlyAdapters});
   const expectedPreviousOffline = {...previousContinuation04.value.recovery.offlineHistory,
     analysis24: {reportSha256: RECOVERY_ANALYSIS24_REPORT_SHA256,
       manifestSha256: RECOVERY_ANALYSIS24_MANIFEST_SHA256},
@@ -1980,8 +1992,11 @@ function verifyStoredPrepareRecoveryContinuation07(roots, {prepared, originalGat
   }
   assertRecoveryFrozenAppendOnly(prepared.value.frozenEvidenceSnapshot,
     report.recovery.frozenEvidenceSnapshot, report);
-  const offline = latestOfflineReport(roots.repo, roots.home, roots.commonDirectory,
-    report.executionHead, PREPARE_RECOVERY_CONTINUATION_07_OFFLINE_EPOCH);
+  const offline = typeof testOnlyAdapters?.latestOfflineReport === 'function'
+    ? testOnlyAdapters.latestOfflineReport(roots.repo, roots.home, roots.commonDirectory,
+      report.executionHead, PREPARE_RECOVERY_CONTINUATION_07_OFFLINE_EPOCH)
+    : latestOfflineReport(roots.repo, roots.home, roots.commonDirectory,
+      report.executionHead, PREPARE_RECOVERY_CONTINUATION_07_OFFLINE_EPOCH);
   if (offline.reportSha256 !== report.recovery.offlineReportSha256
       || offline.manifestSha256 !== report.recovery.offlineManifestSha256
       || offline.reportSha256 !== report.recovery.gate3Analysis.offlineReportSha256) {
@@ -2152,6 +2167,16 @@ function assertRecoveryRootMembers(roots, expectedMembers, {ownerLock = null, bl
   if (!sameJson(actual, [...expectedMembers].sort())) throw new Error(blocker);
   return true;
 }
+function assertLockedRecoveryRootMembers(roots, expectedMembers, {ownerLock = null, blocker} = {}) {
+  if (!ownerLock) throw new Error('BLOCKED_CONTACT_LOSS_LOCK_OWNER_CHANGED');
+  const members = epochRootMembers(roots);
+  if (!members.includes('writer.lock') || !ownedWriterLock(roots, ownerLock)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_LOCK_OWNER_CHANGED');
+  }
+  const actual = members.filter(name => name !== 'writer.lock');
+  if (!sameJson(actual, [...expectedMembers].sort())) throw new Error(blocker);
+  return true;
+}
 function combinedExperimentCharge(parentCalls, currentCalls) {
   if (!Number.isSafeInteger(parentCalls) || parentCalls < 0
       || !Number.isSafeInteger(currentCalls) || currentCalls < 0) throw new Error('BLOCKED_CONTACT_LOSS_CALL_ACCOUNTING');
@@ -2285,7 +2310,7 @@ function assertLockedRecoveryPrefix(roots, expectedSnapshot, {ownerLock = null} 
       || !sameJson(Object.keys(expectedSnapshot.secondary).sort(), expected)) {
     throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_PREFIX_SET');
   }
-  assertRecoveryRootMembers(roots, expected, {ownerLock,
+  assertLockedRecoveryRootMembers(roots, expected, {ownerLock,
     blocker: 'BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_02_PREFIX_SET'});
   const current = snapshotActiveRootMembers(roots, expected, {requireExact: false});
   if (!sameJson(current, expectedSnapshot)) {
@@ -2299,9 +2324,7 @@ function writeRecoveryContinuation07Receipt(roots, {expectedPrefix, previousRoot
       || path.resolve(roots.repo) === ROOT)) {
     throw new Error('BLOCKED_CONTACT_LOSS_CONTINUATION_07_TEST_ADAPTERS_ON_LIVE_ROOT');
   }
-  const snapshotReader = typeof testOnlyAdapters?.snapshotActiveRootMembers === 'function'
-    ? testOnlyAdapters.snapshotActiveRootMembers : snapshotActiveRootMembers;
-  assertPrepareRecoveryContinuation07ReceiptShape(record);
+  assertPrepareRecoveryContinuation07ReceiptShape(record, {testOnlyAdapters});
   const expected = [...expectedPrefix].sort();
   if (!sameJson(Object.keys(previousRootSnapshot?.primary || {}).sort(), expected)
       || !sameJson(Object.keys(previousRootSnapshot?.secondary || {}).sort(), expected)
@@ -2311,21 +2334,25 @@ function writeRecoveryContinuation07Receipt(roots, {expectedPrefix, previousRoot
   const lock = acquireLock(roots);
   let writeResult;
   try {
-    if (!sameJson(snapshotReader(roots, expectedPrefix, {requireExact: false}), previousRootSnapshot)) {
+    testOnlyAdapters?.afterLock?.();
+    const beforeWrite = [...expectedPrefix, preflightFile].sort();
+    assertLockedRecoveryRootMembers(roots, beforeWrite, {ownerLock: lock,
+      blocker: 'BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PARTIAL_STATE'});
+    if (!sameJson(snapshotActiveRootMembers(roots, expectedPrefix, {requireExact: false}), previousRootSnapshot)) {
       throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PREFIX_MUTATED');
     }
-    const beforeWrite = [...expectedPrefix, preflightFile].sort();
-    assertRecoveryRootMembers(roots, beforeWrite, {ownerLock: lock,
-      blocker: 'BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PARTIAL_STATE'});
     const preflight = readJsonDual(roots, preflightFile, {required: true});
-    assertRecoveryContinuation07PreflightReceiptShape(preflight.value, record.executionHead);
+    assertRecoveryContinuation07PreflightReceiptShape(preflight.value, record.executionHead, {testOnlyAdapters});
     if (preflight.sha256 !== record.recovery.preflightSha256
         || !sameJson(preflight.value.continuation07.previousRootSnapshot, previousRootSnapshot)) {
       throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PREFLIGHT_READBACK');
     }
+    testOnlyAdapters?.beforeReceiptWrite?.();
+    assertLockedRecoveryRootMembers(roots, beforeWrite, {ownerLock: lock,
+      blocker: 'BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PARTIAL_STATE'});
     writeResult = writeDualImmutable(roots, PREPARE_RECOVERY_CONTINUATION_07_REL, jsonBytes(record));
     const afterWrite = [...beforeWrite, PREPARE_RECOVERY_CONTINUATION_07_REL].sort();
-    assertRecoveryRootMembers(roots, afterWrite, {ownerLock: lock,
+    assertLockedRecoveryRootMembers(roots, afterWrite, {ownerLock: lock,
       blocker: 'BLOCKED_CONTACT_LOSS_RECOVERY_CONTINUATION_07_PARTIAL_STATE'});
     const readback = readJsonDual(roots, PREPARE_RECOVERY_CONTINUATION_07_REL, {required: true});
     if (readback.sha256 !== writeResult.sha256 || !sameJson(readback.value, record)) {
@@ -3253,7 +3280,8 @@ function preflightExperiment({root = ROOT, home = os.homedir(), commonDirectory,
       offlineHistory, gate3AnalysisSha256: sha256(jsonBytes(analysis)), gate3Analysis: analysis,
       sourceDelta, previousRootSnapshot};
     report = assertRecoveryContinuation07PreflightReceiptShape({...baseReport,
-      kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_07_PREFLIGHT', continuation07: continuation}, identity.head);
+      kind: 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_07_PREFLIGHT', continuation07: continuation}, identity.head,
+    {testOnlyAdapters});
   } else if (continuation06) {
     const offline = latestOfflineReport(root, home, commonDirectory, identity.head,
       PREPARE_RECOVERY_CONTINUATION_06_OFFLINE_EPOCH);
@@ -4255,7 +4283,11 @@ function releaseLock(roots, lock) {
   }
 }
 
-function readExperimentState(roots, {ownerLock = null} = {}) {
+function readExperimentState(roots, {ownerLock = null, testOnlyAdapters = null} = {}) {
+  if (testOnlyAdapters && (process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS !== '1'
+      || path.resolve(roots.repo) === ROOT)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_STATE_TEST_ADAPTERS_ON_LIVE_ROOT');
+  }
   const rootMembers = roots.epoch === ACTIVE_EPOCH ? epochRootMembers(roots) : null;
   const prepared = readJsonDual(roots, 'prepare.json');
   if (!prepared) {
@@ -4310,33 +4342,67 @@ function readExperimentState(roots, {ownerLock = null} = {}) {
       // The recovery contract deliberately preserves the old malformed prepare
       // bytes. Authenticate that fixed record and its original preflight first;
       // the immutable recovery receipt below binds the new execution HEAD.
-      assertPinnedRecoveryPrepareBinding(prepared, preflight);
       const originalGate3 = readJsonDual(roots, 'gate3-analysis.json', {required: true});
-      verifiedFirstRecovery = verifyStoredPrepareRecovery(roots, {prepared, originalPreflight: preflight,
-        originalGate3, allowContinuation02: Boolean(storedContinuation02),
-        allowContinuation03: Boolean(storedContinuation03),
-        allowContinuation04: Boolean(storedContinuation04),
-        allowContinuation05: Boolean(storedContinuation05),
-        allowContinuation06: Boolean(storedContinuation06),
-        allowContinuation07: Boolean(storedContinuation07), ownerLock});
-      verifiedContinuation02 = storedContinuation02
-        ? verifyStoredPrepareRecoveryContinuation02(roots, {prepared, originalGate3,
-          previousRecovery: verifiedFirstRecovery, allowContinuation03: Boolean(storedContinuation03),
+      const testRecoveryPrefix = testOnlyAdapters?.verifiedRecoveryPrefix;
+      if (testRecoveryPrefix) {
+        // Historical c04 bytes are SHA-pinned and cannot be regenerated in a synthetic fixture.
+        // The fixture supplies their verified chain result, while c07 reads and hashes all 12
+        // prior files directly from both roots before running its normal receipt verifier.
+        if (!storedContinuation07 || !storedContinuation02 || !storedContinuation03 || !storedContinuation04
+            || storedContinuation05 || storedContinuation06
+            || !testRecoveryPrefix.firstRecovery || !testRecoveryPrefix.continuation02
+            || !testRecoveryPrefix.continuation03 || !testRecoveryPrefix.continuation04) {
+          throw new Error('BLOCKED_CONTACT_LOSS_TEST_RECOVERY_PREFIX_SHAPE');
+        }
+        const priorNames = Object.keys(storedContinuation07.value.previousRootSnapshot?.primary || {}).sort();
+        const expectedPriorNames = ['gate3-analysis.json', 'plan.json', 'prepare.json',
+          preflightFileName(RECOVERY_ORIGINAL_HEAD),
+          recoveryPreflightFileName(RECOVERY_FIRST_EXECUTION_HEAD), 'prepare-recovery.json',
+          recoveryPreflightFileName(RECOVERY_CONTINUATION_02_EXECUTION_HEAD),
+          PREPARE_RECOVERY_CONTINUATION_02_REL,
+          recoveryPreflightFileName(RECOVERY_CONTINUATION_03_EXECUTION_HEAD),
+          PREPARE_RECOVERY_CONTINUATION_03_REL,
+          recoveryPreflightFileName(RECOVERY_CONTINUATION_04_EXECUTION_HEAD),
+          PREPARE_RECOVERY_CONTINUATION_04_REL].sort();
+        if (!sameJson(priorNames, expectedPriorNames)) {
+          throw new Error('BLOCKED_CONTACT_LOSS_TEST_RECOVERY_PREFIX_SET');
+        }
+        const actualPriorSnapshot = snapshotActiveRootMembers(roots, priorNames, {requireExact: false});
+        if (!sameJson(actualPriorSnapshot, storedContinuation07.value.previousRootSnapshot)) {
+          throw new Error('BLOCKED_CONTACT_LOSS_TEST_RECOVERY_PREFIX_SNAPSHOT');
+        }
+        verifiedFirstRecovery = testRecoveryPrefix.firstRecovery;
+        verifiedContinuation02 = testRecoveryPrefix.continuation02;
+        verifiedContinuation03 = testRecoveryPrefix.continuation03;
+        verifiedContinuation04 = testRecoveryPrefix.continuation04;
+      } else {
+        assertPinnedRecoveryPrepareBinding(prepared, preflight);
+        verifiedFirstRecovery = verifyStoredPrepareRecovery(roots, {prepared, originalPreflight: preflight,
+          originalGate3, allowContinuation02: Boolean(storedContinuation02),
+          allowContinuation03: Boolean(storedContinuation03),
           allowContinuation04: Boolean(storedContinuation04),
           allowContinuation05: Boolean(storedContinuation05),
           allowContinuation06: Boolean(storedContinuation06),
-          allowContinuation07: Boolean(storedContinuation07), ownerLock}) : null;
-      verifiedContinuation03 = storedContinuation03
-        ? verifyStoredPrepareRecoveryContinuation03(roots, {prepared, originalGate3,
-          previousContinuation02: verifiedContinuation02, allowContinuation04: Boolean(storedContinuation04),
-          allowContinuation05: Boolean(storedContinuation05),
-          allowContinuation06: Boolean(storedContinuation06),
-          allowContinuation07: Boolean(storedContinuation07), ownerLock}) : null;
-      verifiedContinuation04 = storedContinuation04
-        ? verifyStoredPrepareRecoveryContinuation04(roots, {prepared, originalGate3,
-          previousContinuation03: verifiedContinuation03, allowContinuation05: Boolean(storedContinuation05),
-          allowContinuation06: Boolean(storedContinuation06),
-          allowContinuation07: Boolean(storedContinuation07), ownerLock}) : null;
+          allowContinuation07: Boolean(storedContinuation07), ownerLock});
+        verifiedContinuation02 = storedContinuation02
+          ? verifyStoredPrepareRecoveryContinuation02(roots, {prepared, originalGate3,
+            previousRecovery: verifiedFirstRecovery, allowContinuation03: Boolean(storedContinuation03),
+            allowContinuation04: Boolean(storedContinuation04),
+            allowContinuation05: Boolean(storedContinuation05),
+            allowContinuation06: Boolean(storedContinuation06),
+            allowContinuation07: Boolean(storedContinuation07), ownerLock}) : null;
+        verifiedContinuation03 = storedContinuation03
+          ? verifyStoredPrepareRecoveryContinuation03(roots, {prepared, originalGate3,
+            previousContinuation02: verifiedContinuation02, allowContinuation04: Boolean(storedContinuation04),
+            allowContinuation05: Boolean(storedContinuation05),
+            allowContinuation06: Boolean(storedContinuation06),
+            allowContinuation07: Boolean(storedContinuation07), ownerLock}) : null;
+        verifiedContinuation04 = storedContinuation04
+          ? verifyStoredPrepareRecoveryContinuation04(roots, {prepared, originalGate3,
+            previousContinuation03: verifiedContinuation03, allowContinuation05: Boolean(storedContinuation05),
+            allowContinuation06: Boolean(storedContinuation06),
+            allowContinuation07: Boolean(storedContinuation07), ownerLock}) : null;
+      }
       const continuation05 = storedContinuation05
         ? verifyStoredPrepareRecoveryContinuation05(roots, {prepared, originalGate3,
           previousContinuation04: verifiedContinuation04, ownerLock}) : null;
@@ -4345,7 +4411,7 @@ function readExperimentState(roots, {ownerLock = null} = {}) {
           previousContinuation04: verifiedContinuation04, ownerLock}) : null;
       verifiedContinuation07 = storedContinuation07
         ? verifyStoredPrepareRecoveryContinuation07(roots, {prepared, originalGate3,
-          previousContinuation04: verifiedContinuation04, ownerLock}) : null;
+          previousContinuation04: verifiedContinuation04, ownerLock, testOnlyAdapters}) : null;
       recovery = verifiedContinuation07 || continuation06 || continuation05 || verifiedContinuation04
         || verifiedContinuation03 || verifiedContinuation02 || verifiedFirstRecovery;
     } else if (storedContinuation02 || storedContinuation03 || storedContinuation04 || storedContinuation05
@@ -4619,8 +4685,22 @@ function verifiedReceipt(state, identity = {head: state.executionHead || state.p
       audioSha256: row.complete.value.audioSha256, metadataSha256: row.complete.value.metadataSha256}))};
 }
 
-function verifyPreparedCurrent(roots, state, {root = ROOT, home = os.homedir(), commonDirectory, buildDirectory} = {}) {
-  const parent = verifyParentExperiment01({root, home, commonDirectory});
+function verifyPreparedCurrent(roots, state, {root = ROOT, home = os.homedir(), commonDirectory, buildDirectory,
+  testOnlyAdapters = null} = {}) {
+  if (testOnlyAdapters && (process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS !== '1'
+      || path.resolve(root) === ROOT)) {
+    throw new Error('BLOCKED_CONTACT_LOSS_PREPARED_TEST_ADAPTERS_ON_LIVE_ROOT');
+  }
+  const parentVerifier = testOnlyAdapters?.parentVerifier || verifyParentExperiment01;
+  const pullRequestVerifier = testOnlyAdapters?.verifiedPullRequest || verifiedPullRequest;
+  const issueApprovalVerifier = testOnlyAdapters?.verifyIssueApproval || verifyIssueApproval;
+  const continuation07ApprovalVerifier = testOnlyAdapters?.verifyPrepareRecoveryContinuation07Approval
+    || verifyPrepareRecoveryContinuation07Approval;
+  const frozenSnapshotReader = testOnlyAdapters?.frozenSourceSnapshot || frozenSourceSnapshot;
+  const diagnosticBuildVerifier = testOnlyAdapters?.verifyDiagnosticBuild || verifyDiagnosticBuild;
+  const productionBuildVerifier = testOnlyAdapters?.verifyProductionBuild || verifyProductionBuild;
+  const offlineReportReader = testOnlyAdapters?.latestOfflineReport || latestOfflineReport;
+  const parent = parentVerifier({root, home, commonDirectory});
   if (!sameJson(state.prepare.parentEpoch, parent.proof)) throw new Error('BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT');
   const identity = currentIdentity(root);
   const executionHead = state.executionHead || state.prepare.head;
@@ -4628,8 +4708,8 @@ function verifyPreparedCurrent(roots, state, {root = ROOT, home = os.homedir(), 
   if (identity.head !== executionHead || ![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)) {
     throw new Error('BLOCKED_CONTACT_LOSS_HEAD_DRIFT');
   }
-  verifiedPullRequest(root, identity.head);
-  verifyIssueApproval(root);
+  pullRequestVerifier(root, identity.head);
+  issueApprovalVerifier(root);
   if (state.recovery?.value.kind === 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_05') {
     verifyPrepareRecoveryContinuation05Approval(root);
   }
@@ -4637,7 +4717,7 @@ function verifyPreparedCurrent(roots, state, {root = ROOT, home = os.homedir(), 
     verifyPrepareRecoveryContinuation06Approval(root);
   }
   if (state.recovery?.value.kind === 'CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_07') {
-    verifyPrepareRecoveryContinuation07Approval(root);
+    continuation07ApprovalVerifier(root);
   }
   if (!sameJson(sourceSnapshot(root), executionSource)) throw new Error('BLOCKED_CONTACT_LOSS_SOURCE_DRIFT');
   const gate3 = readJsonDual(roots, 'gate3-analysis.json', {required: true});
@@ -4645,7 +4725,7 @@ function verifyPreparedCurrent(roots, state, {root = ROOT, home = os.homedir(), 
       || gate3.value.head !== state.prepare.head || gate3.value.offlineReportSha256 !== state.prepare.gate3.offlineReportSha256) {
     throw new Error('BLOCKED_CONTACT_LOSS_GATE3_REPORT_IDENTITY');
   }
-  const frozenNow = frozenSourceSnapshot({root, home, commonDirectory});
+  const frozenNow = frozenSnapshotReader({root, home, commonDirectory});
   if (state.recovery) {
     const recoveryReport = state.recovery.value.recovery;
     if (!sameJson(frozenNow, recoveryReport.frozenEvidenceSnapshot)
@@ -4655,12 +4735,12 @@ function verifyPreparedCurrent(roots, state, {root = ROOT, home = os.homedir(), 
     assertSameGate3Evidence(gate3.value, recoveryReport.gate3Analysis, executionHead,
       expectedRecoveryOfflineEpoch(state.recovery.value));
   } else assertFrozenSnapshotMatches(frozenNow, state.prepare);
-  const currentBuild = verifyDiagnosticBuild(root, identity.head, {buildDirectory});
+  const currentBuild = diagnosticBuildVerifier(root, identity.head, {buildDirectory});
   if (currentBuild.wasm.sha256 !== state.prepare.build.wasm.sha256 || !sameJson(currentBuild.source, executionSource)) {
     throw new Error('BLOCKED_CONTACT_LOSS_BUILD_DRIFT');
   }
   if (state.recovery) {
-    const production = verifyProductionBuild(root, identity.head);
+    const production = productionBuildVerifier(root, identity.head);
     const recoveryBuilds = state.recovery.value.recovery.builds;
     if (production.wasm.sha256 !== recoveryBuilds.production.wasmSha256
         || production.wasm.size !== recoveryBuilds.production.wasmSize
@@ -4668,7 +4748,7 @@ function verifyPreparedCurrent(roots, state, {root = ROOT, home = os.homedir(), 
       throw new Error('BLOCKED_CONTACT_LOSS_RECOVERY_PRODUCTION_BUILD_DRIFT');
     }
   }
-  const offline = latestOfflineReport(root, home, commonDirectory, identity.head,
+  const offline = offlineReportReader(root, home, commonDirectory, identity.head,
     state.recovery?.value?.recovery?.gate3Analysis?.offlineEpoch || null);
   const expectedOfflineSha = state.recovery
     ? state.recovery.value.recovery.offlineReportSha256 : state.prepare.gate3.offlineReportSha256;
@@ -4997,10 +5077,11 @@ function verifyExperiment(options = {}) {
   const {root = ROOT, home = os.homedir(), commonDirectory, buildDirectory, archivePath, ownerLock = null,
     parentVerifier = verifyParentExperiment01, preparedVerifier = verifyPreparedCurrent,
     promotedVerifier = verifyPromotedAuthority, promotionSelectionVerifier = verifySelectionAfterPromotion,
-    snapshotReader = frozenSourceSnapshot, referenceReader = referenceRows, evaluator = scoreAlpha} = options;
+    snapshotReader = frozenSourceSnapshot, referenceReader = referenceRows, evaluator = scoreAlpha,
+    testOnlyAdapters = null} = options;
   const roots = resolveRoots({root, home, commonDirectory});
   const parent = parentVerifier({root, home, commonDirectory});
-  const state = readExperimentState(roots, {ownerLock});
+  const state = readExperimentState(roots, {ownerLock, testOnlyAdapters});
   if (!state.prepare) return {status: state.status === 'PREFLIGHT_READY' ? 'PREFLIGHT_READY' : 'NOT_PREPARED', epoch: ACTIVE_EPOCH,
     parentEpoch: {status: 'VERIFIED', ...parent.proof, copies: undefined},
     preflightReports: (state.preflightReports || []).map(row => ({head: row.value.head, file: row.file, sha256: row.sha256})),
@@ -5024,7 +5105,8 @@ function verifyExperiment(options = {}) {
   if (state.ambiguous && !terminal) return {status: 'BLOCKED_AMBIGUOUS_CALL', charged: state.charged,
     completed: state.completed, ambiguous: state.ambiguous, writes: 0, renders: 0, acousticCalls: 0};
   const before = snapshotReader({root, home, commonDirectory});
-  const identity = preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory});
+  const identity = preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory,
+    testOnlyAdapters});
   let alphaVerification = {baselineUnsafe: false, terminalMetricFailure: false, verifiedAlphaCount: 0};
   if (terminal) terminalExpectedRecord(terminal.value, state);
   const hasCompleteAlpha = Array.from({length: core.ALPHAS.length}, (_, alphaOrder) =>
@@ -6189,7 +6271,7 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
   terminalVerifier = verifyExperiment, promotedVerifier = verifyPromotedAuthority,
   promotionSelectionVerifier = verifySelectionAfterPromotion, acceptanceVerifier = verifyAcceptanceProgress,
   snapshotReader = frozenSourceSnapshot,
-  referenceReader = referenceRows} = {}) {
+  referenceReader = referenceRows, testOnlyAdapters = null} = {}) {
   const roots = resolveRoots({root, home, commonDirectory});
   let currentHead = null;
   try { currentHead = git(root, ['rev-parse', 'HEAD']); } catch { /* status remains read-only for empty fixtures */ }
@@ -6209,7 +6291,7 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
       lifetimeCap: core.MAX_CALLS, selection: 'NOT RUN', stage3: 'NOT RUN', stage4: 'NOT RUN',
       finalReport: 'NOT RUN', reports: {}, writes: 0, renders: 0, acousticCalls: 0};
   }
-  const state = readExperimentState(roots);
+  const state = readExperimentState(roots, {testOnlyAdapters});
   if (state.prepare && !sameJson(state.prepare.parentEpoch, parent.proof)) {
     return {status: 'BLOCKED_CONTACT_LOSS_PARENT_PROOF_DRIFT', epoch: ACTIVE_EPOCH,
       parentStatus: 'VERIFIED', activeLedgerStatus: 'VERIFIED', parentHead: parent.proof.head,
@@ -6253,7 +6335,7 @@ function status({root = ROOT, home = os.homedir(), commonDirectory, buildDirecto
         }
         if (![PR_BRANCH, LOCAL_WORKTREE_BRANCH].includes(identity.branch)) throw new Error('BLOCKED_CONTACT_LOSS_BRANCH');
         if (!sameJson(sourceSnapshot(root), state.executionSource || state.prepare.source)) throw new Error('BLOCKED_CONTACT_LOSS_SOURCE_DRIFT');
-        preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory});
+        preparedVerifier(roots, state, {root, home, commonDirectory, buildDirectory, testOnlyAdapters});
       }
     } catch (error) { executionBlocker = blockerForStatus(error); }
   }
@@ -6449,10 +6531,10 @@ module.exports = {ROOT, REPOSITORY, PR_NUMBER, PR_BRANCH, PR_URL, CONTRACT_SHA25
   combinedExperimentCharge, combinedExperimentCalls,
   frozenSourceSnapshot, frozenSnapshotSha256, assertFrozenSnapshotMatches, sourceSnapshot, readExperimentState, writeFloatWav,
   officialMetricPayload, normalizeAnalyzerMetrics, analyzerFixture, assertAnalyzerContract, captureMetadata, renderCall, referenceRows,
-  scoreAlpha, scoreCompletedAlpha, verifiedReceipt, runBounded, verifyStoredAlphaResults, verifyExperiment,
+  scoreAlpha, scoreCompletedAlpha, verifiedReceipt, runBounded, verifyStoredAlphaResults, verifyPreparedCurrent, verifyExperiment,
   verifySelectionAfterPromotion, PROMOTION_PATHS, commitChangedPaths, assertPromotionCommit, verifyPromotedAuthority, promoteSelected,
   buildPromotedPair, renderPromotedCell, renderReleaseCell, releaseEquivalenceReport, estimateDualEvidenceBytes,
   assertEvidenceCapacity, stage3Cells,
   stage3Report, renderLifecycleWithAudio, stage4Report, stage4LegacyDocument, runPostStage4FullCTest,
   verifyAcceptanceProgress, continuationDecision, continueApproved,
-  writeRecoveryContinuation07Receipt, status, parseMode, main, summarizePassingCtest};
+  writeRecoveryContinuation07Receipt, assertLockedRecoveryRootMembers, status, parseMode, main, summarizePassingCtest};
