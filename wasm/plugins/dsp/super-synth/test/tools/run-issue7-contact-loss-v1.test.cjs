@@ -334,8 +334,8 @@ function continuation07ReadStateFixture() {
       frozenEvidenceSnapshot: recoveredFrozen, source: executionSource, sourceDelta, builds},
     parentProof, calls: {started: 0, completed: 0, ambiguous: 0}, budget: core.accounting()};
   runner.assertPrepareRecoveryContinuation07ReceiptShape(receipt, {testOnlyAdapters});
-  runner.writeDualImmutable(context.roots, runner.PREPARE_RECOVERY_CONTINUATION_07_REL,
-    Buffer.from(`${JSON.stringify(stable(receipt), null, 2)}\n`));
+  runner.writeRecoveryContinuation07Receipt(context.roots, {expectedPrefix: priorNames,
+    previousRootSnapshot, preflightFile: recoveryPreflightFile, record: receipt, testOnlyAdapters});
   const chainReceipt = (kind, executionHead, value = {}) => ({value: {kind, ...value},
     executionHead, sha256: bytesSha(`test:${kind}`), preflight: {sha256: bytesSha(`preflight:${kind}`)}});
   testOnlyAdapters.verifiedRecoveryPrefix = {
@@ -2730,10 +2730,10 @@ test('continuation-07 preflight and receipt shapes preserve c04 and analyses 20 
 });
 
 test('continuation-07 actual root snapshot flows through state, prepared verification, status, and verify', () => {
-  const fixture = continuation07ReadStateFixture();
   const previousAdapterFlag = process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS;
   process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS = '1';
   try {
+    const fixture = continuation07ReadStateFixture();
     const state = runner.readExperimentState(fixture.context.roots,
       {testOnlyAdapters: fixture.testOnlyAdapters});
     assert.equal(state.status, 'READY');
@@ -2767,6 +2767,26 @@ test('continuation-07 actual root snapshot flows through state, prepared verific
     if (previousAdapterFlag === undefined) delete process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS;
     else process.env.ISSUE7_CONTACT_LOSS_V1_TEST_ADAPTERS = previousAdapterFlag;
   }
+});
+
+test('production reader verifies the authentic private recovery store read-only when available', t => {
+  const roots = runner.resolveRoots();
+  if (!fs.existsSync(roots.primary) && !fs.existsSync(roots.secondary)) {
+    t.skip('private recovery store is not mounted on this host');
+    return;
+  }
+  const beforeMembers = runner.epochRootMembers(roots);
+  if (!beforeMembers.length) {
+    t.skip('private recovery store has no active records on this host');
+    return;
+  }
+  const before = runner.snapshotActiveRootMembers(roots, beforeMembers);
+  const state = runner.readExperimentState(roots);
+  assert.equal(state.status, 'READY');
+  assert.ok(state.recovery?.value?.kind?.startsWith('CONTACT_LOSS_PREPARE_RECOVERY_CONTINUATION_'));
+  assert.deepEqual([state.charged, state.completed, state.ambiguous], [0, 0, 0]);
+  assert.deepEqual(runner.epochRootMembers(roots), beforeMembers);
+  assert.deepEqual(runner.snapshotActiveRootMembers(roots, beforeMembers), before);
 });
 
 test('preflight build matrix is exported as absolute paths for CTest child working directories', () => {
