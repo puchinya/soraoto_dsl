@@ -1,0 +1,662 @@
+{
+  "schemaVersion": 1,
+  "check": "supersynth-v9-full-lifecycle-scalar-simd",
+  "sampleRate": 48000,
+  "blockFrames": 1024,
+  "totalFrames": 117600,
+  "pedalSequenceFrames": {
+    "sostenutoDown": 1920,
+    "sustainDown": 2880,
+    "noteOff": 5760,
+    "sustainUp": 7200,
+    "sostenutoUp": 9600
+  },
+  "pitches": [
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41,
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61,
+    62,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    69,
+    70,
+    71,
+    72,
+    73,
+    74,
+    75,
+    76,
+    77,
+    78,
+    79,
+    80,
+    81,
+    82,
+    83,
+    84,
+    85,
+    86,
+    87,
+    88,
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100,
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108
+  ],
+  "velocities": [
+    14,
+    31,
+    36,
+    40,
+    45,
+    49,
+    54,
+    61,
+    69,
+    77,
+    85,
+    93,
+    101,
+    109,
+    117,
+    124
+  ],
+  "simdWasmSha256": "f5905961fceec037d4beced104ecac00d4472a9212ab49899f16d6d0b32345f7",
+  "scalarWasmSha256": "4cc177547a05c8d1f679d89d54087da638ec32fd0938f8238ebe23e84b4da6a6",
+  "cells": 1408,
+  "adjacentComparisons": 1392,
+  "adjacentComparisonsByMode": {
+    "simd": 1392,
+    "scalar": 1392
+  },
+  "counts": {
+    "nonFinite": 0,
+    "silentAttack": 0,
+    "peakAtOrAbove0Dbfs": 0,
+    "guardHits": 0,
+    "stuckVoices": 0,
+    "differentialPitch": 20,
+    "differentialPeak": 0,
+    "differentialEnvelope": 117,
+    "differentialSpectrum": 21618,
+    "nonMonotonicPitch": 54
+  },
+  "maxima": {
+    "pitchDeltaCents": 66.971284,
+    "peakDeltaDb": 0.0011410000000005027,
+    "envelopeDeltaDb": 1.5127779999999973,
+    "spectralBandRelativeDelta": 0.9863547758284601,
+    "cellPeakDbfs": -10.619393888354088,
+    "releasePeakDbfs": -35.26899907017257,
+    "tailRmsDbfs": -96.02897725724462,
+    "adjacentPitchErrorCents": 235.69252439730528
+  },
+  "failures": [
+    {
+      "kind": "simd-scalar-spectral-band-delta",
+      "pitch": 27,
+      "velocity": 36,
+      "detail": {
+        "count": 1,
+        "maxRelative": 0.009259259259259234,
+        "worstBand": 26
+      }
+    },
+    {
+      "kind": "simd-scalar-spectral-band-delta",
+      "pitch": 27,
+      "velocity": 45,
+      "detail": {
+        "count": 2,
+        "maxRelative": 0.008064516129032235,
+        "worstBand": 44
+      }
+    },
+    {
+      "kind": "simd-scalar-spectral-band-delta",
+      "pitch": 27,
+      "velocity": 49,
+      "detail": {
+        "count": 4,
+        "maxRelative": 0.017857142857142808,
+        "worstBand": 44
+      }
+    },
+    {
+      "kind": "simd-scalar-spectral-band-delta",
+      "pitch": 28,
+      "velocity": 31,
+      "detail": {
+        "count": 1,
+        "maxRelative": 0.005847953216374252,
+        "worstBand": 30
+      }
+    },
+    {
+      "kind": "simd-scalar-spectral-band-delta",
+      "pitch": 28,
+      "velocity": 36,
+      "detail": {
+        "count": 1,
+        "maxRelative": 0.006451612903225788,
+        "worstBand": 30
+      }
+    },
+    {
+      "kind": "simd-scalar-spectral-band-delta",
+      "pitch": 28,
+      "velocity": 40,
+      "detail": {
+        "count": 1,
+        "maxRelative": 0.005319148936170198,
+        "worstBand": 20
+      }
+    },
+    {
+      "kind": "simd-scalar-envelope-delta",
+      "pitch": 48,
+      "velocity": 14,
+      "detail": {
+        "deltaDb": 0.15694000000000585,
+        "simdEnvelope": [
+          -55.383049,
+          -45.186215,
+          -62.554815,
+          -92.841647,
+          -119.634876
+        ],
+        "scalarEnvelope": [
+          -55.383055,
+          -45.186212,
+          -62.554671,
+          -92.998587,
+          -119.533603
+        ]
+      }
+    },
+    {
+      "kind": "simd-scalar-envelope-delta",
+      "pitch": 49,
+      "velocity": 14,
+      "detail": {
+        "deltaDb": 0.4105040000000031,
+        "simdEnvelope": [
+          -56.963102,
+          -46.649262,
+          -64.484933,
+          -97.666897,
+          -119.459283
+        ],
+        "scalarEnvelope": [
+          -56.963096,
+          -46.649262,
+          -64.484657,
+          -97.256393,
+          -119.421303
+        ]
+      }
+    },
+    {
+      "kind": "simd-scalar-envelope-delta",
+      "pitch": 50,
+      "velocity": 14,
+      "detail": {
+        "deltaDb": 0.09697299999999132,
+        "simdEnvelope": [
+          -57.849631,
+          -47.602515,
+          -65.451352,
+          -101.184176,
+          -119.082156
+        ],
+        "scalarEnvelope": [
+          -57.849631,
+          -47.602515,
+          -65.453017,
+          -101.087203,
+          -119.006308
+        ]
+      }
+    },
+    {
+      "kind": "simd-scalar-envelope-delta",
+      "pitch": 50,
+      "velocity": 49,
+      "detail": {
+        "deltaDb": 0.05215499999999906,
+        "simdEnvelope": [
+          -45.03271,
+          -48.057476,
+          -66.280801,
+          -82.582438,
+          -114.209813
+        ],
+        "scalarEnvelope": [
+          -45.03271,
+          -48.057476,
+          -66.280053,
+          -82.572858,
+          -114.157658
+        ]
+      }
+    },
+    {
+      "kind": "simd-scalar-envelope-delta",
+      "pitch": 50,
+      "velocity": 54,
+      "detail": {
+        "deltaDb": 0.050880000000006476,
+        "simdEnvelope": [
+          -44.025848,
+          -48.175873,
+          -66.28098,
+          -84.205504,
+          -115.600233
+        ],
+        "scalarEnvelope": [
+          -44.025848,
+          -48.175873,
+          -66.280903,
+          -84.208328,
+          -115.549353
+        ]
+      }
+    },
+    {
+      "kind": "simd-scalar-envelope-delta",
+      "pitch": 51,
+      "velocity": 14,
+      "detail": {
+        "deltaDb": 0.0821899999999971,
+        "simdEnvelope": [
+          -58.651878,
+          -48.677933,
+          -66.689161,
+          -100.927118,
+          -119.021351
+        ],
+        "scalarEnvelope": [
+          -58.651885,
+          -48.677932,
+          -66.689247,
+          -100.844928,
+          -118.964033
+        ]
+      }
+    },
+    {
+      "kind": "simd-scalar-pitch-delta",
+      "pitch": 51,
+      "velocity": 14,
+      "detail": {
+        "deltaCents": 0.1578350000000004,
+        "simdCents": -9.77504,
+        "scalarCents": -9.617205,
+        "simdHz": 154.687611,
+        "scalarHz": 154.701715
+      }
+    },
+    {
+      "kind": "simd-scalar-pitch-delta",
+      "pitch": 53,
+      "velocity": 14,
+      "detail": {
+        "deltaCents": 0.7355909999999999,
+        "simdCents": -2.968623,
+        "scalarCents": -3.704214,
+        "simdHz": 174.314954,
+        "scalarHz": 174.240904
+      }
+    },
+    {
+      "kind": "simd-scalar-pitch-delta",
+      "pitch": 54,
+      "velocity": 14,
+      "detail": {
+        "deltaCents": 0.5855160000000001,
+        "simdCents": -8.192342,
+        "scalarCents": -8.777858,
+        "simdHz": 184.123857,
+        "scalarHz": 184.061596
+      }
+    },
+    {
+      "kind": "simd-scalar-pitch-delta",
+      "pitch": 55,
+      "velocity": 14,
+      "detail": {
+        "deltaCents": 0.15673400000000015,
+        "simdCents": -12.064226,
+        "scalarCents": -12.22096,
+        "simdHz": 194.636642,
+        "scalarHz": 194.619022
+      }
+    },
+    {
+      "kind": "simd-scalar-pitch-delta",
+      "pitch": 56,
+      "velocity": 14,
+      "detail": {
+        "deltaCents": 0.41083499999999873,
+        "simdCents": -17.920672,
+        "scalarCents": -17.509837,
+        "simdHz": 205.513946,
+        "scalarHz": 205.562722
+      }
+    },
+    {
+      "kind": "simd-scalar-pitch-delta",
+      "pitch": 57,
+      "velocity": 14,
+      "detail": {
+        "deltaCents": 1.3494189999999993,
+        "simdCents": -7.346866,
+        "scalarCents": -8.696285,
+        "simdHz": 219.068361,
+        "scalarHz": 218.897673
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-step-error",
+      "pitch": 22,
+      "velocity": 14,
+      "detail": {
+        "cents": 149.90395577185876,
+        "stepErrorCents": 49.90395577185876,
+        "lowerHz": 25.798533,
+        "upperHz": 28.131939
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-step-error",
+      "pitch": 23,
+      "velocity": 14,
+      "detail": {
+        "cents": 206.77492671623398,
+        "stepErrorCents": 106.77492671623398,
+        "lowerHz": 28.131939,
+        "upperHz": 31.700848
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-step-error",
+      "pitch": 24,
+      "velocity": 14,
+      "detail": {
+        "cents": 111.18794087845595,
+        "stepErrorCents": 11.187940878455947,
+        "lowerHz": 31.700848,
+        "upperHz": 33.803627
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-step-error",
+      "pitch": 25,
+      "velocity": 14,
+      "detail": {
+        "cents": -70.72145045342891,
+        "stepErrorCents": 170.72145045342893,
+        "lowerHz": 33.803627,
+        "upperHz": 32.450563
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-step-error",
+      "pitch": 26,
+      "velocity": 14,
+      "detail": {
+        "cents": 176.19935222549913,
+        "stepErrorCents": 76.19935222549913,
+        "lowerHz": 32.450563,
+        "upperHz": 35.927195
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-step-error",
+      "pitch": 27,
+      "velocity": 14,
+      "detail": {
+        "cents": 162.46515349883506,
+        "stepErrorCents": 62.465153498835065,
+        "lowerHz": 35.927195,
+        "upperHz": 39.461996
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-not-monotonic",
+      "pitch": 25,
+      "velocity": 14,
+      "detail": {
+        "lowerHz": 33.803627,
+        "upperHz": 32.450563
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-not-monotonic",
+      "pitch": 29,
+      "velocity": 14,
+      "detail": {
+        "lowerHz": 42.797282,
+        "upperHz": 42.147902
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-not-monotonic",
+      "pitch": 25,
+      "velocity": 31,
+      "detail": {
+        "lowerHz": 33.826586,
+        "upperHz": 32.46015
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-not-monotonic",
+      "pitch": 29,
+      "velocity": 31,
+      "detail": {
+        "lowerHz": 42.949029,
+        "upperHz": 42.341796
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-not-monotonic",
+      "pitch": 25,
+      "velocity": 36,
+      "detail": {
+        "lowerHz": 33.747176,
+        "upperHz": 32.508572
+      }
+    },
+    {
+      "kind": "simd-adjacent-pitch-not-monotonic",
+      "pitch": 29,
+      "velocity": 36,
+      "detail": {
+        "lowerHz": 42.971341,
+        "upperHz": 42.415323
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-step-error",
+      "pitch": 22,
+      "velocity": 14,
+      "detail": {
+        "cents": 149.90395577185876,
+        "stepErrorCents": 49.90395577185876,
+        "lowerHz": 25.798533,
+        "upperHz": 28.131939
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-step-error",
+      "pitch": 23,
+      "velocity": 14,
+      "detail": {
+        "cents": 206.77492671623398,
+        "stepErrorCents": 106.77492671623398,
+        "lowerHz": 28.131939,
+        "upperHz": 31.700848
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-step-error",
+      "pitch": 24,
+      "velocity": 14,
+      "detail": {
+        "cents": 111.18804330734608,
+        "stepErrorCents": 11.188043307346078,
+        "lowerHz": 31.700848,
+        "upperHz": 33.803629
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-step-error",
+      "pitch": 25,
+      "velocity": 14,
+      "detail": {
+        "cents": -70.7214461825376,
+        "stepErrorCents": 170.7214461825376,
+        "lowerHz": 33.803629,
+        "upperHz": 32.450565
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-step-error",
+      "pitch": 26,
+      "velocity": 14,
+      "detail": {
+        "cents": 176.1992455257178,
+        "stepErrorCents": 76.1992455257178,
+        "lowerHz": 32.450565,
+        "upperHz": 35.927195
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-step-error",
+      "pitch": 27,
+      "velocity": 14,
+      "detail": {
+        "cents": 162.46506575699365,
+        "stepErrorCents": 62.46506575699365,
+        "lowerHz": 35.927195,
+        "upperHz": 39.461994
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-not-monotonic",
+      "pitch": 25,
+      "velocity": 14,
+      "detail": {
+        "lowerHz": 33.803629,
+        "upperHz": 32.450565
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-not-monotonic",
+      "pitch": 29,
+      "velocity": 14,
+      "detail": {
+        "lowerHz": 42.797822,
+        "upperHz": 42.147575
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-not-monotonic",
+      "pitch": 25,
+      "velocity": 31,
+      "detail": {
+        "lowerHz": 33.826586,
+        "upperHz": 32.460149
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-not-monotonic",
+      "pitch": 29,
+      "velocity": 31,
+      "detail": {
+        "lowerHz": 42.949132,
+        "upperHz": 42.34171
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-not-monotonic",
+      "pitch": 25,
+      "velocity": 36,
+      "detail": {
+        "lowerHz": 33.747176,
+        "upperHz": 32.508572
+      }
+    },
+    {
+      "kind": "scalar-adjacent-pitch-not-monotonic",
+      "pitch": 29,
+      "velocity": 36,
+      "detail": {
+        "lowerHz": 42.97129,
+        "upperHz": 42.415061
+      }
+    }
+  ],
+  "requiredCells": 1408,
+  "requiredAdjacentComparisons": 1392,
+  "pass": false,
+  "spectralNonNegligibleThreshold": 0.0001
+}

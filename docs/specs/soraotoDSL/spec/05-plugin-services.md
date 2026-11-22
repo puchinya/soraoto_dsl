@@ -1,4 +1,4 @@
-# Plugin State / Services / Compatibility
+# Plugin Configuration / Preset / Services
 
 **soraotoDSL:** Draft v0.5  
 **Status:** Normative  
@@ -8,108 +8,46 @@
 
 ---
 
-# 30. State / Preset / Program
+# 30. Plugin Configuration / Preset / Program
 
-## 30.1 Persistent state
+## 30.1 DSL-owned Plugin configuration
 
-Plugin state は次をすべて含む。
-
-```text
-persistent parameter values
-bypass state
-hidden plugin configuration
-program selection
-plugin-specific persistent data
-asset references
-```
-
-含めない:
+Compiled DSL configuration and declarative `.soraotopreset` data use `PluginConfigurationV1`.
+The `Project` and `Resolved Project IR` are generated in memory and are not save/load formats.
 
 ```text
-decoded sample data
-cache
-delay buffer
-reverb tail buffer
-FFT scratch
-other reconstructible bulk data
-```
+PluginConfigurationV1 {
+    bypassed: Bool
 
-bulk content は AssetRef にする。
+    factory_preset_id: UInt32?
+    active_unit_id: UInt32?
+    program_selections: List<ProgramSelectionV1>
+    controller_mappings: List<ControllerMappingDescriptor>
 
-## 30.2 StateDescriptor
+    parameter_values: List<ParameterSnapshotEntryV1>
 
-```text
-StateDescriptor {
-    schema_id: String
-    schema_version: UInt32
-    max_snapshot_bytes: UInt32
+    assets: List<AssetRef>
+}
+
+ProgramSelectionV1 {
+    unit_id: UInt32
+    program_list_id: UInt32
+    program_id: UInt32
 }
 ```
 
-ABI 1.0 wire limit:
+The Host configures the Plugin only from these DSL fields and the Plugin descriptor defaults.
+The selected factory preset ID is configuration input; it is not copied into plugin-owned data.
+The selected preset owns its complete physical `engine_config` where applicable.
 
-```text
-1 <= max_snapshot_bytes <= 2,147,483,647
-```
+`parameter_values` is the DSL-authored typed CBOR list of values, keyed by stable parameter ID and
+optionally by `unit_id` for unit-scoped parameters. It is not a snapshot of live Plugin state.
+Missing values come from the selected factory/program configuration and then the descriptor default.
+Adding a parameter appends a stable-ID entry; it does not change any existing version number.
 
-Conforming Host minimum:
-
-```text
-at least 16 MiB per Plugin instance
-```
-
-Host の実 resource limit が Plugin descriptor の `max_snapshot_bytes` 未満なら instance load を拒否しなければならず、state を truncate してはならない。
-
-bulk audio/sample content は state に埋め込まず AssetRef を使用することを強く要求する。
-
-## 30.3 Snapshot while playing
-
-`soraoto_plugin_state_snapshot` は:
-
-```text
-realtime-safe
-allocation-free
-lock-free
-memory.grow禁止
-```
-
-Host は同一 instance の process call と process call の間に同じ Audio Worker thread から呼べる。
-
-`StateDescriptor.max_snapshot_bytes` は query が返しうる最大値。
-Plugin は runtime state によりこの値を超える snapshot を要求してはならない。
-
-query:
-
-```text
-dst_ptr = 0
-capacity = 0
-```
-
-return:
-
-```text
-0..2,147,483,647 = required bytes
-<0               = status error
-```
-
-write:
-
-```text
-dst_ptr != 0
-0 <= written <= capacity
-```
-
-buffer 不足:
-
-```text
-SORAOTO_E_BUFFER_TOO_SMALL
-```
-
-buffer 不足時は partial state を書いてはならない。
-
-Host は Processing 開始前に `StateDescriptor.max_snapshot_bytes` の buffer を preallocate しておけば playback 中にも snapshot できる。
-
-これにより playback を停止せず Project Save が可能。
+No persistent Plugin state blob, state schema, state lookup key, or state snapshot/load operation is
+part of the Plugin ABI. Runtime audio memory remains ephemeral and is initialized from the DSL
+configuration. Old opaque plugin-state data is unsupported and is not migrated.
 
 ## 30.4 PresetMetaV1
 
@@ -127,7 +65,7 @@ PresetMetaV1 {
     style: String?
     character: String?
 
-    state_type:
+    preset_type:
         project
         default_preset
         normal_preset
@@ -138,7 +76,7 @@ PresetMetaV1 {
 ```
 
 `source_file_name` is a portable display/base-name hint only。
-A Host-local full path/URI belongs to `StateLoadContextV1.source_locator`。
+A Host-local source path is import-session metadata and is not serialized into Plugin configuration.
 
 All text is UTF-8 NFC。
 
@@ -157,167 +95,54 @@ PlugInCategory    -> category
 MusicalInstrument -> instrument
 MusicalStyle      -> style
 MusicalCharacter  -> character
-StateType         -> state_type
+StateType         -> preset_type
 FileName          -> source_file_name
 ```
 
-A host-local absolute file path is **not** persistent soraoto preset identity and is not written into portable `SoraotoPresetV1`。
-If a native preset bridge exposes such a path, it remains Host-local metadata only。
+A host-local absolute file path is **not** persistent soraoto preset identity and is not written into
+portable `SoraotoPresetV1`。
+If a native preset bridge exposes such a path, it remains Host-local import metadata only.
 
-## 30.5 StateLoadContextV1
+## 30.5 Applying Plugin configuration
 
-`soraoto_plugin_state_load` の `context_ptr/context_len` は Deterministic CBOR:
-
-```text
-StateLoadContextV1 {
-    state_schema_id: String
-    state_schema_version: UInt32
-
-    source:
-        project
-        user_preset
-        factory_preset
-        program
-        migration
-
-    source_plugin_id: String
-    source_plugin_version: SemVer?
-
-    preset_meta: PresetMetaV1?
-
-    source_locator: StateSourceLocatorV1?
-}
-
-StateSourceLocatorV1 {
-    uri: String
-
-    display_name: String?
-
-    asset: AssetRef?
-}
-```
-
-Plugin は `state_schema_version` と source Plugin version を使って migration する。
-
-`source_plugin_version = null`:
+For each DSL `PluginConfigurationV1`, the Host applies:
 
 ```text
-source version unavailable/legacy
+1. instantiate the Plugin identified by the graph node
+2. CONFIGURE with the current host audio/runtime requirements
+3. LOAD_FACTORY_PRESET(factory_preset_id), when present
+4. LOAD_PROGRAM for each declared unit/program selection, when present
+5. SELECT_UNIT(active_unit_id), when present
+6. apply each authored controller mapping using BEGIN_MIDI_LEARN, LEARN_CONTROLLER, and
+   END_MIDI_LEARN, when present
+7. SET_PARAMETER_VALUES(parameter_values) from the compiled DSL
+8. refresh descriptor, parameter, unit assignment, latency, and tail data as required
+9. attach automation and modulation from the DSL
+10. activate/start processing
 ```
 
-`source_locator` is **load-session context**, not portable Plugin state。
+Omitted optional selections use the Plugin descriptor's declared defaults. Explicit parameter
+values in the DSL are applied after the selected preset/program. Runtime construction never reads or
+restores Plugin state. A user edit that must survive recompilation updates the DSL/source model; a
+runtime-only edit is discarded when that source is compiled again.
 
-URI examples:
+## 30.6 DSL compilation and runtime construction
 
 ```text
-file:///host/local/path/Preset.vstpreset
-asset://<sha256>
-soraotopreset://<host-library-id>
+1. read the DSL source and its explicitly imported modules
+2. compile a fresh Project and Resolved Project IR in memory
+3. build ResolvedGraphV1 from that generated IR
+4. validate each declared Plugin selection and parameter value against its descriptor
+5. instantiate and configure Plugins using §30.5
+6. attach automation/modulation and start processing
 ```
 
-Rules:
+There is no Project save/load operation, Plugin state restore step, or supported serialized-IR
+runtime input. Automation overrides DSL-authored parameter values only during playback. WebPlayer
+source convenience storage may retain the DSL text; it does not retain derived Project, IR, graph, or
+Plugin runtime data.
 
-```text
-uri:
-    UTF-8 NFC
-    syntactically valid absolute URI
-
-file: URI:
-    may reveal Host-local location only when Host privacy/security policy permits
-
-asset:
-    when present, exact bytes resolve through Host asset services
-```
-
-Plugin cannot directly open a `file:` URI through arbitrary filesystem access。
-It may:
-
-```text
-use it for diagnostics/display
-request a Host-authorized asset/resource
-resolve explicitly authorized neighboring resources through Host services
-```
-
-Portable `.soraotopreset` serialization does **not** persist `source_locator`。
-
-VST bridge:
-
-```text
-IStreamAttributes preset full file path
-    ->
-StateLoadContextV1.source_locator.uri
-```
-
-This preserves the non-GUI state-load context without making Host filesystem layout part of soraoto preset identity。
-
-`context_len = 0` は `SORAOTO_E_INVALID_ARGUMENT`。
-
-## 30.6 State load
-
-`soraoto_plugin_state_load` は Processing 中に呼ばない。
-
-Host は transactional restore のため、新しい inactive Plugin instance に state を load して成功後 swap する。
-
-State load に失敗した instance を live graph へ commit しない。
-
-State load 成功後 Host は必ず:
-
-```text
-GET_DESCRIPTOR
-GET_PARAMETER_SNAPSHOT
-GET_UNIT_BUS_ASSIGNMENTS
-soraoto_plugin_latency_samples
-soraoto_plugin_tail_samples
-```
-
-を再取得して graph/state を同期する。
-
-Plugin は過去 `schema_version` を migration できる。
-
-migration 不可能:
-
-```text
-SORAOTO_E_STATE_INCOMPATIBLE
-```
-
-## 30.7 Project save order
-
-```text
-1. obtain Plugin state snapshot
-2. store opaque state bytes
-3. store descriptor identity
-4. store current Host parameter snapshot
-5. store asset dependencies
-```
-
-Project load:
-
-```text
-1. instantiate Plugin
-2. CONFIGURE
-3. soraoto_plugin_state_load(..., StateLoadContextV1)
-4. GET_DESCRIPTOR
-5. GET_PARAMETER_SNAPSHOT
-6. GET_UNIT_BUS_ASSIGNMENTS
-7. query latency / tail
-8. re-CONFIGURE if descriptor/layout/context requirements changed
-9. apply explicit static DSL parameter overrides with SET_PARAMETER_VALUES
-10. refresh descriptor/parameter/unit assignment/latency/tail if SET changed them
-11. attach automation
-12. attach modulation
-13. activate/start
-14. zero-frame numeric parameter flush
-```
-
-State 内 parameter と DSL explicit override が競合する場合:
-
-```text
-DSL explicit override wins
-```
-
-Automation は playback time 上でその後に上書きする。
-
-## 30.8 User preset format
+## 30.7 User preset format
 
 extension:
 
@@ -338,22 +163,17 @@ SoraotoPresetV1 {
     plugin_id: String
     plugin_version: SemVer
 
-    state_schema_id: String
-    state_schema_version: UInt32
-
     meta: PresetMetaV1
 
-    state: Bytes
-
-    parameter_snapshot: List<ParameterSnapshotEntryV1>
-
-    assets: List<AssetRef>
+    configuration: PluginConfigurationV1
 }
 ```
 
-Preset load order は Project state load と同じ。
+Preset load applies `configuration` using §30.5. No opaque state bytes or plugin-state schema
+identity are present. Old `.soraotopreset` objects that contain opaque state are not supported and
+are not migrated; the public format number remains unchanged.
 
-## 30.9 Factory preset
+## 30.8 Factory preset
 
 `factory_presets`:
 
@@ -370,9 +190,10 @@ Load:
 LOAD_FACTORY_PRESET
 ```
 
-Factory preset load は persistent working state を変更する。
+Factory preset load configures the running Plugin. The Host records the selected preset ID in the
+project DSL configuration; the Plugin does not persist a second copy.
 
-## 30.10 Program lists
+## 30.9 Program lists
 
 ```text
 ProgramInfoV1 {
@@ -394,7 +215,6 @@ ProgramListDescriptor {
     unit_id: UInt32
     name: String
 
-    supports_program_data: Bool
     mutable_program_names: Bool
 
     programs: List<ProgramInfoV1>
@@ -438,25 +258,12 @@ LOAD_PROGRAM
 
 sample-accurate program change をサポートする Plugin は `PROGRAM_CHANGE` event を処理する。
 
-Program data / Unit data は persistent preset payload だが、Project全体の Plugin state とは別の可搬単位。
-
-```text
-GET/SET_PROGRAM_DATA:
-    one program only
-
-GET/SET_UNIT_DATA:
-    one logical unit only
-
-soraoto_plugin_state_snapshot/load:
-    whole Plugin instance
-```
-
-Program/Unit data payload の内部形式は Plugin opaque bytes。
-Host は byte-identical storage/transport のみを保証する。
+The active program and unit selections, and their parameter values, are represented in
+`PluginConfigurationV1`. ABI 1.0 does not transport opaque per-program or per-unit data.
 
 サポートしない Plugin は program selection parameter を `step` parameter として持ち、Host は block boundary で変更する。
 
-## 30.11 Pitch names
+## 30.10 Pitch names
 
 Drum/sampler 用 pitch name は:
 
@@ -710,11 +517,15 @@ Host は Faulted instance に対し:
 
 ```text
 1. create fresh instance
-2. load last valid state snapshot
-3. configure
-4. activate/start
-5. swap at block boundary
+2. CONFIGURE with current host audio/runtime requirements
+3. replay preset/program/unit selections and typed parameter values from the current compiled DSL
+4. reconnect assets, routing, automation, and modulation
+5. activate/start
+6. atomically swap at a block boundary and destroy the old instance
 ```
+
+No data is copied from or restored from the old runtime instance. If no valid compiled DSL
+configuration is available, recovery fails and the existing fault fallback remains active.
 
 を 1 回自動試行する。
 
@@ -768,7 +579,6 @@ system_time_ns()
 長時間の:
 
 ```text
-state migration
 sample analysis
 asset preprocessing
 offline render preparation
@@ -890,14 +700,11 @@ soraoto WASM Plugin ABI 1.0 の機能対応:
 | Units / multi-timbral structure | UnitDescriptor |
 | Program lists / pitch names | ProgramList + GET_PITCH_NAME |
 | Program/preset classification attributes | ProgramInfoV1 + PresetMetaV1 |
-| Per-program binary data | GET/SET_PROGRAM_DATA |
-| Per-unit preset data | GET/SET_UNIT_DATA |
 | Unit selection / change notification | GET/SELECT_UNIT + HostRequest |
-| Plug-in replacement compatibility | compatible_plugin_ids + StateLoadContext |
 | Module info / multi-plug-in distribution | `.soraotobundle` + PluginBundleV1 |
 | Plug-in class cardinality | PluginDescriptor.max_instances + bundle discovery metadata |
-| Presets / state | state snapshot + `.soraotopreset` |
-| Dirty-state notification / clear | STATE_DIRTY(arg0=1/0) via HostRequest / host_request |
+| Presets / configuration | DSL `PluginConfigurationV1` + `.soraotopreset` |
+| Plug-in replacement mapping | compatible_plugin_ids + parameter_aliases |
 | Parameter text parse/format | control opcodes |
 | Parameter function metadata | `function` |
 | Parameter hidden/list/wrap-around flags | ParameterDescriptor flags |
@@ -923,8 +730,7 @@ soraoto WASM Plugin ABI 1.0 の機能対応:
 | Note expression text/int | NOTE_EXPRESSION_TEXT / INT |
 | Arbitrary MIDI1 SysEx | SYSEX event |
 | Chord / scale events | CHORD / SCALE events |
-| Preset meta-information | PresetMetaV1 + StateLoadContextV1 |
-| Preset load source/path context | StateLoadContextV1.source_locator |
+| Preset meta-information | PresetMetaV1 |
 | Processor→host analysis/data | output events / blobs / read-only params |
 | Linked parameter edits | bidirectional gesture events + gesture_id |
 | Host-origin parameter editing session | input gesture events + ParameterPoint gesture_id |
@@ -1015,8 +821,7 @@ compatible_plugin_ids
 
 VST Units / Program Lists / ProgramListData
     ->
-UnitDescriptor / ProgramListDescriptor /
-GET/SET_PROGRAM_DATA / GET/SET_UNIT_DATA
+UnitDescriptor / ProgramListDescriptor
 
 VST ParameterInfo / parameter function names
     ->
@@ -1044,7 +849,7 @@ The equivalent externally observable behavior is represented by:
 
 ```text
 one Plugin identity
-one persistent state model
+one declarative DSL configuration model
 typed parameters
 control requests
 HostRequest
@@ -1069,7 +874,8 @@ open-help / open-about
 GUI run-loop integration
 ```
 
-These exclusions must not remove audio/event/state/automation/controller functionality。
+These exclusions must not remove audio/event processing, typed DSL configuration, automation, or
+controller-mapping functionality。
 
 ### Platform/container exclusions
 

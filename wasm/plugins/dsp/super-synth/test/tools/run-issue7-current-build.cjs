@@ -1,0 +1,763 @@
+'use strict';
+
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const crypto=require('node:crypto');
+const {spawnSync}=require('node:child_process');
+const core=require('./issue7-current-build-core.cjs');
+const stage3e=require('./run-issue7-stage3e-current-build.cjs');
+const adaptiveMid=require('./run-issue7-adaptive-mid.cjs');
+const stage3=require('./run-issue7-stage3-current-build.cjs');
+const stage4=require('./run-issue7-stage4-current-build.cjs');
+
+const ROOT=core.ROOT;
+const HISTORICAL_PHASE_FLOW=Object.freeze([
+  {phase:'baseline',mode:'baseline',success:'STAGE3E_BASELINE_EQUIVALENCE_PASS'},
+  {phase:'midi51-diagnostic',mode:'screen',success:'STAGE3E_MIDI51_PASS',accepted:['STAGE3E_MIDI51_DIAGNOSTIC_FAIL']},
+  {phase:'low-screen',mode:'screen',success:'STAGE3E_LOW_SCREEN_COMPLETE'},
+  {phase:'midi51-candidate-diagnostic',mode:'screen',success:'STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE',conditional:true},
+  {phase:'low-full',mode:'full',success:'STAGE3E_LOW_FULL_PASS'},
+  {phase:'mid-screen',mode:'screen',success:'STAGE3E_MID_SCREEN_COMPLETE'},
+  {phase:'midi51-final-diagnostic',mode:'screen',success:'STAGE3E_MIDI51_FINAL_DIAGNOSTIC_COMPLETE'},
+  {phase:'mid-full',mode:'full',success:'STAGE3E_MID_FULL_PASS'}
+]);
+const PHASE_FLOW=Object.freeze([
+  ...HISTORICAL_PHASE_FLOW.slice(0,-1),
+  {phase:'adaptive-mid-01',mode:'adaptive',success:'ADAPTIVE_MID_FULL_PASS'}
+]);
+const STAGE3E_BUDGETS=Object.freeze({baseline:24,'midi51-diagnostic':16,'low-screen':1512,'midi51-candidate-diagnostic':80,
+  'low-full':415,'mid-screen':108,'midi51-final-diagnostic':80,'mid-full':0,'adaptive-mid-01':264});
+const TOTAL_RENDER_BUDGET=4408;
+const RUN_ALL_JOURNAL='run-all/events.jsonl';
+const FOCUSED_TESTS=Object.freeze([
+  'wasm/plugins/dsp/super-synth/test/tools/issue7-current-build-core.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-current-build.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3e-current-build.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage3-current-build.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-stage4-current-build.test.cjs',
+  'wasm/plugins/dsp/super-synth/test/tools/run-issue7-adaptive-mid.test.cjs'
+]);
+
+function readFinal(roots,phase,reader=stage3e.loadFinalMaybe){
+  try{return reader(roots,phase);}catch(error){return {decision:'BLOCKED_EVIDENCE_READBACK',reason:error.message};}
+}
+function stage3eProgress({root=ROOT,home=os.homedir(),epoch=core.EPOCH,readPhase=stage3e.loadFinalMaybe,adaptiveRunner=adaptiveMid}={}){
+  const roots=core.resolveRoots(root,'stage3e',epoch,{home}),completed={};
+  for(const item of PHASE_FLOW){
+    if(item.phase==='adaptive-mid-01'){
+      let result;try{result=adaptiveRunner.loadFinalMaybe(root,home,epoch);}catch(error){return {decision:'BLOCKED_EVIDENCE_READBACK',phase:item.phase,reason:error.message,completed};}
+      if(!result)return {decision:'NEXT_PHASE_READY',stage:'stage3e',phase:item.phase,mode:item.mode,completed};
+      completed[item.phase]=result.decision;
+      if(result.decision!=='ADAPTIVE_MID_FULL_PASS')return {decision:result.decision,stage:'stage3e',phase:item.phase,reason:result.reason||null,completed};
+      let selection;try{selection=adaptiveRunner.loadSelection(root,home,epoch);}catch(error){return {decision:'BLOCKED_STAGE3E_SELECTION_REQUIRED',stage:'stage3e',phase:item.phase,reason:error.message,completed};}
+      if(!selection)return {decision:'BLOCKED_STAGE3E_SELECTION_REQUIRED',stage:'stage3e',phase:item.phase,completed};
+      return {decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',phase:item.phase,selectionSchema:selection.selection.schema,
+        selectionSha256:selection.selectionSha256,completed};
+    }
+    if(item.conditional&&completed['midi51-diagnostic']==='STAGE3E_MIDI51_PASS')continue;
+    const result=readFinal(roots,item.phase,readPhase);
+    if(result?.decision==='BLOCKED_EVIDENCE_READBACK')return {decision:result.decision,phase:item.phase,reason:result.reason,completed};
+    if(result){
+      completed[item.phase]=result.decision;
+      if(result.decision!==item.success&&!(item.accepted||[]).includes(result.decision))return {decision:result.decision,phase:item.phase,completed};
+      if(item.phase==='midi51-candidate-diagnostic'){
+        const passingCandidates=result.summary?.passingCandidates;
+        if(!Array.isArray(passingCandidates))return {decision:'BLOCKED_STAGE3E_MIDI51_CANDIDATE_RESULT_INVALID',phase:item.phase,completed};
+        // The pre-low-full MIDI51 result is diagnostic; the fixed M=1 low search cannot tune it.
+      }
+      if(item.phase==='midi51-final-diagnostic'){
+        const passingCandidates=result.summary?.passingCandidates;
+        if(!Array.isArray(passingCandidates))return {decision:'BLOCKED_STAGE3E_MIDI51_FINAL_CANDIDATE_RESULT_INVALID',phase:item.phase,completed};
+        if(result.summary.candidates?.length!==5||result.summary.candidates.some(candidate=>candidate.safe!==true
+          ||candidate.diagnosticsComplete!==true||candidate.pass!==false))
+          return {decision:'BLOCKED_STAGE3E_MIDI51_FINAL_CANDIDATE_RESULT_INVALID',phase:item.phase,completed};
+      }
+      continue;
+    }
+    return {decision:'NEXT_PHASE_READY',stage:'stage3e',phase:item.phase,mode:item.mode,completed};
+  }
+  let selected;
+  try{selected=core.readDualBytes(roots,'selection.json');}
+  catch(error){return {decision:'BLOCKED_STAGE3E_SELECTION_REQUIRED',reason:error.message,completed};}
+  return {decision:'STAGE3E_SELECTED_RESPONSE',stage:'stage3e',selectionSha256:selected.sha256,completed};
+}
+function lockStatus(root=ROOT,epoch=core.EPOCH){
+  const common=core.resolveRoots(root,'stage3e',epoch).commonDirectory,file=core.lockPath(common,epoch);
+  if(!fs.existsSync(file))return {locked:false};
+  try{return {locked:true,owner:JSON.parse(fs.readFileSync(file,'utf8'))};}
+  catch(error){return {locked:true,ownerReadable:false,reason:error.message};}
+}
+function status({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe}={}){
+  const progress=stage3eProgress({root,home,epoch,readPhase,adaptiveRunner:runners.adaptiveMid||adaptiveMid});
+  let builds;
+  if(progress.phase==='adaptive-mid-01'||progress.decision==='STAGE3E_SELECTED_RESPONSE')
+    builds={decision:'ADAPTIVE_MID_EXTENSION_READY',phase:'adaptive-mid-01',builds:0,renders:0,writes:0,acousticRenders:0};
+  else try{builds=runners.stage3e.run({mode:'dry-run',root,home,epoch});}
+  catch(error){builds={decision:'BLOCKED_STAGE3E_PREFLIGHT',reason:error.message,builds:0,renders:0,writes:0,acousticRenders:0};}
+  let stage3Status,stage4Status;
+  try{stage3Status=runners.stage3.run({mode:'dry-run',root,home,epoch});}
+  catch(error){stage3Status={decision:'BLOCKED_STAGE3_PREFLIGHT',reason:error.message,builds:0,renders:0,writes:0,acousticRenders:0};}
+  try{stage4Status=runners.stage4.run({mode:'dry-run',root,home,epoch});}
+  catch(error){stage4Status={decision:'BLOCKED_STAGE4_PREFLIGHT',reason:error.message,builds:0,renders:0,writes:0,acousticRenders:0};}
+  let adaptiveStatus={decision:'ADAPTIVE_MID_NOT_CURRENT',builds:0,renders:0,writes:0,acousticRenders:0};
+  if(progress.phase==='adaptive-mid-01'||progress.decision==='STAGE3E_SELECTED_RESPONSE'){
+    try{adaptiveStatus=(runners.adaptiveMid||adaptiveMid).run({mode:'dry-run',root,home,epoch});}
+    catch(error){adaptiveStatus={decision:'BLOCKED_ADAPTIVE_MID_PREFLIGHT',reason:error.message,builds:0,renders:0,writes:0,acousticRenders:0};}
+  }
+  const roots=core.resolveRoots(root,'stage3e',epoch,{home});
+  return {decision:'ISSUE7_CURRENT_BUILD_STATUS',issue:7,epoch,stage3e:progress,builds,adaptiveMid:adaptiveStatus,stage3:stage3Status,stage4:stage4Status,
+    lock:lockStatus(root,epoch),runAllLock:runAllLockStatus(roots.commonDirectory,epoch),buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+}
+function runAllLockStatus(commonDirectory,epoch=core.EPOCH){
+  const file=core.runAllLockPath(commonDirectory,epoch);
+  if(!fs.existsSync(file))return {locked:false};
+  try{return {locked:true,owner:JSON.parse(fs.readFileSync(file,'utf8'))};}
+  catch(error){return {locked:true,ownerReadable:false,reason:error.message};}
+}
+function finalizedStage({root=ROOT,home=os.homedir(),epoch=core.EPOCH,stage,phase}={}){
+  const roots=core.resolveRoots(root,stage,epoch,{home}),relative=core.phaseRelative(phase,'phase-result.json'),paths=core.dualPaths(roots,relative);
+  if(!fs.existsSync(paths.primary)&&!fs.existsSync(paths.secondary))return null;
+  try{return core.readFinal(roots,phase);}catch(error){return {decision:'BLOCKED_EVIDENCE_READBACK',reason:error.message};}
+}
+function dryRun(options={}){
+  const result=status(options);
+  const nested=[result.stage3e?.decision,result.adaptiveMid?.decision,result.stage3?.decision,result.stage4?.decision];
+  const blocked=nested.some(decision=>typeof decision==='string'&&decision.startsWith('BLOCKED_'));
+  return {...result,decision:blocked?'BLOCKED_ISSUE7_CURRENT_BUILD_DRY_RUN':'ISSUE7_CURRENT_BUILD_DRY_RUN',
+    dryRun:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+}
+function verify({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe}={}){
+  const roots3=core.resolveRoots(root,'stage3',epoch,{home}),roots4=core.resolveRoots(root,'stage4',epoch,{home});
+  const stage3Final=finalizedStage({root,home,epoch,stage:'stage3',phase:'stage3'});
+  const stage4Final=finalizedStage({root,home,epoch,stage:'stage4',phase:'stage4'});
+  const progress=stage3eProgress({root,home,epoch,readPhase,adaptiveRunner:runners.adaptiveMid||adaptiveMid});
+  const evidence={stage3e:runners.stage3e.run({mode:'verify',root,home,epoch}),adaptiveMid:null,stage3:null,stage4:null};
+  if(progress.phase==='adaptive-mid-01'||progress.decision==='STAGE3E_SELECTED_RESPONSE')
+    evidence.adaptiveMid=(runners.adaptiveMid||adaptiveMid).run({mode:'verify',root,home,epoch});
+  if(stage3Final)evidence.stage3=stage3Final.decision==='BLOCKED_EVIDENCE_READBACK'?stage3Final:runners.stage3.run({mode:'verify',root,home,epoch});
+  if(stage4Final)evidence.stage4=stage4Final.decision==='BLOCKED_EVIDENCE_READBACK'?stage4Final:runners.stage4.run({mode:'verify',root,home,epoch});
+  const blocked=/^BLOCKED_/.test(progress.decision||'')
+    ||Object.values(evidence).some(value=>value&&/^BLOCKED_/.test(value.decision||''));
+  return {decision:blocked?'BLOCKED_ISSUE7_CURRENT_BUILD_VERIFY':'ISSUE7_CURRENT_BUILD_VERIFY_OK',progress,evidence,
+    roots:{stage3:roots3.primary,stage4:roots4.primary},builds:0,renders:0,writes:0,acousticRenders:0};
+}
+function stage3eNextMode(progress){
+  const item=PHASE_FLOW.find(phase=>progress.stage==='stage3e'&&phase.phase===progress.phase);
+  return item||null;
+}
+function preMidSearchLowFullPlan({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe}={}){
+  const roots=core.resolveRoots(root,'stage3e',epoch,{home});
+  const initial=readFinal(roots,'midi51-diagnostic',readPhase);
+  const low=readFinal(roots,'low-screen',readPhase);
+  const diagnostic=readFinal(roots,'midi51-candidate-diagnostic',readPhase);
+  if(initial?.decision!=='STAGE3E_MIDI51_DIAGNOSTIC_FAIL'||initial.summary?.safe!==true||initial.summary?.diagnosticsComplete!==true
+    ||low?.decision!=='STAGE3E_LOW_SCREEN_COMPLETE'||diagnostic?.decision!=='STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC_COMPLETE')return null;
+  const engine=runners.stage3e;
+  const tuples=engine.lowScreenTopTuples(low.summary?.topFive);
+  const passing=engine.passingCandidates(diagnostic.summary,tuples,'midi51-candidate-diagnostic');
+  const evaluatedPassing=diagnostic.summary.candidates?.filter(candidate=>candidate.pass===true).map(candidate=>candidate.tuple);
+  if(!Array.isArray(evaluatedPassing)||!core.same(evaluatedPassing,passing))
+    throw new Error('BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC: passing tuple summary is inconsistent');
+  if(passing.length)return null;
+  if(!Array.isArray(diagnostic.summary?.candidates)||diagnostic.summary.candidates.length!==tuples.length
+    ||diagnostic.summary.candidates.some(candidate=>candidate.safe!==true||candidate.diagnosticsComplete!==true||candidate.pass!==false))
+    throw new Error('BLOCKED_STAGE3E_MIDI51_CANDIDATE_DIAGNOSTIC: incomplete or unsafe evidence cannot defer the MIDI51 quality gate');
+  return {roots,tuples,initialErrorDb:initial.summary.span?.errorDb??null};
+}
+function runPreMidSearchLowFull({root,plan,runners,runAllOwner}){
+  const engine=runners.stage3e;
+  const cells=plan.tuples.flatMap(tuple=>engine.fullCells(tuple,'low-full'));
+  if(!cells.length||cells.length>STAGE3E_BUDGETS['low-full'])
+    throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: fixed low-full candidate set exceeds its phase cap');
+  const record=engine.identityRecord(root),identity=engine.currentIdentity(root,record);
+  return engine.runCells({root,roots:plan.roots,record,identity,phase:'low-full',cells,runAllOwner});
+}
+function dispatchNext({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe,runAllOwner,
+  preLowFullPlan}={}){
+  const roots=core.resolveRoots(root,'stage3e',epoch,{home});
+  core.assertRunAllLockAccess(roots.commonDirectory,runAllOwner);
+  const preflight=status({root,home,epoch,runners,readPhase});
+  const progress=preflight.stage3e;
+  if(progress.decision==='NEXT_PHASE_READY'&&progress.stage==='stage3e'){
+    const item=stage3eNextMode(progress);
+    const isAdaptive=item?.mode==='adaptive',adaptiveRunner=runners.adaptiveMid||adaptiveMid;
+    const prerequisite=isAdaptive?preflight.adaptiveMid:preflight.builds;
+    const ready=isAdaptive?'ADAPTIVE_MID_DRY_RUN_READY':'STAGE3E_DRY_RUN_READY';
+    if(prerequisite?.decision!==ready)return {...prerequisite,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+    try{
+      let lowFullPlan=preLowFullPlan;
+      if(item.phase==='low-full'&&lowFullPlan===undefined)lowFullPlan=preMidSearchLowFullPlan({root,home,epoch,runners,readPhase});
+      const result=item.phase==='low-full'&&lowFullPlan
+        ?runPreMidSearchLowFull({root,plan:lowFullPlan,runners,runAllOwner})
+        :isAdaptive?adaptiveRunner.run({mode:'execute',root,home,epoch,runAllOwner})
+          :runners.stage3e.run({mode:item.mode,root,home,epoch,phase:item.phase,runAllOwner});
+      return {...result,stage:'stage3e',phase:item.phase,stoppedAfterStep:true,nextPhasePending:true};
+    }catch(error){
+      return {decision:'BLOCKED_STAGE3E_EXECUTION',stage:'stage3e',phase:item.phase,reason:error.message,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+    }
+  }
+  if(progress.decision!=='STAGE3E_SELECTED_RESPONSE')return {...progress,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+  const stage3Final=finalizedStage({root,home,epoch,stage:'stage3',phase:'stage3'});
+  if(stage3Final&&stage3Final.decision==='BLOCKED_EVIDENCE_READBACK')return {...stage3Final,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+  let selectedRunner='stage3';
+  if(stage3Final){
+    if(stage3Final.result?.decision!=='STAGE3_READY_FOR_STAGE4')return {decision:stage3Final.result?.decision||'BLOCKED_STAGE3_RESULT',stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+    const stage4Final=finalizedStage({root,home,epoch,stage:'stage4',phase:'stage4'});
+    if(stage4Final?.decision==='BLOCKED_EVIDENCE_READBACK')return {...stage4Final,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+    if(stage4Final)return {decision:stage4Final.result?.decision||'BLOCKED_STAGE4_RESULT',resultSha256:stage4Final.sha256,
+      stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0,nextAction:'Gate 7 full-suite verification and PR review'};
+    if(preflight.stage4.decision!=='STAGE4_DRY_RUN_READY')return {...preflight.stage4,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+    selectedRunner='stage4';
+  }else if(preflight.stage3.decision!=='STAGE3_DRY_RUN_READY'){
+    return {...preflight.stage3,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+  }
+  try{
+    const result=runners[selectedRunner].run({mode:'execute',root,home,epoch,runAllOwner});
+    return {...result,stage:selectedRunner,stoppedAfterStep:true,nextPhasePending:true};
+  }catch(error){
+    return {decision:`BLOCKED_${selectedRunner.toUpperCase()}_EXECUTION`,stage:selectedRunner,phase:selectedRunner,reason:error.message,stoppedAfterStep:true,buildsStarted:0,renders:0,writes:0,acousticRenders:0};
+  }
+}
+function next(options={}){return dispatchNext(options);}
+function phaseRenderCount(root,home,epoch,commonDirectory){
+  let total=0;const phases=[];
+  for(const phase of Object.keys(STAGE3E_BUDGETS)){
+    const roots=core.resolveRoots(root,'stage3e',epoch,{home,commonDirectory});let count=0;
+    if(phase==='adaptive-mid-01'){
+      const adaptiveRoots=adaptiveMid.sidecarRoots(root,home,epoch,commonDirectory),state=adaptiveMid.readLedger(adaptiveRoots);
+      count=state?.ledger?.renderCount||0;
+      if(state){
+        const observed=Object.values(state.ledger.cells||{}).filter(cell=>['IN_PROGRESS','COMPLETE','AMBIGUOUS'].includes(cell.state)).length;
+        const byKind={probe:0,screen:0,full:0};
+        for(const cell of Object.values(state.ledger.cells||{}))if(['IN_PROGRESS','COMPLETE','AMBIGUOUS'].includes(cell.state))byKind[cell.kind]=(byKind[cell.kind]||0)+1;
+        if(observed!==count||Object.keys(byKind).some(kind=>!['probe','screen','full'].includes(kind))
+          ||byKind.probe>112||byKind.screen>24||byKind.full>128)
+          throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: adaptive sidecar ledger disagrees with its per-kind caps');
+      }
+    }else{
+      const state=core.readPhaseLedger(roots,phase);count=state?.ledger?.renderCount||0;
+    }
+    if(count>STAGE3E_BUDGETS[phase])throw new Error(`BLOCKED_ISSUE7_RENDER_BUDGET: ${phase} recorded ${count} beyond ${STAGE3E_BUDGETS[phase]}`);
+    total+=count;phases.push({stage:'stage3e',phase,count,limit:STAGE3E_BUDGETS[phase]});
+  }
+  for(const [stage,limit] of [['stage3',486],['stage4',1423]]){
+    const roots=core.resolveRoots(root,stage,epoch,{home,commonDirectory}),state=core.readPhaseLedger(roots,stage),count=state?.ledger?.renderCount||0;
+    if(count>limit)throw new Error(`BLOCKED_ISSUE7_RENDER_BUDGET: ${stage} recorded ${count} beyond ${limit}`);
+    total+=count;phases.push({stage,phase:stage,count,limit});
+  }
+  if(total>TOTAL_RENDER_BUDGET)throw new Error(`BLOCKED_ISSUE7_RENDER_BUDGET: cumulative ${total} exceeds ${TOTAL_RENDER_BUDGET}`);
+  return {total,phases};
+}
+function recordRunAllEvent(roots,owner,event,now){
+  return core.appendDualJournal(roots,{schemaVersion:1,issue:7,epoch:core.EPOCH,ownerId:owner.ownerId,pid:owner.pid,
+    occurredAt:now(),...event},{relative:RUN_ALL_JOURNAL});
+}
+function ensureRunAllRuntimeRevisionEvents({roots,owner,append,events}={}){
+  const check=event=>{
+    const journal=core.readDualJournal(roots,RUN_ALL_JOURNAL),matches=journal.events.filter(item=>item.type===event.type);
+    if(matches.length>1||matches.some(item=>Object.entries(event).some(([key,value])=>!core.same(item[key],value))))
+      throw new Error(`BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: conflicting or duplicate ${event.type} master journal event`);
+    return matches;
+  };
+  const before=events.map(event=>({event,matches:check(event)}));
+  for(const item of before)if(!item.matches.length)append(owner,item.event);
+  const after=events.map(event=>({event,matches:check(event)}));
+  const missing=after.find(item=>item.matches.length!==1);
+  if(missing)throw new Error(`BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: ${missing.event.type} master journal readback is missing`);
+  return after.map(item=>item.matches[0]);
+}
+function ensureRunAllRuntimeRevisionEvent(options={}){
+  return ensureRunAllRuntimeRevisionEvents({...options,events:[options.event]})[0];
+}
+function resultDecision(result){return typeof result?.decision==='string'?result.decision:'BLOCKED_ISSUE7_UNKNOWN_RESULT';}
+function phaseDecisionValid(item,result){
+  const allowed=[item.success,...(item.accepted||[])];return allowed.includes(resultDecision(result));
+}
+function runVerificationSuite({root=ROOT,now=()=>new Date().toISOString(),spawn=spawnSync}={}){
+  const toolchain=path.resolve(root,'wasm/cmake/wasm32-clang.cmake');
+  const commands=[
+    ['focused-current-build-tests',['node','--test',...FOCUSED_TESTS]],
+    ['web-player-test',['npm','--prefix','web-player','test']],
+    ['web-player-build',['npm','--prefix','web-player','run','build']],
+    ['super-synth-metadata',['python3','wasm/cmake/test_super_synth_metadata.py']],
+    ['cmake-configure',['cmake','-S','wasm','-B','build/wasm',`-DCMAKE_TOOLCHAIN_FILE=${toolchain}`]],
+    ['cmake-build',['cmake','--build','build/wasm']],
+    ['cmake-ctest',['ctest','--test-dir','build/wasm','--output-on-failure']],
+    ['git-diff-check',['git','diff','--check']]
+  ];
+  const results=[];
+  for(const [name,args] of commands){
+    const command=`rtk ${args.map(value=>JSON.stringify(value)).join(' ')}`;
+    const child=spawn('rtk',args,{cwd:root,encoding:'buffer',maxBuffer:64*1024*1024});
+    const stdout=child.stdout||Buffer.alloc(0),stderr=child.stderr||Buffer.alloc(0),exitCode=Number.isInteger(child.status)?child.status:1;
+    const item={name,command,exitCode,signal:child.signal||null,stdoutSha256:crypto.createHash('sha256').update(stdout).digest('hex'),
+      stderrSha256:crypto.createHash('sha256').update(stderr).digest('hex'),result:exitCode===0?'PASS':'FAIL',completedAt:now()};
+    results.push(item);
+    if(exitCode!==0)return {decision:'BLOCKED_ISSUE7_FULL_SUITE',failed:name,results};
+  }
+  return {decision:'ISSUE7_FULL_SUITE_PASS',results};
+}
+function snapshotEvidence(root,home,epoch,commonDirectory){
+  const result={};
+  for(const stage of core.STAGES){
+    const roots=core.resolveRoots(root,stage,epoch,{home,commonDirectory});
+    for(const base of [roots.primary,roots.secondary]){
+      if(!fs.existsSync(base))continue;
+      const walk=(dir)=>{
+        for(const entry of fs.readdirSync(dir,{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name))){
+          const file=path.join(dir,entry.name),relative=path.relative(base,file).split(path.sep).join('/');
+          const stat=fs.lstatSync(file);
+          if(stat.isSymbolicLink())throw new Error(`BLOCKED_ISSUE7_READ_ONLY_CHECK: symlink in evidence store ${file}`);
+          if(entry.isDirectory())walk(file);
+          else result[`${stage}:${base===roots.primary?'primary':'secondary'}:${relative}`]={sha256:crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'),mtimeMs:stat.mtimeMs,size:stat.size};
+        }
+      };
+      walk(base);
+    }
+  }
+  return result;
+}
+function runReadOnlyFinalGate({root,home,epoch,runners,readPhase,commonDirectory,verifyReadOnly=verify,statusReadOnly=status,dryRunReadOnly=dryRun}={}){
+  const before=snapshotEvidence(root,home,epoch,commonDirectory);
+  const observed={status:statusReadOnly({root,home,epoch,runners,readPhase}),dryRun:dryRunReadOnly({root,home,epoch,runners,readPhase}),verify:verifyReadOnly({root,home,epoch,runners})};
+  const hasStatefulCount=item=>{
+    const values=[item.buildsStarted,item.renders,item.writes,item.acousticRenders,
+      typeof item.builds==='number'?item.builds:undefined,item.builds?.builds,item.builds?.renders,item.builds?.writes,
+      item.stage3?.builds,item.stage3?.renders,item.stage3?.writes,item.stage4?.builds,item.stage4?.renders,item.stage4?.writes];
+    return values.some(value=>value!==undefined&&value!==0);
+  };
+  if(Object.values(observed).some(hasStatefulCount))
+    throw new Error('BLOCKED_ISSUE7_READ_ONLY_CHECK: status/dry-run/verify reported a stateful operation');
+  const after=snapshotEvidence(root,home,epoch,commonDirectory);
+  if(!core.same(before,after))throw new Error('BLOCKED_ISSUE7_READ_ONLY_CHECK: evidence SHA or mtime changed during status/dry-run/verify');
+  if(observed.verify.decision!=='ISSUE7_CURRENT_BUILD_VERIFY_OK')throw new Error(`BLOCKED_ISSUE7_FINAL_VERIFY: ${observed.verify.decision}`);
+  return {decision:'ISSUE7_READ_ONLY_FINAL_GATE_PASS',observed,evidenceSnapshotSha256:core.sha256(core.canonicalBytes(after))};
+}
+function buildRunAllReport({root,home,epoch,roots,spend,runAcousticRenders,fullSuite,readOnlyGate,now}){
+  const promotion=stage3.promotionDetails(root),originalRecord=stage3.identityRecord(root),stage3State=stage4.readStage3(root,home,epoch);
+  const phaseResults=HISTORICAL_PHASE_FLOW.map(item=>{
+    const final=readFinal(roots,item.phase);
+    return {stage:'stage3e',phase:item.phase,decision:final?.decision||null,renderCount:final?.renderCount??null,
+      resultSha256:final?.sha256||null,archiveSha256:final?.archiveSha256||null};
+  });
+  const adaptive=adaptiveMid.loadFinalMaybe(root,home,epoch),adaptiveLedger=adaptiveMid.readLedger(adaptiveMid.sidecarRoots(root,home,epoch));
+  phaseResults.push({stage:'stage3e',phase:'adaptive-mid-01',decision:adaptive?.decision||null,
+    renderCount:adaptiveLedger?.ledger?.renderCount||0,resultSha256:adaptive?.sha256||null,archiveSha256:null});
+  for(const [stage,phase] of [['stage3','stage3'],['stage4','stage4']]){
+    const final=finalizedStage({root,home,epoch,stage,phase});
+    phaseResults.push({stage,phase,decision:final?.result?.decision||null,renderCount:final?.result?.renderCount??null,
+      resultSha256:final?.sha256||null,archiveSha256:final?.archiveSha256||null});
+  }
+  const selection=stage3.readSelection(root,home,epoch).selection,regression=stage3.readRegressions(root);
+  return {schemaVersion:1,issue:7,epoch,decision:'ISSUE7_READY_FOR_REVIEW',head:core.gitHead(root),phases:phaseResults,
+    selectedResponse:selection,promotion:{commit:promotion.commit,parent:promotion.parent,parentTree:promotion.parentTree,
+      commitTree:promotion.commitTree,changedPaths:promotion.changedPaths},
+    originalProductionWasmSha256:originalRecord.builds.production.wasm.sha256,
+    productionWasmSha256:stage3State.derived.builds.production.wasm.sha256,
+    stage4AcceptanceWasmSha256:stage3State.derived.builds.production.wasm.sha256,
+    historicalStage4WasmSha256:stage3State.derived.builds.stage4.wasm.sha256,
+    regressionResultsSha256:regression.sha256,regressions:stage3.REQUIRED_REGRESSIONS,
+    acousticRenders:runAcousticRenders,cumulativeRenderCount:spend.total,renderBudget:TOTAL_RENDER_BUDGET,fullSuite,readOnlyGate,
+    externalBackup:'NOT AVAILABLE',platformsNotRun:['Windows','Linux'],completedAt:now()};
+}
+function runAll({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},readPhase=stage3e.loadFinalMaybe,
+  now=()=>new Date().toISOString(),commonDirectory,promoteSelection=stage3.promoteSelection,runSuite=runVerificationSuite,
+  verifyReadOnly=verify,statusReadOnly=status,dryRunReadOnly=dryRun,getStageFinal=finalizedStage,
+  runFinalGate=runReadOnlyFinalGate,buildReport=buildRunAllReport,readRenderCount=phaseRenderCount}={}){
+  const roots=core.resolveRoots(root,'stage3e',epoch,{home,commonDirectory}),append=(owner,event)=>recordRunAllEvent(roots,owner,event,now);
+  return core.withRunAllLock({commonDirectory:roots.commonDirectory,now},owner=>{
+    let spend,startRenderCount=0;
+    try{
+      spend=readRenderCount(root,home,epoch,roots.commonDirectory);startRenderCount=spend.total;
+      append(owner,{type:'RUN_STARTED',head:core.gitHead(root)});
+      const assertReadOnlyStatus=observed=>{
+        if(observed.lock?.locked)throw new Error('BLOCKED_WRITER_LOCK: an Issue #7 phase writer is active');
+        if(observed.buildsStarted!==0||observed.builds?.builds!==0||observed.builds?.renders!==0||observed.builds?.writes!==0
+          ||observed.stage3?.builds!==0||observed.stage3?.renders!==0||observed.stage3?.writes!==0
+          ||observed.stage4?.builds!==0||observed.stage4?.renders!==0||observed.stage4?.writes!==0)
+          throw new Error('BLOCKED_ISSUE7_ZERO_RENDER_PREFLIGHT: status detected a build, render, or write');
+      };
+      let preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+      assertReadOnlyStatus(preflight);
+      const expectedRuntimeRevision3Block='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 3';
+      if(preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&preflight.adaptiveMid.reason===expectedRuntimeRevision3Block){
+        const record=runners.adaptiveMid?.recordRuntimeRevision3;
+        if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: approved revision 3 recorder is unavailable');
+        const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+        if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_03_RECORDED'||recorded.builds!==0
+          ||recorded.renders!==0||recorded.acousticRenders!==0)
+          throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'}: ${recorded.reason||'revision 3 zero-render recording failed'}`);
+        append(owner,{type:'RUNTIME_REVISION_03_RECORDED',runtimeRevisionSha256:recorded.runtimeRevisionSha256,
+          renderCount:recorded.renderCount,acousticRenders:0});
+        preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+        assertReadOnlyStatus(preflight);
+      }
+      const expectedRuntimeRevision4Block='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 4';
+      if(preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&preflight.adaptiveMid.reason===expectedRuntimeRevision4Block){
+        const record=runners.adaptiveMid?.recordRuntimeRevision4;
+        if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: approved revision 4 recorder is unavailable');
+        const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+        if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_04_RECORDED'||recorded.builds!==0
+          ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==2371)
+          throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'}: ${recorded.reason||'revision 4 zero-render recording failed'}`);
+        append(owner,{type:'RUNTIME_REVISION_04_RECORDED',runtimeRevisionSha256:recorded.runtimeRevisionSha256,
+          renderCount:recorded.renderCount,acousticRenders:0});
+        preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+        assertReadOnlyStatus(preflight);
+      }
+      const expectedRuntimeRevision5Block='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 5';
+      if(preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&preflight.adaptiveMid.reason===expectedRuntimeRevision5Block){
+        const record=runners.adaptiveMid?.recordRuntimeRevision5;
+        if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: approved revision 5 recorder is unavailable');
+        const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+        if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_05_RECORDED'||recorded.builds!==0
+          ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==2371)
+          throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'}: ${recorded.reason||'revision 5 zero-render recording failed'}`);
+        ensureRunAllRuntimeRevisionEvent({roots,owner,append,event:{type:'RUNTIME_REVISION_05_RECORDED',
+          runtimeRevisionSha256:recorded.runtimeRevisionSha256,renderCount:2371,acousticRenders:0}});
+        preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+        assertReadOnlyStatus(preflight);
+      }
+      const expectedRuntimeRevision6Blocks=new Set([
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 6',
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 6 acceptance journal entry is missing or mismatched'
+      ]);
+      const revision6Pending=preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&expectedRuntimeRevision6Blocks.has(preflight.adaptiveMid.reason);
+      const activeRuntimeRevision=preflight.adaptiveMid?.runtimeRevisionNumber;
+      if(revision6Pending||activeRuntimeRevision===5||activeRuntimeRevision===6){
+        const record=runners.adaptiveMid?.recordRuntimeRevision6;
+        if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: approved revision 6 recorder is unavailable');
+        const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+        const cumulative=readRenderCount(root,home,epoch,roots.commonDirectory);
+        if(cumulative.total!==2371||cumulative.phases.find(item=>item.stage==='stage3')?.count!==0
+          ||cumulative.phases.find(item=>item.stage==='stage4')?.count!==0)
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: completed 2,371-cell checkpoint or zero downstream counts differ');
+        const expectedR5Sha=recorded.previousRuntimeRevisionSha256;
+        if(!/^[a-f0-9]{64}$/.test(expectedR5Sha||''))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 6 recorder did not return the verified R5 SHA');
+        if(recorded.decision==='ADAPTIVE_MID_RUNTIME_REVISION_06_RECORDED'){
+          if(recorded.builds!==0||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
+            ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||'')||recorded.previousRuntimeRevisionSha256!==expectedR5Sha)
+            throw new Error(`${recorded.decision}: revision 6 recorder did not preserve the exact zero-render R5 checkpoint`);
+          ensureRunAllRuntimeRevisionEvents({roots,owner,append,events:[
+            {type:'RUNTIME_REVISION_05_RECORDED',runtimeRevisionSha256:expectedR5Sha,renderCount:2371,acousticRenders:0},
+            {type:'RUNTIME_REVISION_06_RECORDED',runtimeRevisionSha256:recorded.runtimeRevisionSha256,
+              previousRuntimeRevisionSha256:expectedR5Sha,renderCount:2371,acousticRenders:0}
+          ]});
+        }else if(recorded.decision==='ADAPTIVE_MID_RUNTIME_REVISION_06_NOT_REQUIRED'&&activeRuntimeRevision===5&&!revision6Pending){
+          if(recorded.builds!==0||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136)
+            throw new Error(`${recorded.decision}: revision 5 zero-render confirmation differs`);
+          ensureRunAllRuntimeRevisionEvent({roots,owner,append,event:{type:'RUNTIME_REVISION_05_RECORDED',
+            runtimeRevisionSha256:expectedR5Sha,renderCount:2371,acousticRenders:0}});
+        }else throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'}: ${recorded.reason||'revision 6 was not accepted'}`);
+        preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+        assertReadOnlyStatus(preflight);
+      }
+      const expectedRuntimeRevision7Blocks=new Set([
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 7',
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 acceptance journal entry is missing or mismatched'
+      ]);
+      const revision7Pending=preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&expectedRuntimeRevision7Blocks.has(preflight.adaptiveMid.reason);
+      if(revision7Pending||preflight.adaptiveMid?.runtimeRevisionNumber===7){
+        const record=runners.adaptiveMid?.recordRuntimeRevision7;
+        if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: approved revision 7 recorder is unavailable');
+        const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+        const cumulative=readRenderCount(root,home,epoch,roots.commonDirectory);
+        if(cumulative.total!==2371||cumulative.phases.find(item=>item.stage==='stage3')?.count!==0
+          ||cumulative.phases.find(item=>item.stage==='stage4')?.count!==0)
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: completed 2,371-cell checkpoint or zero downstream counts differ');
+        const previousRuntimeRevisionSha256=recorded.previousRuntimeRevisionSha256;
+        if(!/^[a-f0-9]{64}$/.test(previousRuntimeRevisionSha256||''))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 7 recorder did not return the verified R6 SHA');
+        if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_07_RECORDED'||recorded.builds!==0
+          ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
+          ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||''))
+          throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'}: ${recorded.reason||'revision 7 zero-render recording failed'}`);
+        ensureRunAllRuntimeRevisionEvent({roots,owner,append,event:{type:'RUNTIME_REVISION_07_RECORDED',
+          runtimeRevisionSha256:recorded.runtimeRevisionSha256,previousRuntimeRevisionSha256,
+          renderCount:2371,acousticRenders:0}});
+        preflight=statusReadOnly({root,home,epoch,runners,readPhase});
+        assertReadOnlyStatus(preflight);
+        const gate=runFinalGate({root,home,epoch,runners,readPhase,commonDirectory:roots.commonDirectory,
+          statusReadOnly,dryRunReadOnly,verifyReadOnly});
+        if(gate.decision!=='ISSUE7_READ_ONLY_FINAL_GATE_PASS')
+          throw new Error(`BLOCKED_ISSUE7_R7_READ_ONLY_GATE: ${gate.decision||'read-only verification failed'}`);
+      }
+      const expectedRuntimeRevision8Blocks=new Set([
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 8',
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 8 acceptance journal entry is missing or mismatched'
+      ]);
+      const revision8Pending=preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&expectedRuntimeRevision8Blocks.has(preflight.adaptiveMid.reason);
+      const selectedResponse=preflight.stage3e?.decision==='STAGE3E_SELECTED_RESPONSE';
+      const activeRuntimeRevision8=selectedResponse&&preflight.adaptiveMid?.decision==='ADAPTIVE_MID_DRY_RUN_READY'
+        &&preflight.adaptiveMid?.runtimeRevisionNumber===8;
+      if(revision8Pending||activeRuntimeRevision8){
+        const initialR8=revision8Pending&&preflight.adaptiveMid.reason==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 8';
+        const before=readRenderCount(root,home,epoch,roots.commonDirectory);
+        if(initialR8&&(before.total!==2371||before.phases.find(item=>item.stage==='stage3')?.count!==0
+          ||before.phases.find(item=>item.stage==='stage4')?.count!==0))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: initial R8 creation requires the 2,371-cell checkpoint and zero downstream cells');
+        let revision8Sha=preflight.adaptiveMid.runtimeRevisionSha256,previousRuntimeRevisionSha256=adaptiveMid.RUNTIME_REVISION_07_SHA256;
+        if(revision8Pending){
+          const record=runners.adaptiveMid?.recordRuntimeRevision8;
+          if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: approved revision 8 recorder is unavailable');
+          const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+          const after=readRenderCount(root,home,epoch,roots.commonDirectory);
+          if(!core.same(after,before))throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: recovery changed downstream render counters');
+          if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_08_RECORDED'||recorded.builds!==0
+            ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
+            ||recorded.previousRuntimeRevisionSha256!==previousRuntimeRevisionSha256
+            ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||'')
+            ||(initialR8&&recorded.writes!==3)||(!initialR8&&recorded.writes!==1))
+            throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08'}: ${recorded.reason||'revision 8 creation or exact event recovery failed'}`);
+          revision8Sha=recorded.runtimeRevisionSha256;
+        }
+        if(!/^[a-f0-9]{64}$/.test(revision8Sha||''))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_08: accepted runtime revision 8 SHA is missing');
+        ensureRunAllRuntimeRevisionEvent({roots,owner,append,event:{type:'RUNTIME_REVISION_08_RECORDED',
+          runtimeRevisionSha256:revision8Sha,previousRuntimeRevisionSha256,renderCount:2371,acousticRenders:0}});
+        if(revision8Pending){preflight=statusReadOnly({root,home,epoch,runners,readPhase});assertReadOnlyStatus(preflight);}
+        if(initialR8){
+        const gate=runFinalGate({root,home,epoch,runners,readPhase,commonDirectory:roots.commonDirectory,
+          statusReadOnly,dryRunReadOnly,verifyReadOnly});
+        if(gate.decision!=='ISSUE7_READ_ONLY_FINAL_GATE_PASS')
+          throw new Error(`BLOCKED_ISSUE7_R8_READ_ONLY_GATE: ${gate.decision||'read-only verification failed'}`);
+        if(preflight.adaptiveMid?.decision!=='ADAPTIVE_MID_DRY_RUN_READY'||preflight.adaptiveMid?.runtimeRevisionNumber!==8
+          ||preflight.stage3?.decision!=='STAGE3_DRY_RUN_READY')
+          throw new Error(`BLOCKED_ISSUE7_R8_STAGE3_PREFLIGHT: ${preflight.adaptiveMid?.decision||'adaptive not ready'} / ${preflight.stage3?.decision||'Stage3 not ready'}`);
+        const stage3Final=getStageFinal({root,home,epoch,stage:'stage3',phase:'stage3'});
+        if(!stage3Final){
+          if(preflight.stage4?.decision!=='BLOCKED_STAGE4_STAGE3_REQUIRED'
+            ||gate.observed?.dryRun?.decision!=='BLOCKED_ISSUE7_CURRENT_BUILD_DRY_RUN'
+            ||gate.observed?.dryRun?.stage3?.decision!=='STAGE3_DRY_RUN_READY'
+            ||gate.observed?.dryRun?.stage4?.decision!=='BLOCKED_STAGE4_STAGE3_REQUIRED'
+            ||gate.observed?.dryRun?.stage3e?.decision?.startsWith('BLOCKED_')
+            ||gate.observed?.dryRun?.adaptiveMid?.decision?.startsWith('BLOCKED_'))
+            throw new Error('BLOCKED_ISSUE7_R8_STAGE3_PREFLIGHT: expected only the Stage4-awaiting-Stage3 dry-run blocker');
+        }
+        }
+      }
+      const expectedRuntimeRevision9Blocks=new Set([
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 9',
+        'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: revision 9 acceptance journal entry is missing or mismatched'
+      ]);
+      const revision9Pending=preflight.adaptiveMid?.decision==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION'
+        &&expectedRuntimeRevision9Blocks.has(preflight.adaptiveMid.reason);
+      const activeRuntimeRevision9=selectedResponse&&preflight.adaptiveMid?.decision==='ADAPTIVE_MID_DRY_RUN_READY'
+        &&preflight.adaptiveMid?.runtimeRevisionNumber===9;
+      if(revision9Pending||activeRuntimeRevision9){
+        const initialR9=revision9Pending&&preflight.adaptiveMid.reason==='BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: committed source drift has no recorded runtime revision 9';
+        const before=readRenderCount(root,home,epoch,roots.commonDirectory);
+        if(initialR9&&(before.total!==2371||before.phases.find(item=>item.stage==='stage3')?.count!==0
+          ||before.phases.find(item=>item.stage==='stage4')?.count!==0))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_09: initial R9 creation requires the 2,371-cell checkpoint and zero downstream cells');
+        let revision9Sha=preflight.adaptiveMid.runtimeRevisionSha256,previousRuntimeRevisionSha256='e247ef01385996ecd6fee220cbf44b95bc31c9f0c1319d64222c81e60e9b7404';
+        if(revision9Pending){
+          const record=runners.adaptiveMid?.recordRuntimeRevision9;
+          if(typeof record!=='function')throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_09: approved revision 9 recorder is unavailable');
+          const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+          const after=readRenderCount(root,home,epoch,roots.commonDirectory);
+          if(!core.same(after,before))throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_09: recovery changed downstream render counters');
+          if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_09_RECORDED'||recorded.builds!==0
+            ||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
+            ||recorded.previousRuntimeRevisionSha256!==previousRuntimeRevisionSha256
+            ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||'')
+            ||(initialR9&&recorded.writes!==3)||(!initialR9&&recorded.writes!==1))
+            throw new Error(`${recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_09'}: ${recorded.reason||'revision 9 creation or exact event recovery failed'}`);
+          revision9Sha=recorded.runtimeRevisionSha256;
+        }
+        if(!/^[a-f0-9]{64}$/.test(revision9Sha||''))
+          throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION_09: accepted runtime revision 9 SHA is missing');
+        ensureRunAllRuntimeRevisionEvent({roots,owner,append,event:{type:'RUNTIME_REVISION_09_RECORDED',
+          runtimeRevisionSha256:revision9Sha,previousRuntimeRevisionSha256,renderCount:2371,acousticRenders:0}});
+        if(revision9Pending){preflight=statusReadOnly({root,home,epoch,runners,readPhase});assertReadOnlyStatus(preflight);}
+        if(initialR9){
+          const gate=runFinalGate({root,home,epoch,runners,readPhase,commonDirectory:roots.commonDirectory,
+            statusReadOnly,dryRunReadOnly,verifyReadOnly});
+          if(gate.decision!=='ISSUE7_READ_ONLY_FINAL_GATE_PASS')
+            throw new Error(`BLOCKED_ISSUE7_R9_READ_ONLY_GATE: ${gate.decision||'read-only verification failed'}`);
+          if(preflight.adaptiveMid?.decision!=='ADAPTIVE_MID_DRY_RUN_READY'||preflight.adaptiveMid?.runtimeRevisionNumber!==9
+            ||preflight.stage3?.decision!=='STAGE3_DRY_RUN_READY')
+            throw new Error(`BLOCKED_ISSUE7_R9_STAGE3_PREFLIGHT: ${preflight.adaptiveMid?.decision||'adaptive not ready'} / ${preflight.stage3?.decision||'Stage3 not ready'}`);
+          const stage3Final=getStageFinal({root,home,epoch,stage:'stage3',phase:'stage3'});
+          if(!stage3Final&&(preflight.stage4?.decision!=='BLOCKED_STAGE4_STAGE3_REQUIRED'
+            ||gate.observed?.dryRun?.decision!=='BLOCKED_ISSUE7_CURRENT_BUILD_DRY_RUN'
+            ||gate.observed?.dryRun?.stage3?.decision!=='STAGE3_DRY_RUN_READY'
+            ||gate.observed?.dryRun?.stage4?.decision!=='BLOCKED_STAGE4_STAGE3_REQUIRED'
+            ||gate.observed?.dryRun?.stage3e?.decision?.startsWith('BLOCKED_')
+            ||gate.observed?.dryRun?.adaptiveMid?.decision?.startsWith('BLOCKED_')))
+            throw new Error('BLOCKED_ISSUE7_R9_STAGE3_PREFLIGHT: expected only the Stage4-awaiting-Stage3 dry-run blocker');
+        }
+      }
+      if(preflight.stage3e?.decision==='STAGE3E_SELECTED_RESPONSE'
+        &&(preflight.adaptiveMid?.decision!=='ADAPTIVE_MID_DRY_RUN_READY'||![8,9].includes(preflight.adaptiveMid.runtimeRevisionNumber)))
+        throw new Error('BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION: accepted runtime revision 8 or 9 is required before Stage3 promotion or acoustic work');
+      const verified=verifyReadOnly({root,home,epoch,runners});
+      if(verified.decision.startsWith('BLOCKED_'))throw new Error(`BLOCKED_ISSUE7_PREFLIGHT_VERIFY: ${verified.decision}`);
+      const progress=preflight.stage3e;
+      if(progress.decision.startsWith('BLOCKED_'))throw new Error(`${progress.decision}: ${progress.reason||progress.phase||'preflight stopped'}`);
+      spend=readRenderCount(root,home,epoch,roots.commonDirectory);
+      append(owner,{type:'PREFLIGHT_PASSED',verifyDecision:verified.decision,renderCount:spend.total,renderBudget:TOTAL_RENDER_BUDGET});
+      let steps=0;
+      while(steps<PHASE_FLOW.length+4){
+        steps+=1;
+        const current=stage3eProgress({root,home,epoch,readPhase,adaptiveRunner:runners.adaptiveMid||adaptiveMid});
+        if(current.decision.startsWith('BLOCKED_'))throw new Error(`${current.decision}: ${current.reason||current.phase||'phase gate failed'}`);
+        if(current.decision==='NEXT_PHASE_READY'&&current.stage==='stage3e'){
+          const item=stage3eNextMode(current);
+          if(!item)throw new Error(`BLOCKED_ISSUE7_PHASE_TRANSITION: no phase mapping for ${current.phase}`);
+          const before=readRenderCount(root,home,epoch,roots.commonDirectory);
+          if(before.total>TOTAL_RENDER_BUDGET||before.phases.find(entry=>entry.phase===item.phase)?.count>STAGE3E_BUDGETS[item.phase])
+            throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: Stage3E phase budget exhausted');
+          const preLowFullPlan=item.phase==='low-full'?preMidSearchLowFullPlan({root,home,epoch,runners,readPhase}):null;
+          if(preLowFullPlan)append(owner,{type:'PRE_LOW_FULL_MIDI51_GATE_DEFERRED',stage:'stage3e',phase:'low-full',
+            reason:'MID_REGISTER_SEARCH_FOLLOWS_LOW_FULL',candidateCount:preLowFullPlan.tuples.length,
+            candidates:preLowFullPlan.tuples,initialMidi51ErrorDb:preLowFullPlan.initialErrorDb});
+          const result=dispatchNext({root,home,epoch,runners,readPhase,runAllOwner:owner,preLowFullPlan});
+          const after=readRenderCount(root,home,epoch,roots.commonDirectory),phaseSpend=after.phases.find(entry=>entry.phase===item.phase)?.count||0;
+          append(owner,{type:'PHASE_FINISHED',stage:'stage3e',phase:item.phase,decision:resultDecision(result),
+            acousticRenders:after.total-before.total,renderCount:phaseSpend});
+          if(!phaseDecisionValid(item,result))throw new Error(`${resultDecision(result)}: ${result.reason||item.phase}`);
+          if(after.total>TOTAL_RENDER_BUDGET||after.total<before.total)throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: cumulative render accounting is invalid');
+          continue;
+        }
+        if(current.decision!=='STAGE3E_SELECTED_RESPONSE')throw new Error(`BLOCKED_ISSUE7_PHASE_TRANSITION: unexpected Stage3E state ${current.decision}`);
+        const stage3Final=getStageFinal({root,home,epoch,stage:'stage3',phase:'stage3'});
+        if(stage3Final?.decision==='BLOCKED_EVIDENCE_READBACK')throw new Error(`BLOCKED_STAGE3_EVIDENCE_READBACK: ${stage3Final.reason}`);
+        if(!stage3Final){
+          const promotion=promoteSelection({root,home,epoch,runAllOwner:owner,now});
+          append(owner,{type:'PROMOTION_FINISHED',decision:resultDecision(promotion),promotionCommit:promotion.promotionCommit||null,
+            productionWasmSha256:promotion.productionWasmSha256||null,regressionResultsSha256:promotion.regressionResultsSha256||null});
+          if(resultDecision(promotion)!=='STAGE3_PROMOTION_READY')throw new Error(`${resultDecision(promotion)}: ${promotion.reason||'production promotion failed'}`);
+          const stage3Dry=runners.stage3.run({mode:'dry-run',root,home,epoch,runAllOwner:owner});
+          if(stage3Dry.decision!=='STAGE3_DRY_RUN_READY')throw new Error(`${stage3Dry.decision}: Stage3 promotion preflight failed`);
+          const before=readRenderCount(root,home,epoch,roots.commonDirectory);
+          if(before.total+486>TOTAL_RENDER_BUDGET)throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: Stage3 would exceed cumulative render budget');
+          const result=runners.stage3.run({mode:'execute',root,home,epoch,runAllOwner:owner});
+          const after=readRenderCount(root,home,epoch,roots.commonDirectory);
+          append(owner,{type:'PHASE_FINISHED',stage:'stage3',phase:'stage3',decision:resultDecision(result),
+            acousticRenders:after.total-before.total,renderCount:after.phases.find(entry=>entry.stage==='stage3')?.count||0});
+          if(resultDecision(result)!=='STAGE3_READY_FOR_STAGE4')throw new Error(`${resultDecision(result)}: Stage3 acceptance failed`);
+          continue;
+        }
+        if(stage3Final.result?.decision!=='STAGE3_READY_FOR_STAGE4')throw new Error(`${stage3Final.result?.decision||'BLOCKED_STAGE3_RESULT'}: Stage3 did not pass`);
+        const stage4Final=getStageFinal({root,home,epoch,stage:'stage4',phase:'stage4'});
+        if(stage4Final?.decision==='BLOCKED_EVIDENCE_READBACK')throw new Error(`BLOCKED_STAGE4_EVIDENCE_READBACK: ${stage4Final.reason}`);
+        if(!stage4Final){
+          const stage4Dry=runners.stage4.run({mode:'dry-run',root,home,epoch,runAllOwner:owner});
+          if(stage4Dry.decision!=='STAGE4_DRY_RUN_READY')throw new Error(`${stage4Dry.decision}: Stage4 promotion preflight failed`);
+          const before=readRenderCount(root,home,epoch,roots.commonDirectory);
+          if(before.total+1423>TOTAL_RENDER_BUDGET)throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: Stage4 would exceed cumulative render budget');
+          const result=runners.stage4.run({mode:'execute',root,home,epoch,runAllOwner:owner});
+          const after=readRenderCount(root,home,epoch,roots.commonDirectory);
+          append(owner,{type:'PHASE_FINISHED',stage:'stage4',phase:'stage4',decision:resultDecision(result),
+            acousticRenders:after.total-before.total,renderCount:after.phases.find(entry=>entry.stage==='stage4')?.count||0});
+          if(resultDecision(result)!=='STAGE4_FULL_RANGE_COMPLETE')throw new Error(`${resultDecision(result)}: Stage4 acceptance failed`);
+          continue;
+        }
+        if(stage4Final.result?.decision!=='STAGE4_FULL_RANGE_COMPLETE')throw new Error(`${stage4Final.result?.decision||'BLOCKED_STAGE4_RESULT'}: Stage4 acceptance failed`);
+        const finalSuite=runSuite({root,home,epoch,runners,now});
+        append(owner,{type:'FULL_SUITE_FINISHED',decision:resultDecision(finalSuite),failed:finalSuite.failed||null,
+          checks:(finalSuite.results||[]).map(item=>({name:item.name,result:item.result,exitCode:item.exitCode}))});
+        if(resultDecision(finalSuite)!=='ISSUE7_FULL_SUITE_PASS')throw new Error(`${resultDecision(finalSuite)}: ${finalSuite.failed||'full verification failed'}`);
+        const finalGate=runFinalGate({root,home,epoch,runners,readPhase,commonDirectory:roots.commonDirectory,
+          verifyReadOnly,statusReadOnly,dryRunReadOnly});
+        const finalSpend=readRenderCount(root,home,epoch,roots.commonDirectory);
+        if(finalSpend.total>TOTAL_RENDER_BUDGET)throw new Error('BLOCKED_ISSUE7_RENDER_BUDGET: final cumulative render count exceeds cap');
+        const report=buildReport({root,home,epoch,roots,spend:finalSpend,runAcousticRenders:finalSpend.total-startRenderCount,
+          fullSuite:finalSuite,readOnlyGate:finalGate,now});
+        if(report.decision!=='ISSUE7_READY_FOR_REVIEW')throw new Error(`BLOCKED_ISSUE7_FINAL_REPORT: ${report.decision||'wrong final decision'}`);
+        const reportRelative=`run-all/reports/${owner.ownerId}.json`;
+        const reportStored=core.writeImmutableDual(roots,reportRelative,core.canonicalBytes(report));
+        append(owner,{type:'RUN_FINISHED',decision:report.decision,reportRelative,reportSha256:reportStored.sha256,acousticRenders:report.acousticRenders});
+        return {...report,reportSha256:reportStored.sha256,journalSha256:core.readDualJournal(roots,RUN_ALL_JOURNAL).sha256};
+      }
+      throw new Error('BLOCKED_ISSUE7_PHASE_TRANSITION: run-all exceeded its bounded transition count');
+    }catch(error){
+      const decision=/^BLOCKED_[A-Z0-9_]+/.exec(error.message)?.[0]||'BLOCKED_ISSUE7_RUN_ALL';
+      let total=startRenderCount;try{total=readRenderCount(root,home,epoch,roots.commonDirectory).total;}catch{}
+      try{append(owner,{type:'RUN_STOPPED',decision,reason:error.message,cumulativeRenderCount:total,
+        runAcousticRenders:Math.max(0,total-startRenderCount)});}catch{}
+      return {decision,reason:error.message,acousticRenders:Math.max(0,total-startRenderCount),cumulativeRenderCount:total,
+        renderBudget:TOTAL_RENDER_BUDGET,journalSha256:(()=>{try{return core.readDualJournal(roots,RUN_ALL_JOURNAL).sha256;}catch{return null;}})()};
+    }
+  });
+}
+function recordRuntimeRevision6Only({root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners={stage3e,adaptiveMid,stage3,stage4},
+  readPhase=stage3e.loadFinalMaybe,now=()=>new Date().toISOString(),commonDirectory,readRenderCount=phaseRenderCount,
+  statusReadOnly=status,dryRunReadOnly=dryRun,verifyReadOnly=verify,runFinalGate=runReadOnlyFinalGate}={}){
+  const roots=core.resolveRoots(root,'stage3e',epoch,{home,commonDirectory});
+  return core.withRunAllLock({commonDirectory:roots.commonDirectory,now},owner=>{
+    const before=readRenderCount(root,home,epoch,roots.commonDirectory);
+    if(before.total!==2371||before.phases.find(item=>item.stage==='stage3')?.count!==0
+      ||before.phases.find(item=>item.stage==='stage4')?.count!==0)
+      return {decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',reason:'completed 2,371-cell checkpoint or zero downstream counts differ',
+        cumulativeRenderCount:before.total,builds:0,renders:0,acousticRenders:0};
+    const record=runners.adaptiveMid?.recordRuntimeRevision6;
+    if(typeof record!=='function')return {decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
+      reason:'approved revision 6 recorder is unavailable',cumulativeRenderCount:before.total,builds:0,renders:0,acousticRenders:0};
+    const recorded=record({root,home,epoch,commonDirectory:roots.commonDirectory,runAllOwner:owner,now});
+    const r5Sha=recorded.previousRuntimeRevisionSha256;
+    if(!/^[a-f0-9]{64}$/.test(r5Sha||''))
+      return {decision:recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',reason:'verified R5 SHA is unavailable',
+        recorded,cumulativeRenderCount:before.total,builds:0,renders:0,acousticRenders:0};
+    if(recorded.decision==='ADAPTIVE_MID_RUNTIME_REVISION_06_RECORDED'){
+      if(recorded.builds!==0||recorded.renders!==0||recorded.acousticRenders!==0||recorded.renderCount!==136
+        ||!/^[a-f0-9]{64}$/.test(recorded.runtimeRevisionSha256||'')||recorded.previousRuntimeRevisionSha256!==r5Sha)
+        return {decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',reason:'revision 6 recorder did not preserve the exact zero-render R5 checkpoint',
+          recorded,cumulativeRenderCount:before.total,builds:0,renders:0,acousticRenders:0};
+      ensureRunAllRuntimeRevisionEvents({roots,owner,append:(lock,event)=>recordRunAllEvent(roots,lock,event,now),events:[
+        {type:'RUNTIME_REVISION_05_RECORDED',runtimeRevisionSha256:r5Sha,renderCount:2371,acousticRenders:0},
+        {type:'RUNTIME_REVISION_06_RECORDED',runtimeRevisionSha256:recorded.runtimeRevisionSha256,
+          previousRuntimeRevisionSha256:r5Sha,renderCount:2371,acousticRenders:0}
+      ]});
+    }else if(recorded.decision!=='ADAPTIVE_MID_RUNTIME_REVISION_06_NOT_REQUIRED')
+      return {decision:recorded.decision||'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',reason:recorded.reason||'revision 6 recording failed',
+        recorded,cumulativeRenderCount:before.total,builds:0,renders:0,acousticRenders:0};
+    else ensureRunAllRuntimeRevisionEvent({roots,owner,append:(lock,event)=>recordRunAllEvent(roots,lock,event,now),
+      event:{type:'RUNTIME_REVISION_05_RECORDED',runtimeRevisionSha256:r5Sha,renderCount:2371,acousticRenders:0}});
+    const after=readRenderCount(root,home,epoch,roots.commonDirectory);
+    if(!core.same(before,after))return {decision:'BLOCKED_ADAPTIVE_MID_RUNTIME_REVISION',
+      reason:'runtime revision recording changed completed acoustic cell accounting',recorded,
+      cumulativeRenderCount:after.total,builds:0,renders:0,acousticRenders:0};
+    const readOnlyGate=runFinalGate({root,home,epoch,runners,readPhase,commonDirectory:roots.commonDirectory,
+      statusReadOnly,dryRunReadOnly,verifyReadOnly});
+    if(readOnlyGate.decision!=='ISSUE7_READ_ONLY_FINAL_GATE_PASS')return {decision:'BLOCKED_ISSUE7_FINAL_VERIFY',
+      recorded,readOnlyGate,cumulativeRenderCount:after.total,builds:0,renders:0,acousticRenders:0};
+    return {decision:recorded.decision==='ADAPTIVE_MID_RUNTIME_REVISION_06_RECORDED'
+      ?'ISSUE7_RUNTIME_REVISION_06_RECORDED':'ISSUE7_RUNTIME_REVISION_06_NOT_REQUIRED',recorded,readOnlyGate,
+      cumulativeRenderCount:after.total,builds:0,renders:0,acousticRenders:0};
+  });
+}
+function run({mode,root=ROOT,home=os.homedir(),epoch=core.EPOCH,runners}={}){
+  if(mode==='status')return status({root,home,epoch,runners});
+  if(mode==='dry-run')return dryRun({root,home,epoch,runners});
+  if(mode==='next')return next({root,home,epoch,runners});
+  if(mode==='run-all')return runAll({root,home,epoch,runners});
+  if(mode==='verify')return verify({root,home,epoch,runners});
+  throw new Error('explicit mode required: status, dry-run, or next');
+}
+function parseMode(argv){
+  if(argv.length!==1)throw new Error('select exactly one mode: --status, --dry-run, --verify, --next, or --run-all');
+  const values={'--status':'status','--dry-run':'dry-run','--verify':'verify','--next':'next','--run-all':'run-all'};
+  if(!values[argv[0]])throw new Error(`unsupported mode: ${argv[0]}`);
+  return values[argv[0]];
+}
+function main(argv=process.argv.slice(2)){
+  const result=run({mode:parseMode(argv)});process.stdout.write(JSON.stringify(result)+'\n');
+  if(/^BLOCKED_/.test(result.decision||''))process.exitCode=2;
+  return result;
+}
+if(require.main===module){try{main();}catch(error){process.stderr.write(`${error.message}\n`);process.exitCode=/^BLOCKED_/.test(error.message)?2:1;}}
+
+module.exports={ROOT,PHASE_FLOW,STAGE3E_BUDGETS,TOTAL_RENDER_BUDGET,RUN_ALL_JOURNAL,readFinal,stage3eProgress,lockStatus,
+  runAllLockStatus,status,finalizedStage,dryRun,verify,stage3eNextMode,dispatchNext,next,phaseRenderCount,runVerificationSuite,
+  preMidSearchLowFullPlan,runPreMidSearchLowFull,snapshotEvidence,runReadOnlyFinalGate,buildRunAllReport,runAll,
+  recordRuntimeRevision6Only,run,parseMode,main};

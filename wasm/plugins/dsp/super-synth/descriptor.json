@@ -3,8 +3,8 @@
   "abi_minor": 0,
   "id": "net.puchinya.soraotodsl.super-synth-v8",
   "vendor": "soraotoDSL",
-  "name": "SuperSynth v8",
-  "version": "8.0.0",
+  "name": "SuperSynth v9",
+  "version": "9.0.0",
   "kinds": [
     "instrument"
   ],
@@ -33,8 +33,7 @@
       "id": 0,
       "parent_id": null,
       "name": "Root",
-      "program_list_id": 1,
-      "supports_unit_data": false
+      "program_list_id": 1
     }
   ],
   "audio_buses": [
@@ -5010,7 +5009,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5029,7 +5028,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5048,7 +5047,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5067,7 +5066,7 @@
         "instrument": "Pluck",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5085,7 +5084,7 @@
         "instrument": "Brass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5103,7 +5102,7 @@
         "instrument": "Pluck",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5122,7 +5121,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5141,7 +5140,7 @@
         "instrument": "Pluck",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5160,7 +5159,7 @@
         "instrument": "Guitar",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5179,7 +5178,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5198,7 +5197,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5217,7 +5216,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5236,7 +5235,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5255,7 +5254,7 @@
         "instrument": "Guitar",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5274,7 +5273,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5293,7 +5292,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5312,7 +5311,7 @@
         "instrument": "Motion",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5331,7 +5330,7 @@
         "instrument": "Wind",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5350,7 +5349,7 @@
         "instrument": "Pluck",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5369,7 +5368,7 @@
         "instrument": "Harp",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5388,7 +5387,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5407,7 +5406,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5426,7 +5425,7 @@
         "instrument": "Lead",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5445,7 +5444,7 @@
         "instrument": "Pluck",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5464,7 +5463,7 @@
         "instrument": "Motion",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5483,7 +5482,7 @@
         "instrument": "Lead",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5502,7 +5501,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5521,7 +5520,7 @@
         "instrument": "Keys",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5540,7 +5539,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5559,7 +5558,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5578,7 +5577,7 @@
         "instrument": "Brass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5597,7 +5596,7 @@
         "instrument": "Lead",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5616,7 +5615,7 @@
         "instrument": "Motion",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5635,7 +5634,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5654,7 +5653,7 @@
         "instrument": "Motion",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5673,7 +5672,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5692,7 +5691,7 @@
         "instrument": "Wind",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5712,7 +5711,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5731,7 +5730,7 @@
         "instrument": "Lead",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5750,7 +5749,7 @@
         "instrument": "Bass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5769,7 +5768,7 @@
         "instrument": "Strings",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5788,7 +5787,7 @@
         "instrument": "Lead",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5806,7 +5805,7 @@
         "instrument": "Vocal",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5825,7 +5824,7 @@
         "instrument": "Brass",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     },
@@ -5844,7 +5843,7 @@
         "instrument": "Pad",
         "style": null,
         "character": null,
-        "state_type": "normal_preset",
+        "preset_type": "normal_preset",
         "source_file_name": null
       }
     }
@@ -5854,7 +5853,6 @@
       "id": 1,
       "unit_id": 0,
       "name": "SuperSynth Factory",
-      "supports_program_data": false,
       "mutable_program_names": false,
       "programs": [
         {
@@ -5875,7 +5873,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "1",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5896,7 +5894,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5917,7 +5915,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5938,7 +5936,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5958,7 +5956,7 @@
             "soraoto.recommended_range": "E2-C6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5978,7 +5976,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -5999,7 +5997,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6020,7 +6018,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6041,7 +6039,7 @@
             "soraoto.recommended_range": "E2-E6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6062,7 +6060,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6083,7 +6081,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6104,7 +6102,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6125,7 +6123,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6146,7 +6144,7 @@
             "soraoto.recommended_range": "E2-E6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6167,7 +6165,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6188,7 +6186,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6209,7 +6207,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6230,7 +6228,7 @@
             "soraoto.recommended_range": "C4-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6251,7 +6249,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6272,7 +6270,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6293,7 +6291,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6314,7 +6312,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6335,7 +6333,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "1",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6356,7 +6354,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6377,7 +6375,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6398,7 +6396,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6419,7 +6417,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6440,7 +6438,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6461,7 +6459,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6482,7 +6480,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6503,7 +6501,7 @@
             "soraoto.recommended_range": "E2-C6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6524,7 +6522,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6545,7 +6543,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6566,7 +6564,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6587,7 +6585,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6608,7 +6606,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6629,7 +6627,7 @@
             "soraoto.recommended_range": "C4-C7",
             "soraoto.polyphony": "1",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6650,7 +6648,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6671,7 +6669,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6692,7 +6690,7 @@
             "soraoto.recommended_range": "A0-C8",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6713,7 +6711,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6734,7 +6732,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6755,7 +6753,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6776,7 +6774,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6797,7 +6795,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "high",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6818,7 +6816,7 @@
             "soraoto.recommended_range": "C1-C4",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6839,7 +6837,7 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "high",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6860,7 +6858,7 @@
             "soraoto.recommended_range": "C3-C7",
             "soraoto.polyphony": "1",
             "soraoto.cpu_class": "low",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6880,7 +6878,7 @@
             "soraoto.recommended_range": "C3-C6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6901,7 +6899,7 @@
             "soraoto.recommended_range": "E2-C6",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         },
         {
@@ -6922,17 +6920,12 @@
             "soraoto.recommended_range": "C2-C7",
             "soraoto.polyphony": "32",
             "soraoto.cpu_class": "medium",
-            "soraoto.preset_version": "8.0.0"
+            "soraoto.preset_version": "9.0.0"
           }
         }
       ]
     }
   ],
-  "state": {
-    "schema_id": "net.puchinya.soraotodsl.super-synth-v8.state",
-    "schema_version": 1,
-    "max_snapshot_bytes": 636
-  },
   "prefetch_support": "never",
   "max_event_output_per_block": 0,
   "max_host_requests_per_block": 0,

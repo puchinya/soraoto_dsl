@@ -34,8 +34,7 @@
       "id": 0,
       "parent_id": null,
       "name": "Root",
-      "program_list_id": null,
-      "supports_unit_data": false
+      "program_list_id": null
     }
   ],
   "audio_buses": [
@@ -200,11 +199,6 @@
   "parameter_aliases": [],
   "factory_presets": [],
   "program_lists": [],
-  "state": {
-    "schema_id": "soraoto.sidechain-ducker.state",
-    "schema_version": 1,
-    "max_snapshot_bytes": 20
-  },
   "prefetch_support": "never",
   "prefetch_support_current": null,
   "max_event_output_per_block": 0,
